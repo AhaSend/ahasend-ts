@@ -1,0 +1,18 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.local
+.DS_Store
+.vscode/
+.idea/
+*.tsbuildinfo
+
+# Internal working docs — not for the public repo
+CLAUDE.md
+research.md
+breif.md
+chat.md
+phase-*-report.html
+phase-*-report.pdf
