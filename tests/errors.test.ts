@@ -3,6 +3,9 @@ import {
   AhaSendAPIError,
   AhaSendAuthenticationError,
   AhaSendBadRequestError,
+  AhaSendIdempotencyConflictError,
+  AhaSendIdempotencyMismatchError,
+  AhaSendIdempotencyPreconditionFailedError,
   AhaSendNotFoundError,
   AhaSendPermissionError,
   AhaSendRateLimitError,
@@ -18,9 +21,22 @@ describe("createApiError", () => {
     expect(err.message).toBe("bad");
   });
 
-  it("maps 422 to AhaSendBadRequestError (includes idempotency mismatch)", () => {
+  it("maps 422 to AhaSendIdempotencyMismatchError (extends BadRequest)", () => {
     const err = createApiError({ status: 422, body: { message: "payload mismatch" } });
+    expect(err).toBeInstanceOf(AhaSendIdempotencyMismatchError);
     expect(err).toBeInstanceOf(AhaSendBadRequestError);
+  });
+
+  it("maps 409 to AhaSendIdempotencyConflictError (key in-progress)", () => {
+    const err = createApiError({ status: 409, body: { message: "in progress" } });
+    expect(err).toBeInstanceOf(AhaSendIdempotencyConflictError);
+    expect(err.status).toBe(409);
+  });
+
+  it("maps 412 to AhaSendIdempotencyPreconditionFailedError (original failed)", () => {
+    const err = createApiError({ status: 412, body: { message: "original failed" } });
+    expect(err).toBeInstanceOf(AhaSendIdempotencyPreconditionFailedError);
+    expect(err.status).toBe(412);
   });
 
   it("maps 401 to AhaSendAuthenticationError", () => {

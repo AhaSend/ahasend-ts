@@ -10,6 +10,9 @@ export {
   AhaSendBadRequestError,
   AhaSendConnectionError,
   AhaSendError,
+  AhaSendIdempotencyConflictError,
+  AhaSendIdempotencyMismatchError,
+  AhaSendIdempotencyPreconditionFailedError,
   AhaSendNotFoundError,
   AhaSendPermissionError,
   AhaSendRateLimitError,
@@ -17,6 +20,36 @@ export {
   AhaSendTimeoutError,
 } from "./errors.js";
 export type { ApiErrorBody } from "./errors.js";
+
+export {
+  DEFAULT_IDEMPOTENCY_CONFIG,
+  IDEMPOTENCY_HEADER,
+  IDEMPOTENT_REPLAYED_HEADER,
+  IdempotencyKeyBuilder,
+  generateIdempotencyKey,
+} from "./idempotency.js";
+export type { IdempotencyConfig, ResolvedIdempotencyConfig } from "./idempotency.js";
+
+export {
+  DEFAULT_RETRY_CONFIG,
+  computeBackoffMs,
+  computeRetryDelayMs,
+  isRetryableError,
+} from "./retry.js";
+export type { ResolvedRetryConfig, RetryConfig, RetryStrategy } from "./retry.js";
+
+export {
+  DEFAULT_RATE_LIMIT_CONFIG,
+  RateLimiter,
+  detectCategory,
+} from "./rate-limit.js";
+export type {
+  CategoryRateLimit,
+  EndpointCategory,
+  RateLimitConfig,
+  ResolvedCategoryRateLimit,
+  ResolvedRateLimitConfig,
+} from "./rate-limit.js";
 
 export type {
   Address,
@@ -68,5 +101,66 @@ export type {
   CreateAPIKeyRequest,
   UpdateAPIKeyRequest,
 } from "./resources/api-keys.js";
+
+export { WebhooksClient } from "./resources/webhooks.js";
+export type {
+  CreateWebhookRequest,
+  CreatedWebhook,
+  UpdateWebhookRequest,
+  Webhook,
+  WebhookScope,
+} from "./resources/webhooks.js";
+
+export { StatisticsClient } from "./resources/statistics.js";
+export type {
+  BounceClassificationCount,
+  BounceStatistics,
+  BounceStatisticsResponse,
+  DeliverabilityStatistics,
+  DeliverabilityStatisticsResponse,
+  DeliveryTimeBreakdown,
+  DeliveryTimeStatistics,
+  DeliveryTimeStatisticsResponse,
+  StatisticsGranularity,
+  StatisticsParams,
+} from "./resources/statistics.js";
+
+export { SuppressionsClient } from "./resources/suppressions.js";
+export type {
+  CreateSuppressionRequest,
+  CreateSuppressionResponse,
+  Suppression,
+} from "./resources/suppressions.js";
+
+export { RoutesClient } from "./resources/routes.js";
+export type {
+  CreateRouteRequest,
+  CreatedRoute,
+  ListRoutesParams,
+  Route,
+  UpdateRouteRequest,
+} from "./resources/routes.js";
+
+export { AccountsClient } from "./resources/accounts.js";
+export type {
+  Account,
+  AccountMemberRole,
+  AddAccountMemberRequest,
+  ListAccountMembersResponse,
+  ListMembersParams,
+  UpdateAccountMemberRequest,
+  UpdateAccountRequest,
+  UserAccount,
+} from "./resources/accounts.js";
+
+export { SMTPCredentialsClient } from "./resources/smtp-credentials.js";
+export type {
+  CreateSMTPCredentialRequest,
+  CreatedSMTPCredential,
+  SMTPCredential,
+  SMTPCredentialScope,
+} from "./resources/smtp-credentials.js";
+
+export type { IdempotencyRequestOptions } from "./resources/_helpers.js";
 
 export { SDK_VERSION } from "./version.js";

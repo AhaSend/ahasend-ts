@@ -1,3 +1,9 @@
+import type { IdempotencyConfig, ResolvedIdempotencyConfig } from "./idempotency.js";
+import { resolveIdempotencyConfig } from "./idempotency.js";
+import type { RateLimitConfig, ResolvedRateLimitConfig } from "./rate-limit.js";
+import { resolveRateLimitConfig } from "./rate-limit.js";
+import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
+import { resolveRetryConfig } from "./retry.js";
 import { DEFAULT_USER_AGENT } from "./version.js";
 
 export const DEFAULT_BASE_URL = "https://api.ahasend.com";
@@ -11,6 +17,9 @@ export interface ClientOptions {
   debug?: boolean;
   fetch?: typeof fetch;
   defaultHeaders?: Record<string, string>;
+  idempotency?: IdempotencyConfig;
+  retry?: RetryConfig;
+  rateLimit?: RateLimitConfig;
 }
 
 export interface ResolvedConfig {
@@ -21,6 +30,9 @@ export interface ResolvedConfig {
   debug: boolean;
   fetch: typeof fetch;
   defaultHeaders: Record<string, string>;
+  idempotency: ResolvedIdempotencyConfig;
+  retry: ResolvedRetryConfig;
+  rateLimit: ResolvedRateLimitConfig;
 }
 
 export function resolveConfig(options: ClientOptions): ResolvedConfig {
@@ -45,6 +57,9 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
     debug: options.debug ?? false,
     fetch: fetchImpl,
     defaultHeaders: options.defaultHeaders ?? {},
+    idempotency: resolveIdempotencyConfig(options.idempotency),
+    retry: resolveRetryConfig(options.retry),
+    rateLimit: resolveRateLimitConfig(options.rateLimit),
   };
 }
 
@@ -69,6 +84,26 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
   }
 
   if (env.AHASEND_DEBUG !== undefined) options.debug = parseBool(env.AHASEND_DEBUG);
+
+  const idempotency: IdempotencyConfig = {};
+  if (env.AHASEND_IDEMPOTENCY_AUTO_GENERATE !== undefined) {
+    idempotency.autoGenerate = parseBool(env.AHASEND_IDEMPOTENCY_AUTO_GENERATE);
+  }
+  if (env.AHASEND_IDEMPOTENCY_PREFIX) {
+    idempotency.prefix = env.AHASEND_IDEMPOTENCY_PREFIX;
+  }
+  if (Object.keys(idempotency).length > 0) options.idempotency = idempotency;
+
+  const retry: RetryConfig = {};
+  if (env.AHASEND_MAX_RETRIES !== undefined) {
+    const n = Number(env.AHASEND_MAX_RETRIES);
+    if (Number.isFinite(n) && n >= 0) retry.maxRetries = n;
+  }
+  if (Object.keys(retry).length > 0) options.retry = retry;
+
+  if (env.AHASEND_ENABLE_RATE_LIMIT !== undefined) {
+    options.rateLimit = { enabled: parseBool(env.AHASEND_ENABLE_RATE_LIMIT) };
+  }
 
   return options;
 }

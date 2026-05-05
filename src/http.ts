@@ -1,6 +1,9 @@
 import type { ResolvedConfig } from "./config.js";
 import { AhaSendConnectionError, AhaSendTimeoutError, createApiError } from "./errors.js";
 import type { ApiErrorBody } from "./errors.js";
+import { generateIdempotencyKey, IDEMPOTENCY_HEADER } from "./idempotency.js";
+import { RateLimiter } from "./rate-limit.js";
+import { computeRetryDelayMs, isRetryableError, sleep } from "./retry.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -24,11 +27,41 @@ export type QueryValue =
 const REQUEST_ID_HEADER = "x-request-id";
 
 export class HttpClient {
-  constructor(private readonly config: ResolvedConfig) {}
+  public readonly rateLimiter: RateLimiter;
+
+  constructor(private readonly config: ResolvedConfig) {
+    this.rateLimiter = new RateLimiter(config.rateLimit);
+  }
 
   async request<T>(options: RequestOptions): Promise<T> {
+    await this.rateLimiter.acquire(options.method, options.path, options.signal);
+
     const url = this.buildUrl(options.path, options.query);
     const init = this.buildRequestInit(options);
+
+    const retry = this.config.retry;
+    const maxAttempts = retry.enabled ? retry.maxRetries + 1 : 1;
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.executeOnce<T>(url, init, options);
+      } catch (err) {
+        lastError = err;
+        if (attempt === maxAttempts) throw err;
+        if (!isRetryableError(err)) throw err;
+        const delayMs = computeRetryDelayMs(err, attempt, retry);
+        await sleep(delayMs, options.signal);
+      }
+    }
+    throw lastError;
+  }
+
+  private async executeOnce<T>(
+    url: string,
+    init: RequestInit,
+    options: RequestOptions,
+  ): Promise<T> {
     const controller = this.linkAbortSignal(options.signal, this.config.timeout);
 
     let response: Response;
@@ -95,7 +128,22 @@ export class HttpClient {
       init.body = JSON.stringify(options.body);
     }
 
+    if (this.shouldAutoIdempotency(options.method, headers)) {
+      headers[IDEMPOTENCY_HEADER.toLowerCase()] = generateIdempotencyKey(
+        this.config.idempotency.prefix,
+      );
+    }
+
     return init;
+  }
+
+  private shouldAutoIdempotency(
+    method: HttpMethod,
+    headers: Record<string, string>,
+  ): boolean {
+    if (!this.config.idempotency.autoGenerate) return false;
+    if (method !== "POST") return false;
+    return headers[IDEMPOTENCY_HEADER.toLowerCase()] === undefined;
   }
 
   private async parseResponse<T>(response: Response): Promise<T> {

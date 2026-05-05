@@ -36,6 +36,16 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./webhooks": {
+      "import": {
+        "types": "./dist/webhooks/index.d.ts",
+        "default": "./dist/webhooks/index.js"
+      },
+      "require": {
+        "types": "./dist/webhooks/index.d.cts",
+        "default": "./dist/webhooks/index.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

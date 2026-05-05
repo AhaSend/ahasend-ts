@@ -80,6 +80,27 @@ export class AhaSendBadRequestError extends AhaSendAPIError {
   }
 }
 
+export class AhaSendIdempotencyConflictError extends AhaSendAPIError {
+  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+    super(params);
+    this.name = "AhaSendIdempotencyConflictError";
+  }
+}
+
+export class AhaSendIdempotencyPreconditionFailedError extends AhaSendAPIError {
+  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+    super(params);
+    this.name = "AhaSendIdempotencyPreconditionFailedError";
+  }
+}
+
+export class AhaSendIdempotencyMismatchError extends AhaSendBadRequestError {
+  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+    super(params);
+    this.name = "AhaSendIdempotencyMismatchError";
+  }
+}
+
 export class AhaSendRateLimitError extends AhaSendAPIError {
   public readonly retryAfterSeconds: number | undefined;
 
@@ -110,10 +131,13 @@ export function createApiError(params: {
   const message = extractMessage(params.body) ?? `AhaSend API error (HTTP ${params.status})`;
   const base = { ...params, message };
 
-  if (params.status === 400 || params.status === 422) return new AhaSendBadRequestError(base);
+  if (params.status === 400) return new AhaSendBadRequestError(base);
   if (params.status === 401) return new AhaSendAuthenticationError(base);
   if (params.status === 403) return new AhaSendPermissionError(base);
   if (params.status === 404) return new AhaSendNotFoundError(base);
+  if (params.status === 409) return new AhaSendIdempotencyConflictError(base);
+  if (params.status === 412) return new AhaSendIdempotencyPreconditionFailedError(base);
+  if (params.status === 422) return new AhaSendIdempotencyMismatchError(base);
   if (params.status === 429) {
     const retryAfter = parseRetryAfter(params.headers?.["retry-after"]);
     return new AhaSendRateLimitError({ ...base, retryAfterSeconds: retryAfter });

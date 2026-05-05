@@ -16,9 +16,17 @@ function mockFetch(handler: (url: string, init: RequestInit) => Response | Promi
   }) as unknown as FetchImpl;
 }
 
-function makeClient(fetchImpl: FetchImpl): HttpClient {
+function makeClient(
+  fetchImpl: FetchImpl,
+  options: Partial<Parameters<typeof resolveConfig>[0]> = {},
+): HttpClient {
   return new HttpClient(
-    resolveConfig({ apiKey: "aha-sk-test", fetch: fetchImpl, baseUrl: "https://api.test" }),
+    resolveConfig({
+      apiKey: "aha-sk-test",
+      fetch: fetchImpl,
+      baseUrl: "https://api.test",
+      ...options,
+    }),
   );
 }
 
@@ -175,10 +183,218 @@ describe("HttpClient", () => {
       mockFetch(() => {
         throw new TypeError("network fail");
       }),
+      { retry: { enabled: false } },
     );
 
     await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
       AhaSendConnectionError,
     );
+  });
+
+  it("auto-injects an Idempotency-Key on POST when none is provided", async () => {
+    let seenInit: RequestInit | undefined;
+    const client = makeClient(
+      mockFetch((_url, init) => {
+        seenInit = init;
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await client.request({ method: "POST", path: "/x", body: {} });
+
+    const headers = seenInit?.headers as Record<string, string>;
+    expect(headers["idempotency-key"]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
+  it("does NOT auto-inject Idempotency-Key on GET", async () => {
+    let seenInit: RequestInit | undefined;
+    const client = makeClient(
+      mockFetch((_url, init) => {
+        seenInit = init;
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await client.request({ method: "GET", path: "/x" });
+
+    const headers = seenInit?.headers as Record<string, string>;
+    expect(headers["idempotency-key"]).toBeUndefined();
+  });
+
+  it("does NOT overwrite an explicitly provided Idempotency-Key", async () => {
+    let seenInit: RequestInit | undefined;
+    const client = makeClient(
+      mockFetch((_url, init) => {
+        seenInit = init;
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await client.request({
+      method: "POST",
+      path: "/x",
+      body: {},
+      headers: { "Idempotency-Key": "user-supplied-key" },
+    });
+
+    const headers = seenInit?.headers as Record<string, string>;
+    expect(headers["idempotency-key"]).toBe("user-supplied-key");
+  });
+
+  it("does NOT auto-inject when idempotency.autoGenerate is disabled", async () => {
+    let seenInit: RequestInit | undefined;
+    const client = makeClient(
+      mockFetch((_url, init) => {
+        seenInit = init;
+        return new Response("{}", { status: 200 });
+      }),
+      { idempotency: { autoGenerate: false } },
+    );
+
+    await client.request({ method: "POST", path: "/x", body: {} });
+
+    const headers = seenInit?.headers as Record<string, string>;
+    expect(headers["idempotency-key"]).toBeUndefined();
+  });
+
+  it("respects the idempotency.prefix when generating keys", async () => {
+    let seenInit: RequestInit | undefined;
+    const client = makeClient(
+      mockFetch((_url, init) => {
+        seenInit = init;
+        return new Response("{}", { status: 200 });
+      }),
+      { idempotency: { prefix: "myapp" } },
+    );
+
+    await client.request({ method: "POST", path: "/x", body: {} });
+
+    const headers = seenInit?.headers as Record<string, string>;
+    expect(headers["idempotency-key"]).toMatch(
+      /^myapp-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+});
+
+describe("HttpClient retry behaviour", () => {
+  const fastRetry = { baseDelayMs: 1, maxDelayMs: 5, jitter: false };
+
+  it("retries on a 500 then succeeds", async () => {
+    let attempts = 0;
+    const client = makeClient(
+      mockFetch(() => {
+        attempts++;
+        if (attempts === 1) return new Response("server error", { status: 500 });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+      { retry: fastRetry },
+    );
+
+    const result = await client.request<{ ok: boolean }>({ method: "GET", path: "/x" });
+    expect(attempts).toBe(2);
+    expect(result.ok).toBe(true);
+  });
+
+  it("does NOT retry on a 400", async () => {
+    let attempts = 0;
+    const client = makeClient(
+      mockFetch(() => {
+        attempts++;
+        return new Response(JSON.stringify({ message: "bad" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+      { retry: fastRetry },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).rejects.toThrow();
+    expect(attempts).toBe(1);
+  });
+
+  it("does NOT retry on a 401", async () => {
+    let attempts = 0;
+    const client = makeClient(
+      mockFetch(() => {
+        attempts++;
+        return new Response("unauthorized", { status: 401 });
+      }),
+      { retry: fastRetry },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).rejects.toThrow();
+    expect(attempts).toBe(1);
+  });
+
+  it("retries on 429 and honours Retry-After", async () => {
+    let attempts = 0;
+    const client = makeClient(
+      mockFetch(() => {
+        attempts++;
+        if (attempts === 1) {
+          return new Response("rate limit", { status: 429, headers: { "retry-after": "0" } });
+        }
+        return new Response("{}", { status: 200 });
+      }),
+      { retry: fastRetry },
+    );
+
+    await client.request({ method: "GET", path: "/x" });
+    expect(attempts).toBe(2);
+  });
+
+  it("throws the last error after exhausting retries", async () => {
+    let attempts = 0;
+    const client = makeClient(
+      mockFetch(() => {
+        attempts++;
+        return new Response("boom", { status: 500 });
+      }),
+      { retry: { ...fastRetry, maxRetries: 2 } },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).rejects.toThrow();
+    expect(attempts).toBe(3); // initial + 2 retries
+  });
+
+  it("retry disabled → only one attempt", async () => {
+    let attempts = 0;
+    const client = makeClient(
+      mockFetch(() => {
+        attempts++;
+        return new Response("boom", { status: 500 });
+      }),
+      { retry: { enabled: false } },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).rejects.toThrow();
+    expect(attempts).toBe(1);
+  });
+
+  it("CRITICAL: reuses the same Idempotency-Key across retries", async () => {
+    const seenKeys: string[] = [];
+    let attempts = 0;
+    const client = makeClient(
+      mockFetch((_url, init) => {
+        attempts++;
+        const headers = init.headers as Record<string, string>;
+        const key = headers["idempotency-key"];
+        if (key) seenKeys.push(key);
+        if (attempts < 3) return new Response("server error", { status: 503 });
+        return new Response("{}", { status: 200 });
+      }),
+      { retry: { ...fastRetry, maxRetries: 3 } },
+    );
+
+    await client.request({ method: "POST", path: "/x", body: { a: 1 } });
+
+    expect(attempts).toBe(3);
+    expect(seenKeys).toHaveLength(3);
+    expect(new Set(seenKeys).size).toBe(1); // all the same key
   });
 });

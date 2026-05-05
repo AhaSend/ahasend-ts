@@ -6,7 +6,7 @@ describe("resolveConfig", () => {
     expect(() => resolveConfig({ apiKey: "" })).toThrow(/apiKey/);
   });
 
-  it("applies defaults for baseUrl, timeout, and userAgent", () => {
+  it("applies defaults for baseUrl, timeout, userAgent, and idempotency", () => {
     const resolved = resolveConfig({ apiKey: "aha-sk-test" });
     expect(resolved.apiKey).toBe("aha-sk-test");
     expect(resolved.baseUrl).toBe(DEFAULT_BASE_URL);
@@ -14,6 +14,15 @@ describe("resolveConfig", () => {
     expect(resolved.userAgent).toMatch(/^ahasend-node\//);
     expect(resolved.debug).toBe(false);
     expect(typeof resolved.fetch).toBe("function");
+    expect(resolved.idempotency).toEqual({ autoGenerate: true, prefix: "" });
+  });
+
+  it("respects custom idempotency config", () => {
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      idempotency: { autoGenerate: false, prefix: "myapp" },
+    });
+    expect(resolved.idempotency).toEqual({ autoGenerate: false, prefix: "myapp" });
   });
 
   it("strips trailing slashes from baseUrl", () => {
@@ -80,5 +89,30 @@ describe("optionsFromEnv", () => {
       const options = optionsFromEnv({ AHASEND_API_KEY: "aha-sk-test", AHASEND_DEBUG: value });
       expect(options.debug).toBe(false);
     }
+  });
+
+  it("reads AHASEND_IDEMPOTENCY_AUTO_GENERATE", () => {
+    const options = optionsFromEnv({
+      AHASEND_API_KEY: "aha-sk-test",
+      AHASEND_IDEMPOTENCY_AUTO_GENERATE: "false",
+    });
+    expect(options.idempotency).toEqual({ autoGenerate: false });
+  });
+
+  it("reads AHASEND_IDEMPOTENCY_PREFIX", () => {
+    const options = optionsFromEnv({
+      AHASEND_API_KEY: "aha-sk-test",
+      AHASEND_IDEMPOTENCY_PREFIX: "prod",
+    });
+    expect(options.idempotency).toEqual({ prefix: "prod" });
+  });
+
+  it("combines both idempotency env vars", () => {
+    const options = optionsFromEnv({
+      AHASEND_API_KEY: "aha-sk-test",
+      AHASEND_IDEMPOTENCY_AUTO_GENERATE: "true",
+      AHASEND_IDEMPOTENCY_PREFIX: "staging",
+    });
+    expect(options.idempotency).toEqual({ autoGenerate: true, prefix: "staging" });
   });
 });
