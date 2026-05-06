@@ -1,4 +1,5 @@
 import type { HttpClient } from "../http.js";
+import { paginate } from "../pagination.js";
 import type {
   Address,
   ISODateTime,
@@ -198,6 +199,16 @@ export class MessagesClient {
       query: params as Record<string, unknown>,
       ...forward(options),
     });
+  }
+
+  iterate(
+    params: ListMessagesParams = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<Message, void, undefined> {
+    return paginate<Message, ListMessagesParams>(
+      (p) => this.list(p, options),
+      params,
+    );
   }
 
   get(messageId: UUID, options: RequestOptions = {}): Promise<Message> {

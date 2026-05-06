@@ -51,6 +51,18 @@ export type {
   ResolvedRateLimitConfig,
 } from "./rate-limit.js";
 
+export { collect, paginate } from "./pagination.js";
+
+export { composeHooks, debugConsoleHooks } from "./telemetry.js";
+export type {
+  ErrorEvent,
+  RequestEvent,
+  ResolvedTelemetryHooks,
+  ResponseEvent,
+  RetryEvent,
+  TelemetryHooks,
+} from "./telemetry.js";
+
 export type {
   Address,
   ISODateTime,

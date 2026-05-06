@@ -1,4 +1,5 @@
 import type { HttpClient } from "../http.js";
+import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
   PaginatedResponse,
@@ -48,6 +49,16 @@ export class SuppressionsClient {
       query: params as Record<string, unknown>,
       ...forwardOptions(options),
     });
+  }
+
+  iterate(
+    params: PaginationParams = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<Suppression, void, undefined> {
+    return paginate<Suppression, PaginationParams>(
+      (p) => this.list(p, options),
+      params,
+    );
   }
 
   create(

@@ -128,6 +128,79 @@ describe("RateLimiter", () => {
     expect(Date.now() - start).toBeLessThan(50);
   });
 
+  it("recordResponseHeaders reduces tokens to match server-reported remaining", async () => {
+    let now = 1_000_000;
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 100 } }),
+      () => now,
+    );
+    expect(limiter.available("general")).toBe(100);
+
+    limiter.recordResponseHeaders("GET", "/x", { "x-ratelimit-remaining": "5" });
+    expect(limiter.available("general")).toBeLessThanOrEqual(5);
+  });
+
+  it("recordResponseHeaders honours the standardised RateLimit-Remaining header too", () => {
+    let now = 1_000_000;
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 100 } }),
+      () => now,
+    );
+
+    limiter.recordResponseHeaders("GET", "/x", { "ratelimit-remaining": "3" });
+    expect(limiter.available("general")).toBeLessThanOrEqual(3);
+  });
+
+  it("recordResponseHeaders never inflates tokens above the local count", () => {
+    let now = 1_000_000;
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 10 } }),
+      () => now,
+    );
+
+    limiter.recordResponseHeaders("GET", "/x", { "x-ratelimit-remaining": "9999" });
+    expect(limiter.available("general")).toBeLessThanOrEqual(10);
+  });
+
+  it("recordResponseHeaders is a no-op when the response has no rate-limit header", () => {
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 100 } }),
+    );
+    const before = limiter.available("general");
+    limiter.recordResponseHeaders("GET", "/x", { "content-type": "application/json" });
+    expect(limiter.available("general")).toBe(before);
+  });
+
+  it("recordResponseHeaders accepts a Headers instance", () => {
+    let now = 1_000_000;
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 50 } }),
+      () => now,
+    );
+    const headers = new Headers({ "x-ratelimit-remaining": "7" });
+    limiter.recordResponseHeaders("GET", "/x", headers);
+    expect(limiter.available("general")).toBeLessThanOrEqual(7);
+  });
+
+  it("recordResponseHeaders applies to the right category by method+path", () => {
+    let now = 1_000_000;
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        general: { requestsPerSecond: 1, burst: 100 },
+        sendMessage: { requestsPerSecond: 1, burst: 100 },
+      }),
+      () => now,
+    );
+
+    limiter.recordResponseHeaders(
+      "POST",
+      "/v2/accounts/abc/messages",
+      { "x-ratelimit-remaining": "2" },
+    );
+    expect(limiter.available("sendMessage")).toBeLessThanOrEqual(2);
+    expect(limiter.available("general")).toBe(100);
+  });
+
   it("serializes concurrent acquires (no over-spending)", async () => {
     let now = 1_000_000;
     const limiter = new RateLimiter(

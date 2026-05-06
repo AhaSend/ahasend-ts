@@ -1,4 +1,5 @@
 import type { HttpClient } from "../http.js";
+import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
   PaginatedResponse,
@@ -53,6 +54,16 @@ export class APIKeysClient {
       query: params as Record<string, unknown>,
       ...forward(options),
     });
+  }
+
+  iterate(
+    params: PaginationParams = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<APIKey, void, undefined> {
+    return paginate<APIKey, PaginationParams>(
+      (p) => this.list(p, options),
+      params,
+    );
   }
 
   create(body: CreateAPIKeyRequest, options: APIKeyRequestOptions = {}): Promise<APIKey> {

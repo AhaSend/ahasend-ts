@@ -8,6 +8,20 @@ export {
 } from "./verifier.js";
 export type { WebhookVerifierOptions } from "./verifier.js";
 
+export {
+  expressWebhookHandler,
+  fastifyWebhookHandler,
+  nextRouteHandler,
+} from "./adapters.js";
+export type {
+  ExpressHandler,
+  FastifyHandler,
+  FastifyStyleReply,
+  NextHandler,
+  NodeStyleRequest,
+  NodeStyleResponse,
+} from "./adapters.js";
+
 export type {
   DomainDNSErrorEvent,
   DomainEventData,

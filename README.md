@@ -82,16 +82,27 @@ const client = AhaSendClient.fromEnv();
   Honours `Retry-After`. Reuses the same idempotency key across retries
   to prevent duplicate operations. Configurable via `retry` option or
   `AHASEND_MAX_RETRIES` env var.
-- **Rate limiting** — three-category token bucket matching the Go SDK:
-  `sendMessage` (100rps / 200 burst), `statistics` (1rps / 1 burst),
+- **Intelligent rate limiting** — three-category token bucket matching the
+  Go SDK: `sendMessage` (100rps / 200 burst), `statistics` (1rps / 1 burst),
   `general` (100rps / 200 burst). Auto-detected by HTTP method and path.
+  Reads `X-RateLimit-Remaining` (or `RateLimit-Remaining`) on every response
+  and reconciles the bucket to match the server's reported quota.
   Toggleable via `rateLimit.enabled` or `AHASEND_ENABLE_RATE_LIMIT`.
+- **Telemetry hooks** — pluggable `onRequest`, `onResponse`, `onRetry`, and
+  `onError` callbacks for logging, metrics, and tracing. `debug: true`
+  attaches a console-based hookset on top of any user hooks. Hooks that
+  throw never break the request pipeline.
+- **Async pagination iterators** — every paginating resource exposes
+  `iterate(params)` that yields one item at a time and walks all pages
+  automatically: `for await (const msg of client.messages.iterate({ status: "queued" })) { ... }`.
+  A `collect(fetchPage, params, limit?)` helper drains pages into an array.
 
 ### Webhook verification
 
 `@ahasend/sdk/webhooks` is a separate import path that bundles the
-Standard-Webhooks compliant HMAC-SHA256 verifier and typed event parsers
-for all 11 AhaSend event types. It does not pull in the API client.
+Standard-Webhooks compliant HMAC-SHA256 verifier, typed event parsers
+for all 11 AhaSend event types, and ready-made adapters for Express,
+Fastify, and Next.js. It does not pull in the API client.
 
 ```ts
 import { WebhookVerifier } from "@ahasend/sdk/webhooks";
@@ -110,6 +121,26 @@ export async function handler(req, res) {
     res.status(400).end();
   }
 }
+```
+
+#### Framework adapters
+
+```ts
+// Express
+import { expressWebhookHandler } from "@ahasend/sdk/webhooks";
+app.post("/webhooks/ahasend", expressWebhookHandler(verifier, async (event) => {
+  // event is fully typed and discriminated
+}));
+
+// Fastify (route must have rawBody enabled)
+import { fastifyWebhookHandler } from "@ahasend/sdk/webhooks";
+fastify.post("/webhooks/ahasend", fastifyWebhookHandler(verifier, async (event) => {}));
+
+// Next.js (app router)
+import { nextRouteHandler } from "@ahasend/sdk/webhooks";
+export const POST = nextRouteHandler(verifier, async (event) => {
+  return new Response(null, { status: 200 });
+});
 ```
 
 ## Error handling
@@ -213,13 +244,19 @@ node examples/send-sandbox.mjs       # sandbox send (no real email leaves)
 
 ```bash
 npm install
-npm run dev           # tsup in watch mode
-npm run typecheck     # tsc --noEmit
-npm test              # vitest run
-npm run test:watch    # vitest watch
-npm run test:coverage # coverage report
-npm run build         # one-shot ESM + CJS + types build
+npm run dev               # tsup in watch mode
+npm run typecheck         # tsc --noEmit
+npm test                  # vitest run — unit + integration
+npm run test:unit         # unit tests only (no Prism spawn)
+npm run test:integration  # programmatic Prism mock + SDK end-to-end
+npm run test:watch        # vitest watch
+npm run test:coverage     # coverage report (thresholds enforced)
+npm run build             # one-shot ESM + CJS + types build
 ```
+
+The integration suite spawns a Prism mock server, drives the SDK through
+all nine resource groups, and tears the server back down — so a fresh
+clone with `npm install && npm test` exercises the entire surface end-to-end.
 
 ## License
 

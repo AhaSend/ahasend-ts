@@ -1,4 +1,5 @@
 import type { HttpClient } from "../http.js";
+import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
   PaginatedResponse,
@@ -76,6 +77,16 @@ export class RoutesClient {
       query: params as Record<string, unknown>,
       ...forwardOptions(options),
     });
+  }
+
+  iterate(
+    params: ListRoutesParams = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<Route, void, undefined> {
+    return paginate<Route, ListRoutesParams>(
+      (p) => this.list(p, options),
+      params,
+    );
   }
 
   create(body: CreateRouteRequest, options: IdempotencyRequestOptions = {}): Promise<CreatedRoute> {

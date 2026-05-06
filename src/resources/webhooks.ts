@@ -1,4 +1,5 @@
 import type { HttpClient } from "../http.js";
+import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
   PaginatedResponse,
@@ -95,6 +96,17 @@ export class WebhooksClient {
       query: params as Record<string, unknown>,
       ...forwardOptions(options),
     });
+  }
+
+  iterate(
+    domain: string,
+    params: PaginationParams = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<Webhook, void, undefined> {
+    return paginate<Webhook, PaginationParams>(
+      (p) => this.list(domain, p, options),
+      params,
+    );
   }
 
   create(

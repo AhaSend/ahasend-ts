@@ -4,6 +4,8 @@ import type { RateLimitConfig, ResolvedRateLimitConfig } from "./rate-limit.js";
 import { resolveRateLimitConfig } from "./rate-limit.js";
 import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
 import { resolveRetryConfig } from "./retry.js";
+import type { ResolvedTelemetryHooks, TelemetryHooks } from "./telemetry.js";
+import { composeHooks, debugConsoleHooks, resolveTelemetryHooks } from "./telemetry.js";
 import { DEFAULT_USER_AGENT } from "./version.js";
 
 export const DEFAULT_BASE_URL = "https://api.ahasend.com";
@@ -20,6 +22,7 @@ export interface ClientOptions {
   idempotency?: IdempotencyConfig;
   retry?: RetryConfig;
   rateLimit?: RateLimitConfig;
+  hooks?: TelemetryHooks;
 }
 
 export interface ResolvedConfig {
@@ -33,6 +36,7 @@ export interface ResolvedConfig {
   idempotency: ResolvedIdempotencyConfig;
   retry: ResolvedRetryConfig;
   rateLimit: ResolvedRateLimitConfig;
+  hooks: ResolvedTelemetryHooks;
 }
 
 export function resolveConfig(options: ClientOptions): ResolvedConfig {
@@ -60,6 +64,11 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
     idempotency: resolveIdempotencyConfig(options.idempotency),
     retry: resolveRetryConfig(options.retry),
     rateLimit: resolveRateLimitConfig(options.rateLimit),
+    hooks: resolveTelemetryHooks(
+      options.debug
+        ? composeHooks(debugConsoleHooks(), options.hooks)
+        : options.hooks,
+    ),
   };
 }
 

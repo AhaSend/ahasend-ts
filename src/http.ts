@@ -41,16 +41,32 @@ export class HttpClient {
 
     const retry = this.config.retry;
     const maxAttempts = retry.enabled ? retry.maxRetries + 1 : 1;
+    const hooks = this.config.hooks;
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return await this.executeOnce<T>(url, init, options);
+        return await this.executeOnce<T>(url, init, options, attempt);
       } catch (err) {
         lastError = err;
+        hooks.onError({
+          method: options.method,
+          path: options.path,
+          url,
+          attempt,
+          error: err,
+        });
         if (attempt === maxAttempts) throw err;
         if (!isRetryableError(err)) throw err;
         const delayMs = computeRetryDelayMs(err, attempt, retry);
+        hooks.onRetry({
+          method: options.method,
+          path: options.path,
+          url,
+          attempt,
+          delayMs,
+          error: err,
+        });
         await sleep(delayMs, options.signal);
       }
     }
@@ -61,8 +77,17 @@ export class HttpClient {
     url: string,
     init: RequestInit,
     options: RequestOptions,
+    attempt: number,
   ): Promise<T> {
     const controller = this.linkAbortSignal(options.signal, this.config.timeout);
+    const startedAt = Date.now();
+
+    this.config.hooks.onRequest({
+      method: options.method,
+      path: options.path,
+      url,
+      attempt,
+    });
 
     let response: Response;
     try {
@@ -84,6 +109,16 @@ export class HttpClient {
       );
     }
     controller.cleanup();
+
+    this.rateLimiter.recordResponseHeaders(options.method, options.path, response.headers);
+    this.config.hooks.onResponse({
+      method: options.method,
+      path: options.path,
+      url,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      attempt,
+    });
 
     return this.parseResponse<T>(response);
   }

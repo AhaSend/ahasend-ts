@@ -101,6 +101,19 @@ class TokenBucket {
     return this.tokens;
   }
 
+  /**
+   * Adjust the bucket to reflect the server's reported remaining quota.
+   * Only ever lowers the local tokens — never inflates beyond what we have,
+   * because the server is the source of truth on its own remaining budget.
+   */
+  reconcile(remaining: number): void {
+    if (!Number.isFinite(remaining) || remaining < 0) return;
+    this.refill();
+    if (remaining < this.tokens) {
+      this.tokens = remaining;
+    }
+  }
+
   acquire(signal?: AbortSignal): Promise<void> {
     if (!this.enabled) return Promise.resolve();
     const next = this.chain.then(() => this.acquireOnce(signal));
@@ -187,4 +200,47 @@ export class RateLimiter {
   available(category: EndpointCategory): number {
     return this.buckets[category].available();
   }
+
+  /**
+   * Inspect a response's rate-limit headers and reconcile the matching
+   * bucket. No-op if the response has no recognised rate-limit headers.
+   */
+  recordResponseHeaders(
+    method: string,
+    path: string,
+    headers: Headers | Record<string, string>,
+  ): void {
+    if (!this.masterEnabled) return;
+    const remaining = parseRateLimitRemaining(headers);
+    if (remaining === undefined) return;
+    const category = detectCategory(method, path);
+    this.buckets[category].reconcile(remaining);
+  }
+}
+
+function parseRateLimitRemaining(
+  headers: Headers | Record<string, string>,
+): number | undefined {
+  const candidates = [
+    "x-ratelimit-remaining",
+    "ratelimit-remaining",
+    "x-rate-limit-remaining",
+  ];
+  for (const name of candidates) {
+    const raw = readHeader(headers, name);
+    if (raw === undefined) continue;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return undefined;
+}
+
+function readHeader(
+  headers: Headers | Record<string, string>,
+  name: string,
+): string | undefined {
+  if (headers instanceof Headers) {
+    return headers.get(name) ?? undefined;
+  }
+  return headers[name] ?? headers[name.toLowerCase()];
 }
