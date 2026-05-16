@@ -8,13 +8,19 @@ import type {
   SuccessResponse,
   UUID,
 } from "../types/common.js";
+import {
+  forwardOptions,
+  forwardWithIdempotency,
+  type IdempotencyRequestOptions,
+} from "./_helpers.js";
 
 export interface DNSRecord {
-  name: string;
   type: string;
+  host: string;
   content: string;
-  valid?: boolean;
-  [key: string]: unknown;
+  required: boolean;
+  propagated: boolean;
+  label?: string | null;
 }
 
 export interface Domain {
@@ -26,14 +32,14 @@ export interface Domain {
   account_id: UUID;
   dns_records: DNSRecord[];
   dns_valid: boolean;
-  last_dns_check_at?: ISODateTime;
-  tracking_subdomain?: string;
-  return_path_subdomain?: string;
-  subscription_subdomain?: string;
-  media_subdomain?: string;
-  dkim_rotation_interval_days?: number;
+  last_dns_check_at?: ISODateTime | null;
+  tracking_subdomain?: string | null;
+  return_path_subdomain?: string | null;
+  subscription_subdomain?: string | null;
+  media_subdomain?: string | null;
+  dkim_rotation_interval_days?: number | null;
   rotation_ready?: boolean;
-  dsn_recipient?: string;
+  dsn_recipient?: string | null;
 }
 
 export interface ListDomainsParams extends PaginationParams {
@@ -58,9 +64,8 @@ export interface UpdateDomainRequest {
   dkim_rotation_interval_days?: number;
 }
 
-export interface DomainRequestOptions extends RequestOptions {
-  idempotencyKey?: string;
-}
+/** @deprecated Use `IdempotencyRequestOptions` from the public API. */
+export type DomainRequestOptions = IdempotencyRequestOptions;
 
 export class DomainsClient {
   constructor(
@@ -76,7 +81,7 @@ export class DomainsClient {
       method: "GET",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains`,
       query: params as Record<string, unknown>,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
 
@@ -90,7 +95,7 @@ export class DomainsClient {
     );
   }
 
-  create(body: CreateDomainRequest, options: DomainRequestOptions = {}): Promise<Domain> {
+  create(body: CreateDomainRequest, options: IdempotencyRequestOptions = {}): Promise<Domain> {
     return this.http.request<Domain>({
       method: "POST",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains`,
@@ -103,7 +108,7 @@ export class DomainsClient {
     return this.http.request<Domain>({
       method: "GET",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains/${encodeURIComponent(domain)}`,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
 
@@ -116,7 +121,7 @@ export class DomainsClient {
       method: "PUT",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains/${encodeURIComponent(domain)}`,
       body,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
 
@@ -124,7 +129,7 @@ export class DomainsClient {
     return this.http.request<SuccessResponse>({
       method: "DELETE",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains/${encodeURIComponent(domain)}`,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
 
@@ -132,24 +137,7 @@ export class DomainsClient {
     return this.http.request<Domain>({
       method: "POST",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains/${encodeURIComponent(domain)}/check-dns`,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
-}
-
-function forward(options: RequestOptions): { signal?: AbortSignal; headers?: Record<string, string> } {
-  const out: { signal?: AbortSignal; headers?: Record<string, string> } = {};
-  if (options.signal) out.signal = options.signal;
-  if (options.headers) out.headers = options.headers;
-  return out;
-}
-
-function forwardWithIdempotency(
-  options: DomainRequestOptions,
-): { signal?: AbortSignal; headers?: Record<string, string> } {
-  const base = forward(options);
-  if (options.idempotencyKey) {
-    base.headers = { ...(base.headers ?? {}), "Idempotency-Key": options.idempotencyKey };
-  }
-  return base;
 }

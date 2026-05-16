@@ -33,6 +33,22 @@ export interface CreateSuppressionResponse {
   data: Suppression[];
 }
 
+export interface ListSuppressionsParams extends PaginationParams {
+  domain?: string;
+  email?: string;
+  from_time?: ISODateTime;
+  to_time?: ISODateTime;
+}
+
+export interface DeleteSuppressionParams {
+  email: string;
+  domain?: string;
+}
+
+export interface WipeSuppressionsParams {
+  domain?: string;
+}
+
 export class SuppressionsClient {
   constructor(
     private readonly http: HttpClient,
@@ -40,7 +56,7 @@ export class SuppressionsClient {
   ) {}
 
   list(
-    params: PaginationParams = {},
+    params: ListSuppressionsParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Suppression>> {
     return this.http.request<PaginatedResponse<Suppression>>({
@@ -52,10 +68,10 @@ export class SuppressionsClient {
   }
 
   iterate(
-    params: PaginationParams = {},
+    params: ListSuppressionsParams = {},
     options: RequestOptions = {},
   ): AsyncGenerator<Suppression, void, undefined> {
-    return paginate<Suppression, PaginationParams>(
+    return paginate<Suppression, ListSuppressionsParams>(
       (p) => this.list(p, options),
       params,
     );
@@ -73,22 +89,36 @@ export class SuppressionsClient {
     });
   }
 
-  delete(suppressionId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
+  /**
+   * Delete a suppression. The AhaSend API identifies suppressions by
+   * `(email, domain)` — there is no suppression-by-id endpoint — so this
+   * method accepts those fields directly as query parameters.
+   */
+  delete(
+    params: DeleteSuppressionParams,
+    options: RequestOptions = {},
+  ): Promise<SuccessResponse> {
     return this.http.request<SuccessResponse>({
       method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/suppressions/${encodeURIComponent(suppressionId)}`,
+      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/suppressions`,
+      query: params as unknown as Record<string, unknown>,
       ...forwardOptions(options),
     });
   }
 
   /**
-   * Dangerous: deletes ALL suppressions for the account. Cannot be undone.
+   * Dangerous: deletes ALL suppressions for the account, optionally
+   * scoped to a single domain. Cannot be undone.
    */
-  wipe(options: IdempotencyRequestOptions = {}): Promise<SuccessResponse> {
+  wipe(
+    params: WipeSuppressionsParams = {},
+    options: RequestOptions = {},
+  ): Promise<SuccessResponse> {
     return this.http.request<SuccessResponse>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/suppressions/wipe`,
-      ...forwardWithIdempotency(options),
+      method: "DELETE",
+      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/suppressions/all`,
+      query: params as unknown as Record<string, unknown>,
+      ...forwardOptions(options),
     });
   }
 }

@@ -2,12 +2,21 @@
 // but does not actually deliver the email. No real email is sent.
 //
 // Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars.
-//           AHASEND_FROM_EMAIL (any address on a domain you have, or any string in sandbox)
+//           AHASEND_FROM_EMAIL must be an address on a verified sending
+//           domain on your account. The API rejects unverified-domain
+//           sends even in sandbox mode.
 // Run:  node examples/send-sandbox.mjs
 
 import { AhaSendClient } from "../dist/index.js";
 
-const fromEmail = process.env.AHASEND_FROM_EMAIL ?? "test@example.com";
+const fromEmail = process.env.AHASEND_FROM_EMAIL;
+if (!fromEmail) {
+  console.error(
+    "✗ AHASEND_FROM_EMAIL is required — set it to an address on a verified " +
+      "sending domain on your account (sandbox mode does not bypass domain validation).",
+  );
+  process.exit(1);
+}
 
 const client = AhaSendClient.fromEnv();
 

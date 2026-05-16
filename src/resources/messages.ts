@@ -9,6 +9,11 @@ import type {
   SuccessResponse,
   UUID,
 } from "../types/common.js";
+import {
+  forwardOptions,
+  forwardWithIdempotency,
+  type IdempotencyRequestOptions,
+} from "./_helpers.js";
 
 export interface Recipient {
   email: string;
@@ -150,16 +155,14 @@ export interface Message {
 }
 
 export interface ListMessagesParams extends PaginationParams {
-  from?: string;
-  to?: string;
-  domain?: string;
-  subject?: string;
   status?: string;
-  tag?: string;
-  created_after?: ISODateTime;
-  created_before?: ISODateTime;
-  sort?: string;
-  direction?: "asc" | "desc";
+  sender?: string;
+  recipient?: string;
+  subject?: string;
+  message_id_header?: string;
+  tags?: string;
+  from_time?: ISODateTime;
+  to_time?: ISODateTime;
 }
 
 export class MessagesClient {
@@ -168,24 +171,27 @@ export class MessagesClient {
     private readonly accountId: UUID,
   ) {}
 
-  send(body: CreateMessageRequest, options: RequestOptions = {}): Promise<SendMessageResponse> {
+  send(
+    body: CreateMessageRequest,
+    options: IdempotencyRequestOptions = {},
+  ): Promise<SendMessageResponse> {
     return this.http.request<SendMessageResponse>({
       method: "POST",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages`,
       body,
-      ...forward(options),
+      ...forwardWithIdempotency(options),
     });
   }
 
   sendConversation(
     body: CreateConversationMessageRequest,
-    options: RequestOptions = {},
+    options: IdempotencyRequestOptions = {},
   ): Promise<SendMessageResponse> {
     return this.http.request<SendMessageResponse>({
       method: "POST",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages/conversation`,
       body,
-      ...forward(options),
+      ...forwardWithIdempotency(options),
     });
   }
 
@@ -197,7 +203,7 @@ export class MessagesClient {
       method: "GET",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages`,
       query: params as Record<string, unknown>,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
 
@@ -215,22 +221,15 @@ export class MessagesClient {
     return this.http.request<Message>({
       method: "GET",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages/${encodeURIComponent(messageId)}`,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
 
   cancel(messageId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
     return this.http.request<SuccessResponse>({
-      method: "POST",
+      method: "DELETE",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages/${encodeURIComponent(messageId)}/cancel`,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
-}
-
-function forward(options: RequestOptions): { signal?: AbortSignal; headers?: Record<string, string> } {
-  const out: { signal?: AbortSignal; headers?: Record<string, string> } = {};
-  if (options.signal) out.signal = options.signal;
-  if (options.headers) out.headers = options.headers;
-  return out;
 }

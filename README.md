@@ -7,6 +7,12 @@ The official Node.js TypeScript SDK for the [AhaSend](https://ahasend.com) trans
 > compliant signature verification. Comprehensive documentation, expanded
 > integration tests, and final npm-publication polish land in Phase 3.
 
+> ⚠️ **This is a server-side SDK.** The AhaSend API key must not be
+> embedded in a browser bundle — anyone with the key can send mail on
+> your account's behalf. The constructor throws if it detects a
+> browser-like global (`window`). Use this SDK from Node.js, Cloudflare
+> Workers, Vercel Edge, Deno, Bun, or any other server runtime.
+
 ## Requirements
 
 - **Node.js** 18 or later
@@ -66,7 +72,7 @@ const client = AhaSendClient.fromEnv();
 | `client.statistics`       | `deliverability`, `bounces`, `deliveryTimes`                                     |
 | `client.suppressions`     | `list`, `create`, `delete`, `wipe`                                               |
 | `client.routes`           | `list`, `create`, `get`, `update`, `delete` (inbound routing)                    |
-| `client.accounts`         | `get`, `update`, `listMembers`, `addMember`, `updateMember`, `removeMember`      |
+| `client.accounts`         | `get`, `update`, `listMembers`, `addMember`, `removeMember`                      |
 | `client.smtpCredentials`  | `list`, `create`, `get`, `delete`                                                |
 | `client.ping()`           | Utility health-check (`GET /v2/ping`)                                            |
 

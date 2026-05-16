@@ -6,17 +6,21 @@ import {
   expressWebhookHandler,
   fastifyWebhookHandler,
   nextRouteHandler,
+  type ExpressHandler,
 } from "../src/webhooks/adapters.js";
+import type { WebhookEvent } from "../src/webhooks/events.js";
 import { WebhookVerifier } from "../src/webhooks/verifier.js";
 
-const SECRET = Buffer.from("local-test-secret-please-rotate", "utf-8").toString("base64");
+// AhaSend webhook secrets are raw strings — the HMAC key is the literal
+// UTF-8 bytes of the secret, matching the Go SDK.
+const SECRET = "aha-whsec-local-test-secret-please-rotate";
 
 function signEnvelope(body: string, opts: { id?: string; tsSec?: number } = {}): {
   headers: Record<string, string>;
 } {
   const id = opts.id ?? "msg_test_1";
   const tsSec = opts.tsSec ?? Math.floor(Date.now() / 1000);
-  const sig = `v1,${createHmac("sha256", Buffer.from(SECRET, "base64"))
+  const sig = `v1,${createHmac("sha256", Buffer.from(SECRET, "utf-8"))
     .update(`${id}.${tsSec}.${body}`)
     .digest("base64")}`;
   return {
@@ -57,7 +61,10 @@ class MockExpressRes {
 describe("expressWebhookHandler", () => {
   it("verifies, parses, and invokes the handler with a typed event", async () => {
     const verifier = new WebhookVerifier(SECRET);
-    const handler = vi.fn(async () => {});
+    const received: WebhookEvent[] = [];
+    const handler: ExpressHandler = async (event) => {
+      received.push(event);
+    };
     const middleware = expressWebhookHandler(verifier, handler);
 
     const { headers } = signEnvelope(eventBody);
@@ -66,14 +73,13 @@ describe("expressWebhookHandler", () => {
 
     await middleware(req, res);
 
-    expect(handler).toHaveBeenCalledOnce();
-    const event = handler.mock.calls[0]![0];
-    expect(event.type).toBe("message.delivered");
+    expect(received).toHaveLength(1);
+    expect(received[0]!.type).toBe("message.delivered");
     expect(res.statusCode).toBe(200);
     expect(res.writableEnded).toBe(true);
   });
 
-  it("returns 400 with the verification reason on signature mismatch", async () => {
+  it("returns a generic 400 on signature mismatch (no reason echoed)", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const handler = vi.fn();
     const middleware = expressWebhookHandler(verifier, handler);
@@ -86,7 +92,9 @@ describe("expressWebhookHandler", () => {
     await middleware(req, res);
     expect(handler).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
-    expect(res.body).toBe("signature_mismatch");
+    // Stripe/Svix-style: no body, no reason — never give an attacker
+    // probing the endpoint a per-failure signal.
+    expect(res.body).toBeUndefined();
   });
 
   it("captures raw body from a streamed request when no rawBody is set", async () => {
@@ -111,7 +119,7 @@ describe("expressWebhookHandler", () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it("returns 500 if the handler throws", async () => {
+  it("returns a generic 500 if the handler throws", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const middleware = expressWebhookHandler(verifier, () => {
       throw new Error("oops");
@@ -123,7 +131,26 @@ describe("expressWebhookHandler", () => {
 
     await middleware(req, res);
     expect(res.statusCode).toBe(500);
-    expect(res.body).toBe("handler_error");
+    expect(res.body).toBeUndefined();
+  });
+
+  it("does NOT hang when express.json() already parsed the body", async () => {
+    const verifier = new WebhookVerifier(SECRET);
+    const handler = vi.fn();
+    const middleware = expressWebhookHandler(verifier, handler);
+
+    const { headers } = signEnvelope(eventBody);
+    // Simulate: express.json() ran first, body is now a parsed object,
+    // and the original bytes are gone.
+    const req = { headers, body: JSON.parse(eventBody) };
+    const res = new MockExpressRes();
+
+    await Promise.race([
+      middleware(req, res),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("hang")), 500)),
+    ]);
+    expect(handler).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
   });
 
   it("does not overwrite a status set by the handler", async () => {
@@ -188,7 +215,7 @@ describe("fastifyWebhookHandler", () => {
     expect(reply.payload).toBe("raw_body_required");
   });
 
-  it("returns 400 with reason on signature mismatch", async () => {
+  it("returns a generic 400 on signature mismatch (no reason echoed)", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const middleware = fastifyWebhookHandler(verifier, vi.fn());
 
@@ -198,7 +225,7 @@ describe("fastifyWebhookHandler", () => {
 
     await middleware(request, reply);
     expect(reply.status).toBe(400);
-    expect(reply.payload).toBe("signature_mismatch");
+    expect(reply.payload).toBeUndefined();
   });
 });
 
@@ -221,7 +248,7 @@ describe("nextRouteHandler", () => {
     expect(await res.text()).toBe("ok");
   });
 
-  it("returns 400 with the reason on signature mismatch", async () => {
+  it("returns a generic 400 on signature mismatch (no reason echoed)", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const route = nextRouteHandler(verifier, vi.fn());
 
@@ -234,10 +261,10 @@ describe("nextRouteHandler", () => {
 
     const res = await route(request);
     expect(res.status).toBe(400);
-    expect(await res.text()).toBe("signature_mismatch");
+    expect(await res.text()).toBe("");
   });
 
-  it("returns 500 when the handler throws", async () => {
+  it("returns a generic 500 when the handler throws", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const route = nextRouteHandler(verifier, () => {
       throw new Error("boom");
@@ -252,6 +279,6 @@ describe("nextRouteHandler", () => {
 
     const res = await route(request);
     expect(res.status).toBe(500);
-    expect(await res.text()).toBe("handler_error");
+    expect(await res.text()).toBe("");
   });
 });

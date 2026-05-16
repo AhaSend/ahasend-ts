@@ -99,13 +99,13 @@ describe("MessagesClient", () => {
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/msg_42");
   });
 
-  it("cancel() POSTs /{id}/cancel", async () => {
+  it("cancel() DELETEs /{id}/cancel (per spec)", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
     await client.messages.cancel("msg_42");
 
-    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.method).toBe("DELETE");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/msg_42/cancel");
   });
 });

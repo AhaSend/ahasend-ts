@@ -2,13 +2,15 @@ import type { HttpClient } from "../http.js";
 import type { ISODateTime, RequestOptions, UUID } from "../types/common.js";
 import { forwardOptions } from "./_helpers.js";
 
-export type StatisticsGranularity = "hour" | "day" | "month";
+export type StatisticsGranularity = "hour" | "day" | "week" | "month";
 
 export interface StatisticsParams {
-  from: ISODateTime;
-  to: ISODateTime;
-  domain?: string;
-  granularity?: StatisticsGranularity;
+  from_time: ISODateTime;
+  to_time: ISODateTime;
+  sender_domain?: string;
+  recipient_domains?: string;
+  tags?: string;
+  group_by?: StatisticsGranularity;
 }
 
 export interface DeliverabilityStatistics {
@@ -88,7 +90,7 @@ export class StatisticsClient {
   ): Promise<BounceStatisticsResponse> {
     return this.http.request<BounceStatisticsResponse>({
       method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/statistics/transactional/bounces`,
+      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/statistics/transactional/bounce`,
       query: params as unknown as Record<string, unknown>,
       ...forwardOptions(options),
     });
@@ -100,7 +102,7 @@ export class StatisticsClient {
   ): Promise<DeliveryTimeStatisticsResponse> {
     return this.http.request<DeliveryTimeStatisticsResponse>({
       method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/statistics/transactional/delivery-times`,
+      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/statistics/transactional/delivery-time`,
       query: params as unknown as Record<string, unknown>,
       ...forwardOptions(options),
     });

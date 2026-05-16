@@ -6,8 +6,11 @@
 import { createHmac } from "node:crypto";
 import { WebhookVerifier } from "../dist/webhooks/index.js";
 
-const SECRET_BASE64 = Buffer.from("local-test-secret-please-rotate").toString("base64");
-const verifier = new WebhookVerifier(SECRET_BASE64);
+// Pass the secret string exactly as it appears in the AhaSend dashboard
+// (including any `aha-whsec-` prefix). The SDK uses the raw UTF-8 bytes
+// of the string as the HMAC key, matching the Go SDK and the server.
+const SECRET = "aha-whsec-local-demo-secret-please-rotate";
+const verifier = new WebhookVerifier(SECRET);
 
 const id = "msg_demo_1";
 const timestamp = Math.floor(Date.now() / 1000);
@@ -27,7 +30,7 @@ const body = JSON.stringify({
 });
 
 const toSign = `${id}.${timestamp}.${body}`;
-const sig = `v1,${createHmac("sha256", Buffer.from(SECRET_BASE64, "base64")).update(toSign).digest("base64")}`;
+const sig = `v1,${createHmac("sha256", Buffer.from(SECRET, "utf-8")).update(toSign).digest("base64")}`;
 
 const headers = {
   "webhook-id": id,

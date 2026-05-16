@@ -80,7 +80,24 @@ export class AhaSendBadRequestError extends AhaSendAPIError {
   }
 }
 
-export class AhaSendIdempotencyConflictError extends AhaSendAPIError {
+/**
+ * Generic 409 Conflict — used for non-idempotency conflicts such as
+ * "domain already exists". When the response carries an
+ * `Idempotent-Replayed` header, the more specific
+ * `AhaSendIdempotencyConflictError` subclass is raised instead.
+ */
+export class AhaSendConflictError extends AhaSendAPIError {
+  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+    super(params);
+    this.name = "AhaSendConflictError";
+  }
+}
+
+/**
+ * 409 Conflict raised specifically because an Idempotency-Key matched a
+ * request that is still in progress on the server.
+ */
+export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
   constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
     super(params);
     this.name = "AhaSendIdempotencyConflictError";
@@ -94,7 +111,24 @@ export class AhaSendIdempotencyPreconditionFailedError extends AhaSendAPIError {
   }
 }
 
-export class AhaSendIdempotencyMismatchError extends AhaSendBadRequestError {
+/**
+ * Generic 422 Unprocessable Entity — used for validation failures.
+ * When the response carries an `Idempotent-Replayed` header, the more
+ * specific `AhaSendIdempotencyMismatchError` subclass is raised
+ * instead.
+ */
+export class AhaSendUnprocessableEntityError extends AhaSendBadRequestError {
+  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+    super(params);
+    this.name = "AhaSendUnprocessableEntityError";
+  }
+}
+
+/**
+ * 422 raised specifically because an Idempotency-Key was reused with a
+ * different request body than the original.
+ */
+export class AhaSendIdempotencyMismatchError extends AhaSendUnprocessableEntityError {
   constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
     super(params);
     this.name = "AhaSendIdempotencyMismatchError";
@@ -131,13 +165,24 @@ export function createApiError(params: {
   const message = extractMessage(params.body) ?? `AhaSend API error (HTTP ${params.status})`;
   const base = { ...params, message };
 
+  const isIdempotencyReplay =
+    params.headers?.["idempotent-replayed"] !== undefined;
+
   if (params.status === 400) return new AhaSendBadRequestError(base);
   if (params.status === 401) return new AhaSendAuthenticationError(base);
   if (params.status === 403) return new AhaSendPermissionError(base);
   if (params.status === 404) return new AhaSendNotFoundError(base);
-  if (params.status === 409) return new AhaSendIdempotencyConflictError(base);
+  if (params.status === 409) {
+    return isIdempotencyReplay
+      ? new AhaSendIdempotencyConflictError(base)
+      : new AhaSendConflictError(base);
+  }
   if (params.status === 412) return new AhaSendIdempotencyPreconditionFailedError(base);
-  if (params.status === 422) return new AhaSendIdempotencyMismatchError(base);
+  if (params.status === 422) {
+    return isIdempotencyReplay
+      ? new AhaSendIdempotencyMismatchError(base)
+      : new AhaSendUnprocessableEntityError(base);
+  }
   if (params.status === 429) {
     const retryAfter = parseRetryAfter(params.headers?.["retry-after"]);
     return new AhaSendRateLimitError({ ...base, retryAfterSeconds: retryAfter });
@@ -155,6 +200,13 @@ function extractMessage(body: ApiErrorBody | string | null): string | undefined 
 
 function parseRetryAfter(value: string | undefined): number | undefined {
   if (!value) return undefined;
+  // RFC 9110 §10.2.3 allows two forms: delta-seconds (an integer count
+  // of seconds) or an HTTP-date.
   const seconds = Number(value);
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+  const date = Date.parse(value);
+  if (!Number.isNaN(date)) {
+    return Math.max(0, Math.ceil((date - Date.now()) / 1000));
+  }
+  return undefined;
 }

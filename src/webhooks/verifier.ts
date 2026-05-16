@@ -112,16 +112,15 @@ export class WebhookVerifier {
 }
 
 function decodeSecret(secret: string): Buffer {
-  const trimmed = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
-  if (isBase64(trimmed)) {
-    return Buffer.from(trimmed, "base64");
-  }
-  return Buffer.from(trimmed, "utf-8");
-}
-
-function isBase64(value: string): boolean {
-  if (value.length === 0 || value.length % 4 !== 0) return false;
-  return /^[A-Za-z0-9+/]+=*$/.test(value);
+  // Match the Go SDK byte-for-byte: the HMAC key is the raw UTF-8 bytes
+  // of the secret string. No base64 decoding, no prefix stripping.
+  //
+  // AhaSend's Go SDK at ahasend-go/webhooks/webhooks.go uses
+  // `[]byte(secret)` directly; the server signs against the same bytes.
+  // Any heuristic that tried to base64-decode "looks like base64"
+  // secrets would silently produce a different HMAC key and reject every
+  // webhook with `signature_mismatch`.
+  return Buffer.from(secret, "utf-8");
 }
 
 function signatureMatches(provided: string, expected: string): boolean {

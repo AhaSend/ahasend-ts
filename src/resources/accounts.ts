@@ -53,15 +53,9 @@ export interface AddAccountMemberRequest {
   role: AccountMemberRole;
 }
 
-export interface UpdateAccountMemberRequest {
-  role?: AccountMemberRole;
-  name?: string;
-}
-
 export interface ListMembersParams {
-  limit?: number;
-  after?: string;
-  before?: string;
+  // The AhaSend API does not accept query parameters on GET /members.
+  // Reserved for forward compatibility.
 }
 
 export class AccountsClient {
@@ -87,14 +81,10 @@ export class AccountsClient {
     });
   }
 
-  listMembers(
-    params: ListMembersParams = {},
-    options: RequestOptions = {},
-  ): Promise<ListAccountMembersResponse> {
+  listMembers(options: RequestOptions = {}): Promise<ListAccountMembersResponse> {
     return this.http.request<ListAccountMembersResponse>({
       method: "GET",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/members`,
-      query: params as Record<string, unknown>,
       ...forwardOptions(options),
     });
   }
@@ -108,19 +98,6 @@ export class AccountsClient {
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/members`,
       body,
       ...forwardWithIdempotency(options),
-    });
-  }
-
-  updateMember(
-    userId: UUID,
-    body: UpdateAccountMemberRequest,
-    options: RequestOptions = {},
-  ): Promise<UserAccount> {
-    return this.http.request<UserAccount>({
-      method: "PUT",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/members/${encodeURIComponent(userId)}`,
-      body,
-      ...forwardOptions(options),
     });
   }
 

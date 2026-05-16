@@ -25,6 +25,57 @@ describe("resolveConfig", () => {
     expect(resolved.idempotency).toEqual({ autoGenerate: false, prefix: "myapp" });
   });
 
+  it("rejects non-HTTPS baseUrls without the override flag", () => {
+    expect(() =>
+      resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://api.example.com" }),
+    ).toThrow(/insecure|https/i);
+  });
+
+  it("allows http://localhost and http://127.0.0.1 for local mocks", () => {
+    expect(() =>
+      resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://localhost:4010" }),
+    ).not.toThrow();
+    expect(() =>
+      resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://127.0.0.1:4010" }),
+    ).not.toThrow();
+  });
+
+  it("dangerouslyAllowInsecureBaseUrl opt-in lets http:// through", () => {
+    expect(() =>
+      resolveConfig({
+        apiKey: "aha-sk-test",
+        baseUrl: "http://api.example.com",
+        dangerouslyAllowInsecureBaseUrl: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses to construct in a browser-like environment (window present)", () => {
+    const g = globalThis as { window?: unknown };
+    const original = g.window;
+    g.window = {}; // simulate a browser
+    try {
+      expect(() => resolveConfig({ apiKey: "aha-sk-test" })).toThrow(/browser/i);
+    } finally {
+      if (original === undefined) delete g.window;
+      else g.window = original;
+    }
+  });
+
+  it("dangerouslyAllowBrowser opt-in bypasses the browser guard", () => {
+    const g = globalThis as { window?: unknown };
+    const original = g.window;
+    g.window = {};
+    try {
+      expect(() =>
+        resolveConfig({ apiKey: "aha-sk-test", dangerouslyAllowBrowser: true }),
+      ).not.toThrow();
+    } finally {
+      if (original === undefined) delete g.window;
+      else g.window = original;
+    }
+  });
+
   it("strips trailing slashes from baseUrl", () => {
     const resolved = resolveConfig({ apiKey: "aha-sk-test", baseUrl: "https://api.example.com///" });
     expect(resolved.baseUrl).toBe("https://api.example.com");

@@ -8,15 +8,38 @@ import type {
   SuccessResponse,
   UUID,
 } from "../types/common.js";
+import {
+  forwardOptions,
+  forwardWithIdempotency,
+  type IdempotencyRequestOptions,
+} from "./_helpers.js";
 
-export type APIKeyScope = string;
+/**
+ * Scope identifier as written in requests — a plain string like
+ * `"messages:send:all"` or `"messages:send:example.com"`.
+ */
+export type APIKeyScopeName = string;
+
+/**
+ * Scope record returned in API key responses. The server attaches
+ * provenance metadata (id, timestamps, optional `domain_id` for
+ * domain-scoped grants), so responses are objects rather than strings.
+ */
+export interface APIKeyScope {
+  id: UUID;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+  api_key_id: UUID;
+  scope: APIKeyScopeName;
+  domain_id?: UUID | null;
+}
 
 export interface APIKey {
   object: "api_key";
   id: UUID;
   created_at: ISODateTime;
   updated_at: ISODateTime;
-  last_used_at?: ISODateTime;
+  last_used_at?: ISODateTime | null;
   account_id: UUID;
   label: string;
   public_key: string;
@@ -26,17 +49,16 @@ export interface APIKey {
 
 export interface CreateAPIKeyRequest {
   label: string;
-  scopes: APIKeyScope[];
+  scopes: APIKeyScopeName[];
 }
 
 export interface UpdateAPIKeyRequest {
   label?: string;
-  scopes?: APIKeyScope[];
+  scopes?: APIKeyScopeName[];
 }
 
-export interface APIKeyRequestOptions extends RequestOptions {
-  idempotencyKey?: string;
-}
+/** @deprecated Use `IdempotencyRequestOptions` from the public API. */
+export type APIKeyRequestOptions = IdempotencyRequestOptions;
 
 export class APIKeysClient {
   constructor(
@@ -52,7 +74,7 @@ export class APIKeysClient {
       method: "GET",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys`,
       query: params as Record<string, unknown>,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
 
@@ -66,7 +88,7 @@ export class APIKeysClient {
     );
   }
 
-  create(body: CreateAPIKeyRequest, options: APIKeyRequestOptions = {}): Promise<APIKey> {
+  create(body: CreateAPIKeyRequest, options: IdempotencyRequestOptions = {}): Promise<APIKey> {
     return this.http.request<APIKey>({
       method: "POST",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys`,
@@ -79,7 +101,7 @@ export class APIKeysClient {
     return this.http.request<APIKey>({
       method: "GET",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys/${encodeURIComponent(keyId)}`,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
 
@@ -88,7 +110,7 @@ export class APIKeysClient {
       method: "PUT",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys/${encodeURIComponent(keyId)}`,
       body,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
 
@@ -96,24 +118,7 @@ export class APIKeysClient {
     return this.http.request<SuccessResponse>({
       method: "DELETE",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys/${encodeURIComponent(keyId)}`,
-      ...forward(options),
+      ...forwardOptions(options),
     });
   }
-}
-
-function forward(options: RequestOptions): { signal?: AbortSignal; headers?: Record<string, string> } {
-  const out: { signal?: AbortSignal; headers?: Record<string, string> } = {};
-  if (options.signal) out.signal = options.signal;
-  if (options.headers) out.headers = options.headers;
-  return out;
-}
-
-function forwardWithIdempotency(
-  options: APIKeyRequestOptions,
-): { signal?: AbortSignal; headers?: Record<string, string> } {
-  const base = forward(options);
-  if (options.idempotencyKey) {
-    base.headers = { ...(base.headers ?? {}), "Idempotency-Key": options.idempotencyKey };
-  }
-  return base;
 }

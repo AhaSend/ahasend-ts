@@ -23,6 +23,21 @@ export interface ClientOptions {
   retry?: RetryConfig;
   rateLimit?: RateLimitConfig;
   hooks?: TelemetryHooks;
+  /**
+   * Allow non-HTTPS `baseUrl` values (other than localhost / 127.0.0.1).
+   * Defaults to `false`. Setting to `true` lets the SDK send the bearer
+   * token in plaintext, which is dangerous; only enable for testing
+   * environments where you control the network.
+   */
+  dangerouslyAllowInsecureBaseUrl?: boolean;
+  /**
+   * This SDK is server-side only — embedding the bearer API key in a
+   * browser bundle exposes it to anyone visiting your site. The
+   * constructor throws if it detects a browser-like global (`window`).
+   * Set this to `true` only when you have a non-browser reason for the
+   * `window` global to exist (e.g. JSDOM in unit tests).
+   */
+  dangerouslyAllowBrowser?: boolean;
 }
 
 export interface ResolvedConfig {
@@ -44,7 +59,10 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
     throw new Error("AhaSend: `apiKey` is required.");
   }
 
+  assertNotBrowser(options.dangerouslyAllowBrowser ?? false);
+
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+  assertSecureBaseUrl(baseUrl, options.dangerouslyAllowInsecureBaseUrl ?? false);
 
   const fetchImpl = options.fetch ?? globalThis.fetch;
   if (typeof fetchImpl !== "function") {
@@ -120,6 +138,39 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
 function buildBaseUrl(scheme: string | undefined, host: string | undefined): string | undefined {
   if (!host) return undefined;
   return `${scheme ?? "https"}://${host}`;
+}
+
+function assertNotBrowser(allow: boolean): void {
+  if (allow) return;
+  // `window` and `document` are the canonical browser globals. Cloudflare
+  // Workers, Vercel Edge, Deno, and Node.js do not define them. Test
+  // environments using JSDOM set `window`, so the escape hatch lives in
+  // the option `dangerouslyAllowBrowser`.
+  const g = globalThis as { window?: unknown; document?: unknown };
+  if (typeof g.window !== "undefined" || typeof g.document !== "undefined") {
+    throw new Error(
+      "AhaSend: refusing to construct an AhaSendClient in a browser-like " +
+        "environment — embedding the bearer API key in a browser bundle " +
+        "exposes it. Use this SDK from a Node.js (or other server) runtime, " +
+        "or pass { dangerouslyAllowBrowser: true } if you really know what you are doing.",
+    );
+  }
+}
+
+function assertSecureBaseUrl(baseUrl: string, allowInsecure: boolean): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error(`AhaSend: invalid baseUrl "${baseUrl}" — expected a full URL.`);
+  }
+  if (parsed.protocol === "https:") return;
+  if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") return;
+  if (allowInsecure) return;
+  throw new Error(
+    `AhaSend: refusing to send the bearer API key over an insecure baseUrl ("${baseUrl}"). ` +
+      `Use https:// or set { dangerouslyAllowInsecureBaseUrl: true } to override.`,
+  );
 }
 
 function parseBool(value: string): boolean {

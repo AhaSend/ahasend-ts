@@ -49,24 +49,29 @@ export class HttpClient {
         return await this.executeOnce<T>(url, init, options, attempt);
       } catch (err) {
         lastError = err;
-        hooks.onError({
+        const requestId = extractRequestId(err);
+        const errorEvent: import("./telemetry.js").ErrorEvent = {
           method: options.method,
           path: options.path,
           url,
           attempt,
           error: err,
-        });
+        };
+        if (requestId) errorEvent.requestId = requestId;
+        hooks.onError(errorEvent);
         if (attempt === maxAttempts) throw err;
         if (!isRetryableError(err)) throw err;
         const delayMs = computeRetryDelayMs(err, attempt, retry);
-        hooks.onRetry({
+        const retryEvent: import("./telemetry.js").RetryEvent = {
           method: options.method,
           path: options.path,
           url,
           attempt,
           delayMs,
           error: err,
-        });
+        };
+        if (requestId) retryEvent.requestId = requestId;
+        hooks.onRetry(retryEvent);
         await sleep(delayMs, options.signal);
       }
     }
@@ -111,16 +116,19 @@ export class HttpClient {
     controller.cleanup();
 
     this.rateLimiter.recordResponseHeaders(options.method, options.path, response.headers);
-    this.config.hooks.onResponse({
+    const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
+    const responseEvent: import("./telemetry.js").ResponseEvent = {
       method: options.method,
       path: options.path,
       url,
       status: response.status,
       durationMs: Date.now() - startedAt,
       attempt,
-    });
+    };
+    if (requestId) responseEvent.requestId = requestId;
+    this.config.hooks.onResponse(responseEvent);
 
-    return this.parseResponse<T>(response);
+    return this.parseResponse<T>(response, requestId);
   }
 
   private buildUrl(path: string, query?: Record<string, unknown>): string {
@@ -181,8 +189,12 @@ export class HttpClient {
     return headers[IDEMPOTENCY_HEADER.toLowerCase()] === undefined;
   }
 
-  private async parseResponse<T>(response: Response): Promise<T> {
-    const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
+  private async parseResponse<T>(
+    response: Response,
+    requestIdFromHeader?: string,
+  ): Promise<T> {
+    const requestId =
+      requestIdFromHeader ?? response.headers.get(REQUEST_ID_HEADER) ?? undefined;
 
     if (response.status === 204 || response.status === 205) {
       if (response.ok) return undefined as T;
@@ -200,7 +212,33 @@ export class HttpClient {
       });
     }
 
-    return (parsed ?? (rawText as unknown)) as T;
+    if (parsed === null) {
+      // 2xx with empty body → return undefined.
+      if (rawText.length === 0) return undefined as T;
+      // 2xx with non-JSON body is suspicious (typically an HTML error page
+      // from a misconfigured load balancer). Refuse to silently coerce it
+      // into the declared type.
+      throw createApiError({
+        status: response.status,
+        body: rawText,
+        requestId,
+        headers: headersToRecord(response.headers),
+      });
+    }
+
+    if (requestId && typeof parsed === "object" && parsed !== null) {
+      // Attach the request id non-enumerably so it doesn't change the
+      // shape of typed responses but is still available via
+      // `(response as any)._requestId` for observability.
+      Object.defineProperty(parsed, "_requestId", {
+        value: requestId,
+        enumerable: false,
+        configurable: true,
+        writable: false,
+      });
+    }
+
+    return parsed as T;
   }
 
   private linkAbortSignal(
@@ -258,4 +296,10 @@ function safeJsonParse(text: string): unknown {
   } catch {
     return null;
   }
+}
+
+function extractRequestId(err: unknown): string | undefined {
+  if (typeof err !== "object" || err === null) return undefined;
+  const candidate = (err as { requestId?: unknown }).requestId;
+  return typeof candidate === "string" ? candidate : undefined;
 }

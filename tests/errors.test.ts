@@ -3,6 +3,7 @@ import {
   AhaSendAPIError,
   AhaSendAuthenticationError,
   AhaSendBadRequestError,
+  AhaSendConflictError,
   AhaSendIdempotencyConflictError,
   AhaSendIdempotencyMismatchError,
   AhaSendIdempotencyPreconditionFailedError,
@@ -10,6 +11,7 @@ import {
   AhaSendPermissionError,
   AhaSendRateLimitError,
   AhaSendServerError,
+  AhaSendUnprocessableEntityError,
   createApiError,
 } from "../src/errors.js";
 
@@ -21,16 +23,38 @@ describe("createApiError", () => {
     expect(err.message).toBe("bad");
   });
 
-  it("maps 422 to AhaSendIdempotencyMismatchError (extends BadRequest)", () => {
-    const err = createApiError({ status: 422, body: { message: "payload mismatch" } });
+  it("maps generic 422 to AhaSendUnprocessableEntityError (extends BadRequest)", () => {
+    const err = createApiError({ status: 422, body: { message: "validation failed" } });
+    expect(err).toBeInstanceOf(AhaSendUnprocessableEntityError);
+    expect(err).toBeInstanceOf(AhaSendBadRequestError);
+    expect(err).not.toBeInstanceOf(AhaSendIdempotencyMismatchError);
+  });
+
+  it("maps 422 with Idempotent-Replayed header to AhaSendIdempotencyMismatchError", () => {
+    const err = createApiError({
+      status: 422,
+      body: { message: "payload mismatch" },
+      headers: { "idempotent-replayed": "false" },
+    });
     expect(err).toBeInstanceOf(AhaSendIdempotencyMismatchError);
+    expect(err).toBeInstanceOf(AhaSendUnprocessableEntityError);
     expect(err).toBeInstanceOf(AhaSendBadRequestError);
   });
 
-  it("maps 409 to AhaSendIdempotencyConflictError (key in-progress)", () => {
-    const err = createApiError({ status: 409, body: { message: "in progress" } });
+  it("maps generic 409 to AhaSendConflictError (e.g. duplicate domain)", () => {
+    const err = createApiError({ status: 409, body: { message: "domain exists" } });
+    expect(err).toBeInstanceOf(AhaSendConflictError);
+    expect(err).not.toBeInstanceOf(AhaSendIdempotencyConflictError);
+  });
+
+  it("maps 409 with Idempotent-Replayed header to AhaSendIdempotencyConflictError", () => {
+    const err = createApiError({
+      status: 409,
+      body: { message: "in progress" },
+      headers: { "idempotent-replayed": "false" },
+    });
     expect(err).toBeInstanceOf(AhaSendIdempotencyConflictError);
-    expect(err.status).toBe(409);
+    expect(err).toBeInstanceOf(AhaSendConflictError);
   });
 
   it("maps 412 to AhaSendIdempotencyPreconditionFailedError (original failed)", () => {

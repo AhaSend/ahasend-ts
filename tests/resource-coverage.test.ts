@@ -70,10 +70,10 @@ describe("Resource coverage smoke", () => {
   it("webhooks: get", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.webhooks.get("example.com", "wh_1");
+    await client.webhooks.get("wh_1");
     expect(calls[0]).toEqual({
       method: "GET",
-      url: "https://api.test/v2/accounts/acc_1/domains/example.com/webhooks/wh_1",
+      url: "https://api.test/v2/accounts/acc_1/webhooks/wh_1",
     });
   });
 
@@ -92,16 +92,6 @@ describe("Resource coverage smoke", () => {
     });
   });
 
-  it("accounts: updateMember", async () => {
-    const { fetch, calls } = captureFetch();
-    const client = makeClient(fetch);
-    await client.accounts.updateMember("usr_1", { role: "Analyst" });
-    expect(calls[0]).toEqual({
-      method: "PUT",
-      url: "https://api.test/v2/accounts/acc_1/members/usr_1",
-    });
-  });
-
   it("smtp-credentials: get + delete", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
@@ -117,12 +107,12 @@ describe("Resource coverage smoke", () => {
     });
   });
 
-  it("messages: forwarded headers and signal options reach the request", async () => {
+  it("messages.cancel forwards options without throwing and uses DELETE", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
     const ctrl = new AbortController();
     await client.messages.cancel("msg_1", { signal: ctrl.signal, headers: { "x-trace-id": "t1" } });
-    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.method).toBe("DELETE");
     expect(calls[0]?.url).toBe("https://api.test/v2/accounts/acc_1/messages/msg_1/cancel");
   });
 
@@ -144,9 +134,9 @@ describe("Resource coverage smoke", () => {
   it("webhooks: update + idempotency on create", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.webhooks.update("example.com", "wh_1", { enabled: true });
+    await client.webhooks.update("wh_1", { enabled: true });
     expect(calls[0]?.method).toBe("PUT");
-    await client.webhooks.create("example.com", { name: "w", url: "https://x", scope: "global" });
+    await client.webhooks.create({ name: "w", url: "https://x", scope: "global" });
     expect(calls[1]?.method).toBe("POST");
   });
 
@@ -181,7 +171,7 @@ describe("Resource coverage smoke", () => {
     expect(await drainAll(c.messages.iterate({ limit: 1 }))).toBeGreaterThanOrEqual(0);
     expect(await drainAll(c.domains.iterate({ limit: 1 }))).toBeGreaterThanOrEqual(0);
     expect(await drainAll(c.apiKeys.iterate({ limit: 1 }))).toBeGreaterThanOrEqual(0);
-    expect(await drainAll(c.webhooks.iterate("example.com", { limit: 1 }))).toBeGreaterThanOrEqual(0);
+    expect(await drainAll(c.webhooks.iterate({ limit: 1 }))).toBeGreaterThanOrEqual(0);
     expect(await drainAll(c.suppressions.iterate({ limit: 1 }))).toBeGreaterThanOrEqual(0);
     expect(await drainAll(c.routes.iterate({ limit: 1 }))).toBeGreaterThanOrEqual(0);
     expect(await drainAll(c.smtpCredentials.iterate({ limit: 1 }))).toBeGreaterThanOrEqual(0);

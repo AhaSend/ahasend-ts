@@ -42,9 +42,10 @@ node examples/list-api-keys.mjs
 
 ### 4. `send-sandbox.mjs` — exercise the send flow without delivering
 Uses AhaSend's sandbox mode (`sandbox: true`). The API validates the request and returns a normal response, but no email is actually sent.
+
+`AHASEND_FROM_EMAIL` is required and must be on a **verified sending domain** on your account — sandbox mode does not bypass domain validation.
 ```bash
-# Optional: use an address on a domain you have. In sandbox mode the "from" can be anything.
-export AHASEND_FROM_EMAIL="test@example.com"
+export AHASEND_FROM_EMAIL="sender@your-verified-domain.com"
 node examples/send-sandbox.mjs
 ```
 

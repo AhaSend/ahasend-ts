@@ -19,10 +19,10 @@ export interface Route {
   name: string;
   url: string;
   recipient: string | null;
-  attachments: boolean;
-  headers: boolean;
-  group_by_message_id: boolean;
-  strip_replies: boolean;
+  attachments?: boolean;
+  headers?: boolean;
+  group_by_message_id?: boolean;
+  strip_replies?: boolean;
   enabled: boolean;
   success_count?: number;
   error_count?: number;
@@ -37,7 +37,6 @@ export interface CreatedRoute extends Route {
 export interface CreateRouteRequest {
   name: string;
   url: string;
-  domain: string;
   recipient: string;
   attachments?: boolean;
   headers?: boolean;

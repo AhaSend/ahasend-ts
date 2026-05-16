@@ -10,6 +10,7 @@ import { SMTPCredentialsClient } from "./resources/smtp-credentials.js";
 import { StatisticsClient } from "./resources/statistics.js";
 import { SuppressionsClient } from "./resources/suppressions.js";
 import { WebhooksClient } from "./resources/webhooks.js";
+import { forwardOptions } from "./resources/_helpers.js";
 import type { RequestOptions, UUID } from "./types/common.js";
 
 export interface AhaSendClientOptions extends ClientOptions {
@@ -64,13 +65,10 @@ export class AhaSendClient {
   }
 
   ping(options: RequestOptions = {}): Promise<PingResponse> {
-    const init: { signal?: AbortSignal; headers?: Record<string, string> } = {};
-    if (options.signal) init.signal = options.signal;
-    if (options.headers) init.headers = options.headers;
     return this.http.request<PingResponse>({
       method: "GET",
       path: "/v2/ping",
-      ...init,
+      ...forwardOptions(options),
     });
   }
 }

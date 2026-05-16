@@ -5,12 +5,17 @@ import {
   WebhookVerifier,
 } from "../src/webhooks/verifier.js";
 
-const SECRET_RAW = "test-secret-bytes-must-be-long-enough";
-const SECRET_BASE64 = Buffer.from(SECRET_RAW, "utf-8").toString("base64");
+// AhaSend webhook secrets are raw strings: the HMAC key is the literal
+// UTF-8 bytes of the secret as the user pastes it from the dashboard.
+// This matches the Go SDK at ahasend-go/webhooks/webhooks.go.
+const SECRET = "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+const PREFIXED_SECRET = `aha-whsec-${SECRET}`;
 
-function sign(secretBytes: Buffer, id: string, ts: number, body: string): string {
+function sign(secret: string, id: string, ts: number, body: string): string {
   const toSign = `${id}.${ts}.${body}`;
-  return `v1,${createHmac("sha256", secretBytes).update(toSign).digest("base64")}`;
+  return `v1,${createHmac("sha256", Buffer.from(secret, "utf-8"))
+    .update(toSign)
+    .digest("base64")}`;
 }
 
 function buildEnvelope(
@@ -18,14 +23,10 @@ function buildEnvelope(
   body: object,
   options: { id?: string; timestamp?: number } = {},
 ): { headers: Record<string, string>; body: string } {
-  const secretBytes = Buffer.from(
-    secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret,
-    isBase64(secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret) ? "base64" : "utf-8",
-  );
   const id = options.id ?? "msg_test_123";
   const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
   const rawBody = JSON.stringify(body);
-  const signature = sign(secretBytes, id, timestamp, rawBody);
+  const signature = sign(secret, id, timestamp, rawBody);
   return {
     headers: {
       "webhook-id": id,
@@ -36,15 +37,10 @@ function buildEnvelope(
   };
 }
 
-function isBase64(v: string): boolean {
-  if (v.length === 0 || v.length % 4 !== 0) return false;
-  return /^[A-Za-z0-9+/]+=*$/.test(v);
-}
-
 describe("WebhookVerifier", () => {
   it("verifies a correctly signed payload", () => {
-    const verifier = new WebhookVerifier(SECRET_BASE64);
-    const { headers, body } = buildEnvelope(SECRET_BASE64, {
+    const verifier = new WebhookVerifier(SECRET);
+    const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: new Date().toISOString(),
       data: { id: "msg_1" },
@@ -53,7 +49,7 @@ describe("WebhookVerifier", () => {
   });
 
   it("parses verified payload as a typed event", () => {
-    const verifier = new WebhookVerifier(SECRET_BASE64);
+    const verifier = new WebhookVerifier(SECRET);
     const payload = {
       type: "message.delivered" as const,
       timestamp: new Date().toISOString(),
@@ -67,7 +63,7 @@ describe("WebhookVerifier", () => {
         id: "msg_1",
       },
     };
-    const { headers, body } = buildEnvelope(SECRET_BASE64, payload);
+    const { headers, body } = buildEnvelope(SECRET, payload);
     const event = verifier.parse(headers, body);
     expect(event.type).toBe("message.delivered");
     if (event.type === "message.delivered") {
@@ -76,8 +72,8 @@ describe("WebhookVerifier", () => {
   });
 
   it("rejects a tampered body", () => {
-    const verifier = new WebhookVerifier(SECRET_BASE64);
-    const { headers, body } = buildEnvelope(SECRET_BASE64, {
+    const verifier = new WebhookVerifier(SECRET);
+    const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: new Date().toISOString(),
       data: {},
@@ -93,8 +89,8 @@ describe("WebhookVerifier", () => {
   });
 
   it("rejects a wrong secret", () => {
-    const verifier = new WebhookVerifier(Buffer.from("different-secret").toString("base64"));
-    const { headers, body } = buildEnvelope(SECRET_BASE64, {
+    const verifier = new WebhookVerifier("a-different-secret-entirely");
+    const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: new Date().toISOString(),
       data: {},
@@ -103,10 +99,10 @@ describe("WebhookVerifier", () => {
   });
 
   it("rejects an outdated timestamp (replay attack)", () => {
-    const verifier = new WebhookVerifier(SECRET_BASE64, { toleranceSeconds: 300 });
+    const verifier = new WebhookVerifier(SECRET, { toleranceSeconds: 300 });
     const oldTs = Math.floor(Date.now() / 1000) - 1000;
     const { headers, body } = buildEnvelope(
-      SECRET_BASE64,
+      SECRET,
       { type: "message.delivered", timestamp: "2020-01-01T00:00:00Z", data: {} },
       { timestamp: oldTs },
     );
@@ -119,14 +115,31 @@ describe("WebhookVerifier", () => {
   });
 
   it("rejects when required headers are missing", () => {
-    const verifier = new WebhookVerifier(SECRET_BASE64);
+    const verifier = new WebhookVerifier(SECRET);
     expect(() => verifier.verify({}, "{}")).toThrow(/missing_webhook_id/);
   });
 
-  it("supports the whsec_ prefix on the secret", () => {
-    const prefixed = `whsec_${SECRET_BASE64}`;
-    const verifier = new WebhookVerifier(prefixed);
-    const { headers, body } = buildEnvelope(prefixed, {
+  it("treats the aha-whsec- prefix as part of the secret bytes (matches Go SDK)", () => {
+    // AhaSend's secret format is `aha-whsec-<key>`. The Go SDK uses the
+    // entire string (prefix included) as the HMAC key bytes, and so does
+    // the AhaSend server. The TS verifier must do the same.
+    const verifier = new WebhookVerifier(PREFIXED_SECRET);
+    const { headers, body } = buildEnvelope(PREFIXED_SECRET, {
+      type: "message.delivered",
+      timestamp: new Date().toISOString(),
+      data: {},
+    });
+    expect(() => verifier.verify(headers, body)).not.toThrow();
+  });
+
+  it("CROSS-SDK FIXTURE: accepts a base64-legal raw secret without decoding it", () => {
+    // `MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw` is 32 alphanumeric characters —
+    // it is base64-legal (length % 4 == 0, only base64 alphabet). The
+    // previous verifier base64-decoded it, producing different key bytes
+    // from what the Go SDK and the AhaSend server produce, and rejected
+    // every webhook with signature_mismatch. This test pins the fix.
+    const verifier = new WebhookVerifier(SECRET);
+    const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: new Date().toISOString(),
       data: {},
@@ -135,8 +148,8 @@ describe("WebhookVerifier", () => {
   });
 
   it("accepts a Buffer body", () => {
-    const verifier = new WebhookVerifier(SECRET_BASE64);
-    const { headers, body } = buildEnvelope(SECRET_BASE64, {
+    const verifier = new WebhookVerifier(SECRET);
+    const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: new Date().toISOString(),
       data: {},
@@ -145,11 +158,11 @@ describe("WebhookVerifier", () => {
   });
 
   it("accepts multiple signatures separated by spaces (key rotation)", () => {
-    const verifier = new WebhookVerifier(SECRET_BASE64);
+    const verifier = new WebhookVerifier(SECRET);
     const ts = Math.floor(Date.now() / 1000);
     const id = "msg_1";
     const body = JSON.stringify({ type: "message.delivered", data: {} });
-    const validSig = sign(Buffer.from(SECRET_BASE64, "base64"), id, ts, body);
+    const validSig = sign(SECRET, id, ts, body);
     const headers = {
       "webhook-id": id,
       "webhook-timestamp": String(ts),
@@ -159,8 +172,8 @@ describe("WebhookVerifier", () => {
   });
 
   it("accepts a Headers instance", () => {
-    const verifier = new WebhookVerifier(SECRET_BASE64);
-    const { headers, body } = buildEnvelope(SECRET_BASE64, {
+    const verifier = new WebhookVerifier(SECRET);
+    const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: new Date().toISOString(),
       data: {},

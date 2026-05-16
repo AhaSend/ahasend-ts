@@ -55,13 +55,21 @@ function mergeCategory(
   };
 }
 
+/**
+ * Map a (method, path) pair to its rate-limit category.
+ *
+ * Send-message bucket covers exactly the two endpoints the AhaSend API
+ * documents as send paths:
+ *
+ *   - `POST /v2/accounts/{account_id}/messages`
+ *   - `POST /v2/accounts/{account_id}/messages/conversation`
+ *
+ * `POST /messages/{id}/cancel` (and any GET on /messages*) intentionally
+ * fall through to `general`.
+ */
 export function detectCategory(method: string, path: string): EndpointCategory {
   if (path.includes("/statistics/")) return "statistics";
-  if (
-    method === "POST" &&
-    path.includes("/messages") &&
-    !path.includes("/messages/")
-  ) {
+  if (method === "POST" && /\/messages(?:\/conversation)?$/.test(path)) {
     return "sendMessage";
   }
   return "general";

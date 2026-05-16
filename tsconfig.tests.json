@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    // Tests mock the global fetch and need its DOM-side types
+    // (RequestInfo, Request, Response, Headers). DOM is added here for
+    // the test typecheck only — production src stays Node-only.
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

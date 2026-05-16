@@ -1,4 +1,5 @@
 import {
+  AhaSendAPIError,
   AhaSendConnectionError,
   AhaSendRateLimitError,
   AhaSendServerError,
@@ -50,6 +51,8 @@ export function isRetryableError(err: unknown): boolean {
   if (err instanceof AhaSendConnectionError) return true;
   if (err instanceof AhaSendRateLimitError) return true;
   if (err instanceof AhaSendServerError) return true;
+  // 408 Request Timeout is retryable per RFC 9110.
+  if (err instanceof AhaSendAPIError && err.status === 408) return true;
   return false;
 }
 
@@ -90,8 +93,12 @@ export function computeRetryDelayMs(
   const backoff = computeBackoffMs(attempt, config, random);
 
   if (err instanceof AhaSendRateLimitError && err.retryAfterSeconds !== undefined) {
+    // Honour the server's Retry-After hint in full. We do NOT clamp the
+    // server hint to `maxDelayMs` — the server's pacing is the source of
+    // truth, and clamping causes the SDK to retry too soon and get
+    // re-rate-limited. `maxDelayMs` only bounds the local backoff.
     const serverHint = err.retryAfterSeconds * 1000;
-    return Math.min(Math.max(backoff, serverHint), config.maxDelayMs);
+    return Math.max(backoff, serverHint);
   }
 
   return backoff;

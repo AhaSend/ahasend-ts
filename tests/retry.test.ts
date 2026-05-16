@@ -140,15 +140,17 @@ describe("computeRetryDelayMs", () => {
     expect(delay).toBe(1600); // 100 * 2^4 = 1600 > 1000ms (Retry-After)
   });
 
-  it("caps Retry-After at maxDelayMs", () => {
+  it("does NOT cap Retry-After at maxDelayMs (server hint is the source of truth)", () => {
     const err = new AhaSendRateLimitError({
       status: 429,
       message: "rate limit",
       body: null,
       retryAfterSeconds: 999,
     });
+    // Server says wait 999s; we must honour it even if maxDelayMs is 5s,
+    // otherwise we just retry into another 429.
     const delay = computeRetryDelayMs(err, 1, { ...NO_JITTER, maxDelayMs: 5000 });
-    expect(delay).toBe(5000);
+    expect(delay).toBe(999_000);
   });
 });
 

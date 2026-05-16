@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { AhaSendWebhookVerificationError, WebhookVerifier } from "./verifier.js";
+import { WebhookVerifier } from "./verifier.js";
 import type { WebhookEvent } from "./events.js";
 
 /**
@@ -64,15 +64,15 @@ export function expressWebhookHandler<T extends WebhookEvent = WebhookEvent>(
     try {
       rawBody = await readNodeRawBody(req);
     } catch {
-      writeError(res, 400, "raw_body_read_failed");
+      writeError(res, 400);
       return;
     }
 
     let event: WebhookEvent;
     try {
       event = verifier.parse(req.headers, rawBody);
-    } catch (err) {
-      writeError(res, 400, reasonFor(err));
+    } catch {
+      writeError(res, 400);
       return;
     }
 
@@ -83,7 +83,7 @@ export function expressWebhookHandler<T extends WebhookEvent = WebhookEvent>(
         res.end();
       }
     } catch {
-      if (!res.writableEnded) writeError(res, 500, "handler_error");
+      if (!res.writableEnded) writeError(res, 500);
     }
   };
 }
@@ -107,8 +107,8 @@ export function fastifyWebhookHandler<T extends WebhookEvent = WebhookEvent>(
     let event: WebhookEvent;
     try {
       event = verifier.parse(request.headers, rawBody);
-    } catch (err) {
-      reply.code(400).send(reasonFor(err));
+    } catch {
+      reply.code(400).send();
       return;
     }
 
@@ -116,7 +116,7 @@ export function fastifyWebhookHandler<T extends WebhookEvent = WebhookEvent>(
       await handler(event as T, request, reply);
       if (!reply.sent) reply.code(200).send();
     } catch {
-      if (!reply.sent) reply.code(500).send("handler_error");
+      if (!reply.sent) reply.code(500).send();
     }
   };
 }
@@ -139,14 +139,14 @@ export function nextRouteHandler<T extends WebhookEvent = WebhookEvent>(
     let event: WebhookEvent;
     try {
       event = verifier.parse(request.headers, rawBody);
-    } catch (err) {
-      return new Response(reasonFor(err), { status: 400 });
+    } catch {
+      return new Response(null, { status: 400 });
     }
 
     try {
       return await handler(event as T, request);
     } catch {
-      return new Response("handler_error", { status: 500 });
+      return new Response(null, { status: 500 });
     }
   };
 }
@@ -158,9 +158,20 @@ async function readNodeRawBody(req: NodeStyleRequest): Promise<Buffer> {
   if (req.body !== undefined) {
     if (Buffer.isBuffer(req.body)) return req.body;
     if (typeof req.body === "string") return Buffer.from(req.body, "utf-8");
+    // Body has been parsed into a JS object by an upstream middleware
+    // such as `express.json()`. The original bytes are gone; we can't
+    // verify the HMAC. Refuse explicitly rather than hanging on stream
+    // events that have already fired.
+    throw new Error(
+      "raw_body_required: an upstream middleware parsed the body. " +
+        "Mount `express.raw({ type: '*/*' })` on the webhook route, or " +
+        "use a route-specific raw-body parser, before this handler.",
+    );
   }
   if (typeof req.on !== "function") {
-    throw new Error("Cannot read raw body — request has no rawBody, body, or stream interface");
+    throw new Error(
+      "raw_body_required: request has no rawBody, body, or stream interface.",
+    );
   }
   return new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -181,12 +192,8 @@ function pickFastifyRawBody(request: NodeStyleRequest): string | Buffer | undefi
   return undefined;
 }
 
-function reasonFor(err: unknown): string {
-  if (err instanceof AhaSendWebhookVerificationError) return err.reason;
-  return "verification_failed";
-}
-
-function writeError(res: NodeStyleResponse, status: number, body: string): void {
+function writeError(res: NodeStyleResponse, status: number, body?: string): void {
   res.statusCode = status;
-  res.end(body);
+  if (body !== undefined) res.end(body);
+  else res.end();
 }

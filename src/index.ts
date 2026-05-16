@@ -8,6 +8,7 @@ export {
   AhaSendAPIError,
   AhaSendAuthenticationError,
   AhaSendBadRequestError,
+  AhaSendConflictError,
   AhaSendConnectionError,
   AhaSendError,
   AhaSendIdempotencyConflictError,
@@ -18,6 +19,7 @@ export {
   AhaSendRateLimitError,
   AhaSendServerError,
   AhaSendTimeoutError,
+  AhaSendUnprocessableEntityError,
 } from "./errors.js";
 export type { ApiErrorBody } from "./errors.js";
 
@@ -110,6 +112,7 @@ export type {
   APIKey,
   APIKeyRequestOptions,
   APIKeyScope,
+  APIKeyScopeName,
   CreateAPIKeyRequest,
   UpdateAPIKeyRequest,
 } from "./resources/api-keys.js";
@@ -118,6 +121,7 @@ export { WebhooksClient } from "./resources/webhooks.js";
 export type {
   CreateWebhookRequest,
   CreatedWebhook,
+  ListWebhooksParams,
   UpdateWebhookRequest,
   Webhook,
   WebhookScope,
@@ -141,7 +145,10 @@ export { SuppressionsClient } from "./resources/suppressions.js";
 export type {
   CreateSuppressionRequest,
   CreateSuppressionResponse,
+  DeleteSuppressionParams,
+  ListSuppressionsParams,
   Suppression,
+  WipeSuppressionsParams,
 } from "./resources/suppressions.js";
 
 export { RoutesClient } from "./resources/routes.js";
@@ -160,7 +167,6 @@ export type {
   AddAccountMemberRequest,
   ListAccountMembersResponse,
   ListMembersParams,
-  UpdateAccountMemberRequest,
   UpdateAccountRequest,
   UserAccount,
 } from "./resources/accounts.js";

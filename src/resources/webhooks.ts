@@ -32,7 +32,7 @@ export interface Webhook {
   on_suppression_created?: boolean;
   on_dns_error?: boolean;
   scope?: WebhookScope;
-  domains?: string[];
+  domains?: string[] | null;
   success_count?: number;
   error_count?: number;
   errors_since_last_success?: number;
@@ -79,6 +79,27 @@ export interface UpdateWebhookRequest {
   domains?: string[] | null;
 }
 
+export interface ListWebhooksParams extends PaginationParams {
+  enabled?: boolean;
+  on_reception?: boolean;
+  on_delivered?: boolean;
+  on_transient_error?: boolean;
+  on_failed?: boolean;
+  on_bounced?: boolean;
+  on_suppressed?: boolean;
+  on_opened?: boolean;
+  on_clicked?: boolean;
+  on_suppression_created?: boolean;
+  on_dns_error?: boolean;
+}
+
+/**
+ * Manage webhook subscriptions for the account.
+ *
+ * Webhooks are account-scoped, not domain-scoped. Use the request body's
+ * `scope: "scoped"` + `domains: [...]` fields to limit a webhook to a
+ * subset of domains.
+ */
 export class WebhooksClient {
   constructor(
     private readonly http: HttpClient,
@@ -86,68 +107,64 @@ export class WebhooksClient {
   ) {}
 
   list(
-    domain: string,
-    params: PaginationParams = {},
+    params: ListWebhooksParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Webhook>> {
     return this.http.request<PaginatedResponse<Webhook>>({
       method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains/${encodeURIComponent(domain)}/webhooks`,
+      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks`,
       query: params as Record<string, unknown>,
       ...forwardOptions(options),
     });
   }
 
   iterate(
-    domain: string,
-    params: PaginationParams = {},
+    params: ListWebhooksParams = {},
     options: RequestOptions = {},
   ): AsyncGenerator<Webhook, void, undefined> {
-    return paginate<Webhook, PaginationParams>(
-      (p) => this.list(domain, p, options),
+    return paginate<Webhook, ListWebhooksParams>(
+      (p) => this.list(p, options),
       params,
     );
   }
 
   create(
-    domain: string,
     body: CreateWebhookRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreatedWebhook> {
     return this.http.request<CreatedWebhook>({
       method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains/${encodeURIComponent(domain)}/webhooks`,
+      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks`,
       body,
       ...forwardWithIdempotency(options),
     });
   }
 
-  get(domain: string, webhookId: UUID, options: RequestOptions = {}): Promise<Webhook> {
+  get(webhookId: UUID, options: RequestOptions = {}): Promise<Webhook> {
     return this.http.request<Webhook>({
       method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains/${encodeURIComponent(domain)}/webhooks/${encodeURIComponent(webhookId)}`,
+      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks/${encodeURIComponent(webhookId)}`,
       ...forwardOptions(options),
     });
   }
 
   update(
-    domain: string,
     webhookId: UUID,
     body: UpdateWebhookRequest,
     options: RequestOptions = {},
   ): Promise<Webhook> {
     return this.http.request<Webhook>({
       method: "PUT",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains/${encodeURIComponent(domain)}/webhooks/${encodeURIComponent(webhookId)}`,
+      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks/${encodeURIComponent(webhookId)}`,
       body,
       ...forwardOptions(options),
     });
   }
 
-  delete(domain: string, webhookId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
+  delete(webhookId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
     return this.http.request<SuccessResponse>({
       method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/domains/${encodeURIComponent(domain)}/webhooks/${encodeURIComponent(webhookId)}`,
+      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks/${encodeURIComponent(webhookId)}`,
       ...forwardOptions(options),
     });
   }

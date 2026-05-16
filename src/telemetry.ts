@@ -12,6 +12,8 @@ export interface ResponseEvent {
   status: number;
   durationMs: number;
   attempt: number;
+  /** AhaSend's `x-request-id`, when the server returned one. */
+  requestId?: string;
 }
 
 export interface RetryEvent {
@@ -21,6 +23,8 @@ export interface RetryEvent {
   attempt: number;
   delayMs: number;
   error: unknown;
+  /** AhaSend's `x-request-id` from the failed response, when present. */
+  requestId?: string;
 }
 
 export interface ErrorEvent {
@@ -29,6 +33,8 @@ export interface ErrorEvent {
   url: string;
   attempt: number;
   error: unknown;
+  /** AhaSend's `x-request-id` from the failed response, when present. */
+  requestId?: string;
 }
 
 export interface TelemetryHooks {
