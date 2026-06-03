@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { AhaSendError } from "../errors.js";
-import type { WebhookEvent } from "./events.js";
+import type { AnyWebhookEvent } from "./events.js";
 
 export const WEBHOOK_ID_HEADER = "webhook-id";
 export const WEBHOOK_TIMESTAMP_HEADER = "webhook-timestamp";
@@ -20,7 +20,15 @@ export class AhaSendWebhookVerificationError extends AhaSendError {
 
 export interface WebhookVerifierOptions {
   toleranceSeconds?: number;
-  now?: () => number;
+  /**
+   * Clock injection for tests. Must return a millisecond-precision
+   * timestamp matching `Date.now()` — the verifier divides by 1000
+   * internally to compare against the seconds-resolution
+   * `webhook-timestamp` header. Named with the `Ms` suffix so callers
+   * can't accidentally inject a seconds-resolution clock (which would
+   * silently produce a ~50-year tolerance error).
+   */
+  nowMs?: () => number;
 }
 
 export interface NormalizedHeaders {
@@ -34,15 +42,21 @@ type HeadersInput = Record<string, string | string[] | undefined> | Headers;
 export class WebhookVerifier {
   private readonly key: Buffer;
   private readonly toleranceSeconds: number;
-  private readonly now: () => number;
+  private readonly nowMs: () => number;
 
   constructor(secret: string, options: WebhookVerifierOptions = {}) {
     if (!secret || typeof secret !== "string") {
       throw new Error("WebhookVerifier: secret must be a non-empty string.");
     }
+    if (options.toleranceSeconds !== undefined && options.toleranceSeconds <= 0) {
+      throw new Error(
+        "WebhookVerifier: toleranceSeconds must be > 0. Use a small positive " +
+          "value if you want a tight window; do not disable replay protection.",
+      );
+    }
     this.key = decodeSecret(secret);
     this.toleranceSeconds = options.toleranceSeconds ?? DEFAULT_TOLERANCE_SECONDS;
-    this.now = options.now ?? Date.now;
+    this.nowMs = options.nowMs ?? Date.now;
   }
 
   verify(headers: HeadersInput, rawBody: string | Buffer): void {
@@ -53,7 +67,7 @@ export class WebhookVerifier {
       throw new AhaSendWebhookVerificationError("invalid_timestamp");
     }
 
-    const nowSec = Math.floor(this.now() / 1000);
+    const nowSec = Math.floor(this.nowMs() / 1000);
     if (Math.abs(nowSec - tsSec) > this.toleranceSeconds) {
       throw new AhaSendWebhookVerificationError("timestamp_outside_tolerance");
     }
@@ -71,16 +85,34 @@ export class WebhookVerifier {
     }
   }
 
-  parse(headers: HeadersInput, rawBody: string | Buffer): WebhookEvent {
+  /**
+   * Verify + JSON-parse. Returns the strict `WebhookEvent` union when
+   * the payload's `type` matches a known event, or a generic
+   * `UnknownWebhookEvent` branch when the server has rolled out a new
+   * event type this SDK version does not yet know about. Throws
+   * `AhaSendWebhookVerificationError` on signature failure, malformed
+   * JSON, or a payload that does not look like a webhook envelope.
+   */
+  parse(headers: HeadersInput, rawBody: string | Buffer): AnyWebhookEvent {
     this.verify(headers, rawBody);
     const text = typeof rawBody === "string" ? rawBody : rawBody.toString("utf-8");
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
-    } catch (err) {
+    } catch {
       throw new AhaSendWebhookVerificationError("invalid_json", "Webhook body is not valid JSON");
     }
-    return parsed as WebhookEvent;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as { type?: unknown }).type !== "string"
+    ) {
+      throw new AhaSendWebhookVerificationError(
+        "invalid_payload",
+        "Webhook body is not a recognisable AhaSend event envelope",
+      );
+    }
+    return parsed as AnyWebhookEvent;
   }
 
   sign(id: string, timestampSeconds: number, body: string): string {
@@ -124,9 +156,12 @@ function decodeSecret(secret: string): Buffer {
 }
 
 function signatureMatches(provided: string, expected: string): boolean {
+  // Signatures are ASCII (`v1,<base64>`), so equal string length implies
+  // equal byte length. `timingSafeEqual` panics on unequal-length
+  // buffers, hence the up-front length comparison.
   if (provided.length !== expected.length) return false;
-  const a = Buffer.from(provided, "utf-8");
-  const b = Buffer.from(expected, "utf-8");
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+  return timingSafeEqual(
+    Buffer.from(provided, "utf-8"),
+    Buffer.from(expected, "utf-8"),
+  );
 }

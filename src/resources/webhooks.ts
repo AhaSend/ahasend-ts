@@ -43,7 +43,7 @@ export interface CreatedWebhook extends Webhook {
   secret: string;
 }
 
-export interface CreateWebhookRequest {
+interface CreateWebhookBase {
   name: string;
   url: string;
   enabled?: boolean;
@@ -57,25 +57,35 @@ export interface CreateWebhookRequest {
   on_clicked?: boolean;
   on_suppression_created?: boolean;
   on_dns_error?: boolean;
-  scope: WebhookScope;
-  domains?: string[];
 }
 
+/**
+ * Discriminated union mirroring the spec: `scope: "scoped"` requires a
+ * `domains` array; `scope: "global"` must not supply one.
+ */
+export type CreateWebhookRequest =
+  | (CreateWebhookBase & { scope: "global"; domains?: never })
+  | (CreateWebhookBase & { scope: "scoped"; domains: string[] });
+
 export interface UpdateWebhookRequest {
-  name?: string | null;
-  url?: string | null;
-  enabled?: boolean | null;
-  on_reception?: boolean | null;
-  on_delivered?: boolean | null;
-  on_transient_error?: boolean | null;
-  on_failed?: boolean | null;
-  on_bounced?: boolean | null;
-  on_suppressed?: boolean | null;
-  on_opened?: boolean | null;
-  on_clicked?: boolean | null;
-  on_suppression_created?: boolean | null;
-  on_dns_error?: boolean | null;
-  scope?: WebhookScope | null;
+  /** Required on the persisted webhook — cannot be cleared via `null`. */
+  name?: string;
+  /** Required on the persisted webhook — cannot be cleared via `null`. */
+  url?: string;
+  enabled?: boolean;
+  on_reception?: boolean;
+  on_delivered?: boolean;
+  on_transient_error?: boolean;
+  on_failed?: boolean;
+  on_bounced?: boolean;
+  on_suppressed?: boolean;
+  on_opened?: boolean;
+  on_clicked?: boolean;
+  on_suppression_created?: boolean;
+  on_dns_error?: boolean;
+  /** Required on the persisted webhook — cannot be cleared via `null`. */
+  scope?: WebhookScope;
+  /** `null` clears the scoped domains list; an array replaces it. */
   domains?: string[] | null;
 }
 

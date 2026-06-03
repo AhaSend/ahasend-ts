@@ -9,6 +9,14 @@ import { createHmac } from "node:crypto";
 const PRISM_PORT = 4011;
 const ACCOUNT_ID = "00000000-0000-0000-0000-000000000000";
 
+// Integration tests spawn @stoplight/prism-cli via npx, which needs
+// network + a local Node install. `npm test` should be offline-clean,
+// so gate this whole suite behind an explicit env flag. CI / pre-tag
+// runs flip RUN_INTEGRATION=1 to exercise it.
+const RUN = process.env.RUN_INTEGRATION === "1";
+const itIntegration = RUN ? it : it.skip;
+const describeIntegration = RUN ? describe : describe.skip;
+
 let prismProc: ChildProcess | undefined;
 let baseUrl = "";
 
@@ -42,6 +50,7 @@ async function waitForPrism(port: number, timeoutMs: number): Promise<void> {
 }
 
 beforeAll(async () => {
+  if (!RUN) return;
   const path = await specPath();
   const isWindows = process.platform === "win32";
   prismProc = spawn(
@@ -74,7 +83,7 @@ function makeClient(): AhaSendClient {
   });
 }
 
-describe("Integration: SDK against Prism mock", () => {
+describeIntegration("Integration: SDK against Prism mock", () => {
   it("ping returns a typed envelope", async () => {
     const res = await makeClient().ping();
     expect(res).toHaveProperty("message");
@@ -233,7 +242,7 @@ describe("Integration: SDK against Prism mock", () => {
   });
 });
 
-describe("Integration: WebhookVerifier (offline)", () => {
+describe("Integration: WebhookVerifier (offline — runs unconditionally)", () => {
   it("round-trips a signed payload locally with a raw-string secret", () => {
     const secret = "aha-whsec-integration-secret";
     const verifier = new WebhookVerifier(secret);

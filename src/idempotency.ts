@@ -27,9 +27,19 @@ export function resolveIdempotencyConfig(
   };
 }
 
+/**
+ * Generate a fresh idempotency key.
+ *
+ * If `prefix` is provided it is **literally prepended** to a UUID v4 —
+ * no separator is inserted. Set `prefix` to `"myapp-"` if you want a
+ * dash between the prefix and the UUID; passing `"myapp"` produces
+ * `"myapp<uuid>"` with no separator. (Earlier versions of this SDK
+ * inserted a `-`, which produced `"myapp--<uuid>"` for callers who
+ * already included their own.)
+ */
 export function generateIdempotencyKey(prefix?: string): string {
   const uuid = randomUUID();
-  return prefix && prefix.length > 0 ? `${prefix}-${uuid}` : uuid;
+  return prefix && prefix.length > 0 ? `${prefix}${uuid}` : uuid;
 }
 
 export class IdempotencyKeyBuilder {

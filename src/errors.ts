@@ -30,6 +30,29 @@ export class AhaSendTimeoutError extends AhaSendConnectionError {
   }
 }
 
+/**
+ * Raised when the server returned a 2xx status but the response body
+ * could not be parsed as JSON (typical of a misconfigured load balancer
+ * serving an HTML 200 page). Surfaces as a transport-layer error so
+ * that `catch (AhaSendAPIError)` blocks looking for 5xx responses don't
+ * inadvertently swallow it.
+ */
+export class AhaSendResponseParseError extends AhaSendError {
+  public readonly status: number;
+  public readonly body: string;
+  public readonly requestId: string | undefined;
+
+  constructor(params: { status: number; body: string; requestId?: string | undefined }) {
+    super(
+      `AhaSend: HTTP ${params.status} response body could not be parsed as JSON.`,
+    );
+    this.name = "AhaSendResponseParseError";
+    this.status = params.status;
+    this.body = params.body;
+    this.requestId = params.requestId;
+  }
+}
+
 export class AhaSendAPIError extends AhaSendError {
   public readonly status: number;
   public readonly body: ApiErrorBody | string | null;
@@ -113,11 +136,13 @@ export class AhaSendIdempotencyPreconditionFailedError extends AhaSendAPIError {
 
 /**
  * Generic 422 Unprocessable Entity — used for validation failures.
- * When the response carries an `Idempotent-Replayed` header, the more
- * specific `AhaSendIdempotencyMismatchError` subclass is raised
- * instead.
+ *
+ * Extends `AhaSendAPIError` directly (not `AhaSendBadRequestError`) so
+ * that `catch (AhaSendBadRequestError)` cannot silently swallow a 422.
+ * `AhaSendIdempotencyMismatchError` is raised instead when the response
+ * carries an `Idempotent-Replayed` header.
  */
-export class AhaSendUnprocessableEntityError extends AhaSendBadRequestError {
+export class AhaSendUnprocessableEntityError extends AhaSendAPIError {
   constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
     super(params);
     this.name = "AhaSendUnprocessableEntityError";
@@ -198,15 +223,27 @@ function extractMessage(body: ApiErrorBody | string | null): string | undefined 
   return undefined;
 }
 
+/**
+ * Sane ceiling on `Retry-After`. Real production rate-limits don't ask
+ * clients to sleep for hours; clamping to one hour blocks
+ * `Retry-After: 1e308` style abuse from causing the SDK to sleep
+ * effectively forever, while still respecting legitimate long backoffs.
+ */
+const MAX_RETRY_AFTER_SECONDS = 60 * 60;
+
 function parseRetryAfter(value: string | undefined): number | undefined {
   if (!value) return undefined;
   // RFC 9110 §10.2.3 allows two forms: delta-seconds (an integer count
   // of seconds) or an HTTP-date.
   const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+  if (Number.isFinite(seconds) && seconds >= 0) return clampRetryAfter(seconds);
   const date = Date.parse(value);
   if (!Number.isNaN(date)) {
-    return Math.max(0, Math.ceil((date - Date.now()) / 1000));
+    return clampRetryAfter(Math.max(0, Math.ceil((date - Date.now()) / 1000)));
   }
   return undefined;
+}
+
+function clampRetryAfter(seconds: number): number {
+  return Math.min(seconds, MAX_RETRY_AFTER_SECONDS);
 }

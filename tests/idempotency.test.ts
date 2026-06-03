@@ -14,9 +14,12 @@ describe("generateIdempotencyKey", () => {
     expect(key).toMatch(UUID_REGEX);
   });
 
-  it("returns a prefixed key when prefix is provided", () => {
-    const key = generateIdempotencyKey("welcome");
+  it("returns a prefixed key with literal concatenation (no separator inserted)", () => {
+    const key = generateIdempotencyKey("welcome-");
+    // The prefix is prepended literally — caller controls the separator.
+    // This avoids the previous "msg-" + "-" + uuid = "msg--<uuid>" bug.
     expect(key.startsWith("welcome-")).toBe(true);
+    expect(key.startsWith("welcome--")).toBe(false);
     expect(key.slice("welcome-".length)).toMatch(UUID_REGEX);
   });
 

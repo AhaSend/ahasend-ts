@@ -4,6 +4,8 @@ export type { AhaSendClientOptions, PingResponse } from "./client.js";
 export type { ClientOptions } from "./config.js";
 export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS } from "./config.js";
 
+export { getResponseMetadata } from "./http.js";
+
 export {
   AhaSendAPIError,
   AhaSendAuthenticationError,
@@ -17,6 +19,7 @@ export {
   AhaSendNotFoundError,
   AhaSendPermissionError,
   AhaSendRateLimitError,
+  AhaSendResponseParseError,
   AhaSendServerError,
   AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
@@ -94,6 +97,7 @@ export type {
   SendMessageResponse,
   SendMessageResult,
   SendMessageStatus,
+  SubstitutionValue,
   Tracking,
 } from "./resources/messages.js";
 
@@ -114,6 +118,7 @@ export type {
   APIKeyScope,
   APIKeyScopeName,
   CreateAPIKeyRequest,
+  CreatedAPIKey,
   UpdateAPIKeyRequest,
 } from "./resources/api-keys.js";
 

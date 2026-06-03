@@ -22,7 +22,9 @@ export type {
   NodeStyleResponse,
 } from "./adapters.js";
 
+export { isKnownWebhookEvent, isKnownWebhookEventType } from "./events.js";
 export type {
+  AnyWebhookEvent,
   DomainDNSErrorEvent,
   DomainEventData,
   MessageBouncedEvent,
@@ -40,6 +42,7 @@ export type {
   RouteMessageEvent,
   SuppressionCreatedEvent,
   SuppressionEventData,
+  UnknownWebhookEvent,
   WebhookEnvelope,
   WebhookEvent,
   WebhookEventType,

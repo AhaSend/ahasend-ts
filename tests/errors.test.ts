@@ -23,10 +23,12 @@ describe("createApiError", () => {
     expect(err.message).toBe("bad");
   });
 
-  it("maps generic 422 to AhaSendUnprocessableEntityError (extends BadRequest)", () => {
+  it("maps generic 422 to AhaSendUnprocessableEntityError (NOT a BadRequest)", () => {
     const err = createApiError({ status: 422, body: { message: "validation failed" } });
     expect(err).toBeInstanceOf(AhaSendUnprocessableEntityError);
-    expect(err).toBeInstanceOf(AhaSendBadRequestError);
+    expect(err).toBeInstanceOf(AhaSendAPIError);
+    // Important: 422 must NOT be caught by `catch (AhaSendBadRequestError)`.
+    expect(err).not.toBeInstanceOf(AhaSendBadRequestError);
     expect(err).not.toBeInstanceOf(AhaSendIdempotencyMismatchError);
   });
 
@@ -38,7 +40,7 @@ describe("createApiError", () => {
     });
     expect(err).toBeInstanceOf(AhaSendIdempotencyMismatchError);
     expect(err).toBeInstanceOf(AhaSendUnprocessableEntityError);
-    expect(err).toBeInstanceOf(AhaSendBadRequestError);
+    expect(err).not.toBeInstanceOf(AhaSendBadRequestError);
   });
 
   it("maps generic 409 to AhaSendConflictError (e.g. duplicate domain)", () => {

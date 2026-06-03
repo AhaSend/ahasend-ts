@@ -8,7 +8,7 @@ import {
   nextRouteHandler,
   type ExpressHandler,
 } from "../src/webhooks/adapters.js";
-import type { WebhookEvent } from "../src/webhooks/events.js";
+import type { AnyWebhookEvent, WebhookEvent } from "../src/webhooks/events.js";
 import { WebhookVerifier } from "../src/webhooks/verifier.js";
 
 // AhaSend webhook secrets are raw strings — the HMAC key is the literal
@@ -61,7 +61,7 @@ class MockExpressRes {
 describe("expressWebhookHandler", () => {
   it("verifies, parses, and invokes the handler with a typed event", async () => {
     const verifier = new WebhookVerifier(SECRET);
-    const received: WebhookEvent[] = [];
+    const received: AnyWebhookEvent[] = [];
     const handler: ExpressHandler = async (event) => {
       received.push(event);
     };
@@ -212,7 +212,8 @@ describe("fastifyWebhookHandler", () => {
     await middleware(request, reply);
     expect(handler).not.toHaveBeenCalled();
     expect(reply.status).toBe(400);
-    expect(reply.payload).toBe("raw_body_required");
+    // Adapters return generic 400s now (no reason echoed in body).
+    expect(reply.payload).toBeUndefined();
   });
 
   it("returns a generic 400 on signature mismatch (no reason echoed)", async () => {

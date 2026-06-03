@@ -4,6 +4,7 @@ import {
   AhaSendAuthenticationError,
   AhaSendConnectionError,
   AhaSendNotFoundError,
+  AhaSendRateLimitError,
 } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 
@@ -191,7 +192,7 @@ describe("HttpClient", () => {
     );
   });
 
-  it("auto-injects an Idempotency-Key on POST when none is provided", async () => {
+  it("auto-injects Idempotency-Key only when autoIdempotency:true is set (POST allowlist)", async () => {
     let seenInit: RequestInit | undefined;
     const client = makeClient(
       mockFetch((_url, init) => {
@@ -200,9 +201,21 @@ describe("HttpClient", () => {
       }),
     );
 
+    // POST without the opt-in flag — should NOT get an auto key.
+    // This is the new, narrower contract: the resource client opts in
+    // via `forwardWithIdempotency()` for the 9 spec-documented endpoints.
     await client.request({ method: "POST", path: "/x", body: {} });
+    let headers = seenInit?.headers as Record<string, string>;
+    expect(headers["idempotency-key"]).toBeUndefined();
 
-    const headers = seenInit?.headers as Record<string, string>;
+    // POST WITH the opt-in flag — gets an auto key.
+    await client.request({
+      method: "POST",
+      path: "/x",
+      body: {},
+      autoIdempotency: true,
+    });
+    headers = seenInit?.headers as Record<string, string>;
     expect(headers["idempotency-key"]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
@@ -259,22 +272,131 @@ describe("HttpClient", () => {
     expect(headers["idempotency-key"]).toBeUndefined();
   });
 
-  it("respects the idempotency.prefix when generating keys", async () => {
+  it("respects the idempotency.prefix when generating keys (literal prepend, no separator)", async () => {
     let seenInit: RequestInit | undefined;
     const client = makeClient(
       mockFetch((_url, init) => {
         seenInit = init;
         return new Response("{}", { status: 200 });
       }),
-      { idempotency: { prefix: "myapp" } },
+      { idempotency: { prefix: "myapp-" } },
     );
 
-    await client.request({ method: "POST", path: "/x", body: {} });
+    await client.request({
+      method: "POST",
+      path: "/x",
+      body: {},
+      autoIdempotency: true,
+    });
 
     const headers = seenInit?.headers as Record<string, string>;
+    // Prefix is literal — caller controls separator. "myapp-" produces
+    // "myapp-<uuid>" (single dash). Old behavior produced "myapp--<uuid>".
     expect(headers["idempotency-key"]).toMatch(
       /^myapp-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
+  });
+});
+
+describe("HttpClient — closing the four high-value P1 test gaps", () => {
+  it("fires AhaSendTimeoutError when the configured timeout elapses", async () => {
+    // Signal-aware mock: reject with AbortError when the SDK's timeout
+    // fires, matching real `fetch` behaviour. Without this the mock
+    // sits forever and the SDK timeout never gets a chance to surface.
+    const client = makeClient(
+      mockFetch(
+        (_url, init) =>
+          new Promise<Response>((_, reject) => {
+            init.signal?.addEventListener("abort", () => {
+              const err = new Error("aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          }),
+      ),
+      { timeout: 30, retry: { enabled: false } },
+    );
+    const { AhaSendTimeoutError } = await import("../src/errors.js");
+    await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
+      AhaSendTimeoutError,
+    );
+  });
+
+  it("AbortSignal cancels an in-flight request and wraps as AhaSendConnectionError", async () => {
+    const ctrl = new AbortController();
+    const { AhaSendConnectionError } = await import("../src/errors.js");
+    const client = makeClient(
+      mockFetch(
+        () =>
+          new Promise<Response>((_, reject) => {
+            setTimeout(() => {
+              const err = new Error("aborted");
+              err.name = "AbortError";
+              reject(err);
+            }, 10);
+          }),
+      ),
+      { retry: { enabled: false } },
+    );
+
+    setTimeout(() => ctrl.abort(), 5);
+    await expect(
+      client.request({ method: "GET", path: "/x", signal: ctrl.signal }),
+    ).rejects.toBeInstanceOf(AhaSendConnectionError);
+  });
+
+  it("honours HTTP-date form of Retry-After (RFC 9110 §10.2.3)", async () => {
+    // Surface the parsed Retry-After through the error envelope rather
+    // than driving it through the retry loop (a 60-second backoff would
+    // be unmistakably real but unfriendly to fast unit tests).
+    const httpDate = new Date(Date.now() + 60_000).toUTCString();
+    const client = makeClient(
+      mockFetch(() =>
+        new Response("rate limit", {
+          status: 429,
+          headers: { "retry-after": httpDate },
+        }),
+      ),
+      { retry: { enabled: false } },
+    );
+    let captured: unknown;
+    try {
+      await client.request({ method: "GET", path: "/x" });
+    } catch (err) {
+      captured = err;
+    }
+    expect(captured).toBeInstanceOf(AhaSendRateLimitError);
+    const rate = captured as AhaSendRateLimitError;
+    // The HTTP-date should parse to roughly 60 seconds in the future.
+    // Clamp at 60 minutes (3600s) so a malicious server can't lock the SDK out.
+    expect(rate.retryAfterSeconds).toBeGreaterThanOrEqual(55);
+    expect(rate.retryAfterSeconds).toBeLessThanOrEqual(60);
+  });
+
+  it("surfaces Idempotent-Replayed:true on a 2xx success replay (non-enumerable _idempotentReplayed)", async () => {
+    const client = makeClient(
+      mockFetch(
+        () =>
+          new Response(JSON.stringify({ object: "message", id: "m1" }), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "idempotent-replayed": "true",
+            },
+          }),
+      ),
+      { retry: { enabled: false } },
+    );
+
+    const res = (await client.request({
+      method: "POST",
+      path: "/x",
+      body: {},
+      autoIdempotency: true,
+    })) as { _idempotentReplayed?: boolean };
+    expect(res._idempotentReplayed).toBe(true);
+    // The metadata is non-enumerable — Object.keys does not surface it.
+    expect(Object.keys(res)).not.toContain("_idempotentReplayed");
   });
 });
 
@@ -391,7 +513,12 @@ describe("HttpClient retry behaviour", () => {
       { retry: { ...fastRetry, maxRetries: 3 } },
     );
 
-    await client.request({ method: "POST", path: "/x", body: { a: 1 } });
+    await client.request({
+      method: "POST",
+      path: "/x",
+      body: { a: 1 },
+      autoIdempotency: true,
+    });
 
     expect(attempts).toBe(3);
     expect(seenKeys).toHaveLength(3);

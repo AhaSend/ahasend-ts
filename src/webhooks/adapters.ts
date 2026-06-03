@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { WebhookVerifier } from "./verifier.js";
-import type { WebhookEvent } from "./events.js";
+import type { AnyWebhookEvent } from "./events.js";
 
 /**
  * Minimal Node-style request shape — matches express, http.IncomingMessage,
@@ -32,19 +32,19 @@ export interface FastifyStyleReply {
   send(payload?: unknown): unknown;
 }
 
-export type ExpressHandler<T extends WebhookEvent = WebhookEvent> = (
+export type ExpressHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
   event: T,
   req: NodeStyleRequest,
   res: NodeStyleResponse,
 ) => Promise<void> | void;
 
-export type FastifyHandler<T extends WebhookEvent = WebhookEvent> = (
+export type FastifyHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
   event: T,
   request: NodeStyleRequest,
   reply: FastifyStyleReply,
 ) => Promise<void> | void;
 
-export type NextHandler<T extends WebhookEvent = WebhookEvent> = (
+export type NextHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
   event: T,
   request: Request,
 ) => Response | Promise<Response>;
@@ -55,7 +55,7 @@ export type NextHandler<T extends WebhookEvent = WebhookEvent> = (
  * parses the typed event, and dispatches to your handler. Returns 400 on
  * verification failure with a short reason string in the body.
  */
-export function expressWebhookHandler<T extends WebhookEvent = WebhookEvent>(
+export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
   verifier: WebhookVerifier,
   handler: ExpressHandler<T>,
 ): (req: NodeStyleRequest, res: NodeStyleResponse) => Promise<void> {
@@ -68,7 +68,7 @@ export function expressWebhookHandler<T extends WebhookEvent = WebhookEvent>(
       return;
     }
 
-    let event: WebhookEvent;
+    let event: AnyWebhookEvent;
     try {
       event = verifier.parse(req.headers, rawBody);
     } catch {
@@ -93,18 +93,18 @@ export function expressWebhookHandler<T extends WebhookEvent = WebhookEvent>(
  * configured with `rawBody: true` (e.g. via `fastify-raw-body`) so that
  * the request body is available unparsed for HMAC verification.
  */
-export function fastifyWebhookHandler<T extends WebhookEvent = WebhookEvent>(
+export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
   verifier: WebhookVerifier,
   handler: FastifyHandler<T>,
 ): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void> {
   return async (request, reply) => {
     const rawBody = pickFastifyRawBody(request);
     if (rawBody === undefined) {
-      reply.code(400).send("raw_body_required");
+      reply.code(400).send();
       return;
     }
 
-    let event: WebhookEvent;
+    let event: AnyWebhookEvent;
     try {
       event = verifier.parse(request.headers, rawBody);
     } catch {
@@ -129,14 +129,14 @@ export function fastifyWebhookHandler<T extends WebhookEvent = WebhookEvent>(
  *       return new Response(null, { status: 200 });
  *     });
  */
-export function nextRouteHandler<T extends WebhookEvent = WebhookEvent>(
+export function nextRouteHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
   verifier: WebhookVerifier,
   handler: NextHandler<T>,
 ): (request: Request) => Promise<Response> {
   return async (request) => {
     const rawBody = await request.text();
 
-    let event: WebhookEvent;
+    let event: AnyWebhookEvent;
     try {
       event = verifier.parse(request.headers, rawBody);
     } catch {
@@ -166,6 +166,18 @@ async function readNodeRawBody(req: NodeStyleRequest): Promise<Buffer> {
       "raw_body_required: an upstream middleware parsed the body. " +
         "Mount `express.raw({ type: '*/*' })` on the webhook route, or " +
         "use a route-specific raw-body parser, before this handler.",
+    );
+  }
+  // If the request stream has already been drained by an upstream
+  // middleware (parse failure, content-type rejection, etc.) but
+  // `body`/`rawBody` were never populated, attaching `data`/`end`
+  // listeners will never fire and the request hangs until the client
+  // times out. Detect that case eagerly.
+  if ((req as { readableEnded?: boolean }).readableEnded === true) {
+    throw new Error(
+      "raw_body_required: request stream has already been consumed by an " +
+        "upstream middleware. Mount a raw-body parser (e.g. " +
+        "`express.raw({ type: '*/*' })`) on the webhook route.",
     );
   }
   if (typeof req.on !== "function") {

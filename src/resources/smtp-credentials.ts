@@ -29,12 +29,24 @@ export interface CreatedSMTPCredential extends SMTPCredential {
   password: string;
 }
 
-export interface CreateSMTPCredentialRequest {
-  name: string;
-  sandbox?: boolean;
-  scope: SMTPCredentialScope;
-  domains?: string[];
-}
+/**
+ * Discriminated union: when `scope: "scoped"`, `domains` is required and
+ * lists the domains the credential may send from. When `scope: "global"`,
+ * `domains` must not be present.
+ */
+export type CreateSMTPCredentialRequest =
+  | {
+      name: string;
+      sandbox?: boolean;
+      scope: "global";
+      domains?: never;
+    }
+  | {
+      name: string;
+      sandbox?: boolean;
+      scope: "scoped";
+      domains: string[];
+    };
 
 export class SMTPCredentialsClient {
   constructor(

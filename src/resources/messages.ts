@@ -15,10 +15,13 @@ import {
   type IdempotencyRequestOptions,
 } from "./_helpers.js";
 
+/** Values allowed in a Jinja2 substitution context. */
+export type SubstitutionValue = string | number | boolean | null;
+
 export interface Recipient {
   email: string;
   name?: string;
-  substitutions?: Record<string, unknown>;
+  substitutions?: Record<string, SubstitutionValue>;
 }
 
 export interface Attachment {
@@ -31,13 +34,17 @@ export interface Attachment {
 }
 
 export interface Tracking {
-  open?: boolean;
-  click?: boolean;
+  /** `null` opts back to the account default (per spec `nullable: true`). */
+  open?: boolean | null;
+  /** `null` opts back to the account default (per spec `nullable: true`). */
+  click?: boolean | null;
 }
 
 export interface Retention {
-  metadata?: number;
-  data?: number;
+  /** `null` opts back to the account default (per spec `nullable: true`). */
+  metadata?: number | null;
+  /** `null` opts back to the account default (per spec `nullable: true`). */
+  data?: number | null;
 }
 
 export interface MessageSchedule {
@@ -49,7 +56,8 @@ export type SandboxResult = "deliver" | "bounce" | "defer" | "fail" | "suppress"
 
 export interface CreateMessageRequest {
   from: Address;
-  recipients: Recipient[];
+  /** 1–100 recipients (the API rejects an empty array). */
+  recipients: [Recipient, ...Recipient[]];
   subject: string;
   reply_to?: Address;
   text_content?: string;
@@ -57,7 +65,7 @@ export interface CreateMessageRequest {
   amp_content?: string;
   attachments?: Attachment[];
   headers?: Record<string, string>;
-  substitutions?: Record<string, unknown>;
+  substitutions?: Record<string, SubstitutionValue>;
   tags?: string[];
   sandbox?: boolean;
   sandbox_result?: SandboxResult;
@@ -68,7 +76,8 @@ export interface CreateMessageRequest {
 
 export interface CreateConversationMessageRequest {
   from: Address;
-  to: Address[];
+  /** 1–50 To recipients (combined To+Cc+Bcc must be ≤50). */
+  to: [Address, ...Address[]];
   subject: string;
   cc?: Address[];
   bcc?: Address[];
@@ -90,8 +99,16 @@ export type SendMessageStatus = "queued" | "scheduled" | "error";
 
 export interface SendMessageResult {
   object: "message";
-  id: UUID | null;
-  recipient: Recipient | Address;
+  /**
+   * RFC-822 Message-ID of the queued message, e.g. `<uuid@host>`.
+   *
+   * **This is NOT the resource UUID for `messages.get()`** — it is the
+   * SMTP-level identifier the API records when the message is queued
+   * for delivery. To fetch the message resource later use the UUID from
+   * the `Message.id` field on the persisted record.
+   */
+  id: string | null;
+  recipient: Recipient;
   status: SendMessageStatus;
   error: string | null;
   schedule?: MessageSchedule;
@@ -117,7 +134,7 @@ export interface MessageContentAttachment {
   filename: string;
   content: string;
   content_type: string;
-  content_id: string | null;
+  content_id?: string | null;
 }
 
 export interface MessageContentParsed {
@@ -131,12 +148,15 @@ export interface Message {
   id: UUID;
   created_at: ISODateTime;
   updated_at: ISODateTime;
-  sent_at: ISODateTime | null;
-  delivered_at: ISODateTime | null;
+  /** Not in the spec's `required` array — omitted while queued. */
+  sent_at?: ISODateTime | null;
+  /** Not in the spec's `required` array — omitted until delivered. */
+  delivered_at?: ISODateTime | null;
   retain_until: ISODateTime;
   direction: "inbound" | "outbound";
   is_bounce_notification: boolean;
-  bounce_classification: string;
+  /** Optional per spec — present only on bounce notifications. */
+  bounce_classification?: string;
   delivery_attempts: DeliveryAttempt[];
   message_id: string;
   subject: string;
@@ -151,7 +171,7 @@ export interface Message {
   domain_id: UUID;
   account_id: UUID;
   content?: string | null;
-  content_parsed?: MessageContentParsed;
+  content_parsed?: MessageContentParsed | null;
 }
 
 export interface ListMessagesParams extends PaginationParams {

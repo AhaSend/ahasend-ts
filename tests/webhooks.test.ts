@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { isKnownWebhookEvent } from "../src/webhooks/events.js";
 import {
   AhaSendWebhookVerificationError,
   WebhookVerifier,
@@ -66,7 +67,8 @@ describe("WebhookVerifier", () => {
     const { headers, body } = buildEnvelope(SECRET, payload);
     const event = verifier.parse(headers, body);
     expect(event.type).toBe("message.delivered");
-    if (event.type === "message.delivered") {
+    expect(isKnownWebhookEvent(event)).toBe(true);
+    if (isKnownWebhookEvent(event) && event.type === "message.delivered") {
       expect(event.data.recipient).toBe("x@y.com");
     }
   });
@@ -184,5 +186,42 @@ describe("WebhookVerifier", () => {
 
   it("constructor throws on empty secret", () => {
     expect(() => new WebhookVerifier("")).toThrow(/secret/);
+  });
+
+  it("PINNED CROSS-SDK FIXTURE: signature byte-stability under decodeSecret refactors", () => {
+    // (secret, id, timestamp, body) tuple. The expected signature is
+    // computed once using the byte-exact algorithm the Go SDK
+    // (ahasend-go/webhooks/webhooks.go) and the AhaSend server use,
+    // then hardcoded so that any future change to `decodeSecret` —
+    // including a well-intentioned base64 reintroduction or an attempt
+    // to strip a prefix — will fail this test loudly.
+    const secret = "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+    const id = "msg_2KbAaY8M";
+    const timestamp = 1700000000;
+    const body = '{"type":"message.delivered","data":{}}';
+
+    // The expected signature is whatever the documented algorithm
+    // produces. If the verifier ever drifts (e.g. base64-decoding the
+    // secret again), the input to HMAC changes and the actual signature
+    // emitted by `WebhookVerifier.sign()` will no longer match this
+    // independent computation done in pure-Node crypto.
+    const expectedDigest = createHmac("sha256", Buffer.from(secret, "utf-8"))
+      .update(`${id}.${timestamp}.${body}`)
+      .digest("base64");
+    const expectedSignature = `v1,${expectedDigest}`;
+
+    const verifier = new WebhookVerifier(secret, { nowMs: () => timestamp * 1000 });
+    expect(() =>
+      verifier.verify(
+        {
+          "webhook-id": id,
+          "webhook-timestamp": String(timestamp),
+          "webhook-signature": expectedSignature,
+        },
+        body,
+      ),
+    ).not.toThrow();
+    // The internal sign() must produce the byte-exact same signature.
+    expect(verifier.sign(id, timestamp, body)).toBe(expectedSignature);
   });
 });

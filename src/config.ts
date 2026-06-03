@@ -142,17 +142,27 @@ function buildBaseUrl(scheme: string | undefined, host: string | undefined): str
 
 function assertNotBrowser(allow: boolean): void {
   if (allow) return;
-  // `window` and `document` are the canonical browser globals. Cloudflare
-  // Workers, Vercel Edge, Deno, and Node.js do not define them. Test
-  // environments using JSDOM set `window`, so the escape hatch lives in
-  // the option `dangerouslyAllowBrowser`.
-  const g = globalThis as { window?: unknown; document?: unknown };
-  if (typeof g.window !== "undefined" || typeof g.document !== "undefined") {
+  // Regular browsers expose `window`/`document`; Service Workers expose
+  // `ServiceWorkerGlobalScope` (and `clients`) but not `window`. All of
+  // these are credential-exposure risks. Cloudflare Workers and Vercel
+  // Edge expose `self` but not the others — and they are explicitly
+  // out-of-scope for this SDK, so they would also fall through here.
+  const g = globalThis as {
+    window?: unknown;
+    document?: unknown;
+    ServiceWorkerGlobalScope?: unknown;
+    clients?: unknown;
+  };
+  const isBrowser =
+    typeof g.window !== "undefined" || typeof g.document !== "undefined";
+  const isServiceWorker = typeof g.ServiceWorkerGlobalScope !== "undefined";
+  if (isBrowser || isServiceWorker) {
     throw new Error(
       "AhaSend: refusing to construct an AhaSendClient in a browser-like " +
-        "environment — embedding the bearer API key in a browser bundle " +
-        "exposes it. Use this SDK from a Node.js (or other server) runtime, " +
-        "or pass { dangerouslyAllowBrowser: true } if you really know what you are doing.",
+        "environment (window/document/ServiceWorker) — embedding the bearer " +
+        "API key in a browser bundle exposes it. Use this SDK from a Node.js " +
+        "(or other server) runtime, or pass { dangerouslyAllowBrowser: true } " +
+        "if you really know what you are doing.",
     );
   }
 }
@@ -165,7 +175,11 @@ function assertSecureBaseUrl(baseUrl: string, allowInsecure: boolean): void {
     throw new Error(`AhaSend: invalid baseUrl "${baseUrl}" — expected a full URL.`);
   }
   if (parsed.protocol === "https:") return;
-  if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") return;
+  // `URL` strips the square brackets from the bracketed IPv6 form, so
+  // `http://[::1]:port` parses with `hostname === "::1"`. Localhost
+  // (`127.0.0.1` IPv4 + `::1` IPv6) is carved out for Prism/local-dev.
+  const host = parsed.hostname;
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return;
   if (allowInsecure) return;
   throw new Error(
     `AhaSend: refusing to send the bearer API key over an insecure baseUrl ("${baseUrl}"). ` +

@@ -18,7 +18,8 @@ export interface Route {
   updated_at: ISODateTime;
   name: string;
   url: string;
-  recipient: string | null;
+  /** Optional per spec — omitted entirely when the route has no recipient filter. */
+  recipient?: string | null;
   attachments?: boolean;
   headers?: boolean;
   group_by_message_id?: boolean;
@@ -46,14 +47,16 @@ export interface CreateRouteRequest {
 }
 
 export interface UpdateRouteRequest {
-  name?: string | null;
-  url?: string | null;
+  /** Required on the persisted route — cannot be cleared via `null`. */
+  name?: string;
+  /** Required on the persisted route — cannot be cleared via `null`. */
+  url?: string;
   recipient?: string | null;
-  attachments?: boolean | null;
-  headers?: boolean | null;
-  group_by_message_id?: boolean | null;
-  strip_replies?: boolean | null;
-  enabled?: boolean | null;
+  attachments?: boolean;
+  headers?: boolean;
+  group_by_message_id?: boolean;
+  strip_replies?: boolean;
+  enabled?: boolean;
 }
 
 export interface ListRoutesParams extends PaginationParams {

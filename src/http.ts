@@ -1,5 +1,10 @@
 import type { ResolvedConfig } from "./config.js";
-import { AhaSendConnectionError, AhaSendTimeoutError, createApiError } from "./errors.js";
+import {
+  AhaSendConnectionError,
+  AhaSendResponseParseError,
+  AhaSendTimeoutError,
+  createApiError,
+} from "./errors.js";
 import type { ApiErrorBody } from "./errors.js";
 import { generateIdempotencyKey, IDEMPOTENCY_HEADER } from "./idempotency.js";
 import { RateLimiter } from "./rate-limit.js";
@@ -14,6 +19,14 @@ export interface RequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  /**
+   * Resource clients set this on the 9 spec-documented idempotency
+   * endpoints (every `create*` operation) so the transport layer will
+   * inject an `Idempotency-Key` when the caller hasn't supplied one.
+   * Other POSTs — notably `domains.checkDns()` and inbound webhook
+   * handlers — leave this unset and never receive an auto-generated key.
+   */
+  autoIdempotency?: boolean;
 }
 
 export type QueryValue =
@@ -34,8 +47,6 @@ export class HttpClient {
   }
 
   async request<T>(options: RequestOptions): Promise<T> {
-    await this.rateLimiter.acquire(options.method, options.path, options.signal);
-
     const url = this.buildUrl(options.path, options.query);
     const init = this.buildRequestInit(options);
 
@@ -45,6 +56,11 @@ export class HttpClient {
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Acquire a token on every attempt — including retries — so the
+      // local bucket stays in sync with the server-reconciled state
+      // updated by `recordResponseHeaders` on each response. Without
+      // this, a 429 retry would bypass the local limiter entirely.
+      await this.rateLimiter.acquire(options.method, options.path, options.signal);
       try {
         return await this.executeOnce<T>(url, init, options, attempt);
       } catch (err) {
@@ -113,22 +129,39 @@ export class HttpClient {
         err,
       );
     }
-    controller.cleanup();
 
-    this.rateLimiter.recordResponseHeaders(options.method, options.path, response.headers);
-    const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
-    const responseEvent: import("./telemetry.js").ResponseEvent = {
-      method: options.method,
-      path: options.path,
-      url,
-      status: response.status,
-      durationMs: Date.now() - startedAt,
-      attempt,
-    };
-    if (requestId) responseEvent.requestId = requestId;
-    this.config.hooks.onResponse(responseEvent);
+    // Keep the timer armed until the body has been fully read. A
+    // misbehaving server that sends headers quickly then stalls on the
+    // body would otherwise escape the configured `timeout`.
+    try {
+      this.rateLimiter.recordResponseHeaders(options.method, options.path, response.headers);
+      const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
+      const responseEvent: import("./telemetry.js").ResponseEvent = {
+        method: options.method,
+        path: options.path,
+        url,
+        status: response.status,
+        durationMs: Date.now() - startedAt,
+        attempt,
+      };
+      if (requestId) responseEvent.requestId = requestId;
+      this.config.hooks.onResponse(responseEvent);
 
-    return this.parseResponse<T>(response, requestId);
+      return await this.parseResponse<T>(response, requestId);
+    } catch (err) {
+      if (controller.timedOut) {
+        throw new AhaSendTimeoutError(
+          `Response body read for ${options.method} ${options.path} timed out after ${this.config.timeout}ms`,
+          err,
+        );
+      }
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new AhaSendConnectionError("Request aborted during body read", err);
+      }
+      throw err;
+    } finally {
+      controller.cleanup();
+    }
   }
 
   private buildUrl(path: string, query?: Record<string, unknown>): string {
@@ -171,7 +204,7 @@ export class HttpClient {
       init.body = JSON.stringify(options.body);
     }
 
-    if (this.shouldAutoIdempotency(options.method, headers)) {
+    if (this.shouldAutoIdempotency(options, headers)) {
       headers[IDEMPOTENCY_HEADER.toLowerCase()] = generateIdempotencyKey(
         this.config.idempotency.prefix,
       );
@@ -181,11 +214,12 @@ export class HttpClient {
   }
 
   private shouldAutoIdempotency(
-    method: HttpMethod,
+    options: RequestOptions,
     headers: Record<string, string>,
   ): boolean {
+    if (!options.autoIdempotency) return false;
     if (!this.config.idempotency.autoGenerate) return false;
-    if (method !== "POST") return false;
+    if (options.method !== "POST") return false;
     return headers[IDEMPOTENCY_HEADER.toLowerCase()] === undefined;
   }
 
@@ -216,26 +250,43 @@ export class HttpClient {
       // 2xx with empty body → return undefined.
       if (rawText.length === 0) return undefined as T;
       // 2xx with non-JSON body is suspicious (typically an HTML error page
-      // from a misconfigured load balancer). Refuse to silently coerce it
-      // into the declared type.
-      throw createApiError({
+      // from a misconfigured load balancer or a captive-portal redirect).
+      // Surface it as a transport-layer parse error rather than as an
+      // `AhaSendAPIError` carrying a 2xx status code — otherwise `catch`
+      // blocks checking `status >= 500` will silently swallow it.
+      throw new AhaSendResponseParseError({
         status: response.status,
         body: rawText,
         requestId,
-        headers: headersToRecord(response.headers),
       });
     }
 
-    if (requestId && typeof parsed === "object" && parsed !== null) {
-      // Attach the request id non-enumerably so it doesn't change the
-      // shape of typed responses but is still available via
-      // `(response as any)._requestId` for observability.
-      Object.defineProperty(parsed, "_requestId", {
-        value: requestId,
-        enumerable: false,
-        configurable: true,
-        writable: false,
-      });
+    if (typeof parsed === "object" && parsed !== null) {
+      // Attach observability metadata non-enumerably so it doesn't
+      // change the shape of typed responses but is still available
+      // for logging / tracing.
+      if (requestId) {
+        Object.defineProperty(parsed, "_requestId", {
+          value: requestId,
+          enumerable: false,
+          configurable: true,
+          writable: false,
+        });
+      }
+      const replayed = response.headers.get("idempotent-replayed");
+      if (replayed !== null) {
+        // The server emits `Idempotent-Replayed: true` on a 2xx response
+        // when the result is a cached replay of a prior idempotent
+        // request. Surfacing this lets callers decide whether to treat
+        // the response as a true new-side-effect or a confirmation that
+        // the side-effect already happened.
+        Object.defineProperty(parsed, "_idempotentReplayed", {
+          value: replayed === "true",
+          enumerable: false,
+          configurable: true,
+          writable: false,
+        });
+      }
     }
 
     return parsed as T;
@@ -302,4 +353,37 @@ function extractRequestId(err: unknown): string | undefined {
   if (typeof err !== "object" || err === null) return undefined;
   const candidate = (err as { requestId?: unknown }).requestId;
   return typeof candidate === "string" ? candidate : undefined;
+}
+
+/**
+ * Read the observability metadata attached non-enumerably by the
+ * transport layer on successful responses. Returns `{}` if the response
+ * is not an object or carries no metadata.
+ *
+ * Example:
+ * ```ts
+ * const msg = await client.messages.send({ ... });
+ * const { requestId, idempotentReplayed } = getResponseMetadata(msg);
+ * ```
+ */
+export function getResponseMetadata(
+  response: unknown,
+): { requestId?: string; idempotentReplayed?: boolean } {
+  if (typeof response !== "object" || response === null) return {};
+  const r = response as { _requestId?: string; _idempotentReplayed?: boolean };
+  const out: { requestId?: string; idempotentReplayed?: boolean } = {};
+  if (typeof r._requestId === "string") out.requestId = r._requestId;
+  if (typeof r._idempotentReplayed === "boolean") out.idempotentReplayed = r._idempotentReplayed;
+  return out;
+}
+
+/**
+ * Serialise a single query-param value with predictable wire format.
+ * `String(true)`/`String(false)` already produces `"true"`/`"false"`,
+ * but `Date` objects would round-trip through a locale string. Keep
+ * everything else as-is so callers retain control.
+ */
+function serializeQueryValue(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
 }

@@ -5,8 +5,10 @@ import { forwardOptions } from "./_helpers.js";
 export type StatisticsGranularity = "hour" | "day" | "week" | "month";
 
 export interface StatisticsParams {
-  from_time: ISODateTime;
-  to_time: ISODateTime;
+  /** Filter, not required — omit to query the full retention window. */
+  from_time?: ISODateTime;
+  /** Filter, not required — omit to query the full retention window. */
+  to_time?: ISODateTime;
   sender_domain?: string;
   recipient_domains?: string;
   tags?: string;

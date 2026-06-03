@@ -43,13 +43,26 @@ export interface APIKey {
   account_id: UUID;
   label: string;
   public_key: string;
-  secret_key?: string;
   scopes: APIKeyScope[];
+}
+
+/**
+ * API key returned by `apiKeys.create()` — extends `APIKey` with the
+ * one-time-visible `secret_key`. Matches the pattern used by
+ * `CreatedRoute`, `CreatedWebhook`, and `CreatedSMTPCredential`.
+ */
+export interface CreatedAPIKey extends APIKey {
+  /**
+   * Returned only on creation. Persist this immediately — the API does
+   * not expose the secret again on subsequent reads.
+   */
+  secret_key: string;
 }
 
 export interface CreateAPIKeyRequest {
   label: string;
-  scopes: APIKeyScopeName[];
+  /** At least one scope is required by the API. */
+  scopes: [APIKeyScopeName, ...APIKeyScopeName[]];
 }
 
 export interface UpdateAPIKeyRequest {
@@ -88,8 +101,11 @@ export class APIKeysClient {
     );
   }
 
-  create(body: CreateAPIKeyRequest, options: IdempotencyRequestOptions = {}): Promise<APIKey> {
-    return this.http.request<APIKey>({
+  create(
+    body: CreateAPIKeyRequest,
+    options: IdempotencyRequestOptions = {},
+  ): Promise<CreatedAPIKey> {
+    return this.http.request<CreatedAPIKey>({
       method: "POST",
       path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys`,
       body,
