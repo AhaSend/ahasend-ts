@@ -63,6 +63,12 @@ export interface ListRoutesParams extends PaginationParams {
   domain?: string;
 }
 
+/**
+ * Manage inbound routes — rules that deliver received email to your
+ * HTTP endpoint. The created route's `secret` (returned once) signs
+ * `route.message` webhook deliveries; verify them with
+ * `WebhookVerifier` from `@ahasend/sdk/webhooks`.
+ */
 export class RoutesClient {
   constructor(
     private readonly http: HttpClient,

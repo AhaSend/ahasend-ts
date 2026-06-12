@@ -48,6 +48,10 @@ export type CreateSMTPCredentialRequest =
       domains: string[];
     };
 
+/**
+ * Manage SMTP credentials for apps that send via SMTP relay instead of
+ * the HTTP API. The created credential's `password` is returned once.
+ */
 export class SMTPCredentialsClient {
   constructor(
     private readonly http: HttpClient,

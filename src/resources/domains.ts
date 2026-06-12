@@ -67,12 +67,14 @@ export interface UpdateDomainRequest {
 /** @deprecated Use `IdempotencyRequestOptions` from the public API. */
 export type DomainRequestOptions = IdempotencyRequestOptions;
 
+/** Manage sending domains and their DNS verification state. */
 export class DomainsClient {
   constructor(
     private readonly http: HttpClient,
     private readonly accountId: UUID,
   ) {}
 
+  /** Fetch one page of domains. Filter with `dns_valid` to find broken setups. */
   list(
     params: ListDomainsParams = {},
     options: RequestOptions = {},
@@ -95,6 +97,11 @@ export class DomainsClient {
     );
   }
 
+  /**
+   * Register a domain for sending. The response's `dns_records` lists
+   * the records you must publish; poll {@link checkDns} afterwards to
+   * confirm propagation.
+   */
   create(body: CreateDomainRequest, options: IdempotencyRequestOptions = {}): Promise<Domain> {
     return this.http.request<Domain>({
       method: "POST",
@@ -133,6 +140,11 @@ export class DomainsClient {
     });
   }
 
+  /**
+   * Trigger an immediate DNS re-check and return the refreshed domain,
+   * including per-record `propagated` status. (POST, but intentionally
+   * not idempotency-keyed — the spec does not model it.)
+   */
   checkDns(domain: string, options: RequestOptions = {}): Promise<Domain> {
     return this.http.request<Domain>({
       method: "POST",

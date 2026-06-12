@@ -21,6 +21,25 @@ export interface PingResponse {
   message: string;
 }
 
+/**
+ * AhaSend API client, bound to a single account.
+ *
+ * ```ts
+ * const client = new AhaSendClient({
+ *   apiKey: process.env.AHASEND_API_KEY!,
+ *   accountId: process.env.AHASEND_ACCOUNT_ID!,
+ * });
+ * await client.messages.send({ ... });
+ * ```
+ *
+ * Server-side only — construction throws in browser-like environments
+ * to keep the bearer key out of front-end bundles. One client maps to
+ * one account; instantiate multiple clients for multi-account tooling.
+ *
+ * Retries (with backoff + `Retry-After`), three-bucket rate limiting,
+ * and automatic idempotency keys on create operations are built in and
+ * configurable via {@link AhaSendClientOptions}.
+ */
 export class AhaSendClient {
   public readonly accountId: UUID;
   public readonly messages: MessagesClient;
@@ -55,6 +74,12 @@ export class AhaSendClient {
     this.smtpCredentials = new SMTPCredentialsClient(this.http, options.accountId);
   }
 
+  /**
+   * Construct a client from `AHASEND_*` environment variables.
+   * Requires `AHASEND_API_KEY` (or `AHASEND_TOKEN`) and
+   * `AHASEND_ACCOUNT_ID`; honours every other documented variable
+   * (base URL, timeout, retries, rate limit, idempotency, debug).
+   */
   static fromEnv(env: NodeJS.ProcessEnv = process.env): AhaSendClient {
     const base = optionsFromEnv(env);
     const accountId = env.AHASEND_ACCOUNT_ID;
@@ -64,6 +89,7 @@ export class AhaSendClient {
     return new AhaSendClient({ ...base, accountId });
   }
 
+  /** Health check (`GET /v2/ping`) — verifies connectivity and the API key. */
   ping(options: RequestOptions = {}): Promise<PingResponse> {
     return this.http.request<PingResponse>({
       method: "GET",

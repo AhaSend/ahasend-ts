@@ -49,6 +49,17 @@ export AHASEND_FROM_EMAIL="sender@your-verified-domain.com"
 node examples/send-sandbox.mjs
 ```
 
+### 5. Feature examples
+
+| Script | Shows |
+|---|---|
+| `iterate.mjs` | Async pagination — `for await (const msg of client.messages.iterate(...))` |
+| `idempotency.mjs` | Explicit idempotency keys + `IdempotencyKeyBuilder` (sandbox send, run twice with same key) |
+| `telemetry.mjs` | `onRequest` / `onResponse` / `onRetry` / `onError` hooks for logging and metrics |
+| `error-handling.mjs` | Branching on the typed error classes (`AhaSendNotFoundError`, `AhaSendRateLimitError`, …) |
+| `webhook-express.mjs` | Express webhook endpoint via the bundled adapter (needs `npm install express`) |
+| `verify-webhook.mjs` | Offline HMAC sign + verify round-trip — runs without any credentials |
+
 ---
 
 ## Testing without real credentials — Prism mock server

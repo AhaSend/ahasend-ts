@@ -58,6 +58,7 @@ export interface ListMembersParams {
   // Reserved for forward compatibility.
 }
 
+/** Account settings and member management. */
 export class AccountsClient {
   constructor(
     private readonly http: HttpClient,

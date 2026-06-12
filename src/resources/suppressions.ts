@@ -49,6 +49,11 @@ export interface WipeSuppressionsParams {
   domain?: string;
 }
 
+/**
+ * Manage the suppression list — addresses the platform will refuse to
+ * send to (after hard bounces, complaints, or manual additions).
+ * Suppressions are identified by `(email, domain)`, not by id.
+ */
 export class SuppressionsClient {
   constructor(
     private readonly http: HttpClient,

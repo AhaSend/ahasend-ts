@@ -73,6 +73,11 @@ export interface UpdateAPIKeyRequest {
 /** @deprecated Use `IdempotencyRequestOptions` from the public API. */
 export type APIKeyRequestOptions = IdempotencyRequestOptions;
 
+/**
+ * Manage API keys and their scopes. Scope strings follow
+ * `resource:action:target`, e.g. `messages:send:all` or
+ * `messages:send:example.com` (domain-scoped).
+ */
 export class APIKeysClient {
   constructor(
     private readonly http: HttpClient,
@@ -101,6 +106,10 @@ export class APIKeysClient {
     );
   }
 
+  /**
+   * Create a key. The response is the only time `secret_key` is
+   * visible — persist it immediately.
+   */
   create(
     body: CreateAPIKeyRequest,
     options: IdempotencyRequestOptions = {},

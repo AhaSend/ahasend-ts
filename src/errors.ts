@@ -5,6 +5,7 @@ export interface ApiErrorBody {
   [key: string]: unknown;
 }
 
+/** Base class for every error this SDK throws. */
 export class AhaSendError extends Error {
   constructor(message: string) {
     super(message);
@@ -13,6 +14,12 @@ export class AhaSendError extends Error {
   }
 }
 
+/**
+ * Network-level failure — DNS, connection refused/reset, or an aborted
+ * request. The request may or may not have reached the server; safe to
+ * retry only if the operation is idempotent. The SDK retries these
+ * automatically (idempotency key preserved).
+ */
 export class AhaSendConnectionError extends AhaSendError {
   public override readonly cause: unknown;
 
@@ -23,6 +30,7 @@ export class AhaSendConnectionError extends AhaSendError {
   }
 }
 
+/** The configured `timeout` elapsed before the response (headers + body) completed. */
 export class AhaSendTimeoutError extends AhaSendConnectionError {
   constructor(message = "Request timed out", cause?: unknown) {
     super(message, cause);
@@ -53,6 +61,11 @@ export class AhaSendResponseParseError extends AhaSendError {
   }
 }
 
+/**
+ * Base class for any non-2xx HTTP response from the AhaSend API.
+ * Carries the `status`, parsed error `body`, response `headers`, and
+ * the server's `x-request-id` (quote it in support requests).
+ */
 export class AhaSendAPIError extends AhaSendError {
   public readonly status: number;
   public readonly body: ApiErrorBody | string | null;
@@ -75,6 +88,7 @@ export class AhaSendAPIError extends AhaSendError {
   }
 }
 
+/** 401 — missing or invalid API key. Not retried. */
 export class AhaSendAuthenticationError extends AhaSendAPIError {
   constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
     super(params);
@@ -82,6 +96,7 @@ export class AhaSendAuthenticationError extends AhaSendAPIError {
   }
 }
 
+/** 403 — the API key lacks the required scope for this operation. Not retried. */
 export class AhaSendPermissionError extends AhaSendAPIError {
   constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
     super(params);
@@ -89,6 +104,7 @@ export class AhaSendPermissionError extends AhaSendAPIError {
   }
 }
 
+/** 404 — the resource does not exist (or belongs to another account). Not retried. */
 export class AhaSendNotFoundError extends AhaSendAPIError {
   constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
     super(params);
@@ -96,6 +112,7 @@ export class AhaSendNotFoundError extends AhaSendAPIError {
   }
 }
 
+/** 400 — malformed request. Inspect `body` for field-level details. Not retried. */
 export class AhaSendBadRequestError extends AhaSendAPIError {
   constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
     super(params);
@@ -127,6 +144,10 @@ export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
   }
 }
 
+/**
+ * 412 — the original request that used this Idempotency-Key failed, so
+ * the key cannot be replayed. Generate a fresh key and resubmit.
+ */
 export class AhaSendIdempotencyPreconditionFailedError extends AhaSendAPIError {
   constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
     super(params);
@@ -160,6 +181,11 @@ export class AhaSendIdempotencyMismatchError extends AhaSendUnprocessableEntityE
   }
 }
 
+/**
+ * 429 — rate limited. The SDK retries automatically, honouring the
+ * server's `Retry-After`; you only see this error after retries are
+ * exhausted. `retryAfterSeconds` carries the server's hint when present.
+ */
 export class AhaSendRateLimitError extends AhaSendAPIError {
   public readonly retryAfterSeconds: number | undefined;
 
@@ -174,6 +200,7 @@ export class AhaSendRateLimitError extends AhaSendAPIError {
   }
 }
 
+/** 5xx — AhaSend server error. Retried automatically with backoff. */
 export class AhaSendServerError extends AhaSendAPIError {
   constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
     super(params);

@@ -6,11 +6,11 @@ import { AhaSendClient } from "../dist/index.js";
 
 const client = AhaSendClient.fromEnv();
 
-const to = new Date().toISOString();
-const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+const to_time = new Date().toISOString();
+const from_time = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
 try {
-  const res = await client.statistics.deliverability({ from, to, granularity: "day" });
+  const res = await client.statistics.deliverability({ from_time, to_time, group_by: "day" });
   console.log(`✓ ${res.data.length} bucket(s) returned`);
   for (const bucket of res.data) {
     console.log(

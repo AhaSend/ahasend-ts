@@ -2,7 +2,7 @@ export { AhaSendClient } from "./client.js";
 export type { AhaSendClientOptions, PingResponse } from "./client.js";
 
 export type { ClientOptions } from "./config.js";
-export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS } from "./config.js";
+export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS, optionsFromEnv } from "./config.js";
 
 export { getResponseMetadata } from "./http.js";
 

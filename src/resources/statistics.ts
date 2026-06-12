@@ -68,12 +68,20 @@ export interface DeliveryTimeStatisticsResponse {
   data: DeliveryTimeStatistics[];
 }
 
+/**
+ * Transactional sending analytics.
+ *
+ * Statistics endpoints are rate-limited far more aggressively than the
+ * rest of the API (1 req/s vs 100 req/s) — the SDK's built-in limiter
+ * paces these calls automatically.
+ */
 export class StatisticsClient {
   constructor(
     private readonly http: HttpClient,
     private readonly accountId: UUID,
   ) {}
 
+  /** Reception/delivery/bounce/open/click counts, bucketed by `group_by`. */
   deliverability(
     params: StatisticsParams,
     options: RequestOptions = {},
@@ -86,6 +94,7 @@ export class StatisticsClient {
     });
   }
 
+  /** Bounce counts broken down by bounce classification per time bucket. */
   bounces(
     params: StatisticsParams,
     options: RequestOptions = {},
@@ -98,6 +107,7 @@ export class StatisticsClient {
     });
   }
 
+  /** Average delivery latency per time bucket, with per-recipient-domain breakdown. */
   deliveryTimes(
     params: StatisticsParams,
     options: RequestOptions = {},
