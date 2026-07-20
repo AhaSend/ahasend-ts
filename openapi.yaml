@@ -3960,7 +3960,7 @@ paths:
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                "track_opens": true
+                "tracking_subdomain": "click"
               }),
             });
 

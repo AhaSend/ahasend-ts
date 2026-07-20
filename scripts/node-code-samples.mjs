@@ -111,7 +111,7 @@ const requestBodies = {
   createAPIKey: { label: "Production API key", scopes: ["messages:send:all"] },
   updateAPIKey: { label: "Renamed API key" },
   createDomain: { domain: "example.com" },
-  updateDomain: { track_opens: true },
+  updateDomain: { tracking_subdomain: "click" },
   createMessage: {
     from: { email: "sender@example.com", name: "Example" },
     recipients: [{ email: "recipient@example.net" }],

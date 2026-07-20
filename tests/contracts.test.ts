@@ -104,6 +104,34 @@ describe("REST contract normalization", () => {
     }
   });
 
+  it("uses request body fields defined by each operation's schema", () => {
+    for (const { operationId, operation } of collectOperations(document)) {
+      if (operation.requestBody === undefined) continue;
+
+      const content = record(record(operation.requestBody).content);
+      const requestSchema = record(record(content["application/json"]).schema);
+      const reference = requestSchema.$ref;
+      if (typeof reference !== "string") {
+        throw new TypeError(`${operationId} does not use a referenced request body schema`);
+      }
+
+      const schemaName = reference.split("/").at(-1);
+      if (schemaName === undefined) throw new TypeError(`${operationId} has an invalid schema ref`);
+      const allowedFields = new Set(Object.keys(record(schema(schemaName).properties)));
+
+      const sample = NODE_CODE_SAMPLES[operationId];
+      if (sample === undefined) throw new TypeError(`${operationId} has no generated Node sample`);
+      const bodyMatch = sample.source.match(/body: JSON\.stringify\((\{[\s\S]*?\})\),\n/);
+      if (bodyMatch?.[1] === undefined) {
+        throw new TypeError(`${operationId} has no JSON request body in its Node sample`);
+      }
+
+      const sampleBody = record(JSON.parse(bodyMatch[1]));
+      const unknownFields = Object.keys(sampleBody).filter((field) => !allowedFields.has(field));
+      expect(unknownFields, operationId).toEqual([]);
+    }
+  });
+
   it("preserves OpenAPI 3.1 null unions and quoted replay header values", () => {
     const apiKeyProperties = record(schema("APIKey").properties);
     expect(record(apiKeyProperties.last_used_at).type).toEqual(["string", "null"]);
