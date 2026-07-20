@@ -2662,6 +2662,27 @@ paths:
 
 
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            if (!apiKey) throw new Error("Set AHASEND_API_KEY");
+
+            const url = new URL(`https://api.ahasend.com/v2/ping`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Pong response
@@ -2788,6 +2809,28 @@ paths:
               }
             }
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/api-keys`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of API keys
@@ -2896,6 +2939,38 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/api-keys`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "label": "Production API key",
+                "scopes": [
+                  "messages:send:all"
+                ]
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
 
       requestBody:
         required: true
@@ -3024,6 +3099,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const keyId = "00000000-0000-0000-0000-000000000001";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/api-keys/${keyId}`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: API key details
@@ -3144,6 +3242,33 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const keyId = "00000000-0000-0000-0000-000000000001";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/api-keys/${keyId}`);
+
+            const response = await fetch(url, {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                "label": "Renamed API key"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
 
       requestBody:
         required: true
@@ -3269,6 +3394,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const keyId = "00000000-0000-0000-0000-000000000001";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/api-keys/${keyId}`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: API key deleted successfully
@@ -3399,6 +3547,28 @@ paths:
               }
             }
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/domains`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of domains
@@ -3497,6 +3667,35 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/domains`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "domain": "example.com"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
 
       requestBody:
         required: true
@@ -3612,6 +3811,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const domain = "example.com";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/domains/${domain}`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Domain details
@@ -3720,6 +3942,33 @@ paths:
                 fmt.Printf("Updated domain: %s\n", response.Domain)
               }
             }
+
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const domain = "example.com";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/domains/${domain}`);
+
+            const response = await fetch(url, {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                "track_opens": true
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
 
       requestBody:
         required: true
@@ -3835,6 +4084,29 @@ paths:
               }
             }
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const domain = "example.com";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/domains/${domain}`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Domain deleted successfully
@@ -3937,6 +4209,29 @@ paths:
                 fmt.Printf("DNS valid: %t\n", response.DNSValid)
               }
             }
+
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const domain = "example.com";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/domains/${domain}/check-dns`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
 
       responses:
         '200':
@@ -4123,6 +4418,28 @@ paths:
               }
             }
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/messages`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of messages
@@ -4252,6 +4569,45 @@ paths:
               }
             }
 
+
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/messages`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "from": {
+                  "email": "sender@example.com",
+                  "name": "Example"
+                },
+                "recipients": [
+                  {
+                    "email": "recipient@example.net"
+                  }
+                ],
+                "subject": "Hello from AhaSend",
+                "html_content": "<p>Hello!</p>"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
 
       requestBody:
         required: true
@@ -4405,6 +4761,45 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/messages/conversation`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "from": {
+                  "email": "sender@example.com",
+                  "name": "Example"
+                },
+                "to": [
+                  {
+                    "email": "recipient@example.net"
+                  }
+                ],
+                "subject": "Hello from AhaSend",
+                "html_content": "<p>Hello!</p>"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -4525,6 +4920,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const messageId = "message-id";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/messages/${messageId}`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Message details
@@ -4635,6 +5053,29 @@ paths:
               }
             }
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const messageId = "message-id";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/messages/${messageId}/cancel`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Scheduled message is cancelled
@@ -4734,6 +5175,28 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Account details
@@ -4846,6 +5309,32 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}`);
+
+            const response = await fetch(url, {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                "name": "Example, Inc."
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -4952,6 +5441,28 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/members`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of account members
@@ -5053,6 +5564,36 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/members`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "email": "developer@example.com",
+                "role": "Developer"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -5169,6 +5710,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const userId = "00000000-0000-0000-0000-000000000002";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/members/${userId}`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Member removed successfully
@@ -5287,6 +5851,28 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of sub accounts
@@ -5391,6 +5977,36 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "name": "Example subsidiary",
+                "website": "subsidiary.example.com"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -5507,6 +6123,28 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/usage`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Sub-account usage breakdown
@@ -5620,6 +6258,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Sub account details
@@ -5726,6 +6387,33 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}`);
+
+            const response = await fetch(url, {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                "name": "Renamed subsidiary"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -5835,6 +6523,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Sub account deleted successfully
@@ -5942,6 +6653,33 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}/suspend`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                "reason": "Requested by account administrator"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -6053,6 +6791,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}/unsuspend`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Sub account unsuspended successfully
@@ -6186,6 +6947,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}/api-keys`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of sub-account API keys
@@ -6341,6 +7125,39 @@ paths:
 
             curl -sS "https://api.ahasend.com/v2/accounts/${CHILD_ACCOUNT_ID}/domains" \
               -H "Authorization: Bearer ${CHILD_SECRET}"
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}/api-keys`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "label": "Bootstrap key",
+                "scopes": [
+                  "messages:send:all"
+                ]
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -6508,6 +7325,30 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const keyId = "00000000-0000-0000-0000-000000000001";
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}/api-keys/${keyId}`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Sub-account API key details
@@ -6622,6 +7463,34 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const keyId = "00000000-0000-0000-0000-000000000001";
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}/api-keys/${keyId}`);
+
+            const response = await fetch(url, {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                "label": "Renamed bootstrap key"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -6741,6 +7610,30 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const keyId = "00000000-0000-0000-0000-000000000001";
+            const subAccountId = "00000000-0000-0000-0000-000000000003";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/sub-accounts/${subAccountId}/api-keys/${keyId}`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Sub-account API key deleted successfully
@@ -6899,6 +7792,28 @@ paths:
               }
             }
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/suppressions`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of suppressions
@@ -7013,6 +7928,37 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/suppressions`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "email": "recipient@example.net",
+                "reason": "User requested removal",
+                "expires_at": "2027-01-01T00:00:00Z"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -7161,6 +8107,29 @@ paths:
               }
             }
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/suppressions`);
+            url.searchParams.set("email", "recipient@example.net");
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Suppression deleted successfully
@@ -7271,6 +8240,28 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/suppressions/all`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
 
       responses:
         '200':
@@ -7403,6 +8394,28 @@ paths:
               }
             }
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/routes`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of routes
@@ -7511,6 +8524,37 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/routes`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "name": "Inbound messages",
+                "url": "https://example.com/inbound",
+                "recipient": "inbound@example.com"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
 
       requestBody:
         required: true
@@ -7630,6 +8674,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const routeId = "00000000-0000-0000-0000-000000000004";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/routes/${routeId}`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Route details
@@ -7748,6 +8815,33 @@ paths:
               }
             }
 
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const routeId = "00000000-0000-0000-0000-000000000004";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/routes/${routeId}`);
+
+            const response = await fetch(url, {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                "url": "https://example.com/inbound-v2"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -7864,6 +8958,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const routeId = "00000000-0000-0000-0000-000000000004";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/routes/${routeId}`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
 
       responses:
         '200':
@@ -8056,6 +9173,28 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/webhooks`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of webhooks
@@ -8167,6 +9306,38 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/webhooks`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "name": "Delivery events",
+                "url": "https://example.com/webhooks/ahasend",
+                "scope": "global",
+                "on_delivered": true
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -8286,6 +9457,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const webhookId = "00000000-0000-0000-0000-000000000005";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/webhooks/${webhookId}`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Webhook details
@@ -8413,6 +9607,33 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const webhookId = "00000000-0000-0000-0000-000000000005";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/webhooks/${webhookId}`);
+
+            const response = await fetch(url, {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                "name": "Transactional delivery events"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -8529,6 +9750,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const webhookId = "00000000-0000-0000-0000-000000000005";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/webhooks/${webhookId}`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Webhook deleted successfully
@@ -8654,6 +9898,28 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/smtp-credentials`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: List of SMTP credentials
@@ -8761,6 +10027,36 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            import { randomUUID } from "node:crypto";
+
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/smtp-credentials`);
+
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Idempotency-Key": randomUUID(),
+              },
+              body: JSON.stringify({
+                "name": "Production SMTP",
+                "scope": "global"
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       requestBody:
         required: true
         content:
@@ -8880,6 +10176,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const smtpCredentialId = "00000000-0000-0000-0000-000000000006";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/smtp-credentials/${smtpCredentialId}`);
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: SMTP credential details
@@ -8991,6 +10310,29 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            const smtpCredentialId = "00000000-0000-0000-0000-000000000006";
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/smtp-credentials/${smtpCredentialId}`);
+
+            const response = await fetch(url, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: SMTP credential deleted successfully
@@ -9151,6 +10493,30 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/statistics/transactional/deliverability`);
+            url.searchParams.set("from_time", "2026-01-01T00:00:00Z");
+            url.searchParams.set("to_time", "2026-01-02T00:00:00Z");
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Deliverability statistics
@@ -9310,6 +10676,30 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/statistics/transactional/bounce`);
+            url.searchParams.set("from_time", "2026-01-01T00:00:00Z");
+            url.searchParams.set("to_time", "2026-01-02T00:00:00Z");
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Bounce statistics
@@ -9469,6 +10859,30 @@ paths:
                 fmt.Printf("❌ Unexpected status code: %d\n", httpResp.StatusCode)
               }
             }
+        - lang: javascript
+          label: Node.js 18+ (built-in fetch)
+          source: |
+            const apiKey = process.env.AHASEND_API_KEY;
+            const accountId = process.env.AHASEND_ACCOUNT_ID;
+            if (!apiKey || !accountId) throw new Error("Set AHASEND_API_KEY and AHASEND_ACCOUNT_ID");
+
+            const url = new URL(`https://api.ahasend.com/v2/accounts/${accountId}/statistics/transactional/delivery-time`);
+            url.searchParams.set("from_time", "2026-01-01T00:00:00Z");
+            url.searchParams.set("to_time", "2026-01-02T00:00:00Z");
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+              },
+            });
+
+            if (!response.ok) {
+              throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);
+            }
+
+            console.log(await response.json());
+
       responses:
         '200':
           description: Delivery time statistics

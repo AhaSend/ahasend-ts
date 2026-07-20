@@ -66,10 +66,12 @@
     "test:unit": "vitest run --exclude 'tests/integration/**'",
     "test:integration": "vitest run tests/integration",
     "test:coverage": "vitest run --coverage",
+    "contracts:generate": "node scripts/generate-contracts.mjs",
+    "contracts:check": "node scripts/generate-contracts.mjs --check",
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run clean && npm run typecheck && npm run test && npm run build"
+    "prepublishOnly": "npm run clean && npm run contracts:check && npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
