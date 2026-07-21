@@ -1,55 +1,29 @@
-import { describe, expect, it, vi } from "vitest";
-import { AhaSendClient } from "../src/client.js";
-
-type FetchImpl = typeof fetch;
-
-interface Call {
-  url: string;
-  method: string;
-  body: string | undefined;
-  headers: Record<string, string>;
-}
-
-function captureFetch(): { fetch: FetchImpl; calls: Call[] } {
-  const calls: Call[] = [];
-  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
-    const headers: Record<string, string> = {};
-    const h = init?.headers;
-    if (h) {
-      if (h instanceof Headers) h.forEach((v, k) => (headers[k.toLowerCase()] = v));
-      else if (Array.isArray(h)) for (const [k, v] of h) headers[k.toLowerCase()] = v;
-      else for (const [k, v] of Object.entries(h)) headers[k.toLowerCase()] = v as string;
-    }
-    calls.push({
-      url,
-      method: (init?.method ?? "GET").toUpperCase(),
-      body: typeof init?.body === "string" ? init.body : undefined,
-      headers,
-    });
-    return new Response(JSON.stringify({ object: "message", id: "msg_1" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-  }) as unknown as FetchImpl;
-  return { fetch: fn, calls };
-}
-
-function makeClient(fetchImpl: FetchImpl): AhaSendClient {
-  return new AhaSendClient({
-    apiKey: "aha-sk-test",
-    accountId: "acc_1",
-    baseUrl: "https://api.test",
-    fetch: fetchImpl,
-  });
-}
+import { describe, expect, it } from "vitest";
+import { captureFetch, makeClient } from "./helpers/resource-call.js";
 
 describe("MessagesClient", () => {
   it("send() POSTs /v2/accounts/{account_id}/messages with the request body", async () => {
-    const { fetch, calls } = captureFetch();
+    const { fetch, calls } = captureFetch(
+      (call) =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              {
+                object: "message",
+                id: call.operationId,
+                recipient: { email: "x@y.com" },
+                status: "queued",
+                error: null,
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
     const client = makeClient(fetch);
 
-    await client.messages.send({
+    const message = await client.messages.send({
       from: { email: "a@b.com" },
       recipients: [{ email: "x@y.com" }],
       subject: "hi",
@@ -61,6 +35,8 @@ describe("MessagesClient", () => {
     expect(call.method).toBe("POST");
     expect(call.url).toBe("https://api.test/v2/accounts/acc_1/messages");
     expect(call.body).toContain(`"recipients":[{"email":"x@y.com"}]`);
+    expect(call.operationId).toBe("createMessage");
+    expect(message.data[0]!.id).toBe("createMessage");
   });
 
   it("sendConversation() hits /messages/conversation", async () => {

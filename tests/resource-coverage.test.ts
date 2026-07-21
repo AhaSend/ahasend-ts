@@ -5,36 +5,9 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
+import { captureFetch, makeClient } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
-
-interface Call {
-  url: string;
-  method: string;
-}
-
-function captureFetch(): { fetch: FetchImpl; calls: Call[] } {
-  const calls: Call[] = [];
-  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
-    calls.push({ url, method: (init?.method ?? "GET").toUpperCase() });
-    return new Response(JSON.stringify({ object: "list", data: [], message: "ok" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-  }) as unknown as FetchImpl;
-  return { fetch: fn, calls };
-}
-
-function makeClient(fetchImpl: FetchImpl): AhaSendClient {
-  return new AhaSendClient({
-    apiKey: "aha-sk-test",
-    accountId: "acc_1",
-    baseUrl: "https://api.test",
-    fetch: fetchImpl,
-    retry: { enabled: false },
-  });
-}
 
 describe("Resource coverage smoke", () => {
   it("api-keys: get + delete", async () => {
@@ -42,11 +15,11 @@ describe("Resource coverage smoke", () => {
     const client = makeClient(fetch);
     await client.apiKeys.get("k1");
     await client.apiKeys.delete("k1");
-    expect(calls[0]).toEqual({
+    expect(calls[0]).toMatchObject({
       method: "GET",
       url: "https://api.test/v2/accounts/acc_1/api-keys/k1",
     });
-    expect(calls[1]).toEqual({
+    expect(calls[1]).toMatchObject({
       method: "DELETE",
       url: "https://api.test/v2/accounts/acc_1/api-keys/k1",
     });
@@ -57,11 +30,11 @@ describe("Resource coverage smoke", () => {
     const client = makeClient(fetch);
     await client.domains.get("example.com");
     await client.domains.delete("example.com");
-    expect(calls[0]).toEqual({
+    expect(calls[0]).toMatchObject({
       method: "GET",
       url: "https://api.test/v2/accounts/acc_1/domains/example.com",
     });
-    expect(calls[1]).toEqual({
+    expect(calls[1]).toMatchObject({
       method: "DELETE",
       url: "https://api.test/v2/accounts/acc_1/domains/example.com",
     });
@@ -71,7 +44,7 @@ describe("Resource coverage smoke", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
     await client.webhooks.get("wh_1");
-    expect(calls[0]).toEqual({
+    expect(calls[0]).toMatchObject({
       method: "GET",
       url: "https://api.test/v2/accounts/acc_1/webhooks/wh_1",
     });
@@ -82,11 +55,11 @@ describe("Resource coverage smoke", () => {
     const client = makeClient(fetch);
     await client.routes.get("rt_1");
     await client.routes.delete("rt_1");
-    expect(calls[0]).toEqual({
+    expect(calls[0]).toMatchObject({
       method: "GET",
       url: "https://api.test/v2/accounts/acc_1/routes/rt_1",
     });
-    expect(calls[1]).toEqual({
+    expect(calls[1]).toMatchObject({
       method: "DELETE",
       url: "https://api.test/v2/accounts/acc_1/routes/rt_1",
     });
@@ -97,11 +70,11 @@ describe("Resource coverage smoke", () => {
     const client = makeClient(fetch);
     await client.smtpCredentials.get("cred_1");
     await client.smtpCredentials.delete("cred_1");
-    expect(calls[0]).toEqual({
+    expect(calls[0]).toMatchObject({
       method: "GET",
       url: "https://api.test/v2/accounts/acc_1/smtp-credentials/cred_1",
     });
-    expect(calls[1]).toEqual({
+    expect(calls[1]).toMatchObject({
       method: "DELETE",
       url: "https://api.test/v2/accounts/acc_1/smtp-credentials/cred_1",
     });
