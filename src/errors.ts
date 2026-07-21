@@ -46,11 +46,11 @@ export interface SerializedAhaSendError {
 export class AhaSendError extends Error {
   public readonly code!: AhaSendErrorCode;
 
-  constructor(message: string, code: AhaSendErrorCode = "ahasend_error", cause?: unknown) {
+  constructor(message: string, cause?: unknown) {
     super(message);
     Object.setPrototypeOf(this, new.target.prototype);
     defineHidden(this, "name", new.target.name);
-    defineHidden(this, "code", code);
+    defineHidden(this, "code", "ahasend_error");
     defineHidden(this, AHASEND_ERROR_BRAND, true);
     if (cause !== undefined) defineHidden(this, "cause", cause);
   }
@@ -89,21 +89,24 @@ export function isAhaSendError(value: unknown): value is AhaSendError {
 /** Invalid SDK construction, environment, or per-request configuration. */
 export class AhaSendConfigurationError extends AhaSendError {
   constructor(message: string, cause?: unknown) {
-    super(message, "configuration_error", cause);
+    super(message, cause);
+    defineHidden(this, "code", "configuration_error");
   }
 }
 
 /** Network-level failure such as DNS, connection refusal, or connection reset. */
 export class AhaSendConnectionError extends AhaSendError {
   constructor(message: string, cause?: unknown) {
-    super(message, "connection_error", cause);
+    super(message, cause);
+    defineHidden(this, "code", "connection_error");
   }
 }
 
 /** A caller-provided AbortSignal cancelled SDK work. */
 export class AhaSendAbortError extends AhaSendError {
   constructor(message = "Request aborted", cause?: unknown) {
-    super(message, "abort_error", cause);
+    super(message, cause);
+    defineHidden(this, "code", "abort_error");
   }
 }
 
@@ -129,9 +132,9 @@ export class AhaSendResponseParseError extends AhaSendError {
   }) {
     super(
       `AhaSend: HTTP ${params.status} response body could not be parsed as JSON.`,
-      "response_parse_error",
       params.cause,
     );
+    defineHidden(this, "code", "response_parse_error");
     defineHidden(this, "status", params.status);
     defineHidden(this, "body", params.body);
     defineHidden(this, "requestId", params.requestId);
@@ -153,7 +156,8 @@ export class AhaSendAPIError extends AhaSendError {
     headers?: Record<string, string>;
     cause?: unknown;
   }) {
-    super(params.message, "api_error", params.cause);
+    super(params.message, params.cause);
+    defineHidden(this, "code", "api_error");
     defineHidden(this, "status", params.status);
     defineHidden(this, "body", params.body);
     defineHidden(this, "requestId", params.requestId);
@@ -251,7 +255,8 @@ export class AhaSendWebhookVerificationError extends AhaSendError {
   public readonly reason!: string;
 
   constructor(reason: string, message?: string, cause?: unknown) {
-    super(message ?? `Webhook verification failed: ${reason}`, "webhook_verification_error", cause);
+    super(message ?? `Webhook verification failed: ${reason}`, cause);
+    defineHidden(this, "code", "webhook_verification_error");
     defineHidden(this, "reason", reason);
   }
 }

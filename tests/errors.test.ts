@@ -158,6 +158,13 @@ describe("AhaSend error contract", () => {
     expect(isAhaSendError(error)).toBe(true);
   });
 
+  it("does not let direct base errors impersonate subtype codes", () => {
+    const error = new AhaSendError("failed", "server_error");
+
+    expect(error.code).toBe("ahasend_error");
+    expect(error.cause).toBe("server_error");
+  });
+
   it("uses a global brand without accepting ordinary Error objects", () => {
     const brandedFromAnotherModule = {
       [Symbol.for("@ahasend/sdk.error")]: true,
