@@ -321,7 +321,7 @@ describe("HttpClient — closing the four high-value P1 test gaps", () => {
             });
           }),
       ),
-      { timeout: 30, retry: { enabled: false } },
+      { timeoutMs: 30, retry: { enabled: false } },
     );
     const { AhaSendTimeoutError } = await import("../src/errors.js");
     await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(

@@ -55,23 +55,27 @@ export class AhaSendClient {
   private readonly http: HttpClient;
 
   constructor(options: AhaSendClientOptions) {
-    if (!options.accountId) {
+    if (typeof options !== "object" || options === null) {
+      throw new Error("AhaSend: client options must be an object.");
+    }
+    if (typeof options.accountId !== "string" || options.accountId.trim().length === 0) {
       throw new Error("AhaSend: `accountId` is required.");
     }
 
-    const config = resolveConfig(options);
+    const { accountId, ...clientOptions } = options;
+    const config = resolveConfig(clientOptions);
     this.http = new HttpClient(config);
-    this.accountId = options.accountId;
+    this.accountId = accountId;
 
-    this.messages = new MessagesClient(this.http, options.accountId);
-    this.domains = new DomainsClient(this.http, options.accountId);
-    this.apiKeys = new APIKeysClient(this.http, options.accountId);
-    this.webhooks = new WebhooksClient(this.http, options.accountId);
-    this.statistics = new StatisticsClient(this.http, options.accountId);
-    this.suppressions = new SuppressionsClient(this.http, options.accountId);
-    this.routes = new RoutesClient(this.http, options.accountId);
-    this.accounts = new AccountsClient(this.http, options.accountId);
-    this.smtpCredentials = new SMTPCredentialsClient(this.http, options.accountId);
+    this.messages = new MessagesClient(this.http, accountId);
+    this.domains = new DomainsClient(this.http, accountId);
+    this.apiKeys = new APIKeysClient(this.http, accountId);
+    this.webhooks = new WebhooksClient(this.http, accountId);
+    this.statistics = new StatisticsClient(this.http, accountId);
+    this.suppressions = new SuppressionsClient(this.http, accountId);
+    this.routes = new RoutesClient(this.http, accountId);
+    this.accounts = new AccountsClient(this.http, accountId);
+    this.smtpCredentials = new SMTPCredentialsClient(this.http, accountId);
   }
 
   /**

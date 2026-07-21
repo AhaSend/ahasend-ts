@@ -61,7 +61,7 @@ const client = new AhaSendClient({
   apiKey: "aha-sk-…",                 // required
   accountId: "uuid",                  // required — one client per account
   baseUrl: "https://api.ahasend.com", // HTTPS enforced (localhost exempt)
-  timeout: 30_000,                    // per-request timeout in MILLISECONDS
+  timeoutMs: 30_000,                  // per-request timeout in MILLISECONDS
   userAgent: "ahasend-node/x.y.z",
   debug: false,                       // true = log every request to stderr
   fetch: globalThis.fetch,            // inject your own fetch if needed
@@ -95,7 +95,7 @@ official Go SDK reads:
 | `AHASEND_API_KEY` / `AHASEND_TOKEN` | API key (either name works) |
 | `AHASEND_ACCOUNT_ID` | Account UUID |
 | `AHASEND_BASE_URL` (or `AHASEND_SCHEME` + `AHASEND_HOST`) | API endpoint |
-| `AHASEND_TIMEOUT` | Request timeout in **seconds** (note: the constructor option `timeout` is in **milliseconds**) |
+| `AHASEND_TIMEOUT` | Request timeout in **seconds** (note: the constructor option `timeoutMs` is in **milliseconds**) |
 | `AHASEND_MAX_RETRIES` | Retry attempts |
 | `AHASEND_ENABLE_RATE_LIMIT` | Master rate-limit switch |
 | `AHASEND_IDEMPOTENCY_AUTO_GENERATE` / `AHASEND_IDEMPOTENCY_PREFIX` | Idempotency behaviour |

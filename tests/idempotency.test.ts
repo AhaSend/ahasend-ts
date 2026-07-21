@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_IDEMPOTENCY_CONFIG,
   IdempotencyKeyBuilder,
+  assertValidIdempotencyKey,
   generateIdempotencyKey,
   resolveIdempotencyConfig,
 } from "../src/idempotency.js";
@@ -36,12 +37,13 @@ describe("generateIdempotencyKey", () => {
 });
 
 describe("IdempotencyKeyBuilder", () => {
-  it("first next() returns the base key, subsequent calls add a unique suffix", () => {
+  it("first next() returns the base key, subsequent calls add full UUID entropy", () => {
     const builder = new IdempotencyKeyBuilder("order-123");
     expect(builder.next()).toBe("order-123");
     const second = builder.next();
     expect(second.startsWith("order-123-")).toBe(true);
     expect(second).not.toBe("order-123");
+    expect(second.slice("order-123-".length)).toMatch(UUID_REGEX);
     const third = builder.next();
     expect(third).not.toBe(second);
   });
@@ -59,6 +61,18 @@ describe("IdempotencyKeyBuilder", () => {
   it("withSuffix rejects an empty suffix", () => {
     const builder = new IdempotencyKeyBuilder("order-123");
     expect(() => builder.withSuffix("")).toThrow(/suffix/);
+  });
+
+  it("enforces the 255-character limit on composed keys", () => {
+    const builder = new IdempotencyKeyBuilder("a".repeat(218));
+    expect(builder.next()).toHaveLength(218);
+    expect(builder.next()).toHaveLength(255);
+
+    expect(() => new IdempotencyKeyBuilder("a".repeat(256))).toThrow(/255/);
+    expect(() => new IdempotencyKeyBuilder("a".repeat(219)).next()).not.toThrow();
+    const oversized = new IdempotencyKeyBuilder("a".repeat(219));
+    oversized.next();
+    expect(() => oversized.next()).toThrow(/255/);
   });
 });
 
@@ -79,5 +93,45 @@ describe("resolveIdempotencyConfig", () => {
       autoGenerate: true,
       prefix: "myapp",
     });
+  });
+
+  it("publishes an immutable default object", () => {
+    expect(Object.isFrozen(DEFAULT_IDEMPOTENCY_CONFIG)).toBe(true);
+    expect(() => {
+      (DEFAULT_IDEMPOTENCY_CONFIG as { autoGenerate: boolean }).autoGenerate = false;
+    }).toThrow(TypeError);
+    expect(DEFAULT_IDEMPOTENCY_CONFIG.autoGenerate).toBe(true);
+  });
+
+  it.each([
+    ["non-boolean autoGenerate", { autoGenerate: "yes" }],
+    ["non-string prefix", { prefix: 123 }],
+    ["oversized prefix", { prefix: "p".repeat(220) }],
+    ["header-unsafe prefix", { prefix: "app\n" }],
+    ["unknown option", { unknown: true }],
+  ])("rejects invalid config: %s", (_name, override) => {
+    expect(() => resolveIdempotencyConfig(override as never)).toThrow();
+  });
+});
+
+describe("idempotency key boundaries", () => {
+  it("accepts non-empty keys through the API maximum", () => {
+    expect(() => assertValidIdempotencyKey("a")).not.toThrow();
+    expect(() => assertValidIdempotencyKey("a".repeat(255))).not.toThrow();
+  });
+
+  it.each(["", "a".repeat(256), "safe\r\ninjected: true"])(
+    "rejects an invalid key boundary",
+    (key) => {
+      expect(() => assertValidIdempotencyKey(key)).toThrow();
+    },
+  );
+
+  it("preserves UUID entropy at the maximum generated-key boundary", () => {
+    const prefix = "p".repeat(219);
+    const key = generateIdempotencyKey(prefix);
+    expect(key).toHaveLength(255);
+    expect(key.slice(prefix.length)).toMatch(UUID_REGEX);
+    expect(() => generateIdempotencyKey(`${prefix}p`)).toThrow(/219/);
   });
 });

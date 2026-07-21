@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { AhaSendClient } from "../src/client.js";
+import type { ClientOptions } from "../src/config.js";
 import { DEFAULT_BASE_URL, optionsFromEnv, resolveConfig } from "../src/config.js";
 
 describe("resolveConfig", () => {
@@ -6,11 +8,22 @@ describe("resolveConfig", () => {
     expect(() => resolveConfig({ apiKey: "" })).toThrow(/apiKey/);
   });
 
-  it("applies defaults for baseUrl, timeout, userAgent, and idempotency", () => {
+  it("exposes timeoutMs (and not the legacy timeout option) in the public contract", () => {
+    type HasTimeout = "timeout" extends keyof ClientOptions ? true : false;
+    type HasTimeoutMs = "timeoutMs" extends keyof ClientOptions ? true : false;
+
+    expectTypeOf<HasTimeout>().toEqualTypeOf<false>();
+    expectTypeOf<HasTimeoutMs>().toEqualTypeOf<true>();
+    expect(() => resolveConfig({ apiKey: "aha-sk-test", timeout: 1 } as never)).toThrow(
+      /timeoutMs/,
+    );
+  });
+
+  it("applies defaults for baseUrl, timeoutMs, userAgent, and idempotency", () => {
     const resolved = resolveConfig({ apiKey: "aha-sk-test" });
     expect(resolved.apiKey).toBe("aha-sk-test");
     expect(resolved.baseUrl).toBe(DEFAULT_BASE_URL);
-    expect(resolved.timeout).toBe(30_000);
+    expect(resolved.timeoutMs).toBe(30_000);
     expect(resolved.userAgent).toMatch(/^ahasend-node\//);
     expect(resolved.debug).toBe(false);
     expect(typeof resolved.fetch).toBe("function");
@@ -31,13 +44,19 @@ describe("resolveConfig", () => {
     ).toThrow(/insecure|https/i);
   });
 
-  it("allows http://localhost and http://127.0.0.1 for local mocks", () => {
+  it("allows only explicit localhost and loopback HTTP origins for local mocks", () => {
     expect(() =>
       resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://localhost:4010" }),
     ).not.toThrow();
     expect(() =>
       resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://127.0.0.1:4010" }),
     ).not.toThrow();
+    expect(() =>
+      resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://[::1]:4010" }),
+    ).not.toThrow();
+    expect(() =>
+      resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://dev.localhost:4010" }),
+    ).toThrow(/insecure|https/i);
   });
 
   it("dangerouslyAllowInsecureBaseUrl opt-in lets http:// through", () => {
@@ -77,14 +96,89 @@ describe("resolveConfig", () => {
   });
 
   it("strips trailing slashes from baseUrl", () => {
-    const resolved = resolveConfig({ apiKey: "aha-sk-test", baseUrl: "https://api.example.com///" });
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      baseUrl: "https://api.example.com///",
+    });
     expect(resolved.baseUrl).toBe("https://api.example.com");
+  });
+
+  it.each([
+    "https://user:password@api.example.com",
+    "https://api.example.com/v2",
+    "https://api.example.com?region=us",
+    "https://api.example.com#fragment",
+    "ftp://api.example.com",
+  ])("rejects a baseUrl that is not an HTTP(S) origin: %s", (baseUrl) => {
+    expect(() => resolveConfig({ apiKey: "aha-sk-test", baseUrl })).toThrow(
+      /baseUrl|origin|protocol/,
+    );
+  });
+
+  it("does not allow the insecure-development flag to enable non-HTTP protocols", () => {
+    expect(() =>
+      resolveConfig({
+        apiKey: "aha-sk-test",
+        baseUrl: "ftp://api.example.com",
+        dangerouslyAllowInsecureBaseUrl: true,
+      }),
+    ).toThrow(/protocol/);
   });
 
   it("uses an injected fetch when provided", () => {
     const mockFetch = (async () => new Response("ok")) as typeof fetch;
     const resolved = resolveConfig({ apiKey: "aha-sk-test", fetch: mockFetch });
     expect(resolved.fetch).toBe(mockFetch);
+  });
+
+  it.each([
+    ["timeoutMs", { timeoutMs: 0 }],
+    ["timeoutMs", { timeoutMs: Number.POSITIVE_INFINITY }],
+    ["debug", { debug: "true" }],
+    ["fetch", { fetch: {} }],
+    ["userAgent", { userAgent: "" }],
+    ["dangerouslyAllowBrowser", { dangerouslyAllowBrowser: 1 }],
+    ["unknown", { typo: true }],
+  ])("rejects invalid constructor option %s", (_name, invalid) => {
+    expect(() => resolveConfig({ apiKey: "aha-sk-test", ...invalid } as never)).toThrow();
+  });
+
+  it.each([
+    ["bad header name", { "bad header": "value" }],
+    ["line break", { "x-test": "safe\r\ninjected: true" }],
+    ["non-string value", { "x-test": 42 }],
+  ])("rejects invalid default headers: %s", (_name, defaultHeaders) => {
+    expect(() => resolveConfig({ apiKey: "aha-sk-test", defaultHeaders } as never)).toThrow(
+      /header|string/i,
+    );
+  });
+
+  it.each([
+    ["negative retries", { maxRetries: -1 }],
+    ["fractional retries", { maxRetries: 1.5 }],
+    ["negative base delay", { baseDelayMs: -1 }],
+    ["infinite maximum delay", { maxDelayMs: Number.POSITIVE_INFINITY }],
+    ["maximum below base", { baseDelayMs: 10, maxDelayMs: 5 }],
+    ["unknown strategy", { strategy: "random" }],
+    ["non-boolean jitter", { jitter: 1 }],
+  ])("rejects invalid retry config: %s", (_name, retry) => {
+    expect(() => resolveConfig({ apiKey: "aha-sk-test", retry } as never)).toThrow(/retry/);
+  });
+
+  it("rejects invalid per-request options synchronously before fetch", () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: "account-id",
+      fetch: fetchImpl,
+    });
+
+    expect(() => client.ping({ headers: { "bad header": "value" } })).toThrow(/header/i);
+    expect(() => client.ping({ signal: {} as AbortSignal })).toThrow(/AbortSignal/);
+    expect(() => client.messages.send({} as never, { idempotencyKey: "" })).toThrow(
+      /idempotencyKey/i,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 
@@ -114,10 +208,10 @@ describe("optionsFromEnv", () => {
   it("builds baseUrl from scheme and host when AHASEND_BASE_URL is not set", () => {
     const options = optionsFromEnv({
       AHASEND_API_KEY: "aha-sk-test",
-      AHASEND_HOST: "api.example.com",
+      AHASEND_HOST: "localhost:4010",
       AHASEND_SCHEME: "http",
     });
-    expect(options.baseUrl).toBe("http://api.example.com");
+    expect(options.baseUrl).toBe("http://localhost:4010");
   });
 
   it("converts AHASEND_TIMEOUT seconds to milliseconds", () => {
@@ -125,7 +219,7 @@ describe("optionsFromEnv", () => {
       AHASEND_API_KEY: "aha-sk-test",
       AHASEND_TIMEOUT: "5",
     });
-    expect(options.timeout).toBe(5000);
+    expect(options.timeoutMs).toBe(5000);
   });
 
   it("parses AHASEND_DEBUG truthy values", () => {
@@ -165,5 +259,28 @@ describe("optionsFromEnv", () => {
       AHASEND_IDEMPOTENCY_PREFIX: "staging",
     });
     expect(options.idempotency).toEqual({ autoGenerate: true, prefix: "staging" });
+  });
+
+  it.each([
+    ["AHASEND_TIMEOUT", { AHASEND_TIMEOUT: "0" }],
+    ["AHASEND_TIMEOUT", { AHASEND_TIMEOUT: "not-a-number" }],
+    ["AHASEND_MAX_RETRIES", { AHASEND_MAX_RETRIES: "-1" }],
+    ["AHASEND_MAX_RETRIES", { AHASEND_MAX_RETRIES: "1.5" }],
+    ["AHASEND_DEBUG", { AHASEND_DEBUG: "sometimes" }],
+    ["AHASEND_ENABLE_RATE_LIMIT", { AHASEND_ENABLE_RATE_LIMIT: "" }],
+    ["AHASEND_IDEMPOTENCY_AUTO_GENERATE", { AHASEND_IDEMPOTENCY_AUTO_GENERATE: "automatic" }],
+    ["AHASEND_SCHEME", { AHASEND_SCHEME: "https" }],
+    ["AHASEND_API_KEY", { AHASEND_API_KEY: "   " }],
+  ])("rejects invalid %s values instead of silently ignoring them", (_name, values) => {
+    expect(() => optionsFromEnv({ AHASEND_API_KEY: "aha-sk-test", ...values })).toThrow();
+  });
+
+  it("rejects an insecure non-local environment base URL", () => {
+    expect(() =>
+      optionsFromEnv({
+        AHASEND_API_KEY: "aha-sk-test",
+        AHASEND_BASE_URL: "http://api.example.com",
+      }),
+    ).toThrow(/insecure|https/i);
   });
 });

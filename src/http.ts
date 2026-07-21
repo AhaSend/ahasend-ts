@@ -1,4 +1,5 @@
 import type { ResolvedConfig } from "./config.js";
+import { assertHeaders } from "./config.js";
 import {
   AhaSendConnectionError,
   AhaSendResponseParseError,
@@ -52,6 +53,7 @@ export class HttpClient {
   }
 
   request<T>(options: RequestOptions): AhaSendPromise<T> {
+    assertHeaders(options.headers, "request headers");
     let responseEnvelope: AhaSendResponse<T>;
     const bodyPromise = this.requestWithResponse<T>(options).then((envelope) => {
       responseEnvelope = envelope;
@@ -118,7 +120,7 @@ export class HttpClient {
     options: RequestOptions,
     attempt: number,
   ): Promise<AhaSendResponse<T>> {
-    const controller = this.linkAbortSignal(options.signal, this.config.timeout);
+    const controller = this.linkAbortSignal(options.signal, this.config.timeoutMs);
     const startedAt = Date.now();
 
     this.config.hooks.onRequest({
@@ -135,7 +137,7 @@ export class HttpClient {
       controller.cleanup();
       if (controller.timedOut) {
         throw new AhaSendTimeoutError(
-          `Request to ${options.method} ${options.path} timed out after ${this.config.timeout}ms`,
+          `Request to ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms`,
           err,
         );
       }
@@ -177,7 +179,7 @@ export class HttpClient {
     } catch (err) {
       if (controller.timedOut) {
         throw new AhaSendTimeoutError(
-          `Response body read for ${options.method} ${options.path} timed out after ${this.config.timeout}ms`,
+          `Response body read for ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms`,
           err,
         );
       }
