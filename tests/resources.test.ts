@@ -1,5 +1,32 @@
 import { describe, expect, it } from "vitest";
+import type { ListDomainsParams } from "../src/resources/domains.js";
+import type { ListMessagesParams } from "../src/resources/messages.js";
+import type { PaginationParams } from "../src/types/common.js";
 import { captureFetch, makeClient } from "./helpers/resource-call.js";
+
+describe("Pagination parameter declarations", () => {
+  it("accepts limit with at most one cursor", () => {
+    const limitOnly: PaginationParams = { limit: 25 };
+    const after: PaginationParams = { limit: 25, after: "next" };
+    const before: PaginationParams = { limit: 25, before: "previous" };
+    // @ts-expect-error Pagination cursors are mutually exclusive.
+    const both: PaginationParams = { limit: 25, after: "next", before: "previous" };
+    if (false) {
+      // @ts-expect-error Pagination primitives are readonly.
+      after.limit = 50;
+    }
+
+    expect([limitOnly, after, before, both]).toHaveLength(4);
+  });
+
+  it("retains filters on named list parameter aliases", () => {
+    const messages: ListMessagesParams = { limit: 25, after: "next", status: "queued" };
+    const domains: ListDomainsParams = { limit: 50, before: "previous", dns_valid: true };
+
+    expect(messages.status).toBe("queued");
+    expect(domains.dns_valid).toBe(true);
+  });
+});
 
 describe("MessagesClient", () => {
   it("send() POSTs /v2/accounts/{account_id}/messages with the request body", async () => {
@@ -57,11 +84,13 @@ describe("MessagesClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.messages.list({ limit: 25, status: "queued" });
+    await client.messages.list({ limit: 25, after: "next", status: "queued" });
 
     const url = new URL(calls[0]!.url);
     expect(url.pathname).toBe("/v2/accounts/acc_1/messages");
     expect(url.searchParams.get("limit")).toBe("25");
+    expect(url.searchParams.get("after")).toBe("next");
+    expect(url.searchParams.has("before")).toBe(false);
     expect(url.searchParams.get("status")).toBe("queued");
   });
 
@@ -132,11 +161,13 @@ describe("DomainsClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.domains.list({ dns_valid: true, limit: 50 });
+    await client.domains.list({ dns_valid: true, limit: 50, before: "previous" });
 
     const url = new URL(calls[0]!.url);
     expect(url.searchParams.get("dns_valid")).toBe("true");
     expect(url.searchParams.get("limit")).toBe("50");
+    expect(url.searchParams.get("before")).toBe("previous");
+    expect(url.searchParams.has("after")).toBe(false);
   });
 });
 

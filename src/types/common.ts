@@ -13,11 +13,9 @@ export interface AhaSendPromise<T> extends Promise<T> {
   withResponse(): Promise<AhaSendResponse<T>>;
 }
 
-export interface PaginationParams {
-  limit?: number;
-  after?: string;
-  before?: string;
-}
+export type PaginationParams = Readonly<
+  { limit?: number } & ({ after?: string; before?: never } | { after?: never; before?: string })
+>;
 
 export interface PaginationMeta {
   has_more: boolean;

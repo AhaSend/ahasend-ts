@@ -33,12 +33,12 @@ export interface CreateSuppressionResponse {
   data: Suppression[];
 }
 
-export interface ListSuppressionsParams extends PaginationParams {
+export type ListSuppressionsParams = PaginationParams & {
   domain?: string;
   email?: string;
   from_time?: ISODateTime;
   to_time?: ISODateTime;
-}
+};
 
 export interface DeleteSuppressionParams {
   email: string;

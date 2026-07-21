@@ -59,9 +59,9 @@ export interface UpdateRouteRequest {
   enabled?: boolean;
 }
 
-export interface ListRoutesParams extends PaginationParams {
+export type ListRoutesParams = PaginationParams & {
   domain?: string;
-}
+};
 
 /**
  * Manage inbound routes — rules that deliver received email to your

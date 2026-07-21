@@ -89,7 +89,7 @@ export interface UpdateWebhookRequest {
   domains?: string[] | null;
 }
 
-export interface ListWebhooksParams extends PaginationParams {
+export type ListWebhooksParams = PaginationParams & {
   enabled?: boolean;
   on_reception?: boolean;
   on_delivered?: boolean;
@@ -101,7 +101,7 @@ export interface ListWebhooksParams extends PaginationParams {
   on_clicked?: boolean;
   on_suppression_created?: boolean;
   on_dns_error?: boolean;
-}
+};
 
 /**
  * Manage webhook subscriptions for the account.

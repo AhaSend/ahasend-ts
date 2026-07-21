@@ -1,15 +1,41 @@
 import { describe, expect, it } from "vitest";
+import type { ListRoutesParams } from "../src/resources/routes.js";
+import type { ListSuppressionsParams } from "../src/resources/suppressions.js";
+import type { ListWebhooksParams } from "../src/resources/webhooks.js";
 import { captureFetch, makeClient } from "./helpers/resource-call.js";
+
+describe("Filtered pagination parameter declarations", () => {
+  it("retains each resource filter alongside limit and one cursor", () => {
+    const webhooks: ListWebhooksParams = { limit: 25, after: "next", enabled: true };
+    const suppressions: ListSuppressionsParams = {
+      limit: 50,
+      before: "previous",
+      domain: "example.com",
+    };
+    const routes: ListRoutesParams = { limit: 10, after: "next", domain: "example.com" };
+
+    expect(webhooks.enabled).toBe(true);
+    expect(suppressions.domain).toBe("example.com");
+    expect(routes.domain).toBe("example.com");
+  });
+});
 
 describe("WebhooksClient (account-scoped per spec)", () => {
   it("list() hits /v2/accounts/{id}/webhooks with event-filter query params", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.webhooks.list({ limit: 25, enabled: true, on_delivered: true });
+    await client.webhooks.list({
+      limit: 25,
+      after: "next",
+      enabled: true,
+      on_delivered: true,
+    });
     expect(calls[0]!.method).toBe("GET");
     const url = new URL(calls[0]!.url);
     expect(url.pathname).toBe("/v2/accounts/acc_1/webhooks");
     expect(url.searchParams.get("limit")).toBe("25");
+    expect(url.searchParams.get("after")).toBe("next");
+    expect(url.searchParams.has("before")).toBe(false);
     expect(url.searchParams.get("enabled")).toBe("true");
     expect(url.searchParams.get("on_delivered")).toBe("true");
     expect(calls[0]!.operationId).toBe("getWebhooks");
@@ -98,10 +124,18 @@ describe("SuppressionsClient", () => {
   it("list() GETs /suppressions with pagination", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.suppressions.list({ limit: 50 });
+    await client.suppressions.list({
+      limit: 50,
+      before: "previous",
+      domain: "example.com",
+    });
     expect(calls[0]!.method).toBe("GET");
     expect(calls[0]!.url).toContain("/v2/accounts/acc_1/suppressions?");
-    expect(calls[0]!.url).toContain("limit=50");
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("limit")).toBe("50");
+    expect(url.searchParams.get("before")).toBe("previous");
+    expect(url.searchParams.has("after")).toBe(false);
+    expect(url.searchParams.get("domain")).toBe("example.com");
   });
 
   it("create() POSTs body", async () => {
@@ -147,10 +181,12 @@ describe("RoutesClient", () => {
   it("list() supports a domain filter", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.routes.list({ domain: "example.com", limit: 10 });
+    await client.routes.list({ domain: "example.com", limit: 10, after: "next" });
     const url = new URL(calls[0]!.url);
     expect(url.searchParams.get("domain")).toBe("example.com");
     expect(url.searchParams.get("limit")).toBe("10");
+    expect(url.searchParams.get("after")).toBe("next");
+    expect(url.searchParams.has("before")).toBe(false);
   });
 
   it("create() POSTs the route body (no `domain` field — per spec)", async () => {

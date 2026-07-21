@@ -42,9 +42,9 @@ export interface Domain {
   dsn_recipient?: string | null;
 }
 
-export interface ListDomainsParams extends PaginationParams {
+export type ListDomainsParams = PaginationParams & {
   dns_valid?: boolean;
-}
+};
 
 export interface CreateDomainRequest {
   domain: string;

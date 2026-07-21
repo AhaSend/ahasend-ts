@@ -227,7 +227,7 @@ export interface Message {
   content_parsed?: MessageContentParsed | null;
 }
 
-export interface ListMessagesParams extends PaginationParams {
+export type ListMessagesParams = PaginationParams & {
   status?: string;
   sender?: string;
   recipient?: string;
@@ -236,7 +236,7 @@ export interface ListMessagesParams extends PaginationParams {
   tags?: string;
   from_time?: ISODateTime;
   to_time?: ISODateTime;
-}
+};
 
 /** Send, list, fetch, and cancel transactional messages. */
 export class MessagesClient {
