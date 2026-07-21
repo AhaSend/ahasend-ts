@@ -12,7 +12,37 @@ import { StatisticsClient } from "./resources/statistics.js";
 import { SuppressionsClient } from "./resources/suppressions.js";
 import { WebhooksClient } from "./resources/webhooks.js";
 import { forwardOptions } from "./resources/_helpers.js";
-import type { RequestOptions, UUID } from "./types/common.js";
+import type { AhaSendPromise, RequestOptions, UUID } from "./types/common.js";
+
+const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");
+const REDACTED = "[REDACTED]" as const;
+
+interface SerializedAhaSendClient {
+  readonly name: "AhaSendClient";
+  readonly accountId: UUID;
+  readonly apiKey: typeof REDACTED;
+}
+
+function createFrozenFacade<T extends object>(resource: T): Readonly<T> {
+  const facade: Record<PropertyKey, unknown> = {};
+  const prototype = Object.getPrototypeOf(resource) as object | null;
+
+  if (prototype) {
+    for (const key of Reflect.ownKeys(prototype)) {
+      if (key === "constructor") continue;
+      const value: unknown = Object.getOwnPropertyDescriptor(prototype, key)?.value;
+      if (typeof value !== "function") continue;
+      Object.defineProperty(facade, key, {
+        value: value.bind(resource),
+        writable: false,
+        enumerable: false,
+        configurable: false,
+      });
+    }
+  }
+
+  return Object.freeze(facade) as Readonly<T>;
+}
 
 export interface AhaSendClientOptions extends ClientOptions {
   accountId: UUID;
@@ -42,18 +72,17 @@ export interface PingResponse {
  * configurable via {@link AhaSendClientOptions}.
  */
 export class AhaSendClient {
-  public readonly accountId: UUID;
-  public readonly messages: MessagesClient;
-  public readonly domains: DomainsClient;
-  public readonly apiKeys: APIKeysClient;
-  public readonly webhooks: WebhooksClient;
-  public readonly statistics: StatisticsClient;
-  public readonly suppressions: SuppressionsClient;
-  public readonly routes: RoutesClient;
-  public readonly accounts: AccountsClient;
-  public readonly smtpCredentials: SMTPCredentialsClient;
-
-  private readonly http: HttpClient;
+  readonly #accountId: UUID;
+  readonly #http: HttpClient;
+  readonly #messages: Readonly<MessagesClient>;
+  readonly #domains: Readonly<DomainsClient>;
+  readonly #apiKeys: Readonly<APIKeysClient>;
+  readonly #webhooks: Readonly<WebhooksClient>;
+  readonly #statistics: Readonly<StatisticsClient>;
+  readonly #suppressions: Readonly<SuppressionsClient>;
+  readonly #routes: Readonly<RoutesClient>;
+  readonly #accounts: Readonly<AccountsClient>;
+  readonly #smtpCredentials: Readonly<SMTPCredentialsClient>;
 
   constructor(options: AhaSendClientOptions) {
     assertPlainRecord(options, "client options");
@@ -63,18 +92,58 @@ export class AhaSendClient {
 
     const { accountId, ...clientOptions } = options;
     const config = resolveConfig(clientOptions);
-    this.http = new HttpClient(config);
-    this.accountId = accountId;
+    this.#http = new HttpClient(config);
+    this.#accountId = accountId;
 
-    this.messages = new MessagesClient(this.http, accountId);
-    this.domains = new DomainsClient(this.http, accountId);
-    this.apiKeys = new APIKeysClient(this.http, accountId);
-    this.webhooks = new WebhooksClient(this.http, accountId);
-    this.statistics = new StatisticsClient(this.http, accountId);
-    this.suppressions = new SuppressionsClient(this.http, accountId);
-    this.routes = new RoutesClient(this.http, accountId);
-    this.accounts = new AccountsClient(this.http, accountId);
-    this.smtpCredentials = new SMTPCredentialsClient(this.http, accountId);
+    this.#messages = createFrozenFacade(new MessagesClient(this.#http, accountId));
+    this.#domains = createFrozenFacade(new DomainsClient(this.#http, accountId));
+    this.#apiKeys = createFrozenFacade(new APIKeysClient(this.#http, accountId));
+    this.#webhooks = createFrozenFacade(new WebhooksClient(this.#http, accountId));
+    this.#statistics = createFrozenFacade(new StatisticsClient(this.#http, accountId));
+    this.#suppressions = createFrozenFacade(new SuppressionsClient(this.#http, accountId));
+    this.#routes = createFrozenFacade(new RoutesClient(this.#http, accountId));
+    this.#accounts = createFrozenFacade(new AccountsClient(this.#http, accountId));
+    this.#smtpCredentials = createFrozenFacade(new SMTPCredentialsClient(this.#http, accountId));
+  }
+
+  get accountId(): UUID {
+    return this.#accountId;
+  }
+
+  get messages(): Readonly<MessagesClient> {
+    return this.#messages;
+  }
+
+  get domains(): Readonly<DomainsClient> {
+    return this.#domains;
+  }
+
+  get apiKeys(): Readonly<APIKeysClient> {
+    return this.#apiKeys;
+  }
+
+  get webhooks(): Readonly<WebhooksClient> {
+    return this.#webhooks;
+  }
+
+  get statistics(): Readonly<StatisticsClient> {
+    return this.#statistics;
+  }
+
+  get suppressions(): Readonly<SuppressionsClient> {
+    return this.#suppressions;
+  }
+
+  get routes(): Readonly<RoutesClient> {
+    return this.#routes;
+  }
+
+  get accounts(): Readonly<AccountsClient> {
+    return this.#accounts;
+  }
+
+  get smtpCredentials(): Readonly<SMTPCredentialsClient> {
+    return this.#smtpCredentials;
   }
 
   /**
@@ -94,9 +163,22 @@ export class AhaSendClient {
     return new AhaSendClient({ ...base, accountId });
   }
 
+  /** Return a safe diagnostic representation without transport or resource state. */
+  toJSON(): SerializedAhaSendClient {
+    return Object.freeze({
+      name: "AhaSendClient",
+      accountId: this.#accountId,
+      apiKey: REDACTED,
+    });
+  }
+
+  [INSPECT_CUSTOM](): SerializedAhaSendClient {
+    return this.toJSON();
+  }
+
   /** Health check (`GET /v2/ping`) — verifies connectivity and the API key. */
-  ping(options: RequestOptions = {}): Promise<PingResponse> {
-    return this.http.request<PingResponse>({
+  ping(options: RequestOptions = {}): AhaSendPromise<PingResponse> {
+    return this.#http.request<PingResponse>({
       method: "GET",
       path: "/v2/ping",
       ...forwardOptions(options),

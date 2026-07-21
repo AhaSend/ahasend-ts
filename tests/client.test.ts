@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { AhaSendClient } from "../src/index.js";
 import type {
@@ -58,23 +59,110 @@ describe("AhaSendClient", () => {
     expect(client.accountId).toBe("acc_1");
   });
 
-  it("ping() hits GET /v2/ping", async () => {
+  it("ping() hits GET /v2/ping and exposes the public response promise", async () => {
     let seenUrl = "";
+    let fetchCalls = 0;
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
       accountId: "acc_1",
       fetch: mockFetch((url) => {
+        fetchCalls++;
         seenUrl = url;
         return new Response(JSON.stringify({ message: "pong" }), {
           status: 200,
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "x-request-id": "req_ping" },
         });
       }),
     });
 
-    const res = await client.ping();
+    const ping = client.ping();
+    expectTypeOf(ping).toEqualTypeOf<AhaSendPromise<import("../src/index.js").PingResponse>>();
+
+    const [res, envelope] = await Promise.all([ping, ping.withResponse()]);
     expect(seenUrl).toMatch(/\/v2\/ping$/);
     expect(res.message).toBe("pong");
+    expect(envelope.data).toBe(res);
+    expect(envelope.requestId).toBe("req_ping");
+    expect(fetchCalls).toBe(1);
+  });
+
+  it("keeps client state private and serializes a redacted diagnostic view", () => {
+    const apiKey = "aha-sk-private-client-secret";
+    const sensitiveHeader = "private-default-header-value";
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "acc_private",
+      defaultHeaders: { "x-private-header": sensitiveHeader },
+      fetch: transport,
+    });
+
+    expect(Object.getOwnPropertyNames(client)).toEqual([]);
+    expect(JSON.parse(JSON.stringify(client))).toEqual({
+      name: "AhaSendClient",
+      accountId: "acc_private",
+      apiKey: "[REDACTED]",
+    });
+
+    const serialized = JSON.stringify(client);
+    expect(serialized).not.toContain(apiKey);
+    expect(serialized).not.toContain(sensitiveHeader);
+    expect(serialized).not.toContain("x-private-header");
+    expect(serialized).not.toContain("HttpClient");
+    expect(serialized).not.toContain("MessagesClient");
+  });
+
+  it("provides redacted util.inspect output even when hidden properties are requested", () => {
+    const apiKey = "aha-sk-private-inspect-secret";
+    const sensitiveHeader = "private-inspect-header-value";
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "acc_inspect",
+      defaultHeaders: { authorization: sensitiveHeader },
+      fetch: mockFetch(() => new Response("{}", { status: 200 })),
+    });
+
+    const inspected = inspect(client, { showHidden: true });
+    expect(inspected).toContain("AhaSendClient");
+    expect(inspected).toContain("acc_inspect");
+    expect(inspected).toContain("[REDACTED]");
+    expect(inspected).not.toContain(apiKey);
+    expect(inspected).not.toContain(sensitiveHeader);
+    expect(inspected).not.toContain("HttpClient");
+    expect(inspected).not.toContain("MessagesClient");
+  });
+
+  it("exposes stable frozen resource facades", () => {
+    const apiKey = "aha-sk-facade-secret";
+    const sensitiveHeader = "private-facade-header-value";
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "acc_1",
+      defaultHeaders: { "x-private-header": sensitiveHeader },
+      fetch: mockFetch(() => new Response("{}", { status: 200 })),
+    });
+    const facades = [
+      client.messages,
+      client.domains,
+      client.apiKeys,
+      client.webhooks,
+      client.statistics,
+      client.suppressions,
+      client.routes,
+      client.accounts,
+      client.smtpCredentials,
+    ];
+
+    expect(client.messages).toBe(client.messages);
+    for (const facade of facades) {
+      expect(Object.isFrozen(facade)).toBe(true);
+      expect(Object.getOwnPropertyNames(facade)).not.toContain("http");
+      expect(Object.getOwnPropertyNames(facade)).not.toContain("accountId");
+      const inspected = inspect(facade, { showHidden: true });
+      expect(inspected).not.toContain(apiKey);
+      expect(inspected).not.toContain(sensitiveHeader);
+      expect(inspected).not.toContain("HttpClient");
+    }
   });
 
   it("fromEnv requires AHASEND_ACCOUNT_ID", () => {
@@ -172,15 +260,17 @@ describe("root public exports", () => {
     >();
     expectTypeOf<AhaSendErrorCode>().toMatchTypeOf<string>();
 
-    expectTypeOf<AhaSendClient["accounts"]>().toEqualTypeOf<AccountsClient>();
-    expectTypeOf<AhaSendClient["apiKeys"]>().toEqualTypeOf<APIKeysClient>();
-    expectTypeOf<AhaSendClient["domains"]>().toEqualTypeOf<DomainsClient>();
-    expectTypeOf<AhaSendClient["messages"]>().toEqualTypeOf<MessagesClient>();
-    expectTypeOf<AhaSendClient["routes"]>().toEqualTypeOf<RoutesClient>();
-    expectTypeOf<AhaSendClient["smtpCredentials"]>().toEqualTypeOf<SMTPCredentialsClient>();
-    expectTypeOf<AhaSendClient["statistics"]>().toEqualTypeOf<StatisticsClient>();
-    expectTypeOf<AhaSendClient["suppressions"]>().toEqualTypeOf<SuppressionsClient>();
-    expectTypeOf<AhaSendClient["webhooks"]>().toEqualTypeOf<WebhooksClient>();
+    expectTypeOf<AhaSendClient["accounts"]>().toEqualTypeOf<Readonly<AccountsClient>>();
+    expectTypeOf<AhaSendClient["apiKeys"]>().toEqualTypeOf<Readonly<APIKeysClient>>();
+    expectTypeOf<AhaSendClient["domains"]>().toEqualTypeOf<Readonly<DomainsClient>>();
+    expectTypeOf<AhaSendClient["messages"]>().toEqualTypeOf<Readonly<MessagesClient>>();
+    expectTypeOf<AhaSendClient["routes"]>().toEqualTypeOf<Readonly<RoutesClient>>();
+    expectTypeOf<AhaSendClient["smtpCredentials"]>().toEqualTypeOf<
+      Readonly<SMTPCredentialsClient>
+    >();
+    expectTypeOf<AhaSendClient["statistics"]>().toEqualTypeOf<Readonly<StatisticsClient>>();
+    expectTypeOf<AhaSendClient["suppressions"]>().toEqualTypeOf<Readonly<SuppressionsClient>>();
+    expectTypeOf<AhaSendClient["webhooks"]>().toEqualTypeOf<Readonly<WebhooksClient>>();
   });
 });
 
