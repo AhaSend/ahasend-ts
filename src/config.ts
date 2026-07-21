@@ -398,7 +398,11 @@ function assertRecord(value: unknown, name: string): asserts value is Record<str
   }
 }
 
-function assertPlainRecord(value: unknown, name: string): asserts value is Record<string, unknown> {
+/** @internal Validate that an option container preserves plain-record semantics. */
+export function assertPlainRecord(
+  value: unknown,
+  name: string,
+): asserts value is Record<string, unknown> {
   assertRecord(value, name);
   const prototype = Object.getPrototypeOf(value) as unknown;
   if (prototype !== Object.prototype && prototype !== null) {

@@ -1,5 +1,5 @@
 import type { ClientOptions } from "./config.js";
-import { optionsFromEnv, resolveConfig } from "./config.js";
+import { assertPlainRecord, optionsFromEnv, resolveConfig } from "./config.js";
 import { HttpClient } from "./http.js";
 import { AccountsClient } from "./resources/accounts.js";
 import { APIKeysClient } from "./resources/api-keys.js";
@@ -55,9 +55,7 @@ export class AhaSendClient {
   private readonly http: HttpClient;
 
   constructor(options: AhaSendClientOptions) {
-    if (typeof options !== "object" || options === null) {
-      throw new Error("AhaSend: client options must be an object.");
-    }
+    assertPlainRecord(options, "client options");
     if (typeof options.accountId !== "string" || options.accountId.trim().length === 0) {
       throw new Error("AhaSend: `accountId` is required.");
     }

@@ -149,6 +149,21 @@ describe("resolveConfig", () => {
   });
 
   it.each([
+    ["Date", Object.assign(new Date(0), { apiKey: "aha-sk-test", accountId: "account-id" })],
+    ["Map", Object.assign(new Map(), { apiKey: "aha-sk-test", accountId: "account-id" })],
+    ["array", Object.assign([], { apiKey: "aha-sk-test", accountId: "account-id" })],
+    [
+      "custom prototype",
+      Object.assign(Object.create({ inherited: true }) as object, {
+        apiKey: "aha-sk-test",
+        accountId: "account-id",
+      }),
+    ],
+  ])("rejects a non-plain %s container through the public constructor", (_name, options) => {
+    expect(() => new AhaSendClient(options as never)).toThrow(/object/i);
+  });
+
+  it.each([
     ["bad header name", { "bad header": "value" }],
     ["line break", { "x-test": "safe\r\ninjected: true" }],
     ["non-string value", { "x-test": 42 }],
