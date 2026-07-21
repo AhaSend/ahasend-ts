@@ -1,0 +1,55 @@
+{
+  "$schema": "manifest.schema.json",
+  "version": 1,
+  "headerRecordFormat": "webhook-id:{webhookId}\\nwebhook-timestamp:{webhookTimestamp}\\nwebhook-signature:{signature}\\n",
+  "captures": [
+    {
+      "fixtureId": "configured-webhook-message-delivered",
+      "bodyPath": "contracts/webhooks/captured/bodies/configured-webhook-message-delivered.json",
+      "rawBodySha256": "9b244efbd6d8b46ed32eeead74c9e2980e2623a60162d1b9350711f6ea5fa137",
+      "signingResource": {
+        "type": "configured-webhook",
+        "id": "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
+        "idSha256": "6148e221d83e4cbedd9813499d128ebe3091f4daa0b0c1ddb7396ec31ee9a88f",
+        "keyPath": "contracts/webhooks/captured/keys/configured-webhook.key",
+        "keySha256": "5c8c5e6748b29c16f7f55153d91c6bb232b74c333aa93512c79d40f629db68d3",
+        "bindingSha256": "064cdf4e50147c18cce0873a5ea1aac8a7d78edeb5b390c7dc26b4d1a4fd3b15"
+      },
+      "webhookId": "msg_capture_configured_01",
+      "webhookTimestamp": "1784041401",
+      "signature": "v1,AN/zm8EakS5sDN7boC5iGVLtQiVlayI5MOi3Qpyxtb0=",
+      "headersSha256": "fc3fb212caba5a50220c5055825da659eb929b0f95184468e39ea4acb6c400b8",
+      "provenance": {
+        "kind": "captured",
+        "environment": "cross-sdk-contract-recorder",
+        "capturedAt": "2026-07-14T15:03:22Z",
+        "source": "configured webhook HTTPS delivery with raw request bytes preserved"
+      },
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "route-message-routing",
+      "bodyPath": "contracts/webhooks/captured/bodies/route-message-routing.json",
+      "rawBodySha256": "99ea3da64efeb54d8a135134b025e772d76f546e02bb431555bafcdcef70a8c3",
+      "signingResource": {
+        "type": "route",
+        "id": "b33c56aa-4bb8-4796-a44e-e204c2a9cb49",
+        "idSha256": "bdf8d5f2684fdd53f94d657026f7a54672aa9f1dbbd989d81c6f1554fe8129c8",
+        "keyPath": "contracts/webhooks/captured/keys/route.key",
+        "keySha256": "f24f39e45baba440b86f994e520d5b4a08c1e5b74dd79f9efc84f2fe9466b083",
+        "bindingSha256": "cdb0b5f85da4564deab591b9c4a155160fe48a3e50df4d003b172ed1227bbdbe"
+      },
+      "webhookId": "msg_capture_route_01",
+      "webhookTimestamp": "1784041447",
+      "signature": "v1,orVgMtI2UIZ7g31V4wEnxqKX9s3z3tax26uBDvl2p+c=",
+      "headersSha256": "a79e2921bc8caaa8d377672d1c7b7d6ab47df44455e52bf3b14f45df91c257b6",
+      "provenance": {
+        "kind": "captured",
+        "environment": "cross-sdk-contract-recorder",
+        "capturedAt": "2026-07-14T15:04:08Z",
+        "source": "route HTTPS delivery with raw request bytes preserved"
+      },
+      "expectedResult": "valid"
+    }
+  ]
+}

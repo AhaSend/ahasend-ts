@@ -1,9 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createHash, createHmac } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
-import { digestYamlArtifact } from "../scripts/digest-artifact.mjs";
+import { digestJsonArtifact, digestYamlArtifact } from "../scripts/digest-artifact.mjs";
 import {
   assertInventoryMatches,
   collectContractInventory,
@@ -11,8 +13,13 @@ import {
   injectNodeSamples,
   parseOpenApi,
   parseWebhookContract,
+  validateCapturedManifest,
+  validateCapturedManifestSchema,
   validateCodeSamples,
   validateInternalReferences,
+  validateSecretScanAllowlist,
+  validateSignedFixture,
+  validateWebhookEvidence,
   validateWebhookContract,
 } from "../scripts/generate-contracts.mjs";
 import { NODE_CODE_SAMPLES } from "../scripts/node-code-samples.mjs";
@@ -28,6 +35,9 @@ type JsonRecord = Record<string, unknown>;
 const OPENAPI_PATH = resolve(process.cwd(), "openapi.yaml");
 const WEBHOOK_PATH = resolve(process.cwd(), "webhooks.yaml");
 const LOCK_PATH = resolve(process.cwd(), "contracts.lock.json");
+const CAPTURED_PATH = resolve(process.cwd(), "contracts/webhooks/captured");
+const SYNTHETIC_PATH = resolve(process.cwd(), "contracts/webhooks/synthetic");
+const SECRET_POLICY_PATH = resolve(process.cwd(), "security/secret-scan-allowlist.json");
 const source = readFileSync(OPENAPI_PATH, "utf8");
 const document = parseOpenApi(source);
 const webhookSource = readFileSync(WEBHOOK_PATH, "utf8");
@@ -36,6 +46,16 @@ const lock = JSON.parse(readFileSync(LOCK_PATH, "utf8")) as {
   artifactHashes: Record<string, string>;
   inventories: JsonRecord;
 };
+const capturedManifest = JSON.parse(
+  readFileSync(resolve(CAPTURED_PATH, "manifest.json"), "utf8"),
+) as JsonRecord;
+const capturedSchema = JSON.parse(
+  readFileSync(resolve(CAPTURED_PATH, "manifest.schema.json"), "utf8"),
+) as JsonRecord;
+const syntheticManifest = JSON.parse(
+  readFileSync(resolve(SYNTHETIC_PATH, "manifest.json"), "utf8"),
+) as JsonRecord;
+const secretPolicy = JSON.parse(readFileSync(SECRET_POLICY_PATH, "utf8")) as JsonRecord;
 
 function record(value: unknown): JsonRecord {
   expect(value).toBeTypeOf("object");
@@ -342,5 +362,182 @@ describe("webhook delivery contract rejection checks", () => {
     (clicked.required as unknown[]).push("is_bot");
 
     expect(() => validateWebhookContract(changed)).toThrow(/is_bot must be optional/);
+  });
+});
+
+describe("captured webhook evidence", () => {
+  it("validates the manifest schema, detached digest, locked artifacts, and all evidence", async () => {
+    expect(() => validateCapturedManifestSchema(capturedSchema)).not.toThrow();
+    expect(() => validateCapturedManifest(capturedManifest, capturedSchema)).not.toThrow();
+
+    const detachedDigest = readFileSync(resolve(CAPTURED_PATH, "manifest.sha256"), "utf8");
+    const manifestDigest = digestJsonArtifact(capturedManifest);
+    expect(detachedDigest).toBe(`${manifestDigest}\n`);
+    expect(lock.artifactHashes["contracts/webhooks/captured/manifest.json"]).toBe(manifestDigest);
+    expect(lock.artifactHashes["contracts/webhooks/captured/manifest.schema.json"]).toBe(
+      digestJsonArtifact(capturedSchema),
+    );
+    expect(lock.artifactHashes["contracts/webhooks/synthetic/manifest.json"]).toBe(
+      digestJsonArtifact(syntheticManifest),
+    );
+    expect(lock.artifactHashes["security/secret-scan-allowlist.json"]).toBe(
+      digestJsonArtifact(secretPolicy),
+    );
+
+    await expect(validateWebhookEvidence(process.cwd())).resolves.toMatchObject({
+      captureCount: 2,
+      syntheticCount: 1,
+    });
+  });
+
+  it("reproduces fixed signatures and exact three-header records from persisted values", () => {
+    const captures = capturedManifest.captures as JsonRecord[];
+    expect(captures).toHaveLength(2);
+
+    for (const capture of captures) {
+      const resource = record(capture.signingResource);
+      const bodyPath = capture.bodyPath as string;
+      const keyPath = resource.keyPath as string;
+      const rawBody = readFileSync(resolve(process.cwd(), bodyPath));
+      const keyFile = readFileSync(resolve(process.cwd(), keyPath));
+      const key = keyFile.subarray(0, keyFile.length - 1);
+
+      expect(createHash("sha256").update(rawBody).digest("hex"), capture.fixtureId as string).toBe(
+        capture.rawBodySha256,
+      );
+      expect(createHash("sha256").update(key).digest("hex"), capture.fixtureId as string).toBe(
+        resource.keySha256,
+      );
+
+      const signature = `v1,${createHmac("sha256", key)
+        .update(capture.webhookId as string)
+        .update(".")
+        .update(capture.webhookTimestamp as string)
+        .update(".")
+        .update(rawBody)
+        .digest("base64")}`;
+      expect(signature, capture.fixtureId as string).toBe(capture.signature);
+
+      const headerRecord = [
+        `webhook-id:${capture.webhookId as string}`,
+        `webhook-timestamp:${capture.webhookTimestamp as string}`,
+        `webhook-signature:${capture.signature as string}`,
+        "",
+      ].join("\n");
+      expect(
+        createHash("sha256").update(headerRecord, "utf8").digest("hex"),
+        capture.fixtureId as string,
+      ).toBe(capture.headersSha256);
+      expect(capture.webhookId).toBeTypeOf("string");
+      expect(capture.webhookTimestamp).toMatch(/^\d+$/);
+      expect(record(capture.provenance).kind).toBe("captured");
+      expect(capture.expectedResult).toBe("valid");
+    }
+  });
+
+  it("rejects changed signed headers, reserialized bodies, swapped keys, and changed keys", () => {
+    const captures = capturedManifest.captures as JsonRecord[];
+    const configuredCapture = structuredClone(captures[0]!);
+    const routeCapture = structuredClone(captures[1]!);
+    const configuredResource = record(configuredCapture.signingResource);
+    const routeResource = record(routeCapture.signingResource);
+    const configuredBody = readFileSync(
+      resolve(process.cwd(), configuredCapture.bodyPath as string),
+    );
+    const configuredKey = readFileSync(
+      resolve(process.cwd(), configuredResource.keyPath as string),
+    );
+    const routeKey = readFileSync(resolve(process.cwd(), routeResource.keyPath as string));
+
+    const changedId = structuredClone(configuredCapture);
+    changedId.webhookId = `${changedId.webhookId as string}-changed`;
+    expect(() =>
+      validateSignedFixture(changedId, configuredBody, configuredKey, { captured: true }),
+    ).toThrow(/signature mismatch/);
+
+    const changedTimestamp = structuredClone(configuredCapture);
+    changedTimestamp.webhookTimestamp = "1784041402";
+    expect(() =>
+      validateSignedFixture(changedTimestamp, configuredBody, configuredKey, { captured: true }),
+    ).toThrow(/signature mismatch/);
+
+    const reserializedBody = Buffer.from(
+      JSON.stringify(JSON.parse(configuredBody.toString("utf8"))),
+      "utf8",
+    );
+    expect(() =>
+      validateSignedFixture(configuredCapture, reserializedBody, configuredKey, {
+        captured: true,
+      }),
+    ).toThrow(/raw body digest mismatch/);
+    expect(() =>
+      validateSignedFixture(configuredCapture, configuredBody, routeKey, { captured: true }),
+    ).toThrow(/signing key digest mismatch/);
+
+    const changedKey = Buffer.from(`${configuredKey.toString("utf8").trimEnd()}-changed\n`, "utf8");
+    expect(() =>
+      validateSignedFixture(configuredCapture, configuredBody, changedKey, { captured: true }),
+    ).toThrow(/signing key digest mismatch/);
+  });
+
+  it("rejects header-record and resource/key binding drift independently", () => {
+    const capture = structuredClone((capturedManifest.captures as JsonRecord[])[0]!);
+    const resource = record(capture.signingResource);
+    const body = readFileSync(resolve(process.cwd(), capture.bodyPath as string));
+    const key = readFileSync(resolve(process.cwd(), resource.keyPath as string));
+
+    capture.headersSha256 = "0".repeat(64);
+    expect(() => validateSignedFixture(capture, body, key, { captured: true })).toThrow(
+      /signed header record digest mismatch/,
+    );
+
+    const changedBinding = structuredClone((capturedManifest.captures as JsonRecord[])[0]!);
+    record(changedBinding.signingResource).bindingSha256 = "0".repeat(64);
+    expect(() => validateSignedFixture(changedBinding, body, key, { captured: true })).toThrow(
+      /resource\/key binding mismatch/,
+    );
+  });
+
+  it("rejects a captured fixture key copied outside its single allowlisted path", async () => {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "ahasend-secret-scan-"));
+    try {
+      for (const value of secretPolicy.rules as JsonRecord[]) {
+        const allowedPath = value.allowedPath as string;
+        const destination = resolve(temporaryRoot, allowedPath);
+        mkdirSync(dirname(destination), { recursive: true });
+        writeFileSync(destination, readFileSync(resolve(process.cwd(), allowedPath)));
+      }
+      const copiedKeyPath = resolve(temporaryRoot, "copied-configured-webhook.key");
+      writeFileSync(
+        copiedKeyPath,
+        readFileSync(
+          resolve(process.cwd(), "contracts/webhooks/captured/keys/configured-webhook.key"),
+        ),
+      );
+
+      await expect(validateSecretScanAllowlist(secretPolicy, temporaryRoot)).rejects.toThrow(
+        /secret scan classification violation/,
+      );
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("synthetic webhook fixtures", () => {
+  it("validates independently and stays outside captured evidence", () => {
+    const captures = capturedManifest.captures as JsonRecord[];
+    const fixtures = syntheticManifest.fixtures as JsonRecord[];
+    expect(fixtures).toHaveLength(1);
+    expect(captures.every((capture) => !(capture.bodyPath as string).includes("/synthetic/"))).toBe(
+      true,
+    );
+
+    for (const fixture of fixtures) {
+      const body = readFileSync(resolve(process.cwd(), fixture.bodyPath as string));
+      const key = readFileSync(resolve(process.cwd(), fixture.keyPath as string));
+      expect(() => validateSignedFixture(fixture, body, key, { captured: false })).not.toThrow();
+      expect(fixture.expectedResult).toBe("valid");
+    }
   });
 });

@@ -1,0 +1,1 @@
+{"type":"message.delivered","timestamp":"2026-07-14T15:03:21.987654321Z","data":{"account_id":"835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa","event":"on_delivered","from":"sender@capture.example","recipient":"receiver@capture.example","subject":"Captured delivery — byte exact","message_id_header":"<capture-delivered-01@capture.example>","id":"capture-message-01"}}

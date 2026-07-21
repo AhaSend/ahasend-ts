@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "fixtureId": "synthetic-message-delivered",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-delivered.json",
+      "rawBodySha256": "87ad99daae634a8f09f57e5eeeea1fc475789fa59a6837962ac54f3c8312f9e8",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_01",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,yjUlEXpjZrETRUDV6aeXSc4HvBFTeQPXhZyEWMCkxMU=",
+      "expectedResult": "valid"
+    }
+  ]
+}

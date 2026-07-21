@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ahasend.com/contracts/webhooks/captured-manifest.schema.json",
+  "title": "AhaSend captured webhook evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "version", "headerRecordFormat", "captures"],
+  "properties": {
+    "$schema": { "const": "manifest.schema.json" },
+    "version": { "const": 1 },
+    "headerRecordFormat": {
+      "const": "webhook-id:{webhookId}\\nwebhook-timestamp:{webhookTimestamp}\\nwebhook-signature:{signature}\\n",
+      "description": "Exact UTF-8 record hashed by headersSha256; it is an integrity record, not a replacement for persisted signed header values."
+    },
+    "captures": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "$ref": "#/$defs/capture" }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixtureId",
+        "bodyPath",
+        "rawBodySha256",
+        "signingResource",
+        "webhookId",
+        "webhookTimestamp",
+        "signature",
+        "headersSha256",
+        "provenance",
+        "expectedResult"
+      ],
+      "properties": {
+        "fixtureId": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "bodyPath": {
+          "type": "string",
+          "pattern": "^contracts/webhooks/captured/bodies/[a-z0-9-]+\\.json$"
+        },
+        "rawBodySha256": {
+          "$ref": "#/$defs/hash",
+          "description": "SHA-256 of the exact fixture bytes, including whitespace and the final LF."
+        },
+        "signingResource": { "$ref": "#/$defs/signingResource" },
+        "webhookId": { "type": "string", "minLength": 1 },
+        "webhookTimestamp": { "type": "string", "pattern": "^[0-9]+$" },
+        "signature": {
+          "type": "string",
+          "pattern": "^v1,[A-Za-z0-9+/]{43}=$",
+          "description": "Fixed HMAC-SHA256 over webhookId + '.' + webhookTimestamp + '.' + the exact raw body bytes."
+        },
+        "headersSha256": {
+          "$ref": "#/$defs/hash",
+          "description": "SHA-256 of headerRecordFormat populated with the three exact persisted header values."
+        },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "expectedResult": { "const": "valid" }
+      }
+    },
+    "signingResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "idSha256", "keyPath", "keySha256", "bindingSha256"],
+      "properties": {
+        "type": { "enum": ["configured-webhook", "route"] },
+        "id": { "type": "string", "format": "uuid" },
+        "idSha256": {
+          "$ref": "#/$defs/hash",
+          "description": "SHA-256 of the UTF-8 string type + ':' + id."
+        },
+        "keyPath": {
+          "type": "string",
+          "pattern": "^contracts/webhooks/captured/keys/(configured-webhook|route)\\.key$"
+        },
+        "keySha256": {
+          "$ref": "#/$defs/hash",
+          "description": "SHA-256 of the literal UTF-8 resource key, excluding the key file's terminating LF."
+        },
+        "bindingSha256": {
+          "$ref": "#/$defs/hash",
+          "description": "SHA-256 of the UTF-8 string type + ':' + id + ':' + keySha256."
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "environment", "capturedAt", "source"],
+      "properties": {
+        "kind": { "const": "captured" },
+        "environment": { "type": "string", "minLength": 1 },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "source": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

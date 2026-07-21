@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 
-import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { createHmac } from "node:crypto";
+import { readFile, readdir, writeFile } from "node:fs/promises";
+import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import yaml from "js-yaml";
-import { canonicalizeJson, digestYamlArtifact } from "./digest-artifact.mjs";
+import {
+  canonicalizeJson,
+  digestJsonArtifact,
+  digestYamlArtifact,
+  sha256Hex,
+} from "./digest-artifact.mjs";
 import { NODE_CODE_SAMPLES, NODE_OPERATION_KEYS } from "./node-code-samples.mjs";
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"];
@@ -25,12 +31,413 @@ const NODE_LANGUAGES = new Set([
   "nodejs",
   "node.js",
 ]);
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const SIGNATURE_PATTERN = /^v1,[A-Za-z0-9+/]{43}=$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EVIDENCE_PATH = "contracts/webhooks/captured";
+const SYNTHETIC_PATH = "contracts/webhooks/synthetic";
+const HEADER_RECORD_FORMAT =
+  "webhook-id:{webhookId}\\nwebhook-timestamp:{webhookTimestamp}\\nwebhook-signature:{signature}\\n";
+const SCAN_EXCLUDED_DIRECTORIES = new Set([
+  ".betterborg-runtime",
+  ".betterborg-task",
+  ".git",
+  "coverage",
+  "dist",
+  "node_modules",
+]);
+const SECRET_CLASSIFICATIONS = new Map([
+  [`${EVIDENCE_PATH}/keys/configured-webhook.key`, "captured-webhook-signing-key"],
+  [`${EVIDENCE_PATH}/keys/route.key`, "captured-route-signing-key"],
+  [`${SYNTHETIC_PATH}/keys/configured-webhook.key`, "synthetic-test-signing-key"],
+]);
 
 function assertRecord(value, location) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError(`${location} must be a mapping`);
   }
   return value;
+}
+
+function assertArray(value, location) {
+  if (!Array.isArray(value)) throw new TypeError(`${location} must be an array`);
+  return value;
+}
+
+function assertExactKeys(value, expected, location) {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(sortedExpected)) {
+    throw new TypeError(
+      `${location} fields must be ${JSON.stringify(sortedExpected)}; received ${JSON.stringify(actual)}`,
+    );
+  }
+}
+
+function assertString(value, location, pattern) {
+  if (typeof value !== "string" || value.length === 0 || (pattern && !pattern.test(value))) {
+    throw new TypeError(`${location} must be a valid non-empty string`);
+  }
+  return value;
+}
+
+function parseJson(source, location) {
+  try {
+    return JSON.parse(source);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new TypeError(`Invalid JSON in ${location}: ${message}`, { cause: error });
+  }
+}
+
+function keyBytesFromFile(bytes, location) {
+  const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  if (!source.endsWith("\n") || source.slice(0, -1).includes("\n")) {
+    throw new TypeError(`${location} must contain one UTF-8 signing key followed by one LF`);
+  }
+  const key = source.slice(0, -1);
+  if (key.length === 0 || key.trim() !== key) {
+    throw new TypeError(`${location} contains an invalid signing key`);
+  }
+  return Buffer.from(key, "utf8");
+}
+
+function headerRecord(capture) {
+  return Buffer.from(
+    `webhook-id:${capture.webhookId}\nwebhook-timestamp:${capture.webhookTimestamp}\nwebhook-signature:${capture.signature}\n`,
+    "utf8",
+  );
+}
+
+function hmacSignature(keyBytes, webhookId, webhookTimestamp, rawBody) {
+  const digest = createHmac("sha256", keyBytes)
+    .update(webhookId, "utf8")
+    .update(".", "utf8")
+    .update(webhookTimestamp, "utf8")
+    .update(".", "utf8")
+    .update(rawBody)
+    .digest("base64");
+  return `v1,${digest}`;
+}
+
+export function validateCapturedManifestSchema(schema) {
+  const root = assertRecord(schema, "Captured evidence manifest schema");
+  if (root.$schema !== "https://json-schema.org/draft/2020-12/schema") {
+    throw new TypeError("Captured evidence manifest schema must use JSON Schema 2020-12");
+  }
+  if (root.type !== "object" || root.additionalProperties !== false) {
+    throw new TypeError("Captured evidence manifest schema must define a closed object");
+  }
+  const required = assertArray(root.required, "Captured evidence schema required fields");
+  for (const field of ["$schema", "version", "headerRecordFormat", "captures"]) {
+    if (!required.includes(field))
+      throw new TypeError(`Captured evidence schema must require ${field}`);
+  }
+  const definitions = assertRecord(root.$defs, "Captured evidence schema definitions");
+  const capture = assertRecord(definitions.capture, "Captured evidence capture schema");
+  const captureRequired = assertArray(
+    capture.required,
+    "Captured evidence capture required fields",
+  );
+  for (const field of [
+    "fixtureId",
+    "bodyPath",
+    "rawBodySha256",
+    "signingResource",
+    "webhookId",
+    "webhookTimestamp",
+    "signature",
+    "headersSha256",
+    "provenance",
+    "expectedResult",
+  ]) {
+    if (!captureRequired.includes(field)) {
+      throw new TypeError(`Captured evidence schema must require capture.${field}`);
+    }
+  }
+  if (capture.additionalProperties !== false) {
+    throw new TypeError("Captured evidence capture schema must reject additional fields");
+  }
+  return root;
+}
+
+export function validateCapturedManifest(manifest, schema) {
+  validateCapturedManifestSchema(schema);
+  const root = assertRecord(manifest, "Captured evidence manifest");
+  assertExactKeys(root, ["$schema", "version", "headerRecordFormat", "captures"], "Manifest");
+  if (root.$schema !== "manifest.schema.json" || root.version !== 1) {
+    throw new TypeError("Captured evidence manifest must use schema and version 1");
+  }
+  if (root.headerRecordFormat !== HEADER_RECORD_FORMAT) {
+    throw new TypeError("Captured evidence manifest has an unknown header record format");
+  }
+
+  const captures = assertArray(root.captures, "Captured evidence captures");
+  if (captures.length < 2)
+    throw new TypeError("Captured evidence must include both resource types");
+  const fixtureIds = new Set();
+  const resourceTypes = new Set();
+
+  for (const [index, value] of captures.entries()) {
+    const location = `Captured evidence captures[${index}]`;
+    const capture = assertRecord(value, location);
+    assertExactKeys(
+      capture,
+      [
+        "fixtureId",
+        "bodyPath",
+        "rawBodySha256",
+        "signingResource",
+        "webhookId",
+        "webhookTimestamp",
+        "signature",
+        "headersSha256",
+        "provenance",
+        "expectedResult",
+      ],
+      location,
+    );
+    const fixtureId = assertString(capture.fixtureId, `${location}.fixtureId`, /^[a-z0-9-]+$/);
+    if (fixtureIds.has(fixtureId)) throw new TypeError(`Duplicate fixtureId ${fixtureId}`);
+    fixtureIds.add(fixtureId);
+    if (capture.bodyPath !== `${EVIDENCE_PATH}/bodies/${fixtureId}.json`) {
+      throw new TypeError(`${location}.bodyPath must be bound to its fixtureId`);
+    }
+    assertString(capture.rawBodySha256, `${location}.rawBodySha256`, SHA256_PATTERN);
+    assertString(capture.webhookId, `${location}.webhookId`);
+    assertString(capture.webhookTimestamp, `${location}.webhookTimestamp`, /^\d+$/);
+    assertString(capture.signature, `${location}.signature`, SIGNATURE_PATTERN);
+    assertString(capture.headersSha256, `${location}.headersSha256`, SHA256_PATTERN);
+    if (capture.expectedResult !== "valid") {
+      throw new TypeError(`${location}.expectedResult must be valid`);
+    }
+
+    const resource = assertRecord(capture.signingResource, `${location}.signingResource`);
+    assertExactKeys(
+      resource,
+      ["type", "id", "idSha256", "keyPath", "keySha256", "bindingSha256"],
+      `${location}.signingResource`,
+    );
+    if (resource.type !== "configured-webhook" && resource.type !== "route") {
+      throw new TypeError(`${location}.signingResource.type is invalid`);
+    }
+    resourceTypes.add(resource.type);
+    assertString(resource.id, `${location}.signingResource.id`, UUID_PATTERN);
+    assertString(resource.idSha256, `${location}.signingResource.idSha256`, SHA256_PATTERN);
+    assertString(resource.keySha256, `${location}.signingResource.keySha256`, SHA256_PATTERN);
+    assertString(
+      resource.bindingSha256,
+      `${location}.signingResource.bindingSha256`,
+      SHA256_PATTERN,
+    );
+    if (resource.keyPath !== `${EVIDENCE_PATH}/keys/${resource.type}.key`) {
+      throw new TypeError(`${location}.signingResource.keyPath does not match its resource type`);
+    }
+
+    const provenance = assertRecord(capture.provenance, `${location}.provenance`);
+    assertExactKeys(
+      provenance,
+      ["kind", "environment", "capturedAt", "source"],
+      `${location}.provenance`,
+    );
+    if (provenance.kind !== "captured") throw new TypeError(`${location} is not captured evidence`);
+    assertString(provenance.environment, `${location}.provenance.environment`);
+    assertString(provenance.source, `${location}.provenance.source`);
+    const capturedAt = assertString(provenance.capturedAt, `${location}.provenance.capturedAt`);
+    if (Number.isNaN(Date.parse(capturedAt))) {
+      throw new TypeError(`${location}.provenance.capturedAt must be an ISO date-time`);
+    }
+  }
+  if (!resourceTypes.has("configured-webhook") || !resourceTypes.has("route")) {
+    throw new TypeError("Captured evidence must include configured-webhook and route resources");
+  }
+  return captures;
+}
+
+export function validateSignedFixture(captureValue, rawBody, keyFileBytes, { captured }) {
+  const capture = assertRecord(captureValue, "Webhook fixture");
+  const bodyBytes = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody);
+  const keyBytes = keyBytesFromFile(
+    keyFileBytes,
+    capture.signingResource?.keyPath ?? capture.keyPath,
+  );
+  if (sha256Hex(bodyBytes) !== capture.rawBodySha256) {
+    throw new TypeError(`${capture.fixtureId} raw body digest mismatch`);
+  }
+  if (sha256Hex(keyBytes) !== (capture.signingResource?.keySha256 ?? capture.keySha256)) {
+    throw new TypeError(`${capture.fixtureId} signing key digest mismatch`);
+  }
+  const expectedSignature = hmacSignature(
+    keyBytes,
+    capture.webhookId,
+    capture.webhookTimestamp,
+    bodyBytes,
+  );
+  if (capture.signature !== expectedSignature) {
+    throw new TypeError(`${capture.fixtureId} signature mismatch`);
+  }
+  const payload = assertRecord(
+    parseJson(new TextDecoder("utf-8", { fatal: true }).decode(bodyBytes), capture.bodyPath),
+    `${capture.fixtureId} body`,
+  );
+
+  if (captured) {
+    const resource = assertRecord(capture.signingResource, `${capture.fixtureId}.signingResource`);
+    const expectedResourceHash = sha256Hex(Buffer.from(`${resource.type}:${resource.id}`, "utf8"));
+    if (resource.idSha256 !== expectedResourceHash) {
+      throw new TypeError(`${capture.fixtureId} signing resource digest mismatch`);
+    }
+    const expectedBindingHash = sha256Hex(
+      Buffer.from(`${resource.type}:${resource.id}:${resource.keySha256}`, "utf8"),
+    );
+    if (resource.bindingSha256 !== expectedBindingHash) {
+      throw new TypeError(`${capture.fixtureId} resource/key binding mismatch`);
+    }
+    if (sha256Hex(headerRecord(capture)) !== capture.headersSha256) {
+      throw new TypeError(`${capture.fixtureId} signed header record digest mismatch`);
+    }
+    if (
+      (resource.type === "route" &&
+        (payload.type !== "message.routing" || payload.route_id !== resource.id)) ||
+      (resource.type === "configured-webhook" && payload.type === "message.routing")
+    ) {
+      throw new TypeError(`${capture.fixtureId} body does not match its signing resource`);
+    }
+  }
+}
+
+async function collectUtf8Files(root, directory = root, files = []) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory() && SCAN_EXCLUDED_DIRECTORIES.has(entry.name)) continue;
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) {
+      await collectUtf8Files(root, path, files);
+    } else if (entry.isFile()) {
+      try {
+        const source = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
+        files.push({ path: relative(root, path).replaceAll("\\", "/"), source });
+      } catch (error) {
+        if (!(error instanceof TypeError)) throw error;
+      }
+    }
+  }
+  return files;
+}
+
+export async function validateSecretScanAllowlist(policyValue, root) {
+  const policy = assertRecord(policyValue, "Secret scan allowlist");
+  assertExactKeys(policy, ["version", "rules"], "Secret scan allowlist");
+  if (policy.version !== 1) throw new TypeError("Secret scan allowlist version must be 1");
+  const rules = assertArray(policy.rules, "Secret scan allowlist rules");
+  if (rules.length !== 3)
+    throw new TypeError("Secret scan allowlist must classify three fixture keys");
+  const files = await collectUtf8Files(root);
+  const ids = new Set();
+
+  for (const [index, value] of rules.entries()) {
+    const location = `Secret scan allowlist rules[${index}]`;
+    const rule = assertRecord(value, location);
+    assertExactKeys(
+      rule,
+      ["id", "classification", "detector", "secretSha256", "allowedPath", "expectedOccurrences"],
+      location,
+    );
+    const id = assertString(rule.id, `${location}.id`);
+    if (ids.has(id)) throw new TypeError(`Duplicate secret scan rule ${id}`);
+    ids.add(id);
+    assertString(rule.classification, `${location}.classification`);
+    if (rule.detector !== "literal-sha256" || rule.expectedOccurrences !== 1) {
+      throw new TypeError(`${location} must allow one literal secret occurrence`);
+    }
+    assertString(rule.secretSha256, `${location}.secretSha256`, SHA256_PATTERN);
+    const allowedPath = assertString(rule.allowedPath, `${location}.allowedPath`);
+    if (rule.classification !== SECRET_CLASSIFICATIONS.get(allowedPath)) {
+      throw new TypeError(`${id} has an invalid scanner classification for ${allowedPath}`);
+    }
+    const secretBytes = keyBytesFromFile(await readFile(resolve(root, allowedPath)), allowedPath);
+    if (sha256Hex(secretBytes) !== rule.secretSha256) {
+      throw new TypeError(`${id} allowlisted secret digest mismatch`);
+    }
+    const secret = secretBytes.toString("utf8");
+    const occurrences = [];
+    for (const file of files) {
+      let offset = 0;
+      while ((offset = file.source.indexOf(secret, offset)) !== -1) {
+        occurrences.push(file.path);
+        offset += secret.length;
+      }
+    }
+    if (occurrences.length !== 1 || occurrences[0] !== allowedPath) {
+      throw new TypeError(
+        `${id} secret scan classification violation: expected only ${allowedPath}, received ${JSON.stringify(occurrences)}`,
+      );
+    }
+  }
+  return rules;
+}
+
+export async function validateWebhookEvidence(root, { checkDigest = true } = {}) {
+  const manifestPath = resolve(root, EVIDENCE_PATH, "manifest.json");
+  const schemaPath = resolve(root, EVIDENCE_PATH, "manifest.schema.json");
+  const digestPath = resolve(root, EVIDENCE_PATH, "manifest.sha256");
+  const syntheticManifestPath = resolve(root, SYNTHETIC_PATH, "manifest.json");
+  const policyPath = resolve(root, "security/secret-scan-allowlist.json");
+  const [manifestSource, schemaSource, detachedDigest, syntheticSource, policySource] =
+    await Promise.all([
+      readFile(manifestPath, "utf8"),
+      readFile(schemaPath, "utf8"),
+      readFile(digestPath, "utf8"),
+      readFile(syntheticManifestPath, "utf8"),
+      readFile(policyPath, "utf8"),
+    ]);
+  const manifest = parseJson(manifestSource, `${EVIDENCE_PATH}/manifest.json`);
+  const schema = parseJson(schemaSource, `${EVIDENCE_PATH}/manifest.schema.json`);
+  const syntheticManifest = assertRecord(
+    parseJson(syntheticSource, `${SYNTHETIC_PATH}/manifest.json`),
+    "Synthetic fixture manifest",
+  );
+  const policy = parseJson(policySource, "security/secret-scan-allowlist.json");
+  const captures = validateCapturedManifest(manifest, schema);
+  const manifestDigest = digestJsonArtifact(manifest);
+  if (checkDigest && detachedDigest !== `${manifestDigest}\n`) {
+    throw new TypeError("Captured evidence detached manifest digest mismatch");
+  }
+  for (const capture of captures) {
+    const resource = assertRecord(capture.signingResource, `${capture.fixtureId}.signingResource`);
+    const [body, key] = await Promise.all([
+      readFile(resolve(root, capture.bodyPath)),
+      readFile(resolve(root, resource.keyPath)),
+    ]);
+    validateSignedFixture(capture, body, key, { captured: true });
+  }
+
+  assertExactKeys(syntheticManifest, ["version", "fixtures"], "Synthetic fixture manifest");
+  if (syntheticManifest.version !== 1) throw new TypeError("Synthetic fixture version must be 1");
+  const syntheticFixtures = assertArray(syntheticManifest.fixtures, "Synthetic fixtures");
+  if (syntheticFixtures.length === 0) throw new TypeError("Synthetic fixture manifest is empty");
+  for (const value of syntheticFixtures) {
+    const fixture = assertRecord(value, "Synthetic fixture");
+    for (const path of [fixture.bodyPath, fixture.keyPath]) {
+      if (typeof path !== "string" || !path.startsWith(`${SYNTHETIC_PATH}/`)) {
+        throw new TypeError(`${fixture.fixtureId} must remain in the synthetic fixture tree`);
+      }
+    }
+    const [body, key] = await Promise.all([
+      readFile(resolve(root, fixture.bodyPath)),
+      readFile(resolve(root, fixture.keyPath)),
+    ]);
+    validateSignedFixture(fixture, body, key, { captured: false });
+  }
+  await validateSecretScanAllowlist(policy, root);
+
+  return {
+    manifestDigest,
+    schemaDigest: digestJsonArtifact(schema),
+    syntheticDigest: digestJsonArtifact(syntheticManifest),
+    policyDigest: digestJsonArtifact(policy),
+    captureCount: captures.length,
+    syntheticCount: syntheticFixtures.length,
+  };
 }
 
 export function parseOpenApi(source) {
@@ -417,15 +824,28 @@ export function injectNodeSamples(source, document, nodeSamples = NODE_CODE_SAMP
   return lines.join("\n");
 }
 
-function lockWithHashes(lock, openApiBytes, webhookBytes) {
+function lockWithHashes(lock, openApiBytes, webhookBytes, evidence) {
   return {
     ...lock,
     artifactHashes: {
       ...assertRecord(lock.artifactHashes, "contracts.lock.json artifactHashes"),
       "openapi.yaml": digestYamlArtifact(openApiBytes),
       "webhooks.yaml": digestYamlArtifact(webhookBytes),
+      [`${EVIDENCE_PATH}/manifest.json`]: evidence.manifestDigest,
+      [`${EVIDENCE_PATH}/manifest.schema.json`]: evidence.schemaDigest,
+      [`${SYNTHETIC_PATH}/manifest.json`]: evidence.syntheticDigest,
+      "security/secret-scan-allowlist.json": evidence.policyDigest,
     },
   };
+}
+
+function assertLockedHash(lock, path, actualHash) {
+  const expectedHash = assertRecord(lock.artifactHashes, "artifactHashes")[path];
+  if (actualHash !== expectedHash) {
+    throw new TypeError(
+      `${path} artifact hash drift: expected ${JSON.stringify(expectedHash)}, received ${actualHash}`,
+    );
+  }
 }
 
 async function run({ check }) {
@@ -446,30 +866,23 @@ async function run({ check }) {
   validateWebhookContract(webhookDocument);
   const inventory = collectContractInventory(document);
   assertInventoryMatches(inventory, lock.inventories);
+  const evidence = await validateWebhookEvidence(root, { checkDigest: check });
 
   if (check) {
     validateCodeSamples(document);
-    const expectedHash = assertRecord(lock.artifactHashes, "artifactHashes")["openapi.yaml"];
     const actualHash = digestYamlArtifact(Buffer.from(source, "utf8"));
-    if (actualHash !== expectedHash) {
-      throw new TypeError(
-        `openapi.yaml artifact hash drift: expected ${JSON.stringify(expectedHash)}, received ${actualHash}`,
-      );
-    }
-    const expectedWebhookHash = assertRecord(lock.artifactHashes, "artifactHashes")[
-      "webhooks.yaml"
-    ];
+    assertLockedHash(lock, "openapi.yaml", actualHash);
     const actualWebhookHash = digestYamlArtifact(Buffer.from(webhookSource, "utf8"));
-    if (actualWebhookHash !== expectedWebhookHash) {
-      throw new TypeError(
-        `webhooks.yaml artifact hash drift: expected ${JSON.stringify(expectedWebhookHash)}, received ${actualWebhookHash}`,
-      );
-    }
+    assertLockedHash(lock, "webhooks.yaml", actualWebhookHash);
+    assertLockedHash(lock, `${EVIDENCE_PATH}/manifest.json`, evidence.manifestDigest);
+    assertLockedHash(lock, `${EVIDENCE_PATH}/manifest.schema.json`, evidence.schemaDigest);
+    assertLockedHash(lock, `${SYNTHETIC_PATH}/manifest.json`, evidence.syntheticDigest);
+    assertLockedHash(lock, "security/secret-scan-allowlist.json", evidence.policyDigest);
     const normalized = injectNodeSamples(source, document);
     if (normalized !== source)
       throw new TypeError("openapi.yaml generated samples are not normalized");
     process.stdout.write(
-      `Contracts OK: ${inventory.operationIds.length} REST operations, ${inventory.schemaNames.length} REST schemas, ${Object.keys(webhookDocument.webhooks).length} webhook definitions\n`,
+      `Contracts OK: ${inventory.operationIds.length} REST operations, ${inventory.schemaNames.length} REST schemas, ${Object.keys(webhookDocument.webhooks).length} webhook definitions, ${evidence.captureCount} captured webhook fixtures, ${evidence.syntheticCount} synthetic webhook fixtures\n`,
     );
     return;
   }
@@ -481,10 +894,16 @@ async function run({ check }) {
   validateCodeSamples(generatedDocument);
 
   const generatedBytes = Buffer.from(generatedSource, "utf8");
-  const updatedLock = lockWithHashes(lock, generatedBytes, Buffer.from(webhookSource, "utf8"));
+  const updatedLock = lockWithHashes(
+    lock,
+    generatedBytes,
+    Buffer.from(webhookSource, "utf8"),
+    evidence,
+  );
   await Promise.all([
     writeFile(openApiPath, generatedBytes),
     writeFile(lockPath, canonicalizeJson(updatedLock)),
+    writeFile(resolve(root, EVIDENCE_PATH, "manifest.sha256"), `${evidence.manifestDigest}\n`),
   ]);
   process.stdout.write(`Generated Node samples for ${inventory.operationIds.length} operations\n`);
 }
