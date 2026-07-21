@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import yaml from "js-yaml";
@@ -619,6 +619,43 @@ describe("synthetic webhook fixtures", () => {
       expect((JSON.parse(body.toString("utf8")) as JsonRecord).webhook_id).toMatch(
         /^[0-9a-f-]{36}$/,
       );
+    }
+  });
+
+  it("rejects normalized synthetic paths that escape into captured evidence", async () => {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "ahasend-synthetic-containment-"));
+    try {
+      cpSync(resolve(process.cwd(), "contracts"), resolve(temporaryRoot, "contracts"), {
+        recursive: true,
+      });
+      cpSync(resolve(process.cwd(), "security"), resolve(temporaryRoot, "security"), {
+        recursive: true,
+      });
+
+      const changedManifest = structuredClone(syntheticManifest);
+      const fixture = (changedManifest.fixtures as JsonRecord[])[0]!;
+      fixture.keyPath = "contracts/webhooks/synthetic/../captured/keys/configured-webhook.key";
+      const keyFile = readFileSync(resolve(temporaryRoot, fixture.keyPath as string));
+      const key = keyFile.subarray(0, keyFile.length - 1);
+      const body = readFileSync(resolve(temporaryRoot, fixture.bodyPath as string));
+      fixture.keySha256 = createHash("sha256").update(key).digest("hex");
+      fixture.signature = `v1,${createHmac("sha256", key)
+        .update(fixture.webhookId as string)
+        .update(".")
+        .update(fixture.webhookTimestamp as string)
+        .update(".")
+        .update(body)
+        .digest("base64")}`;
+      writeFileSync(
+        resolve(temporaryRoot, "contracts/webhooks/synthetic/manifest.json"),
+        `${JSON.stringify(changedManifest, null, 2)}\n`,
+      );
+
+      await expect(validateWebhookEvidence(temporaryRoot)).rejects.toThrow(
+        /must remain in the synthetic fixture tree/,
+      );
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
     }
   });
 

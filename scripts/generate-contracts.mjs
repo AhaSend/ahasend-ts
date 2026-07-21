@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { createHmac } from "node:crypto";
-import { readFile, readdir, writeFile } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import Ajv from "ajv";
 import yaml from "js-yaml";
@@ -89,6 +89,32 @@ function parseJson(source, location) {
     const message = error instanceof Error ? error.message : String(error);
     throw new TypeError(`Invalid JSON in ${location}: ${message}`, { cause: error });
   }
+}
+
+function isPathWithin(directory, target) {
+  const relativePath = relative(directory, target);
+  return (
+    relativePath !== "" &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${sep}`) &&
+    !isAbsolute(relativePath)
+  );
+}
+
+async function resolveSyntheticFixturePath(root, syntheticRoot, path, fixtureId) {
+  if (typeof path !== "string" || !path.startsWith(`${SYNTHETIC_PATH}/`)) {
+    throw new TypeError(`${fixtureId} must remain in the synthetic fixture tree`);
+  }
+  const resolvedSyntheticRoot = resolve(root, SYNTHETIC_PATH);
+  const resolvedPath = resolve(root, path);
+  if (!isPathWithin(resolvedSyntheticRoot, resolvedPath)) {
+    throw new TypeError(`${fixtureId} must remain in the synthetic fixture tree`);
+  }
+  const canonicalPath = await realpath(resolvedPath);
+  if (!isPathWithin(syntheticRoot, canonicalPath)) {
+    throw new TypeError(`${fixtureId} must remain in the synthetic fixture tree`);
+  }
+  return canonicalPath;
 }
 
 function keyBytesFromFile(bytes, location) {
@@ -469,17 +495,14 @@ export async function validateWebhookEvidence(root, { checkDigest = true } = {})
   if (syntheticManifest.version !== 1) throw new TypeError("Synthetic fixture version must be 1");
   const syntheticFixtures = assertArray(syntheticManifest.fixtures, "Synthetic fixtures");
   if (syntheticFixtures.length === 0) throw new TypeError("Synthetic fixture manifest is empty");
+  const syntheticRoot = await realpath(resolve(root, SYNTHETIC_PATH));
   for (const value of syntheticFixtures) {
     const fixture = assertRecord(value, "Synthetic fixture");
-    for (const path of [fixture.bodyPath, fixture.keyPath]) {
-      if (typeof path !== "string" || !path.startsWith(`${SYNTHETIC_PATH}/`)) {
-        throw new TypeError(`${fixture.fixtureId} must remain in the synthetic fixture tree`);
-      }
-    }
-    const [body, key] = await Promise.all([
-      readFile(resolve(root, fixture.bodyPath)),
-      readFile(resolve(root, fixture.keyPath)),
+    const [bodyPath, keyPath] = await Promise.all([
+      resolveSyntheticFixturePath(root, syntheticRoot, fixture.bodyPath, fixture.fixtureId),
+      resolveSyntheticFixturePath(root, syntheticRoot, fixture.keyPath, fixture.fixtureId),
     ]);
+    const [body, key] = await Promise.all([readFile(bodyPath), readFile(keyPath)]);
     validateSignedFixture(fixture, body, key, { captured: false });
   }
   await validateSecretScanAllowlist(policy, root);
