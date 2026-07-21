@@ -2,6 +2,7 @@ import type { ClientOptions } from "./config.js";
 import { assertPlainRecord, optionsFromEnv, resolveConfig } from "./config.js";
 import { AhaSendConfigurationError } from "./errors.js";
 import { HttpClient } from "./http.js";
+import { OperationExecutor } from "./operations.js";
 import { AccountsClient } from "./resources/accounts.js";
 import { APIKeysClient } from "./resources/api-keys.js";
 import { DomainsClient } from "./resources/domains.js";
@@ -74,6 +75,7 @@ export interface PingResponse {
 export class AhaSendClient {
   readonly #accountId: UUID;
   readonly #http: HttpClient;
+  readonly #operations: OperationExecutor;
   readonly #messages: Readonly<MessagesClient>;
   readonly #domains: Readonly<DomainsClient>;
   readonly #apiKeys: Readonly<APIKeysClient>;
@@ -93,6 +95,7 @@ export class AhaSendClient {
     const { accountId, ...clientOptions } = options;
     const config = resolveConfig(clientOptions);
     this.#http = new HttpClient(config);
+    this.#operations = new OperationExecutor(this.#http);
     this.#accountId = accountId;
 
     this.#messages = createFrozenFacade(new MessagesClient(this.#http, accountId));
@@ -178,10 +181,6 @@ export class AhaSendClient {
 
   /** Health check (`GET /v2/ping`) — verifies connectivity and the API key. */
   ping(options: RequestOptions = {}): AhaSendPromise<PingResponse> {
-    return this.#http.request<PingResponse>({
-      method: "GET",
-      path: "/v2/ping",
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<PingResponse>("ping", {}, forwardOptions(options));
   }
 }

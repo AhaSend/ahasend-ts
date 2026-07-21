@@ -13,6 +13,7 @@ import {
   IDEMPOTENCY_HEADER,
   IDEMPOTENT_REPLAYED_HEADER,
 } from "./idempotency.js";
+import type { OperationId, RetryMode } from "./generated/operations.js";
 import { RateLimiter } from "./rate-limit.js";
 import { computeRetryDelayMs, isRetryableError, sleep } from "./retry.js";
 import type { AhaSendPromise, AhaSendResponse } from "./types/common.js";
@@ -34,6 +35,10 @@ export interface RequestOptions {
    * handlers — leave this unset and never receive an auto-generated key.
    */
   autoIdempotency?: boolean;
+  /** Generated operation identity for policy and diagnostic consumers. */
+  operationId?: OperationId;
+  /** Generated retry-safety classification for this operation. */
+  retryMode?: RetryMode;
 }
 
 export type QueryValue =
@@ -72,7 +77,7 @@ export class HttpClient {
     const init = this.buildRequestInit(options);
 
     const retry = this.config.retry;
-    const maxAttempts = retry.enabled ? retry.maxRetries + 1 : 1;
+    const maxAttempts = retry.enabled && options.retryMode !== "never" ? retry.maxRetries + 1 : 1;
     const hooks = this.config.hooks;
 
     let lastError: unknown;
