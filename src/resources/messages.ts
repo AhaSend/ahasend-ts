@@ -156,12 +156,11 @@ export type SendMessageStatus = "queued" | "scheduled" | "error";
 export interface SendMessageResult {
   object: "message";
   /**
-   * RFC-822 Message-ID of the queued message, e.g. `<uuid@host>`.
+   * Generated Message-ID of the queued message, e.g. `<uuid@host>`, or `null`
+   * when the message was not sent.
    *
-   * **This is NOT the resource UUID for `messages.get()`** — it is the
-   * SMTP-level identifier the API records when the message is queued
-   * for delivery. To fetch the message resource later use the opaque,
-   * non-null `Message.id` value from the persisted record.
+   * When non-null, this value can be passed directly to {@link MessagesClient.get}
+   * or {@link MessagesClient.cancel}; those methods also accept its bare UUID portion.
    */
   id: string | null;
   recipient: Recipient & { name: string };
@@ -319,9 +318,9 @@ export class MessagesClient {
   }
 
   /**
-   * Fetch a single message by its opaque message ID (the `Message.id`
-   * field from {@link list} — not the RFC-822 Message-ID that
-   * {@link send} returns). The ID is encoded as one path segment.
+   * Fetch a single message by its opaque message ID. Accepts the generated
+   * Message-ID returned by {@link send} when non-null, or its bare UUID portion.
+   * The ID is encoded as one path segment.
    */
   get(messageId: string, options: RequestOptions = {}): Promise<Message> {
     return this.#operations.execute<Message>(
@@ -334,6 +333,8 @@ export class MessagesClient {
   /**
    * Cancel a queued or scheduled message. Only possible before the
    * first delivery attempt; already-sent messages cannot be recalled.
+   * Accepts the generated Message-ID returned by {@link send} when non-null,
+   * or its bare UUID portion.
    * Requires scope `messages:cancel:all` or `messages:cancel:{domain}`.
    */
   cancel(messageId: string, options: RequestOptions = {}): Promise<SuccessResponse> {
