@@ -138,24 +138,32 @@ describe("MessagesClient", () => {
     expectTypeOf<
       Awaited<ReturnType<import("../src/index.js").MessagesClient["get"]>>
     >().toEqualTypeOf<Message>();
-    expect([
-      request,
-      conversation,
+    expect(request.recipients[0]?.substitutions).toEqual({
+      customer: { preferences: ["email", { digest: true }] },
+    });
+    expect(conversation).toMatchObject({ tracking: null, retention: null });
+    expect(result).toMatchObject({ id: null, error: "rejected" });
+    expect(message).toMatchObject({
+      created_at: "2026-07-21T08:00:00Z",
+      sent_at: null,
+      reference_message_id: null,
+    });
+
+    // Keep compile-only negative cases referenced without treating their runtime values as evidence.
+    void [
       emptyRecipients,
       emptyTo,
       emptyCc,
       emptyBcc,
-      result,
       missingId,
       missingError,
-      _id,
-      _error,
-      message,
       missingSentAt,
       missingReferenceId,
+      _id,
+      _error,
       _sentAt,
       _referenceId,
-    ]).toHaveLength(16);
+    ];
   });
 
   it("send() POSTs /v2/accounts/{account_id}/messages with the request body", async () => {
@@ -200,7 +208,12 @@ describe("MessagesClient", () => {
       retention: null,
     });
     expect(call.operationId).toBe("createMessage");
-    expect(message.data[0]!.id).toBe("createMessage");
+    expect(message.data[0]).toMatchObject({
+      id: "createMessage",
+      error: null,
+    });
+    expect(message.data[0]).toHaveProperty("id");
+    expect(message.data[0]).toHaveProperty("error");
   });
 
   it("sendConversation() hits /messages/conversation", async () => {
@@ -234,14 +247,59 @@ describe("MessagesClient", () => {
   });
 
   it("get() GETs a single message", async () => {
-    const { fetch, calls } = captureFetch();
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "message",
+            id: "opaque/message:id",
+            created_at: "2026-07-21T08:00:00Z",
+            updated_at: "2026-07-21T08:01:00Z",
+            sent_at: "2026-07-21T08:02:00Z",
+            delivered_at: null,
+            retain_until: "2026-08-21T08:00:00Z",
+            direction: "outbound",
+            is_bounce_notification: false,
+            bounce_classification: "",
+            delivery_attempts: [],
+            message_id: "<opaque/message:id>",
+            subject: "Subject",
+            tags: [],
+            sender: "sender@example.com",
+            recipient: "recipient@example.com",
+            status: "delivered",
+            num_attempts: 1,
+            click_count: 0,
+            open_count: 1,
+            reference_message_id: 42,
+            domain_id: "domain_1",
+            account_id: "acc_1",
+            content: "raw message",
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
     const client = makeClient(fetch);
 
-    await client.messages.get("opaque/message:id");
+    const message = await client.messages.get("opaque/message:id");
 
     expect(calls[0]!.method).toBe("GET");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/opaque%2Fmessage%3Aid");
     expect(calls[0]!.operationId).toBe("getMessage");
+    expect(message).toMatchObject({
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      sent_at: "2026-07-21T08:02:00Z",
+      delivered_at: null,
+      retain_until: "2026-08-21T08:00:00Z",
+      reference_message_id: 42,
+    });
+    expect(message).toHaveProperty("created_at");
+    expect(message).toHaveProperty("updated_at");
+    expect(message).toHaveProperty("sent_at");
+    expect(message).toHaveProperty("delivered_at");
+    expect(message).toHaveProperty("retain_until");
+    expect(message).toHaveProperty("reference_message_id");
   });
 
   it("cancel() DELETEs /{id}/cancel (per spec)", async () => {
