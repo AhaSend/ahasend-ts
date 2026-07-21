@@ -4,6 +4,7 @@ import { createHmac } from "node:crypto";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import Ajv from "ajv";
 import yaml from "js-yaml";
 import {
   canonicalizeJson,
@@ -120,7 +121,7 @@ function hmacSignature(keyBytes, webhookId, webhookTimestamp, rawBody) {
   return `v1,${digest}`;
 }
 
-export function validateCapturedManifestSchema(schema) {
+function compileCapturedManifestSchema(schema) {
   const root = assertRecord(schema, "Captured evidence manifest schema");
   if (root.$schema !== "https://json-schema.org/draft/2020-12/schema") {
     throw new TypeError("Captured evidence manifest schema must use JSON Schema 2020-12");
@@ -158,11 +159,36 @@ export function validateCapturedManifestSchema(schema) {
   if (capture.additionalProperties !== false) {
     throw new TypeError("Captured evidence capture schema must reject additional fields");
   }
-  return root;
+
+  // This manifest schema uses the JSON Schema 2020-12 spelling `$defs`, but otherwise stays
+  // within the draft-07 validation vocabulary supported by the repository's existing Ajv.
+  // Point Ajv at its bundled meta-schema while retaining `$defs` for local reference resolution.
+  const validationSchema = structuredClone(root);
+  validationSchema.$schema = "http://json-schema.org/draft-07/schema#";
+  try {
+    return {
+      root,
+      validate: new Ajv({ allErrors: true, jsonPointers: true }).compile(validationSchema),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new TypeError(`Captured evidence manifest schema is invalid: ${message}`, {
+      cause: error,
+    });
+  }
+}
+
+export function validateCapturedManifestSchema(schema) {
+  return compileCapturedManifestSchema(schema).root;
 }
 
 export function validateCapturedManifest(manifest, schema) {
-  validateCapturedManifestSchema(schema);
+  const { validate } = compileCapturedManifestSchema(schema);
+  if (!validate(manifest)) {
+    throw new TypeError(
+      `Captured evidence manifest does not match its JSON Schema: ${JSON.stringify(validate.errors)}`,
+    );
+  }
   const root = assertRecord(manifest, "Captured evidence manifest");
   assertExactKeys(root, ["$schema", "version", "headerRecordFormat", "captures"], "Manifest");
   if (root.$schema !== "manifest.schema.json" || root.version !== 1) {
@@ -281,6 +307,10 @@ export function validateSignedFixture(captureValue, rawBody, keyFileBytes, { cap
     `${capture.fixtureId} body`,
   );
 
+  if (payload.type !== "message.routing") {
+    assertString(payload.webhook_id, `${capture.fixtureId} body.webhook_id`, UUID_PATTERN);
+  }
+
   if (captured) {
     const resource = assertRecord(capture.signingResource, `${capture.fixtureId}.signingResource`);
     const expectedResourceHash = sha256Hex(Buffer.from(`${resource.type}:${resource.id}`, "utf8"));
@@ -299,7 +329,8 @@ export function validateSignedFixture(captureValue, rawBody, keyFileBytes, { cap
     if (
       (resource.type === "route" &&
         (payload.type !== "message.routing" || payload.route_id !== resource.id)) ||
-      (resource.type === "configured-webhook" && payload.type === "message.routing")
+      (resource.type === "configured-webhook" &&
+        (payload.type === "message.routing" || payload.webhook_id !== resource.id))
     ) {
       throw new TypeError(`${capture.fixtureId} body does not match its signing resource`);
     }
@@ -333,6 +364,7 @@ export async function validateSecretScanAllowlist(policyValue, root) {
     throw new TypeError("Secret scan allowlist must classify three fixture keys");
   const files = await collectUtf8Files(root);
   const ids = new Set();
+  const allowedPaths = new Set();
 
   for (const [index, value] of rules.entries()) {
     const location = `Secret scan allowlist rules[${index}]`;
@@ -351,6 +383,10 @@ export async function validateSecretScanAllowlist(policyValue, root) {
     }
     assertString(rule.secretSha256, `${location}.secretSha256`, SHA256_PATTERN);
     const allowedPath = assertString(rule.allowedPath, `${location}.allowedPath`);
+    if (allowedPaths.has(allowedPath)) {
+      throw new TypeError(`Duplicate secret scan allowed path ${allowedPath}`);
+    }
+    allowedPaths.add(allowedPath);
     if (rule.classification !== SECRET_CLASSIFICATIONS.get(allowedPath)) {
       throw new TypeError(`${id} has an invalid scanner classification for ${allowedPath}`);
     }
@@ -372,6 +408,13 @@ export async function validateSecretScanAllowlist(policyValue, root) {
         `${id} secret scan classification violation: expected only ${allowedPath}, received ${JSON.stringify(occurrences)}`,
       );
     }
+  }
+  const expectedPaths = [...SECRET_CLASSIFICATIONS.keys()].sort();
+  const actualPaths = [...allowedPaths].sort();
+  if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) {
+    throw new TypeError(
+      `Secret scan allowlist paths must be ${JSON.stringify(expectedPaths)}; received ${JSON.stringify(actualPaths)}`,
+    );
   }
   return rules;
 }

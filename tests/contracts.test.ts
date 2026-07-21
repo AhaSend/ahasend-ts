@@ -390,6 +390,20 @@ describe("captured webhook evidence", () => {
     });
   });
 
+  it("enforces manifest.schema.json against the captured manifest", () => {
+    const changedVersionSchema = structuredClone(capturedSchema);
+    record(record(changedVersionSchema.properties).version).const = 2;
+    expect(() => validateCapturedManifest(capturedManifest, changedVersionSchema)).toThrow(
+      /does not match its JSON Schema/,
+    );
+
+    const missingPropertiesSchema = structuredClone(capturedSchema);
+    delete missingPropertiesSchema.properties;
+    expect(() => validateCapturedManifest(capturedManifest, missingPropertiesSchema)).toThrow(
+      /does not match its JSON Schema/,
+    );
+  });
+
   it("reproduces fixed signatures and exact three-header records from persisted values", () => {
     const captures = capturedManifest.captures as JsonRecord[];
     expect(captures).toHaveLength(2);
@@ -432,6 +446,11 @@ describe("captured webhook evidence", () => {
       expect(capture.webhookTimestamp).toMatch(/^\d+$/);
       expect(record(capture.provenance).kind).toBe("captured");
       expect(capture.expectedResult).toBe("valid");
+
+      const payload = JSON.parse(rawBody.toString("utf8")) as JsonRecord;
+      if (resource.type === "configured-webhook") {
+        expect(payload.webhook_id).toBe(resource.id);
+      }
     }
   });
 
@@ -522,6 +541,20 @@ describe("captured webhook evidence", () => {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
   });
+
+  it("rejects scanner policies that classify one allowed path more than once", async () => {
+    const duplicatePolicy = structuredClone(secretPolicy);
+    const configuredRule = (duplicatePolicy.rules as JsonRecord[])[0]!;
+    duplicatePolicy.rules = [
+      configuredRule,
+      { ...configuredRule, id: "duplicate-configured-key-1" },
+      { ...configuredRule, id: "duplicate-configured-key-2" },
+    ];
+
+    await expect(validateSecretScanAllowlist(duplicatePolicy, process.cwd())).rejects.toThrow(
+      /Duplicate secret scan allowed path/,
+    );
+  });
 });
 
 describe("synthetic webhook fixtures", () => {
@@ -538,6 +571,31 @@ describe("synthetic webhook fixtures", () => {
       const key = readFileSync(resolve(process.cwd(), fixture.keyPath as string));
       expect(() => validateSignedFixture(fixture, body, key, { captured: false })).not.toThrow();
       expect(fixture.expectedResult).toBe("valid");
+      expect((JSON.parse(body.toString("utf8")) as JsonRecord).webhook_id).toMatch(
+        /^[0-9a-f-]{36}$/,
+      );
     }
+  });
+
+  it("rejects a message fixture without the contract-required webhook_id", () => {
+    const fixture = structuredClone((syntheticManifest.fixtures as JsonRecord[])[0]!);
+    const body = readFileSync(resolve(process.cwd(), fixture.bodyPath as string));
+    const keyFile = readFileSync(resolve(process.cwd(), fixture.keyPath as string));
+    const key = keyFile.subarray(0, keyFile.length - 1);
+    const payload = JSON.parse(body.toString("utf8")) as JsonRecord;
+    delete payload.webhook_id;
+    const changedBody = Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+    fixture.rawBodySha256 = createHash("sha256").update(changedBody).digest("hex");
+    fixture.signature = `v1,${createHmac("sha256", key)
+      .update(fixture.webhookId as string)
+      .update(".")
+      .update(fixture.webhookTimestamp as string)
+      .update(".")
+      .update(changedBody)
+      .digest("base64")}`;
+
+    expect(() => validateSignedFixture(fixture, changedBody, keyFile, { captured: false })).toThrow(
+      /body\.webhook_id/,
+    );
   });
 });
