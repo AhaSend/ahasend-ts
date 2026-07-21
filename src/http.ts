@@ -77,7 +77,8 @@ export class HttpClient {
     const init = this.buildRequestInit(options);
 
     const retry = this.config.retry;
-    const maxAttempts = retry.enabled && options.retryMode !== "never" ? retry.maxRetries + 1 : 1;
+    const maxAttempts =
+      retry.enabled && this.isRetryAllowed(options, init) ? retry.maxRetries + 1 : 1;
     const hooks = this.config.hooks;
 
     let lastError: unknown;
@@ -252,6 +253,12 @@ export class HttpClient {
     if (!this.config.idempotency.autoGenerate) return false;
     if (options.method !== "POST") return false;
     return headers[IDEMPOTENCY_HEADER.toLowerCase()] === undefined;
+  }
+
+  private isRetryAllowed(options: RequestOptions, init: RequestInit): boolean {
+    if (options.retryMode === "never") return false;
+    if (options.retryMode !== "idempotency_key") return true;
+    return new Headers(init.headers).has(IDEMPOTENCY_HEADER);
   }
 
   private async parseResponse<T>(response: Response, requestIdFromHeader?: string): Promise<T> {

@@ -646,6 +646,7 @@ describe("HttpClient retry behaviour", () => {
       path: "/x",
       body: { a: 1 },
       autoIdempotency: true,
+      retryMode: "idempotency_key",
     });
 
     expect(attempts).toBe(3);

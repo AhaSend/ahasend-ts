@@ -151,6 +151,28 @@ describe("OperationExecutor", () => {
     ).rejects.toMatchObject({ status: 500 });
     expect(transport).toHaveBeenCalledTimes(1);
   });
+
+  it("prevents conditional retries when no idempotency key is available", async () => {
+    const transport = mockFetch(() => new Response("server error", { status: 500 }));
+    const http = new HttpClient(
+      resolveConfig({
+        apiKey: "aha-sk-test",
+        baseUrl: "https://api.test",
+        fetch: transport,
+        idempotency: { autoGenerate: false },
+        retry: { enabled: true, maxRetries: 2, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+      }),
+    );
+    const executor = new OperationExecutor(http);
+
+    await expect(
+      executor.execute("createDomain", {
+        path: { account_id: "acc_1" },
+        body: { domain: "example.com" },
+      }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("client-bound operation execution", () => {
