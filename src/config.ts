@@ -295,7 +295,7 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
     parsed = new URL(baseUrl);
   } catch (cause) {
     throw new AhaSendConfigurationError(
-      `AhaSend: invalid baseUrl "${baseUrl}" — expected a full URL origin.`,
+      "AhaSend: invalid baseUrl — expected a full URL origin.",
       cause,
     );
   }
@@ -308,7 +308,7 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
     parsed.hash
   ) {
     throw new AhaSendConfigurationError(
-      `AhaSend: invalid baseUrl "${baseUrl}" — expected an origin without credentials, path, query, or fragment.`,
+      "AhaSend: invalid baseUrl — expected an origin without credentials, path, query, or fragment.",
     );
   }
 
@@ -322,7 +322,7 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
   const isLocalhost = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
   if (parsed.protocol === "http:" && !isLocalhost && !allowInsecure) {
     throw new AhaSendConfigurationError(
-      `AhaSend: refusing to send the bearer API key over an insecure baseUrl ("${baseUrl}"). ` +
+      "AhaSend: refusing to send the bearer API key over an insecure baseUrl. " +
         `Use https:// or set { dangerouslyAllowInsecureBaseUrl: true } to override.`,
     );
   }

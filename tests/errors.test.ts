@@ -1,5 +1,6 @@
 import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
+import { AhaSendClient } from "../src/client.js";
 import * as errors from "../src/errors.js";
 import {
   AhaSendAbortError,
@@ -219,6 +220,28 @@ describe("AhaSend error contract", () => {
       headers: "[REDACTED]",
       cause: "[REDACTED]",
     });
+  });
+
+  it("does not expose rejected base URL credentials in messages or safe renderings", () => {
+    const username = "credential-user";
+    const password = "credential-secret";
+    let error: unknown;
+
+    try {
+      new AhaSendClient({
+        apiKey: "aha-sk-test",
+        accountId: "account-id",
+        baseUrl: `https://${username}:${password}@example.com`,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(AhaSendConfigurationError);
+    for (const rendered of [String(error), JSON.stringify(error), inspect(error)]) {
+      expect(rendered).not.toContain(username);
+      expect(rendered).not.toContain(password);
+    }
   });
 
   it("shares the webhook error constructor between the core source and webhook entry", () => {
