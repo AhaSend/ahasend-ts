@@ -29,6 +29,13 @@ describe("generateIdempotencyKey", () => {
     expect(key).toMatch(UUID_REGEX);
   });
 
+  it.each([" \t ", " leading-"])(
+    "rejects a prefix whose leading whitespace would be normalized: %j",
+    (prefix) => {
+      expect(() => generateIdempotencyKey(prefix)).toThrow(/prefix/);
+    },
+  );
+
   it("returns unique keys across calls", () => {
     const a = generateIdempotencyKey();
     const b = generateIdempotencyKey();
@@ -56,6 +63,13 @@ describe("IdempotencyKeyBuilder", () => {
 
   it("rejects an empty base key", () => {
     expect(() => new IdempotencyKeyBuilder("")).toThrow(/baseKey/);
+  });
+
+  it("rejects whitespace-only builder components", () => {
+    expect(() => new IdempotencyKeyBuilder(" \t ")).toThrow(/baseKey/);
+    const builder = new IdempotencyKeyBuilder("order-123");
+    expect(() => builder.withSuffix(" \t ")).toThrow(/suffix/);
+    expect(() => builder.withSuffix("confirmation ")).toThrow(/suffix/);
   });
 
   it("withSuffix rejects an empty suffix", () => {
@@ -120,7 +134,7 @@ describe("idempotency key boundaries", () => {
     expect(() => assertValidIdempotencyKey("a".repeat(255))).not.toThrow();
   });
 
-  it.each(["", "a".repeat(256), "safe\r\ninjected: true"])(
+  it.each(["", " \t ", " leading", "trailing\t", "a".repeat(256), "safe\r\ninjected: true"])(
     "rejects an invalid key boundary",
     (key) => {
       expect(() => assertValidIdempotencyKey(key)).toThrow();

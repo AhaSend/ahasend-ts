@@ -230,7 +230,7 @@ export function assertHeaders(
   name: string,
 ): asserts headers is Record<string, string> {
   if (headers === undefined) return;
-  assertRecord(headers, name);
+  assertPlainRecord(headers, name);
   for (const [headerName, value] of Object.entries(headers)) {
     if (!HEADER_NAME_PATTERN.test(headerName)) {
       throw new Error(`AhaSend: \`${name}\` contains an invalid header name "${headerName}".`);
@@ -395,6 +395,14 @@ function assertTelemetryHooks(hooks: unknown): void {
 function assertRecord(value: unknown, name: string): asserts value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`AhaSend: \`${name}\` must be an object.`);
+  }
+}
+
+function assertPlainRecord(value: unknown, name: string): asserts value is Record<string, unknown> {
+  assertRecord(value, name);
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new Error(`AhaSend: \`${name}\` must be a plain object.`);
   }
 }
 

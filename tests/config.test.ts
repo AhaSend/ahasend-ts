@@ -147,6 +147,10 @@ describe("resolveConfig", () => {
     ["bad header name", { "bad header": "value" }],
     ["line break", { "x-test": "safe\r\ninjected: true" }],
     ["non-string value", { "x-test": 42 }],
+    ["whitespace-only idempotency key", { "Idempotency-Key": " \t " }],
+    ["Headers instance", new Headers({ "x-test": "value" })],
+    ["Map instance", new Map([["x-test", "value"]])],
+    ["Date instance", new Date(0)],
   ])("rejects invalid default headers: %s", (_name, defaultHeaders) => {
     expect(() => resolveConfig({ apiKey: "aha-sk-test", defaultHeaders } as never)).toThrow(
       /header|string/i,
@@ -178,6 +182,17 @@ describe("resolveConfig", () => {
     expect(() => client.messages.send({} as never, { idempotencyKey: "" })).toThrow(
       /idempotencyKey/i,
     );
+    expect(() => client.messages.send({} as never, { idempotencyKey: " \t " })).toThrow(
+      /idempotencyKey/i,
+    );
+    expect(() =>
+      client.messages.send({} as never, { headers: { "Idempotency-Key": " \t " } }),
+    ).toThrow(/Idempotency-Key/i);
+    expect(() =>
+      client.ping({
+        headers: new Headers({ "x-test": "value" }) as unknown as Record<string, string>,
+      }),
+    ).toThrow(/plain object/i);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

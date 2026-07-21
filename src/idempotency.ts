@@ -21,6 +21,7 @@ export const IDEMPOTENT_REPLAYED_HEADER = "Idempotent-Replayed";
 const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 const UUID_LENGTH = 36;
 const INVALID_HEADER_VALUE_PATTERN = /[\u0000-\u0008\u000a-\u001f\u007f]|[^\u0000-\u00ff]/;
+const HTTP_EDGE_WHITESPACE_PATTERN = /^[\t ]|[\t ]$/;
 
 export function resolveIdempotencyConfig(override?: IdempotencyConfig): ResolvedIdempotencyConfig {
   if (override !== undefined) {
@@ -68,6 +69,9 @@ export function assertValidIdempotencyKey(
   if (typeof key !== "string" || key.length === 0) {
     throw new Error(`AhaSend: \`${name}\` must be a non-empty string.`);
   }
+  if (HTTP_EDGE_WHITESPACE_PATTERN.test(key)) {
+    throw new Error(`AhaSend: \`${name}\` must not start or end with spaces or tabs.`);
+  }
   if (key.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
     throw new Error(
       `AhaSend: \`${name}\` must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
@@ -111,6 +115,9 @@ function assertValidPrefix(prefix: unknown): asserts prefix is string {
     throw new Error(
       `AhaSend: \`idempotency.prefix\` must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH - UUID_LENGTH} characters so generated keys fit the API limit.`,
     );
+  }
+  if (/^[\t ]/.test(prefix)) {
+    throw new Error("AhaSend: `idempotency.prefix` must not start with spaces or tabs.");
   }
   if (INVALID_HEADER_VALUE_PATTERN.test(prefix)) {
     throw new Error(
