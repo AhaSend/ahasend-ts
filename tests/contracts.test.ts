@@ -10,8 +10,10 @@ import {
   collectOperations,
   injectNodeSamples,
   parseOpenApi,
+  parseWebhookContract,
   validateCodeSamples,
   validateInternalReferences,
+  validateWebhookContract,
 } from "../scripts/generate-contracts.mjs";
 import { NODE_CODE_SAMPLES } from "../scripts/node-code-samples.mjs";
 
@@ -24,9 +26,12 @@ interface CodeSample {
 type JsonRecord = Record<string, unknown>;
 
 const OPENAPI_PATH = resolve(process.cwd(), "openapi.yaml");
+const WEBHOOK_PATH = resolve(process.cwd(), "webhooks.yaml");
 const LOCK_PATH = resolve(process.cwd(), "contracts.lock.json");
 const source = readFileSync(OPENAPI_PATH, "utf8");
 const document = parseOpenApi(source);
+const webhookSource = readFileSync(WEBHOOK_PATH, "utf8");
+const webhookDocument = parseWebhookContract(webhookSource);
 const lock = JSON.parse(readFileSync(LOCK_PATH, "utf8")) as {
   artifactHashes: Record<string, string>;
   inventories: JsonRecord;
@@ -45,6 +50,11 @@ function samplesFor(operation: JsonRecord): CodeSample[] {
 
 function schema(name: string): JsonRecord {
   const components = record(document.components);
+  return record(record(components.schemas)[name]);
+}
+
+function webhookSchema(name: string): JsonRecord {
+  const components = record(webhookDocument.components);
   return record(record(components.schemas)[name]);
 }
 
@@ -268,5 +278,69 @@ describe("REST contract rejection checks", () => {
     const reparsed = yaml.load(source) as JsonRecord;
     const schemas = record(record(reparsed.components).schemas);
     expect(record(schemas.CreateWebhookRequest).allOf).toBeDefined();
+  });
+});
+
+describe("webhook delivery contract", () => {
+  it("is versioned, internally valid, and matches its detached YAML hash", () => {
+    expect(record(webhookDocument.info).version).toBe("2.0.0");
+    expect(() => validateInternalReferences(webhookDocument)).not.toThrow();
+    expect(() => validateWebhookContract(webhookDocument)).not.toThrow();
+    expect(digestYamlArtifact(Buffer.from(webhookSource, "utf8"))).toBe(
+      lock.artifactHashes["webhooks.yaml"],
+    );
+  });
+
+  it("uses message.routing canonically while accepting route.message as deprecated input", () => {
+    const webhookDefinitions = record(webhookDocument.webhooks);
+    expect(webhookDefinitions).toHaveProperty("message.routing");
+    expect(webhookDefinitions).not.toHaveProperty("route.message");
+
+    const routeProperties = record(webhookSchema("RouteWebhookPayload").properties);
+    const routeType = record(routeProperties.type);
+    expect(routeType.enum).toEqual(["message.routing", "route.message"]);
+    expect(routeType["x-deprecated-values"]).toEqual(["route.message"]);
+    expect(routeType.description).toMatch(
+      /message\.routing.*canonical.*route\.message.*deprecated/,
+    );
+  });
+
+  it("defines is_bot as an optional boolean for open and click event data", () => {
+    for (const schemaName of ["MessageWebhookData", "MessageClickedWebhookData"]) {
+      const eventData = webhookSchema(schemaName);
+      const properties = record(eventData.properties);
+      expect(record(properties.is_bot).type, schemaName).toBe("boolean");
+      expect(eventData.required, schemaName).not.toContain("is_bot");
+    }
+  });
+
+  it("documents the literal UTF-8 resource secret compatibility boundary", () => {
+    const description = record(webhookDocument.info).description;
+    expect(description).toMatch(/literal UTF-8 bytes/);
+    expect(description).toMatch(/Do not Base64-decode.*do not strip a prefix/);
+    expect(description).toMatch(/compatibility with stock libraries is not unconditional/);
+    expect(description).toMatch(/raw-secret\/raw-key mode/);
+    expect(description).not.toMatch(/fully compatible with/i);
+  });
+});
+
+describe("webhook delivery contract rejection checks", () => {
+  it("rejects route aliases that are not explicitly accepted and deprecated", () => {
+    const changed = structuredClone(webhookDocument);
+    const schemas = record(record(changed.components).schemas);
+    const routeProperties = record(record(schemas.RouteWebhookPayload).properties);
+    const routeType = record(routeProperties.type);
+    routeType.enum = ["message.routing"];
+
+    expect(() => validateWebhookContract(changed)).toThrow(/deprecated route\.message/);
+  });
+
+  it("rejects required is_bot fields", () => {
+    const changed = structuredClone(webhookDocument);
+    const schemas = record(record(changed.components).schemas);
+    const clicked = record(schemas.MessageClickedWebhookData);
+    (clicked.required as unknown[]).push("is_bot");
+
+    expect(() => validateWebhookContract(changed)).toThrow(/is_bot must be optional/);
   });
 });

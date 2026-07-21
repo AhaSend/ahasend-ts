@@ -13,9 +13,9 @@ info:
     - **Domain Events**: DNS configuration issues
     - **Route Events**: Inbound email processing
 
-    ## Standard Webhooks Compliance
+    ## Standard Webhooks Compatibility
 
-    AhaSend webhooks are fully compatible with the [Standard Webhooks specification](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md), ensuring consistent and secure webhook delivery.
+    AhaSend webhook deliveries use the Standard Webhooks header names, signed-content format, HMAC-SHA256 algorithm, and signature format. Secret handling is intentionally different from the encoded-secret convention assumed by some Standard Webhooks libraries, so compatibility with stock libraries is not unconditional.
 
     ### Security Headers
 
@@ -23,35 +23,15 @@ info:
 
     - `webhook-id`: Unique identifier for the webhook event (used as idempotency key)
     - `webhook-timestamp`: Unix timestamp when the webhook was sent
-    - `webhook-signature`: HMAC signature of the payload using your webhook secret
+    - `webhook-signature`: HMAC-SHA256 signature of the payload using the resource secret
 
     ### Verification
 
-    Use the [Standard Webhooks libraries](https://github.com/standard-webhooks/standard-webhooks) to verify webhook authenticity:
+    The HMAC key is the literal UTF-8 bytes of the `secret` returned when the webhook or route resource is created. Use the complete returned string, including any prefix. Do not Base64-decode it and do not strip a prefix.
 
-    ```go
-    import (
-        standardwebhooks "github.com/standard-webhooks/standard-webhooks/libraries/go"
-    )
-    wh, err := standardwebhooks.NewWebhookRaw(webhookSecret)
-    err = wh.Verify(payload, headers)
-    ```
+    Use the AhaSend SDK verifier, or a verifier that explicitly accepts raw key bytes. A stock Standard Webhooks library is compatible only if it has a raw-secret/raw-key mode that preserves these literal UTF-8 bytes. Constructors that decode an encoded Standard Webhooks secret will derive a different key and reject valid AhaSend deliveries.
 
-    ```javascript
-    import { Webhook } from 'standardwebhooks';
-
-    const wh = new Webhook(webhookSecret);
-    wh.verify(payload, headers);
-    ```
-
-    ```python
-    from standardwebhooks.webhooks import Webhook
-
-    wh = Webhook(webhook_secret)
-    wh.verify(payload, headers)
-    ```
-
-    See the [verification documentation](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md#verifying-webhook-authenticity) for more implementation details.
+    The signed content is the unmodified `webhook-id`, `webhook-timestamp`, and raw request body joined with periods. See the [Standard Webhooks verification algorithm](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md#verifying-webhook-authenticity) for the shared protocol details, subject to the AhaSend secret-handling boundary above.
 
     ### Retry Policy
 
@@ -78,7 +58,7 @@ info:
 
     1. **Configure a webhook** in your AhaSend dashboard
     2. **Choose which events** you want to receive
-    3. **Verify webhook signatures** using Standard Webhooks libraries
+    3. **Verify webhook signatures** using the literal resource secret as described above
     4. **Handle the events** in your application
 
     For more information, visit the [AhaSend webhook documentation](https://ahasend.com/help/integrations/webhooks).
@@ -795,7 +775,6 @@ components:
         - user_agent
         - ip
         - id
-        - is_bot
       properties:
         account_id:
           type: string
@@ -949,8 +928,9 @@ components:
       properties:
         type:
           type: string
-          enum: [message.routing]
-          description: The event type
+          enum: [message.routing, route.message]
+          x-deprecated-values: [route.message]
+          description: The event type. `message.routing` is canonical; legacy `route.message` remains accepted as deprecated input.
         timestamp:
           type: string
           format: date-time

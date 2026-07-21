@@ -19,6 +19,8 @@ export interface ContractInventory extends OpenApiRecord {
 }
 
 export function parseOpenApi(source: string): OpenApiRecord;
+export function parseWebhookContract(source: string): OpenApiRecord;
+export function validateWebhookContract(document: unknown): void;
 export function collectOperations(document: unknown): ContractOperation[];
 export function collectContractInventory(document: unknown): ContractInventory;
 export function validateInternalReferences(document: unknown): void;

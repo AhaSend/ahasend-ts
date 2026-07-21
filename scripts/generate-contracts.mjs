@@ -51,6 +51,78 @@ export function parseOpenApi(source) {
   return root;
 }
 
+export function parseWebhookContract(source) {
+  let document;
+  try {
+    document = yaml.load(source);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new TypeError(`Invalid webhook YAML: ${message}`, { cause: error });
+  }
+
+  const root = assertRecord(document, "Webhook document");
+  if (root.openapi !== "3.1.0") {
+    throw new TypeError(`Expected webhook OpenAPI 3.1.0, received ${JSON.stringify(root.openapi)}`);
+  }
+  const info = assertRecord(root.info, "Webhook info");
+  if (typeof info.version !== "string" || info.version.length === 0) {
+    throw new TypeError("Webhook info.version must be a non-empty string");
+  }
+  assertRecord(root.webhooks, "Webhook definitions");
+  assertRecord(assertRecord(root.components, "Webhook components").schemas, "Webhook schemas");
+  return root;
+}
+
+export function validateWebhookContract(document) {
+  const root = assertRecord(document, "Webhook document");
+  const webhooks = assertRecord(root.webhooks, "Webhook definitions");
+  if (!Object.hasOwn(webhooks, "message.routing") || Object.hasOwn(webhooks, "route.message")) {
+    throw new TypeError(
+      "Webhook definitions must use canonical message.routing and must not define route.message",
+    );
+  }
+
+  const schemas = assertRecord(
+    assertRecord(root.components, "Webhook components").schemas,
+    "Webhook schemas",
+  );
+  const routePayload = assertRecord(schemas.RouteWebhookPayload, "RouteWebhookPayload");
+  const routeProperties = assertRecord(routePayload.properties, "RouteWebhookPayload.properties");
+  const routeType = assertRecord(routeProperties.type, "RouteWebhookPayload.properties.type");
+  if (JSON.stringify(routeType.enum) !== JSON.stringify(["message.routing", "route.message"])) {
+    throw new TypeError(
+      "RouteWebhookPayload.type must accept canonical message.routing and deprecated route.message",
+    );
+  }
+  if (JSON.stringify(routeType["x-deprecated-values"]) !== JSON.stringify(["route.message"])) {
+    throw new TypeError("RouteWebhookPayload.type must mark route.message as deprecated input");
+  }
+
+  for (const schemaName of ["MessageWebhookData", "MessageClickedWebhookData"]) {
+    const eventData = assertRecord(schemas[schemaName], schemaName);
+    const properties = assertRecord(eventData.properties, `${schemaName}.properties`);
+    const isBot = assertRecord(properties.is_bot, `${schemaName}.properties.is_bot`);
+    if (isBot.type !== "boolean") {
+      throw new TypeError(`${schemaName}.is_bot must be a boolean`);
+    }
+    if (Array.isArray(eventData.required) && eventData.required.includes("is_bot")) {
+      throw new TypeError(`${schemaName}.is_bot must be optional`);
+    }
+  }
+
+  const description = assertRecord(root.info, "Webhook info").description;
+  if (
+    typeof description !== "string" ||
+    !description.includes("literal UTF-8 bytes") ||
+    !description.includes("Do not Base64-decode") ||
+    !description.includes("compatibility with stock libraries is not unconditional")
+  ) {
+    throw new TypeError(
+      "Webhook documentation must preserve the literal UTF-8 secret and Standard Webhooks compatibility boundary",
+    );
+  }
+}
+
 export function collectOperations(document) {
   const root = assertRecord(document, "OpenAPI document");
   const paths = assertRecord(root.paths, "OpenAPI paths");
@@ -345,12 +417,13 @@ export function injectNodeSamples(source, document, nodeSamples = NODE_CODE_SAMP
   return lines.join("\n");
 }
 
-function lockWithHash(lock, openApiBytes) {
+function lockWithHashes(lock, openApiBytes, webhookBytes) {
   return {
     ...lock,
     artifactHashes: {
       ...assertRecord(lock.artifactHashes, "contracts.lock.json artifactHashes"),
       "openapi.yaml": digestYamlArtifact(openApiBytes),
+      "webhooks.yaml": digestYamlArtifact(webhookBytes),
     },
   };
 }
@@ -358,14 +431,19 @@ function lockWithHash(lock, openApiBytes) {
 async function run({ check }) {
   const root = process.cwd();
   const openApiPath = resolve(root, "openapi.yaml");
+  const webhookPath = resolve(root, "webhooks.yaml");
   const lockPath = resolve(root, "contracts.lock.json");
-  const [source, lockSource] = await Promise.all([
+  const [source, webhookSource, lockSource] = await Promise.all([
     readFile(openApiPath, "utf8"),
+    readFile(webhookPath, "utf8"),
     readFile(lockPath, "utf8"),
   ]);
   const lock = assertRecord(JSON.parse(lockSource), "contracts.lock.json");
   const document = parseOpenApi(source);
+  const webhookDocument = parseWebhookContract(webhookSource);
   validateInternalReferences(document);
+  validateInternalReferences(webhookDocument);
+  validateWebhookContract(webhookDocument);
   const inventory = collectContractInventory(document);
   assertInventoryMatches(inventory, lock.inventories);
 
@@ -378,11 +456,20 @@ async function run({ check }) {
         `openapi.yaml artifact hash drift: expected ${JSON.stringify(expectedHash)}, received ${actualHash}`,
       );
     }
+    const expectedWebhookHash = assertRecord(lock.artifactHashes, "artifactHashes")[
+      "webhooks.yaml"
+    ];
+    const actualWebhookHash = digestYamlArtifact(Buffer.from(webhookSource, "utf8"));
+    if (actualWebhookHash !== expectedWebhookHash) {
+      throw new TypeError(
+        `webhooks.yaml artifact hash drift: expected ${JSON.stringify(expectedWebhookHash)}, received ${actualWebhookHash}`,
+      );
+    }
     const normalized = injectNodeSamples(source, document);
     if (normalized !== source)
       throw new TypeError("openapi.yaml generated samples are not normalized");
     process.stdout.write(
-      `REST contract OK: ${inventory.operationIds.length} operations, ${inventory.schemaNames.length} schemas\n`,
+      `Contracts OK: ${inventory.operationIds.length} REST operations, ${inventory.schemaNames.length} REST schemas, ${Object.keys(webhookDocument.webhooks).length} webhook definitions\n`,
     );
     return;
   }
@@ -394,7 +481,7 @@ async function run({ check }) {
   validateCodeSamples(generatedDocument);
 
   const generatedBytes = Buffer.from(generatedSource, "utf8");
-  const updatedLock = lockWithHash(lock, generatedBytes);
+  const updatedLock = lockWithHashes(lock, generatedBytes, Buffer.from(webhookSource, "utf8"));
   await Promise.all([
     writeFile(openApiPath, generatedBytes),
     writeFile(lockPath, canonicalizeJson(updatedLock)),
