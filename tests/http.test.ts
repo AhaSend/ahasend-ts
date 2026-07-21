@@ -459,6 +459,46 @@ describe("HttpClient response promises", () => {
     expect(envelope.idempotentReplayed).toBeUndefined();
   });
 
+  it("rejects through withResponse without creating an unobserved body rejection", async () => {
+    const client = makeClient(
+      mockFetch(() => new Response("server error", { status: 500 })),
+      { retry: { enabled: false } },
+    );
+
+    const request = client.request({ method: "GET", path: "/x" });
+
+    await expect(request.withResponse()).rejects.toMatchObject({ status: 500 });
+  });
+
+  it("reports an ignored failed request as an unhandled rejection", async () => {
+    const existingListeners = process.listeners("unhandledRejection");
+    process.removeAllListeners("unhandledRejection");
+
+    try {
+      const unhandled = new Promise<{ promise: Promise<unknown>; reason: unknown }>((resolve) => {
+        process.once("unhandledRejection", (reason, promise) => resolve({ promise, reason }));
+      });
+      const client = makeClient(
+        mockFetch(() => new Response("server error", { status: 500 })),
+        { retry: { enabled: false } },
+      );
+
+      const request = client.request({ method: "GET", path: "/x" });
+      const event = await Promise.race([
+        unhandled,
+        new Promise<undefined>((resolve) => setTimeout(resolve, 100)),
+      ]);
+
+      expect(event?.promise).toBe(request);
+      expect(event?.reason).toMatchObject({ status: 500 });
+    } finally {
+      process.removeAllListeners("unhandledRejection");
+      for (const listener of existingListeners) {
+        process.on("unhandledRejection", listener);
+      }
+    }
+  });
+
   it("does not expose legacy magic metadata fields or getResponseMetadata", async () => {
     const client = makeClient(
       mockFetch(

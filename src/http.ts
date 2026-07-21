@@ -52,13 +52,15 @@ export class HttpClient {
   }
 
   request<T>(options: RequestOptions): AhaSendPromise<T> {
-    const responsePromise = this.requestWithResponse<T>(options);
-    const bodyPromise = responsePromise.then(({ data }) => data) as AhaSendPromise<T>;
-    bodyPromise.withResponse = () => responsePromise;
-    // A caller may consume only `withResponse()`. Mark the body view's
-    // rejection as observed too, while leaving the original promise rejected
-    // for callers that await it directly.
-    void bodyPromise.catch(() => undefined);
+    let responseEnvelope: AhaSendResponse<T>;
+    const bodyPromise = this.requestWithResponse<T>(options).then((envelope) => {
+      responseEnvelope = envelope;
+      return envelope.data;
+    }) as AhaSendPromise<T>;
+    // Derive the envelope view from the public body promise. Consuming either
+    // view observes the same rejection, while an entirely ignored failed
+    // request remains an unhandled rejection as callers expect from a Promise.
+    bodyPromise.withResponse = () => bodyPromise.then(() => responseEnvelope);
     return bodyPromise;
   }
 
