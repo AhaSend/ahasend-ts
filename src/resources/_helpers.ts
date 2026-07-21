@@ -3,17 +3,17 @@ import { assertRequestOptions } from "../config.js";
 export type { IdempotencyRequestOptions } from "../types/common.js";
 
 interface ForwardedOptions {
-  signal?: AbortSignal;
-  headers?: Record<string, string>;
-  autoIdempotency?: true;
+  readonly signal?: AbortSignal;
+  readonly headers?: Record<string, string>;
+  readonly autoIdempotency?: true;
 }
 
 export function forwardOptions(options: RequestOptions = {}): ForwardedOptions {
   assertRequestOptions(options);
-  const out: ForwardedOptions = {};
-  if (options.signal) out.signal = options.signal;
-  if (options.headers) out.headers = options.headers;
-  return out;
+  return Object.freeze({
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.headers ? { headers: Object.freeze({ ...options.headers }) } : {}),
+  });
 }
 
 /**
@@ -24,12 +24,18 @@ export function forwardOptions(options: RequestOptions = {}): ForwardedOptions {
  */
 export function forwardWithIdempotency(options: IdempotencyRequestOptions = {}): ForwardedOptions {
   assertRequestOptions(options, true);
-  const base: ForwardedOptions = {};
-  if (options.signal) base.signal = options.signal;
-  if (options.headers) base.headers = options.headers;
-  base.autoIdempotency = true;
-  if (options.idempotencyKey !== undefined) {
-    base.headers = { ...(base.headers ?? {}), "Idempotency-Key": options.idempotencyKey };
-  }
-  return base;
+  const headers =
+    options.headers || options.idempotencyKey !== undefined
+      ? Object.freeze({
+          ...(options.headers ?? {}),
+          ...(options.idempotencyKey !== undefined
+            ? { "Idempotency-Key": options.idempotencyKey }
+            : {}),
+        })
+      : undefined;
+  return Object.freeze({
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(headers ? { headers } : {}),
+    autoIdempotency: true,
+  });
 }
