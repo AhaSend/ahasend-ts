@@ -188,6 +188,24 @@ describe("REST contract rejection checks", () => {
     expect(() => assertInventoryMatches(changed, lock.inventories)).toThrow(/inventory drift/);
   });
 
+  it("includes OpenAPI HEAD operations in inventory and sample validation", () => {
+    const changed = structuredClone(document);
+    const pingPath = record(record(changed.paths)["/v2/ping"]);
+    pingPath.head = structuredClone(record(pingPath.get));
+    const headPing = record(pingPath.head);
+    headPing.operationId = "headPing";
+    delete headPing["x-code-samples"];
+
+    expect(collectOperations(changed)).toContainEqual(
+      expect.objectContaining({ method: "head", path: "/v2/ping", operationId: "headPing" }),
+    );
+    expect(collectContractInventory(changed).operationIds).toHaveLength(57);
+    expect(() =>
+      assertInventoryMatches(collectContractInventory(changed), lock.inventories),
+    ).toThrow(/inventory drift/);
+    expect(() => validateCodeSamples(changed)).toThrow(/Missing Node sample definitions: headPing/);
+  });
+
   it("rejects operation path drift in the operation-keyed samples", () => {
     const changed = structuredClone(document);
     const paths = record(changed.paths);
@@ -231,6 +249,19 @@ describe("REST contract rejection checks", () => {
     )!;
     nodeSample.source += "// drift\n";
     expect(() => validateCodeSamples(drifted)).toThrow(/Generated Node sample drift for ping/);
+  });
+
+  it.each(["js", "ts"])("rejects duplicate Node samples tagged with the %s alias", (lang) => {
+    const duplicate = structuredClone(document);
+    const duplicateOperation = collectOperations(duplicate)[0]!;
+    samplesFor(duplicateOperation.operation).push({ ...NODE_CODE_SAMPLES.ping!, lang });
+
+    expect(() => validateCodeSamples(duplicate)).toThrow(
+      /ping must have exactly one Node sample; received 2/,
+    );
+    expect(() => injectNodeSamples(source, duplicate)).toThrow(
+      /ping must have exactly one Node sample; received 2/,
+    );
   });
 
   it("uses js-yaml without losing inline schema refinements", () => {

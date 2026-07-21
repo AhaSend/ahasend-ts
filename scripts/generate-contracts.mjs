@@ -7,7 +7,7 @@ import yaml from "js-yaml";
 import { canonicalizeJson, digestYamlArtifact } from "./digest-artifact.mjs";
 import { NODE_CODE_SAMPLES, NODE_OPERATION_KEYS } from "./node-code-samples.mjs";
 
-const HTTP_METHODS = ["get", "post", "put", "patch", "delete"];
+const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"];
 const INVENTORY_KEYS = [
   "operationIds",
   "schemaNames",
@@ -16,7 +16,15 @@ const INVENTORY_KEYS = [
   "subAccountSchemaNames",
   "roleAlternativeOperationIds",
 ];
-const NODE_LANGUAGES = new Set(["javascript", "typescript", "node", "nodejs", "node.js"]);
+const NODE_LANGUAGES = new Set([
+  "javascript",
+  "typescript",
+  "js",
+  "ts",
+  "node",
+  "nodejs",
+  "node.js",
+]);
 
 function assertRecord(value, location) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -274,7 +282,7 @@ function locateSampleBlock(lines, operationId) {
   let operationEnd = lines.length;
   for (let index = operationLine + 1; index < lines.length; index += 1) {
     if (
-      /^ {4}(?:get|post|put|patch|delete):\s*$/.test(lines[index]) ||
+      /^ {4}(?:get|put|post|delete|options|head|patch|trace):\s*$/.test(lines[index]) ||
       /^ {2}\//.test(lines[index])
     ) {
       operationEnd = index;
