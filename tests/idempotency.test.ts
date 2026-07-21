@@ -123,6 +123,8 @@ describe("resolveIdempotencyConfig", () => {
     ["oversized prefix", { prefix: "p".repeat(220) }],
     ["header-unsafe prefix", { prefix: "app\n" }],
     ["unknown option", { unknown: true }],
+    ["Date instance", new Date(0)],
+    ["Map instance", new Map()],
   ])("rejects invalid config: %s", (_name, override) => {
     expect(() => resolveIdempotencyConfig(override as never)).toThrow();
   });

@@ -79,7 +79,7 @@ const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const INVALID_HEADER_VALUE_PATTERN = /[\u0000-\u0008\u000a-\u001f\u007f]|[^\u0000-\u00ff]/;
 
 export function resolveConfig(options: ClientOptions): ResolvedConfig {
-  assertRecord(options, "options");
+  assertPlainRecord(options, "options");
   assertKnownKeys(options, CLIENT_OPTION_NAMES, "options");
 
   assertNonEmptyString(options.apiKey, "apiKey");
@@ -207,7 +207,7 @@ export function assertRequestOptions(
   options: unknown,
   allowIdempotencyKey = false,
 ): asserts options is RequestOptions | IdempotencyRequestOptions {
-  assertRecord(options, "request options");
+  assertPlainRecord(options, "request options");
   assertKnownKeys(
     options,
     allowIdempotencyKey ? IDEMPOTENCY_REQUEST_OPTION_NAMES : REQUEST_OPTION_NAMES,
@@ -320,7 +320,7 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
 
 function assertRetryConfig(config: unknown): void {
   if (config === undefined) return;
-  assertRecord(config, "retry");
+  assertPlainRecord(config, "retry");
   assertKnownKeys(
     config,
     new Set(["enabled", "maxRetries", "baseDelayMs", "maxDelayMs", "strategy", "jitter"]),
@@ -351,7 +351,7 @@ function assertRetryConfig(config: unknown): void {
 
 function assertRateLimitConfig(config: unknown): void {
   if (config === undefined) return;
-  assertRecord(config, "rateLimit");
+  assertPlainRecord(config, "rateLimit");
   assertKnownKeys(
     config,
     new Set(["enabled", "general", "statistics", "sendMessage"]),
@@ -362,7 +362,7 @@ function assertRateLimitConfig(config: unknown): void {
   for (const category of ["general", "statistics", "sendMessage"] as const) {
     const value = config[category];
     if (value === undefined) continue;
-    assertRecord(value, `rateLimit.${category}`);
+    assertPlainRecord(value, `rateLimit.${category}`);
     assertKnownKeys(
       value,
       new Set(["enabled", "requestsPerSecond", "burst"]),
@@ -383,7 +383,7 @@ function assertRateLimitConfig(config: unknown): void {
 
 function assertTelemetryHooks(hooks: unknown): void {
   if (hooks === undefined) return;
-  assertRecord(hooks, "hooks");
+  assertPlainRecord(hooks, "hooks");
   assertKnownKeys(hooks, HOOK_NAMES, "hooks");
   for (const [name, hook] of Object.entries(hooks)) {
     if (typeof hook !== "function") {

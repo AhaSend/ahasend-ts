@@ -28,6 +28,10 @@ export function resolveIdempotencyConfig(override?: IdempotencyConfig): Resolved
     if (typeof override !== "object" || override === null || Array.isArray(override)) {
       throw new Error("AhaSend: `idempotency` must be an object.");
     }
+    const prototype = Object.getPrototypeOf(override) as unknown;
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error("AhaSend: `idempotency` must be a plain object.");
+    }
     for (const key of Object.keys(override)) {
       if (key !== "autoGenerate" && key !== "prefix") {
         throw new Error(`AhaSend: unknown \`idempotency.${key}\` option.`);

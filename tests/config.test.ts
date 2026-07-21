@@ -143,6 +143,11 @@ describe("resolveConfig", () => {
     expect(() => resolveConfig({ apiKey: "aha-sk-test", ...invalid } as never)).toThrow();
   });
 
+  it("rejects a non-plain top-level configuration object", () => {
+    const options = Object.assign(new Date(0), { apiKey: "aha-sk-test" });
+    expect(() => resolveConfig(options as never)).toThrow(/plain object/i);
+  });
+
   it.each([
     ["bad header name", { "bad header": "value" }],
     ["line break", { "x-test": "safe\r\ninjected: true" }],
@@ -169,6 +174,18 @@ describe("resolveConfig", () => {
     expect(() => resolveConfig({ apiKey: "aha-sk-test", retry } as never)).toThrow(/retry/);
   });
 
+  it.each([
+    ["retry", { retry: new Date(0) }],
+    ["rateLimit", { rateLimit: new Map() }],
+    ["rateLimit.general", { rateLimit: { general: new Date(0) } }],
+    ["hooks", { hooks: new Map() }],
+    ["idempotency", { idempotency: new Date(0) }],
+  ])("rejects a non-plain %s configuration object", (_name, invalid) => {
+    expect(() => resolveConfig({ apiKey: "aha-sk-test", ...invalid } as never)).toThrow(
+      /plain object/i,
+    );
+  });
+
   it("rejects invalid per-request options synchronously before fetch", () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new AhaSendClient({
@@ -193,6 +210,8 @@ describe("resolveConfig", () => {
         headers: new Headers({ "x-test": "value" }) as unknown as Record<string, string>,
       }),
     ).toThrow(/plain object/i);
+    expect(() => client.ping(new Date(0) as never)).toThrow(/plain object/i);
+    expect(() => client.messages.send({} as never, new Map() as never)).toThrow(/plain object/i);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
