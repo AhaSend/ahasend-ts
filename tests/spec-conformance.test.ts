@@ -21,6 +21,8 @@ import { resolve } from "node:path";
 import yaml from "js-yaml";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
+import { OPERATION_DESCRIPTORS } from "../src/generated/operations.js";
+import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
 
 type Op = { verb: string; path: string };
 let specOps: Set<string>;
@@ -55,9 +57,20 @@ interface OpenAPIDoc {
   paths: Record<string, Record<string, unknown>>;
 }
 
+interface OpenAPIOperation {
+  operationId: string;
+  parameters?: Array<Record<string, unknown>>;
+  requestBody?: Record<string, unknown>;
+  responses: Record<string, Record<string, unknown>>;
+  security?: Array<Record<string, string[]>>;
+}
+
+let specDocument: OpenAPIDoc & { security?: Array<Record<string, string[]>> };
+
 beforeAll(() => {
   const raw = readFileSync(SPEC_PATH, "utf-8");
-  const doc = yaml.load(raw) as OpenAPIDoc;
+  const doc = yaml.load(raw) as OpenAPIDoc & { security?: Array<Record<string, string[]>> };
+  specDocument = doc;
   specOps = new Set();
   for (const [path, ops] of Object.entries(doc.paths)) {
     for (const verb of ["get", "post", "put", "patch", "delete"]) {
@@ -65,6 +78,29 @@ beforeAll(() => {
     }
   }
 });
+
+function schemaName(schema: unknown): string | null {
+  if (schema === null || typeof schema !== "object" || Array.isArray(schema)) return null;
+  const reference = (schema as Record<string, unknown>)["$ref"];
+  return typeof reference === "string" && reference.startsWith("#/components/schemas/")
+    ? reference.slice("#/components/schemas/".length)
+    : "inline";
+}
+
+function specOperationEntries(): Array<{
+  method: string;
+  path: string;
+  operation: OpenAPIOperation;
+}> {
+  const entries: Array<{ method: string; path: string; operation: OpenAPIOperation }> = [];
+  for (const [path, pathItem] of Object.entries(specDocument.paths)) {
+    for (const method of ["get", "post", "put", "delete"] as const) {
+      if (pathItem[method] === undefined) continue;
+      entries.push({ method, path, operation: pathItem[method] as OpenAPIOperation });
+    }
+  }
+  return entries;
+}
 
 function templateFor(actualPath: string): string {
   let out = actualPath;
@@ -115,9 +151,7 @@ function expectMatchesSpec(call: Op): void {
     samePathOps.length > 0
       ? `Other verbs defined for this path: ${samePathOps.join(", ")}`
       : `Closest spec paths: ${samePrefix.join(", ") || "(none)"}`;
-  throw new Error(
-    `SDK called \`${key}\` which is not defined in openapi.yaml. ${hint}`,
-  );
+  throw new Error(`SDK called \`${key}\` which is not defined in openapi.yaml. ${hint}`);
 }
 
 describe("Spec conformance — every SDK method maps to a real OpenAPI operation", () => {
@@ -420,5 +454,92 @@ describe("Spec conformance — every SDK method maps to a real OpenAPI operation
       await client.smtpCredentials.delete(SENTINELS.CREDENTIAL_ID);
       expectMatchesSpec(calls[0]!);
     });
+  });
+});
+
+describe("Generated operation contract parity", () => {
+  it("maps the OpenAPI contract, descriptors, and primary profile in both directions", () => {
+    const entries = specOperationEntries();
+    const specOperationIds = entries.map(({ operation }) => operation.operationId);
+    const descriptorIds = Object.keys(OPERATION_DESCRIPTORS);
+    const profileIds = OPERATION_PROFILE.operations.map(({ operationId }) => operationId);
+
+    expect(entries).toHaveLength(56);
+    expect(new Set(specOperationIds).size).toBe(56);
+    expect(descriptorIds).toEqual(specOperationIds);
+    expect(profileIds).toEqual(specOperationIds);
+    expect(new Set(profileIds).size).toBe(56);
+  });
+
+  it("retains verb, path, query, body, success, idempotency, retry, and security facts", () => {
+    for (const { method, path, operation } of specOperationEntries()) {
+      const descriptor =
+        OPERATION_DESCRIPTORS[operation.operationId as keyof typeof OPERATION_DESCRIPTORS];
+      expect(descriptor, operation.operationId).toBeDefined();
+      expect(descriptor.method, operation.operationId).toBe(method.toUpperCase());
+      expect(descriptor.path, operation.operationId).toBe(path);
+
+      const parameters = operation.parameters ?? [];
+      expect(descriptor.query, operation.operationId).toEqual(
+        parameters
+          .filter((parameter) => parameter["in"] === "query")
+          .map((parameter) => ({
+            name: parameter["name"],
+            required: parameter["required"] === true,
+          })),
+      );
+
+      const requestBody = operation.requestBody;
+      const bodySchema = (
+        requestBody?.["content"] as Record<string, Record<string, unknown>> | undefined
+      )?.["application/json"]?.["schema"];
+      expect(descriptor.body, operation.operationId).toEqual(
+        requestBody === undefined
+          ? null
+          : {
+              required: requestBody["required"] === true,
+              schema: schemaName(bodySchema),
+            },
+      );
+
+      const success = Object.entries(operation.responses)
+        .filter(([status]) => /^2\d\d$/.test(status))
+        .map(([status, response]) => {
+          const responseSchema = (
+            response["content"] as Record<string, Record<string, unknown>> | undefined
+          )?.["application/json"]?.["schema"];
+          return { status: Number(status), schema: schemaName(responseSchema) };
+        });
+      expect(descriptor.success, operation.operationId).toEqual(success);
+
+      const idempotency = parameters.some(
+        (parameter) => parameter["$ref"] === "#/components/parameters/IdempotencyKey",
+      );
+      expect(descriptor.idempotency, operation.operationId).toBe(idempotency);
+      expect(descriptor.retry, operation.operationId).toBe(
+        method === "get"
+          ? "safe"
+          : method === "put" || method === "delete"
+            ? "idempotent"
+            : idempotency
+              ? "idempotency_key"
+              : "never",
+      );
+      expect(descriptor.security, operation.operationId).toEqual(
+        (operation.security ?? specDocument.security ?? []).map(
+          (requirement) => requirement["BearerAuth"] ?? [],
+        ),
+      );
+    }
+  });
+
+  it("retains nine unique iterator aliases to list operations", () => {
+    expect(OPERATION_PROFILE.iterators).toHaveLength(9);
+    const aliases = OPERATION_PROFILE.iterators.map(({ facade, method }) => `${facade}.${method}`);
+    expect(new Set(aliases).size).toBe(9);
+    for (const iterator of OPERATION_PROFILE.iterators) {
+      expect(OPERATION_DESCRIPTORS[iterator.operationId].method).toBe("GET");
+      expect(OPERATION_DESCRIPTORS[iterator.operationId].success[0]?.schema).toMatch(/^Paginated/);
+    }
   });
 });

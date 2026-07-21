@@ -1,0 +1,332 @@
+{
+  "version": 1,
+  "operations": [
+    {
+      "operationId": "ping",
+      "facade": "client",
+      "method": "ping"
+    },
+    {
+      "operationId": "getAPIKeys",
+      "facade": "apiKeys",
+      "method": "list"
+    },
+    {
+      "operationId": "createAPIKey",
+      "facade": "apiKeys",
+      "method": "create"
+    },
+    {
+      "operationId": "getAPIKey",
+      "facade": "apiKeys",
+      "method": "get"
+    },
+    {
+      "operationId": "updateAPIKey",
+      "facade": "apiKeys",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteAPIKey",
+      "facade": "apiKeys",
+      "method": "delete"
+    },
+    {
+      "operationId": "getDomains",
+      "facade": "domains",
+      "method": "list"
+    },
+    {
+      "operationId": "createDomain",
+      "facade": "domains",
+      "method": "create"
+    },
+    {
+      "operationId": "getDomain",
+      "facade": "domains",
+      "method": "get"
+    },
+    {
+      "operationId": "updateDomain",
+      "facade": "domains",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteDomain",
+      "facade": "domains",
+      "method": "delete"
+    },
+    {
+      "operationId": "checkDomainDNS",
+      "facade": "domains",
+      "method": "checkDns"
+    },
+    {
+      "operationId": "getMessages",
+      "facade": "messages",
+      "method": "list"
+    },
+    {
+      "operationId": "createMessage",
+      "facade": "messages",
+      "method": "send"
+    },
+    {
+      "operationId": "createConversationMessage",
+      "facade": "messages",
+      "method": "sendConversation"
+    },
+    {
+      "operationId": "getMessage",
+      "facade": "messages",
+      "method": "get"
+    },
+    {
+      "operationId": "cancelMessage",
+      "facade": "messages",
+      "method": "cancel"
+    },
+    {
+      "operationId": "getAccount",
+      "facade": "accounts",
+      "method": "get"
+    },
+    {
+      "operationId": "updateAccount",
+      "facade": "accounts",
+      "method": "update"
+    },
+    {
+      "operationId": "getAccountMembers",
+      "facade": "accounts",
+      "method": "listMembers"
+    },
+    {
+      "operationId": "addAccountMember",
+      "facade": "accounts",
+      "method": "addMember"
+    },
+    {
+      "operationId": "removeAccountMember",
+      "facade": "accounts",
+      "method": "removeMember"
+    },
+    {
+      "operationId": "listSubAccounts",
+      "facade": "subAccounts",
+      "method": "list"
+    },
+    {
+      "operationId": "createSubAccount",
+      "facade": "subAccounts",
+      "method": "create"
+    },
+    {
+      "operationId": "getSubAccountsUsage",
+      "facade": "subAccounts",
+      "method": "usage"
+    },
+    {
+      "operationId": "getSubAccount",
+      "facade": "subAccounts",
+      "method": "get"
+    },
+    {
+      "operationId": "updateSubAccount",
+      "facade": "subAccounts",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteSubAccount",
+      "facade": "subAccounts",
+      "method": "delete"
+    },
+    {
+      "operationId": "suspendSubAccount",
+      "facade": "subAccounts",
+      "method": "suspend"
+    },
+    {
+      "operationId": "unsuspendSubAccount",
+      "facade": "subAccounts",
+      "method": "unsuspend"
+    },
+    {
+      "operationId": "listSubAccountAPIKeys",
+      "facade": "subAccounts",
+      "method": "listApiKeys"
+    },
+    {
+      "operationId": "createSubAccountAPIKey",
+      "facade": "subAccounts",
+      "method": "createApiKey"
+    },
+    {
+      "operationId": "getSubAccountAPIKey",
+      "facade": "subAccounts",
+      "method": "getApiKey"
+    },
+    {
+      "operationId": "updateSubAccountAPIKey",
+      "facade": "subAccounts",
+      "method": "updateApiKey"
+    },
+    {
+      "operationId": "deleteSubAccountAPIKey",
+      "facade": "subAccounts",
+      "method": "deleteApiKey"
+    },
+    {
+      "operationId": "getSuppressions",
+      "facade": "suppressions",
+      "method": "list"
+    },
+    {
+      "operationId": "createSuppression",
+      "facade": "suppressions",
+      "method": "create"
+    },
+    {
+      "operationId": "deleteSuppression",
+      "facade": "suppressions",
+      "method": "delete"
+    },
+    {
+      "operationId": "deleteAllSuppressions",
+      "facade": "suppressions",
+      "method": "wipe"
+    },
+    {
+      "operationId": "getRoutes",
+      "facade": "routes",
+      "method": "list"
+    },
+    {
+      "operationId": "createRoute",
+      "facade": "routes",
+      "method": "create"
+    },
+    {
+      "operationId": "getRoute",
+      "facade": "routes",
+      "method": "get"
+    },
+    {
+      "operationId": "updateRoute",
+      "facade": "routes",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteRoute",
+      "facade": "routes",
+      "method": "delete"
+    },
+    {
+      "operationId": "getWebhooks",
+      "facade": "webhooks",
+      "method": "list"
+    },
+    {
+      "operationId": "createWebhook",
+      "facade": "webhooks",
+      "method": "create"
+    },
+    {
+      "operationId": "getWebhook",
+      "facade": "webhooks",
+      "method": "get"
+    },
+    {
+      "operationId": "updateWebhook",
+      "facade": "webhooks",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteWebhook",
+      "facade": "webhooks",
+      "method": "delete"
+    },
+    {
+      "operationId": "getSMTPCredentials",
+      "facade": "smtpCredentials",
+      "method": "list"
+    },
+    {
+      "operationId": "createSMTPCredential",
+      "facade": "smtpCredentials",
+      "method": "create"
+    },
+    {
+      "operationId": "getSMTPCredential",
+      "facade": "smtpCredentials",
+      "method": "get"
+    },
+    {
+      "operationId": "deleteSMTPCredential",
+      "facade": "smtpCredentials",
+      "method": "delete"
+    },
+    {
+      "operationId": "getDeliverabilityStatistics",
+      "facade": "statistics",
+      "method": "deliverability"
+    },
+    {
+      "operationId": "getBounceStatistics",
+      "facade": "statistics",
+      "method": "bounces"
+    },
+    {
+      "operationId": "getDeliveryTimeStatistics",
+      "facade": "statistics",
+      "method": "deliveryTimes"
+    }
+  ],
+  "iterators": [
+    {
+      "operationId": "getAPIKeys",
+      "facade": "apiKeys",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getDomains",
+      "facade": "domains",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getMessages",
+      "facade": "messages",
+      "method": "iterate"
+    },
+    {
+      "operationId": "listSubAccounts",
+      "facade": "subAccounts",
+      "method": "iterate"
+    },
+    {
+      "operationId": "listSubAccountAPIKeys",
+      "facade": "subAccounts",
+      "method": "iterateApiKeys"
+    },
+    {
+      "operationId": "getSuppressions",
+      "facade": "suppressions",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getRoutes",
+      "facade": "routes",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getWebhooks",
+      "facade": "webhooks",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getSMTPCredentials",
+      "facade": "smtpCredentials",
+      "method": "iterate"
+    }
+  ]
+}
