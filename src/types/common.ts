@@ -1,5 +1,17 @@
 export type UUID = string;
 export type ISODateTime = string;
+export type NonEmptyArray<T> = readonly [T, ...T[]];
+
+export interface AhaSendResponse<T> {
+  data: T;
+  response: Response;
+  requestId?: string;
+  idempotentReplayed?: boolean;
+}
+
+export interface AhaSendPromise<T> extends Promise<T> {
+  withResponse(): Promise<AhaSendResponse<T>>;
+}
 
 export interface PaginationParams {
   limit?: number;
@@ -26,6 +38,10 @@ export interface SuccessResponse {
 export interface RequestOptions {
   signal?: AbortSignal;
   headers?: Record<string, string>;
+}
+
+export interface IdempotencyRequestOptions extends RequestOptions {
+  idempotencyKey?: string;
 }
 
 export interface Address {

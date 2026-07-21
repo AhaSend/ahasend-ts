@@ -4,8 +4,6 @@ export type { AhaSendClientOptions, PingResponse } from "./client.js";
 export type { ClientOptions } from "./config.js";
 export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS, optionsFromEnv } from "./config.js";
 
-export { getResponseMetadata } from "./http.js";
-
 export {
   AhaSendAPIError,
   AhaSendAuthenticationError,
@@ -70,7 +68,11 @@ export type {
 
 export type {
   Address,
+  AhaSendPromise,
+  AhaSendResponse,
+  IdempotencyRequestOptions,
   ISODateTime,
+  NonEmptyArray,
   PaginatedResponse,
   PaginationMeta,
   PaginationParams,
@@ -183,7 +185,5 @@ export type {
   SMTPCredential,
   SMTPCredentialScope,
 } from "./resources/smtp-credentials.js";
-
-export type { IdempotencyRequestOptions } from "./resources/_helpers.js";
 
 export { SDK_VERSION } from "./version.js";

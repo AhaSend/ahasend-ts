@@ -6,9 +6,14 @@ import {
   createApiError,
 } from "./errors.js";
 import type { ApiErrorBody } from "./errors.js";
-import { generateIdempotencyKey, IDEMPOTENCY_HEADER } from "./idempotency.js";
+import {
+  generateIdempotencyKey,
+  IDEMPOTENCY_HEADER,
+  IDEMPOTENT_REPLAYED_HEADER,
+} from "./idempotency.js";
 import { RateLimiter } from "./rate-limit.js";
 import { computeRetryDelayMs, isRetryableError, sleep } from "./retry.js";
+import type { AhaSendPromise, AhaSendResponse } from "./types/common.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -46,7 +51,18 @@ export class HttpClient {
     this.rateLimiter = new RateLimiter(config.rateLimit);
   }
 
-  async request<T>(options: RequestOptions): Promise<T> {
+  request<T>(options: RequestOptions): AhaSendPromise<T> {
+    const responsePromise = this.requestWithResponse<T>(options);
+    const bodyPromise = responsePromise.then(({ data }) => data) as AhaSendPromise<T>;
+    bodyPromise.withResponse = () => responsePromise;
+    // A caller may consume only `withResponse()`. Mark the body view's
+    // rejection as observed too, while leaving the original promise rejected
+    // for callers that await it directly.
+    void bodyPromise.catch(() => undefined);
+    return bodyPromise;
+  }
+
+  private async requestWithResponse<T>(options: RequestOptions): Promise<AhaSendResponse<T>> {
     const url = this.buildUrl(options.path, options.query);
     const init = this.buildRequestInit(options);
 
@@ -99,7 +115,7 @@ export class HttpClient {
     init: RequestInit,
     options: RequestOptions,
     attempt: number,
-  ): Promise<T> {
+  ): Promise<AhaSendResponse<T>> {
     const controller = this.linkAbortSignal(options.signal, this.config.timeout);
     const startedAt = Date.now();
 
@@ -147,7 +163,15 @@ export class HttpClient {
       if (requestId) responseEvent.requestId = requestId;
       this.config.hooks.onResponse(responseEvent);
 
-      return await this.parseResponse<T>(response, requestId);
+      const data = await this.parseResponse<T>(response, requestId);
+      return {
+        data,
+        response,
+        ...(requestId ? { requestId } : {}),
+        ...(response.headers.get(IDEMPOTENT_REPLAYED_HEADER) === "true"
+          ? { idempotentReplayed: true as const }
+          : {}),
+      };
     } catch (err) {
       if (controller.timedOut) {
         throw new AhaSendTimeoutError(
@@ -235,20 +259,20 @@ export class HttpClient {
     }
 
     const rawText = await response.text();
-    const parsed = rawText.length > 0 ? safeJsonParse(rawText) : null;
+    const parsed = rawText.length > 0 ? safeJsonParse(rawText) : undefined;
 
     if (!response.ok) {
       throw createApiError({
         status: response.status,
-        body: (parsed ?? rawText ?? null) as ApiErrorBody | string | null,
+        body: (parsed?.ok ? parsed.value : rawText) as ApiErrorBody | string | null,
         requestId,
         headers: headersToRecord(response.headers),
       });
     }
 
-    if (parsed === null) {
-      // 2xx with empty body → return undefined.
-      if (rawText.length === 0) return undefined as T;
+    if (rawText.length === 0) return undefined as T;
+
+    if (!parsed?.ok) {
       // 2xx with non-JSON body is suspicious (typically an HTML error page
       // from a misconfigured load balancer or a captive-portal redirect).
       // Surface it as a transport-layer parse error rather than as an
@@ -261,35 +285,7 @@ export class HttpClient {
       });
     }
 
-    if (typeof parsed === "object" && parsed !== null) {
-      // Attach observability metadata non-enumerably so it doesn't
-      // change the shape of typed responses but is still available
-      // for logging / tracing.
-      if (requestId) {
-        Object.defineProperty(parsed, "_requestId", {
-          value: requestId,
-          enumerable: false,
-          configurable: true,
-          writable: false,
-        });
-      }
-      const replayed = response.headers.get("idempotent-replayed");
-      if (replayed !== null) {
-        // The server emits `Idempotent-Replayed: true` on a 2xx response
-        // when the result is a cached replay of a prior idempotent
-        // request. Surfacing this lets callers decide whether to treat
-        // the response as a true new-side-effect or a confirmation that
-        // the side-effect already happened.
-        Object.defineProperty(parsed, "_idempotentReplayed", {
-          value: replayed === "true",
-          enumerable: false,
-          configurable: true,
-          writable: false,
-        });
-      }
-    }
-
-    return parsed as T;
+    return parsed.value as T;
   }
 
   private linkAbortSignal(
@@ -341,11 +337,11 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return out;
 }
 
-function safeJsonParse(text: string): unknown {
+function safeJsonParse(text: string): { ok: true; value: unknown } | { ok: false } {
   try {
-    return JSON.parse(text);
+    return { ok: true, value: JSON.parse(text) };
   } catch {
-    return null;
+    return { ok: false };
   }
 }
 
@@ -353,28 +349,6 @@ function extractRequestId(err: unknown): string | undefined {
   if (typeof err !== "object" || err === null) return undefined;
   const candidate = (err as { requestId?: unknown }).requestId;
   return typeof candidate === "string" ? candidate : undefined;
-}
-
-/**
- * Read the observability metadata attached non-enumerably by the
- * transport layer on successful responses. Returns `{}` if the response
- * is not an object or carries no metadata.
- *
- * Example:
- * ```ts
- * const msg = await client.messages.send({ ... });
- * const { requestId, idempotentReplayed } = getResponseMetadata(msg);
- * ```
- */
-export function getResponseMetadata(
-  response: unknown,
-): { requestId?: string; idempotentReplayed?: boolean } {
-  if (typeof response !== "object" || response === null) return {};
-  const r = response as { _requestId?: string; _idempotentReplayed?: boolean };
-  const out: { requestId?: string; idempotentReplayed?: boolean } = {};
-  if (typeof r._requestId === "string") out.requestId = r._requestId;
-  if (typeof r._idempotentReplayed === "boolean") out.idempotentReplayed = r._idempotentReplayed;
-  return out;
 }
 
 /**

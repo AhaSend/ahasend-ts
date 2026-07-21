@@ -194,9 +194,6 @@ and the server's `x-request-id`. Hooks that throw are swallowed — they
 can never break a request. `debug: true` adds a console hookset on top
 of yours.
 
-For successful responses, `getResponseMetadata(response)` returns
-`{ requestId, idempotentReplayed }` captured from the response headers.
-
 ### Pagination
 
 ```ts

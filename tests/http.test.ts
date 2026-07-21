@@ -1,4 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import type {
+  AhaSendPromise,
+  AhaSendResponse,
+  IdempotencyRequestOptions,
+  NonEmptyArray,
+  RequestOptions,
+} from "../src/index.js";
 import { resolveConfig } from "../src/config.js";
 import {
   AhaSendAuthenticationError,
@@ -372,15 +379,94 @@ describe("HttpClient — closing the four high-value P1 test gaps", () => {
     expect(rate.retryAfterSeconds).toBeGreaterThanOrEqual(55);
     expect(rate.retryAfterSeconds).toBeLessThanOrEqual(60);
   });
+});
 
-  it("surfaces Idempotent-Replayed:true on a 2xx success replay (non-enumerable _idempotentReplayed)", async () => {
+describe("HttpClient response promises", () => {
+  it("exports the shared promise, request-option, and non-empty-array types", () => {
+    expectTypeOf<NonEmptyArray<string>>().toEqualTypeOf<readonly [string, ...string[]]>();
+    expectTypeOf<IdempotencyRequestOptions>().toExtend<RequestOptions>();
+    expectTypeOf<AhaSendPromise<string>["withResponse"]>().returns.toEqualTypeOf<
+      Promise<AhaSendResponse<string>>
+    >();
+  });
+
+  it("returns an object body and its response envelope with one fetch", async () => {
+    const response = new Response(JSON.stringify({ object: "message", id: "m1" }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "req_123",
+        "idempotent-replayed": "true",
+      },
+    });
+    const fetchImpl = mockFetch(() => response);
+    const client = makeClient(fetchImpl, { retry: { enabled: false } });
+
+    const request = client.request<{ object: string; id: string }>({
+      method: "POST",
+      path: "/x",
+      body: {},
+      autoIdempotency: true,
+    });
+    const envelope = await request.withResponse();
+    const body = await request;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(body).toEqual({ object: "message", id: "m1" });
+    expect(envelope.data).toBe(body);
+    expect(envelope.response).toBe(response);
+    expect(envelope.requestId).toBe("req_123");
+    expect(envelope.idempotentReplayed).toBe(true);
+  });
+
+  it("returns primitive JSON through both promise views", async () => {
     const client = makeClient(
       mockFetch(
         () =>
-          new Response(JSON.stringify({ object: "message", id: "m1" }), {
+          new Response("42", {
+            status: 200,
+            headers: { "idempotent-replayed": "True" },
+          }),
+      ),
+      { retry: { enabled: false } },
+    );
+
+    const request = client.request<number>({ method: "GET", path: "/x" });
+
+    await expect(request).resolves.toBe(42);
+    const envelope = await request.withResponse();
+    expect(envelope.data).toBe(42);
+    expect(envelope.idempotentReplayed).toBeUndefined();
+  });
+
+  it("returns empty successes through both promise views", async () => {
+    const response = new Response(null, {
+      status: 204,
+      headers: { "x-request-id": "req_empty" },
+    });
+    const client = makeClient(
+      mockFetch(() => response),
+      { retry: { enabled: false } },
+    );
+
+    const request = client.request<void>({ method: "DELETE", path: "/x" });
+    const [body, envelope] = await Promise.all([request, request.withResponse()]);
+
+    expect(body).toBeUndefined();
+    expect(envelope.data).toBeUndefined();
+    expect(envelope.response).toBe(response);
+    expect(envelope.requestId).toBe("req_empty");
+    expect(envelope.idempotentReplayed).toBeUndefined();
+  });
+
+  it("does not expose legacy magic metadata fields or getResponseMetadata", async () => {
+    const client = makeClient(
+      mockFetch(
+        () =>
+          new Response(JSON.stringify({ ok: true }), {
             status: 200,
             headers: {
-              "content-type": "application/json",
+              "x-request-id": "req_legacy",
               "idempotent-replayed": "true",
             },
           }),
@@ -388,15 +474,12 @@ describe("HttpClient — closing the four high-value P1 test gaps", () => {
       { retry: { enabled: false } },
     );
 
-    const res = (await client.request({
-      method: "POST",
-      path: "/x",
-      body: {},
-      autoIdempotency: true,
-    })) as { _idempotentReplayed?: boolean };
-    expect(res._idempotentReplayed).toBe(true);
-    // The metadata is non-enumerable — Object.keys does not surface it.
-    expect(Object.keys(res)).not.toContain("_idempotentReplayed");
+    const body = await client.request<{ ok: boolean }>({ method: "GET", path: "/x" });
+    const publicApi = await import("../src/index.js");
+
+    expect(body).not.toHaveProperty("_requestId");
+    expect(body).not.toHaveProperty("_idempotentReplayed");
+    expect(publicApi).not.toHaveProperty("getResponseMetadata");
   });
 });
 

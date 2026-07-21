@@ -26,8 +26,7 @@ Initial release.
   response.
 - Typed telemetry hooks (`onRequest`, `onResponse`, `onRetry`,
   `onError`) carrying the server `x-request-id`;
-  `getResponseMetadata()` exposes `requestId` / `idempotentReplayed`
-  on successful responses.
+  successful response envelopes carry `requestId` / `idempotentReplayed`.
 - Async pagination: `iterate()` on every list endpoint plus generic
   `paginate()` / `collect()` helpers.
 - `@ahasend/sdk/webhooks` subpath: Standard-Webhooks HMAC-SHA256

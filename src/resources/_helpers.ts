@@ -1,8 +1,5 @@
-import type { RequestOptions } from "../types/common.js";
-
-export interface IdempotencyRequestOptions extends RequestOptions {
-  idempotencyKey?: string;
-}
+import type { IdempotencyRequestOptions, RequestOptions } from "../types/common.js";
+export type { IdempotencyRequestOptions } from "../types/common.js";
 
 interface ForwardedOptions {
   signal?: AbortSignal;
