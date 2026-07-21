@@ -107,7 +107,6 @@ export type DomainsClient = DomainsClientType;
 
 export type {
   APIKey,
-  APIKeyRequestOptions,
   APIKeyScope,
   APIKeyScopeName,
   CreateAPIKeyRequest,

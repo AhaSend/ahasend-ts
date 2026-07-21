@@ -1,4 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import type { APIKey, APIKeyScope, CreatedAPIKey } from "../src/resources/api-keys.js";
+// @ts-expect-error APIKeyRequestOptions was never released from the API-key module.
+import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src/resources/api-keys.js";
 import type { Domain, ListDomainsParams } from "../src/resources/domains.js";
 // @ts-expect-error DomainRequestOptions was never released from the domain module.
 import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src/resources/domains.js";
@@ -456,28 +459,162 @@ describe("DomainsClient", () => {
 });
 
 describe("APIKeysClient", () => {
-  it("create() posts label + scopes and supports idempotencyKey", async () => {
-    const { fetch, calls } = captureFetch();
+  it("requires response IP lists and scopes while exposing the secret only after create", () => {
+    const scope: APIKeyScope = {
+      id: "scope_1",
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      api_key_id: "key_1",
+      scope: "messages:send:all",
+      domain_id: null,
+    };
+    const apiKey: APIKey = {
+      object: "api_key",
+      id: "key_1",
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      last_used_at: null,
+      account_id: "acc_1",
+      label: "CI",
+      public_key: "aha-pk-test",
+      scopes: [scope],
+      ip_allow_list: ["203.0.113.0/24"],
+    };
+    const created: CreatedAPIKey = { ...apiKey, secret_key: "aha-sk-created" };
+    const { ip_allow_list: _ipAllowList, ...withoutIPAllowList } = apiKey;
+    // @ts-expect-error ip_allow_list is a required API-key response field.
+    const missingIPAllowList: APIKey = withoutIPAllowList;
+    const { domain_id: _domainId, ...withoutDomainId } = scope;
+    // @ts-expect-error domain_id is a required nullable API-key scope field.
+    const missingDomainId: APIKeyScope = withoutDomainId;
+    // @ts-expect-error secret_key is only exposed by CreatedAPIKey.
+    const hiddenSecret = apiKey.secret_key;
+
+    expectTypeOf<APIKey["ip_allow_list"]>().toEqualTypeOf<string[]>();
+    expectTypeOf<APIKey["scopes"]>().toEqualTypeOf<APIKeyScope[]>();
+    expectTypeOf<CreatedAPIKey["secret_key"]>().toEqualTypeOf<string>();
+    expectTypeOf<RemovedAPIKeyRequestOptions>().toEqualTypeOf<RemovedAPIKeyRequestOptions>();
+    expect(created.secret_key).toBe("aha-sk-created");
+    void [missingIPAllowList, missingDomainId, hiddenSecret, _ipAllowList, _domainId];
+  });
+
+  it("create() dispatches createAPIKey with IPs, scopes, and an idempotency key", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(JSON.stringify({ secret_key: "aha-sk-created" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+    );
     const client = makeClient(fetch);
 
-    await client.apiKeys.create(
-      { label: "ci", scopes: ["messages:send:all"] },
+    const created = await client.apiKeys.create(
+      {
+        label: "ci",
+        scopes: ["messages:send:all"],
+        ip_allow_list: ["203.0.113.7"],
+      },
       { idempotencyKey: "key-2" },
     );
 
     expect(calls[0]!.method).toBe("POST");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys");
-    expect(calls[0]!.body).toBe(JSON.stringify({ label: "ci", scopes: ["messages:send:all"] }));
+    expect(calls[0]!.body).toBe(
+      JSON.stringify({
+        label: "ci",
+        scopes: ["messages:send:all"],
+        ip_allow_list: ["203.0.113.7"],
+      }),
+    );
     expect(calls[0]!.headers["idempotency-key"]).toBe("key-2");
+    expect(calls[0]!.operationId).toBe("createAPIKey");
+    expect(created.secret_key).toBe("aha-sk-created");
   });
 
-  it("update() PUTs /api-keys/{key_id}", async () => {
+  it("list() dispatches getAPIKeys with direct pagination parameters", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.apiKeys.update("key_1", { label: "renamed" });
+    await client.apiKeys.list({ limit: 50, before: "previous" });
+
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/v2/accounts/acc_1/api-keys");
+    expect(url.searchParams.get("limit")).toBe("50");
+    expect(url.searchParams.get("before")).toBe("previous");
+    expect(url.searchParams.has("after")).toBe(false);
+    expect(calls[0]!.operationId).toBe("getAPIKeys");
+  });
+
+  it("iterate() fetches API keys through getAPIKeys", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              {
+                object: "api_key",
+                id: "key_1",
+                scopes: [],
+                ip_allow_list: [],
+              },
+            ],
+            pagination: { has_more: false },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = makeClient(fetch);
+
+    const apiKeys = client.apiKeys.iterate({ limit: 25, after: "next" });
+
+    await expect(apiKeys.next()).resolves.toMatchObject({
+      done: false,
+      value: { id: "key_1", scopes: [], ip_allow_list: [] },
+    });
+    await expect(apiKeys.next()).resolves.toEqual({ done: true, value: undefined });
+    expect(calls).toHaveLength(1);
+    expect(new URL(calls[0]!.url).searchParams.get("limit")).toBe("25");
+    expect(calls[0]!.operationId).toBe("getAPIKeys");
+  });
+
+  it("get() dispatches getAPIKey and encodes the key ID", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.apiKeys.get("key/1");
+
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys/key%2F1");
+    expect(calls[0]!.operationId).toBe("getAPIKey");
+  });
+
+  it("update() dispatches updateAPIKey with its arguments in order", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.apiKeys.update("key/1", {
+      label: null,
+      scopes: ["domains:read"],
+      ip_allow_list: [],
+    });
 
     expect(calls[0]!.method).toBe("PUT");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys/key%2F1");
+    expect(calls[0]!.body).toBe(
+      JSON.stringify({ label: null, scopes: ["domains:read"], ip_allow_list: [] }),
+    );
+    expect(calls[0]!.operationId).toBe("updateAPIKey");
+  });
+
+  it("delete() dispatches deleteAPIKey", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.apiKeys.delete("key_1");
+
+    expect(calls[0]!.method).toBe("DELETE");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys/key_1");
+    expect(calls[0]!.operationId).toBe("deleteAPIKey");
   });
 });

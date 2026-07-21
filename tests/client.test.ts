@@ -28,6 +28,8 @@ import type {
 } from "../src/index.js";
 // @ts-expect-error DomainRequestOptions was never released from the public API.
 import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src/index.js";
+// @ts-expect-error APIKeyRequestOptions was never released from the public API.
+import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src/index.js";
 import * as publicApi from "../src/index.js";
 import { forwardOptions, forwardWithIdempotency } from "../src/resources/_helpers.js";
 
@@ -220,6 +222,32 @@ describe("AhaSendClient", () => {
     }
   });
 
+  it("keeps the API-key executor private during facade inspection and serialization", () => {
+    const apiKey = "aha-sk-api-key-facade-secret";
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const facade = client.apiKeys;
+
+    expect(Object.getOwnPropertyNames(facade)).toEqual([
+      "list",
+      "iterate",
+      "create",
+      "get",
+      "update",
+      "delete",
+    ]);
+    expect(Object.getOwnPropertySymbols(facade)).toEqual([]);
+    expect(JSON.stringify(facade)).toBe("{}");
+
+    for (const rendered of [inspect(facade), inspect(facade, { showHidden: true })]) {
+      expect(rendered).not.toContain(apiKey);
+      expect(rendered).not.toContain("OperationExecutor");
+      expect(rendered).not.toContain("HttpClient");
+      expect(rendered).not.toContain("transport");
+      expect(rendered).not.toContain("#operations");
+    }
+  });
+
   it("fromEnv requires AHASEND_ACCOUNT_ID", () => {
     expect(() => AhaSendClient.fromEnv({ AHASEND_API_KEY: "aha-sk-test" })).toThrow(
       /AHASEND_ACCOUNT_ID/,
@@ -330,6 +358,10 @@ describe("root public exports", () => {
 
   it("does not expose the unreleased DomainRequestOptions type alias", () => {
     expectTypeOf<RemovedDomainRequestOptions>().toEqualTypeOf<RemovedDomainRequestOptions>();
+  });
+
+  it("does not expose the unreleased APIKeyRequestOptions type alias", () => {
+    expectTypeOf<RemovedAPIKeyRequestOptions>().toEqualTypeOf<RemovedAPIKeyRequestOptions>();
   });
 });
 

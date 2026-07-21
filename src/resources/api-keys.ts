@@ -1,4 +1,4 @@
-import type { HttpClient } from "../http.js";
+import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
@@ -31,7 +31,7 @@ export interface APIKeyScope {
   updated_at: ISODateTime;
   api_key_id: UUID;
   scope: APIKeyScopeName;
-  domain_id?: UUID | null;
+  domain_id: UUID | null;
 }
 
 export interface APIKey {
@@ -39,11 +39,12 @@ export interface APIKey {
   id: UUID;
   created_at: ISODateTime;
   updated_at: ISODateTime;
-  last_used_at?: ISODateTime | null;
+  last_used_at: ISODateTime | null;
   account_id: UUID;
   label: string;
   public_key: string;
   scopes: APIKeyScope[];
+  ip_allow_list: string[];
 }
 
 /**
@@ -63,15 +64,14 @@ export interface CreateAPIKeyRequest {
   label: string;
   /** At least one scope is required by the API. */
   scopes: [APIKeyScopeName, ...APIKeyScopeName[]];
+  ip_allow_list?: string[];
 }
 
 export interface UpdateAPIKeyRequest {
-  label?: string;
-  scopes?: APIKeyScopeName[];
+  label?: string | null;
+  scopes?: APIKeyScopeName[] | null;
+  ip_allow_list?: string[] | null;
 }
-
-/** @deprecated Use `IdempotencyRequestOptions` from the public API. */
-export type APIKeyRequestOptions = IdempotencyRequestOptions;
 
 /**
  * Manage API keys and their scopes. Scope strings follow
@@ -79,31 +79,33 @@ export type APIKeyRequestOptions = IdempotencyRequestOptions;
  * `messages:send:example.com` (domain-scoped).
  */
 export class APIKeysClient {
-  constructor(
-    private readonly http: HttpClient,
-    private readonly accountId: UUID,
-  ) {}
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
+
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
 
   list(
     params: PaginationParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<APIKey>> {
-    return this.http.request<PaginatedResponse<APIKey>>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys`,
-      query: params as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<PaginatedResponse<APIKey>>(
+      "getAPIKeys",
+      {
+        path: { account_id: this.#accountId },
+        query: params as Readonly<Record<string, unknown>>,
+      },
+      forwardOptions(options),
+    );
   }
 
   iterate(
     params: PaginationParams = {},
     options: RequestOptions = {},
   ): AsyncGenerator<APIKey, void, undefined> {
-    return paginate<APIKey, PaginationParams>(
-      (p) => this.list(p, options),
-      params,
-    );
+    return paginate<APIKey, PaginationParams>((p) => this.list(p, options), params);
   }
 
   /**
@@ -114,36 +116,34 @@ export class APIKeysClient {
     body: CreateAPIKeyRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreatedAPIKey> {
-    return this.http.request<CreatedAPIKey>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys`,
-      body,
-      ...forwardWithIdempotency(options),
-    });
+    return this.#operations.execute<CreatedAPIKey>(
+      "createAPIKey",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
+    );
   }
 
   get(keyId: UUID, options: RequestOptions = {}): Promise<APIKey> {
-    return this.http.request<APIKey>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys/${encodeURIComponent(keyId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<APIKey>(
+      "getAPIKey",
+      { path: { account_id: this.#accountId, key_id: keyId } },
+      forwardOptions(options),
+    );
   }
 
   update(keyId: UUID, body: UpdateAPIKeyRequest, options: RequestOptions = {}): Promise<APIKey> {
-    return this.http.request<APIKey>({
-      method: "PUT",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys/${encodeURIComponent(keyId)}`,
-      body,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<APIKey>(
+      "updateAPIKey",
+      { path: { account_id: this.#accountId, key_id: keyId }, body },
+      forwardOptions(options),
+    );
   }
 
   delete(keyId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.http.request<SuccessResponse>({
-      method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/api-keys/${encodeURIComponent(keyId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<SuccessResponse>(
+      "deleteAPIKey",
+      { path: { account_id: this.#accountId, key_id: keyId } },
+      forwardOptions(options),
+    );
   }
 }
