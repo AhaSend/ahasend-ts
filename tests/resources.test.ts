@@ -1,5 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { ListDomainsParams } from "../src/resources/domains.js";
+import type { Domain, ListDomainsParams } from "../src/resources/domains.js";
+// @ts-expect-error DomainRequestOptions was never released from the domain module.
+import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src/resources/domains.js";
 import type {
   CreateConversationMessageRequest,
   CreateMessageRequest,
@@ -29,9 +31,17 @@ describe("Pagination parameter declarations", () => {
   it("retains filters on named list parameter aliases", () => {
     const messages: ListMessagesParams = { limit: 25, after: "next", status: "queued" };
     const domains: ListDomainsParams = { limit: 50, before: "previous", dns_valid: true };
+    // @ts-expect-error Domain list cursors are mutually exclusive.
+    const invalidDomains: ListDomainsParams = {
+      limit: 50,
+      after: "next",
+      before: "previous",
+      dns_valid: false,
+    };
 
     expect(messages.status).toBe("queued");
     expect(domains.dns_valid).toBe(true);
+    expect(invalidDomains.dns_valid).toBe(false);
   });
 });
 
@@ -317,7 +327,29 @@ describe("MessagesClient", () => {
 });
 
 describe("DomainsClient", () => {
-  it("create() passes Idempotency-Key header when provided", async () => {
+  it("requires the nullable selector and keeps the request-options alias absent", () => {
+    const domain: Domain = {
+      object: "domain",
+      id: "domain_1",
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      domain: "example.com",
+      account_id: "acc_1",
+      dns_records: [],
+      dns_valid: true,
+      dkim_selector: null,
+    };
+    const { dkim_selector: _selector, ...withoutSelector } = domain;
+    // @ts-expect-error dkim_selector is a required nullable response key.
+    const missingSelector: Domain = withoutSelector;
+
+    expectTypeOf<Domain["dkim_selector"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<RemovedDomainRequestOptions>().toEqualTypeOf<RemovedDomainRequestOptions>();
+    expect(domain).toHaveProperty("dkim_selector", null);
+    void [missingSelector, _selector];
+  });
+
+  it("create() dispatches createDomain with its body and idempotency key", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
@@ -325,20 +357,81 @@ describe("DomainsClient", () => {
 
     expect(calls[0]!.method).toBe("POST");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains");
+    expect(calls[0]!.body).toBe(JSON.stringify({ domain: "example.com" }));
     expect(calls[0]!.headers["idempotency-key"]).toBe("key-1");
+    expect(calls[0]!.operationId).toBe("createDomain");
   });
 
-  it("update() PUTs /domains/{domain}", async () => {
+  it("list() dispatches getDomains with filters, limit, and one cursor", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.domains.update("example.com", { tracking_subdomain: "track" });
+    await client.domains.list({ dns_valid: true, limit: 50, before: "previous" });
 
-    expect(calls[0]!.method).toBe("PUT");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com");
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/v2/accounts/acc_1/domains");
+    expect(url.searchParams.get("dns_valid")).toBe("true");
+    expect(url.searchParams.get("limit")).toBe("50");
+    expect(url.searchParams.get("before")).toBe("previous");
+    expect(url.searchParams.has("after")).toBe(false);
+    expect(calls[0]!.operationId).toBe("getDomains");
   });
 
-  it("delete() DELETEs /domains/{domain}", async () => {
+  it("iterate() fetches domains through getDomains", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [{ object: "domain", domain: "example.com", dkim_selector: "selector-1" }],
+            pagination: { has_more: false },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = makeClient(fetch);
+
+    const domains = client.domains.iterate({ dns_valid: true, limit: 25 });
+
+    await expect(domains.next()).resolves.toMatchObject({
+      done: false,
+      value: { domain: "example.com", dkim_selector: "selector-1" },
+    });
+    await expect(domains.next()).resolves.toEqual({ done: true, value: undefined });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.operationId).toBe("getDomains");
+  });
+
+  it("get() dispatches getDomain, encodes the domain, and preserves its selector", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(JSON.stringify({ dkim_selector: null }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = makeClient(fetch);
+
+    const domain = await client.domains.get("example.com/path");
+
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com%2Fpath");
+    expect(calls[0]!.operationId).toBe("getDomain");
+    expect(domain).toHaveProperty("dkim_selector", null);
+  });
+
+  it("update() dispatches updateDomain with its arguments in order", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.domains.update("example.com/path", { tracking_subdomain: "track" });
+
+    expect(calls[0]!.method).toBe("PUT");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com%2Fpath");
+    expect(calls[0]!.body).toBe(JSON.stringify({ tracking_subdomain: "track" }));
+    expect(calls[0]!.operationId).toBe("updateDomain");
+  });
+
+  it("delete() dispatches deleteDomain", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
@@ -346,9 +439,10 @@ describe("DomainsClient", () => {
 
     expect(calls[0]!.method).toBe("DELETE");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com");
+    expect(calls[0]!.operationId).toBe("deleteDomain");
   });
 
-  it("checkDns() POSTs /domains/{domain}/check-dns", async () => {
+  it("checkDns() dispatches checkDomainDNS without an idempotency key", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
@@ -356,19 +450,8 @@ describe("DomainsClient", () => {
 
     expect(calls[0]!.method).toBe("POST");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com/check-dns");
-  });
-
-  it("list() passes dns_valid filter", async () => {
-    const { fetch, calls } = captureFetch();
-    const client = makeClient(fetch);
-
-    await client.domains.list({ dns_valid: true, limit: 50, before: "previous" });
-
-    const url = new URL(calls[0]!.url);
-    expect(url.searchParams.get("dns_valid")).toBe("true");
-    expect(url.searchParams.get("limit")).toBe("50");
-    expect(url.searchParams.get("before")).toBe("previous");
-    expect(url.searchParams.has("after")).toBe(false);
+    expect(calls[0]!.headers).not.toHaveProperty("idempotency-key");
+    expect(calls[0]!.operationId).toBe("checkDomainDNS");
   });
 });
 

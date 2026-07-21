@@ -100,7 +100,6 @@ export type {
   CreateDomainRequest,
   DNSRecord,
   Domain,
-  DomainRequestOptions,
   ListDomainsParams,
   UpdateDomainRequest,
 } from "./resources/domains.js";

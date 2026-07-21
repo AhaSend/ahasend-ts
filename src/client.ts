@@ -99,7 +99,7 @@ export class AhaSendClient {
     this.#accountId = accountId;
 
     this.#messages = createFrozenFacade(new MessagesClient(this.#operations, accountId));
-    this.#domains = createFrozenFacade(new DomainsClient(this.#http, accountId));
+    this.#domains = createFrozenFacade(new DomainsClient(this.#operations, accountId));
     this.#apiKeys = createFrozenFacade(new APIKeysClient(this.#http, accountId));
     this.#webhooks = createFrozenFacade(new WebhooksClient(this.#http, accountId));
     this.#statistics = createFrozenFacade(new StatisticsClient(this.#http, accountId));
