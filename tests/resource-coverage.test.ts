@@ -3,11 +3,8 @@
 // Each test exercises a specific URL/method pair so all CRUD operations
 // across every resource client are touched at least once.
 
-import { describe, expect, it, vi } from "vitest";
-import { AhaSendClient } from "../src/client.js";
+import { describe, expect, it } from "vitest";
 import { captureFetch, makeClient } from "./helpers/resource-call.js";
-
-type FetchImpl = typeof fetch;
 
 describe("Resource coverage smoke", () => {
   it("api-keys: get + delete", async () => {
@@ -115,26 +112,35 @@ describe("Resource coverage smoke", () => {
 
   it("iterate generators are reachable across every paginating resource", async () => {
     // Drains a single page from each iterate() to exercise the generator bodies.
-    function client(): AhaSendClient {
-      return new AhaSendClient({
-        apiKey: "aha-sk-test",
-        accountId: "acc_1",
-        baseUrl: "https://api.test",
-        retry: { enabled: false },
-        fetch: vi.fn(async () =>
-          new Response(
-            JSON.stringify({
-              object: "list",
-              data: [{ object: "x", id: "x1", email: "a@b", domain: "d", expires_at: "2030-01-01T00:00:00Z", scopes: [], label: "l", name: "n", url: "https://h", username: "u", sandbox: false, scope: "global", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }],
-              pagination: { has_more: false },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
-        ) as unknown as FetchImpl,
-      });
-    }
-
-    const c = client();
+    const { fetch } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              {
+                object: "x",
+                id: "x1",
+                email: "a@b",
+                domain: "d",
+                expires_at: "2030-01-01T00:00:00Z",
+                scopes: [],
+                label: "l",
+                name: "n",
+                url: "https://h",
+                username: "u",
+                sandbox: false,
+                scope: "global",
+                created_at: "2026-01-01T00:00:00Z",
+                updated_at: "2026-01-01T00:00:00Z",
+              },
+            ],
+            pagination: { has_more: false },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const c = makeClient(fetch);
     const drainAll = async (gen: AsyncGenerator<unknown>): Promise<number> => {
       let n = 0;
       for await (const _ of gen) n++;
