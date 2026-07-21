@@ -38,7 +38,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const EVIDENCE_PATH = "contracts/webhooks/captured";
 const SYNTHETIC_PATH = "contracts/webhooks/synthetic";
 const HEADER_RECORD_FORMAT =
-  "webhook-id:{webhookId}\\nwebhook-timestamp:{webhookTimestamp}\\nwebhook-signature:{signature}\\n";
+  "webhook-id:{webhookId}\nwebhook-timestamp:{webhookTimestamp}\nwebhook-signature:{signature}\n";
 const SCAN_EXCLUDED_DIRECTORIES = new Set([
   ".betterborg-runtime",
   ".betterborg-task",
@@ -103,9 +103,12 @@ function keyBytesFromFile(bytes, location) {
   return Buffer.from(key, "utf8");
 }
 
-function headerRecord(capture) {
+function headerRecord(capture, format) {
   return Buffer.from(
-    `webhook-id:${capture.webhookId}\nwebhook-timestamp:${capture.webhookTimestamp}\nwebhook-signature:${capture.signature}\n`,
+    format
+      .replaceAll("{webhookId}", capture.webhookId)
+      .replaceAll("{webhookTimestamp}", capture.webhookTimestamp)
+      .replaceAll("{signature}", capture.signature),
     "utf8",
   );
 }
@@ -280,7 +283,12 @@ export function validateCapturedManifest(manifest, schema) {
   return captures;
 }
 
-export function validateSignedFixture(captureValue, rawBody, keyFileBytes, { captured }) {
+export function validateSignedFixture(
+  captureValue,
+  rawBody,
+  keyFileBytes,
+  { captured, headerRecordFormat },
+) {
   const capture = assertRecord(captureValue, "Webhook fixture");
   const bodyBytes = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody);
   const keyBytes = keyBytesFromFile(
@@ -314,6 +322,9 @@ export function validateSignedFixture(captureValue, rawBody, keyFileBytes, { cap
   }
 
   if (captured) {
+    if (headerRecordFormat !== HEADER_RECORD_FORMAT) {
+      throw new TypeError(`${capture.fixtureId} has an unknown header record format`);
+    }
     const resource = assertRecord(capture.signingResource, `${capture.fixtureId}.signingResource`);
     const expectedResourceHash = sha256Hex(Buffer.from(`${resource.type}:${resource.id}`, "utf8"));
     if (resource.idSha256 !== expectedResourceHash) {
@@ -325,7 +336,7 @@ export function validateSignedFixture(captureValue, rawBody, keyFileBytes, { cap
     if (resource.bindingSha256 !== expectedBindingHash) {
       throw new TypeError(`${capture.fixtureId} resource/key binding mismatch`);
     }
-    if (sha256Hex(headerRecord(capture)) !== capture.headersSha256) {
+    if (sha256Hex(headerRecord(capture, headerRecordFormat)) !== capture.headersSha256) {
       throw new TypeError(`${capture.fixtureId} signed header record digest mismatch`);
     }
     if (
@@ -448,7 +459,10 @@ export async function validateWebhookEvidence(root, { checkDigest = true } = {})
       readFile(resolve(root, capture.bodyPath)),
       readFile(resolve(root, resource.keyPath)),
     ]);
-    validateSignedFixture(capture, body, key, { captured: true });
+    validateSignedFixture(capture, body, key, {
+      captured: true,
+      headerRecordFormat: manifest.headerRecordFormat,
+    });
   }
 
   assertExactKeys(syntheticManifest, ["version", "fixtures"], "Synthetic fixture manifest");

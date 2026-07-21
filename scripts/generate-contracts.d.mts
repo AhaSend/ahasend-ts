@@ -27,7 +27,9 @@ export function validateSignedFixture(
   capture: unknown,
   rawBody: string | Uint8Array,
   keyFileBytes: Uint8Array,
-  options: { captured: boolean },
+  options:
+    | { captured: true; headerRecordFormat: string }
+    | { captured: false; headerRecordFormat?: never },
 ): void;
 export function validateSecretScanAllowlist(
   policy: unknown,

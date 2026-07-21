@@ -56,6 +56,10 @@ const syntheticManifest = JSON.parse(
   readFileSync(resolve(SYNTHETIC_PATH, "manifest.json"), "utf8"),
 ) as JsonRecord;
 const secretPolicy = JSON.parse(readFileSync(SECRET_POLICY_PATH, "utf8")) as JsonRecord;
+const capturedFixtureOptions = {
+  captured: true,
+  headerRecordFormat: capturedManifest.headerRecordFormat as string,
+} as const;
 
 function record(value: unknown): JsonRecord {
   expect(value).toBeTypeOf("object");
@@ -418,7 +422,10 @@ describe("captured webhook evidence", () => {
 
   it("reproduces fixed signatures and exact three-header records from persisted values", () => {
     const captures = capturedManifest.captures as JsonRecord[];
+    const headerRecordFormat = capturedManifest.headerRecordFormat as string;
     expect(captures).toHaveLength(2);
+    expect(headerRecordFormat).toContain("\n");
+    expect(headerRecordFormat).not.toContain("\\n");
 
     for (const capture of captures) {
       const resource = record(capture.signingResource);
@@ -444,12 +451,10 @@ describe("captured webhook evidence", () => {
         .digest("base64")}`;
       expect(signature, capture.fixtureId as string).toBe(capture.signature);
 
-      const headerRecord = [
-        `webhook-id:${capture.webhookId as string}`,
-        `webhook-timestamp:${capture.webhookTimestamp as string}`,
-        `webhook-signature:${capture.signature as string}`,
-        "",
-      ].join("\n");
+      const headerRecord = headerRecordFormat
+        .replaceAll("{webhookId}", capture.webhookId as string)
+        .replaceAll("{webhookTimestamp}", capture.webhookTimestamp as string)
+        .replaceAll("{signature}", capture.signature as string);
       expect(
         createHash("sha256").update(headerRecord, "utf8").digest("hex"),
         capture.fixtureId as string,
@@ -478,13 +483,18 @@ describe("captured webhook evidence", () => {
     const changedId = structuredClone(configuredCapture);
     changedId.webhookId = `${changedId.webhookId as string}-changed`;
     expect(() =>
-      validateSignedFixture(changedId, configuredBody, configuredKey, { captured: true }),
+      validateSignedFixture(changedId, configuredBody, configuredKey, capturedFixtureOptions),
     ).toThrow(/signature mismatch/);
 
     const changedTimestamp = structuredClone(configuredCapture);
     changedTimestamp.webhookTimestamp = "1784041402";
     expect(() =>
-      validateSignedFixture(changedTimestamp, configuredBody, configuredKey, { captured: true }),
+      validateSignedFixture(
+        changedTimestamp,
+        configuredBody,
+        configuredKey,
+        capturedFixtureOptions,
+      ),
     ).toThrow(/signature mismatch/);
 
     const reserializedBody = Buffer.from(
@@ -492,17 +502,20 @@ describe("captured webhook evidence", () => {
       "utf8",
     );
     expect(() =>
-      validateSignedFixture(configuredCapture, reserializedBody, configuredKey, {
-        captured: true,
-      }),
+      validateSignedFixture(
+        configuredCapture,
+        reserializedBody,
+        configuredKey,
+        capturedFixtureOptions,
+      ),
     ).toThrow(/raw body digest mismatch/);
     expect(() =>
-      validateSignedFixture(configuredCapture, configuredBody, routeKey, { captured: true }),
+      validateSignedFixture(configuredCapture, configuredBody, routeKey, capturedFixtureOptions),
     ).toThrow(/signing key digest mismatch/);
 
     const changedKey = Buffer.from(`${configuredKey.toString("utf8").trimEnd()}-changed\n`, "utf8");
     expect(() =>
-      validateSignedFixture(configuredCapture, configuredBody, changedKey, { captured: true }),
+      validateSignedFixture(configuredCapture, configuredBody, changedKey, capturedFixtureOptions),
     ).toThrow(/signing key digest mismatch/);
   });
 
@@ -513,13 +526,13 @@ describe("captured webhook evidence", () => {
     const key = readFileSync(resolve(process.cwd(), resource.keyPath as string));
 
     capture.headersSha256 = "0".repeat(64);
-    expect(() => validateSignedFixture(capture, body, key, { captured: true })).toThrow(
+    expect(() => validateSignedFixture(capture, body, key, capturedFixtureOptions)).toThrow(
       /signed header record digest mismatch/,
     );
 
     const changedBinding = structuredClone((capturedManifest.captures as JsonRecord[])[0]!);
     record(changedBinding.signingResource).bindingSha256 = "0".repeat(64);
-    expect(() => validateSignedFixture(changedBinding, body, key, { captured: true })).toThrow(
+    expect(() => validateSignedFixture(changedBinding, body, key, capturedFixtureOptions)).toThrow(
       /resource\/key binding mismatch/,
     );
   });

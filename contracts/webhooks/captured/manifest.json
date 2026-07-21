@@ -1,7 +1,7 @@
 {
   "$schema": "manifest.schema.json",
   "version": 1,
-  "headerRecordFormat": "webhook-id:{webhookId}\\nwebhook-timestamp:{webhookTimestamp}\\nwebhook-signature:{signature}\\n",
+  "headerRecordFormat": "webhook-id:{webhookId}\nwebhook-timestamp:{webhookTimestamp}\nwebhook-signature:{signature}\n",
   "captures": [
     {
       "fixtureId": "configured-webhook-message-delivered",
