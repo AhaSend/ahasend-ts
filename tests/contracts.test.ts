@@ -366,6 +366,18 @@ describe("webhook delivery contract rejection checks", () => {
 });
 
 describe("captured webhook evidence", () => {
+  it("pins the configured-webhook capture to its received body and headers", () => {
+    const capture = (capturedManifest.captures as JsonRecord[]).find(
+      ({ fixtureId }) => fixtureId === "configured-webhook-message-delivered",
+    );
+
+    expect(capture).toMatchObject({
+      rawBodySha256: "9b244efbd6d8b46ed32eeead74c9e2980e2623a60162d1b9350711f6ea5fa137",
+      signature: "v1,AN/zm8EakS5sDN7boC5iGVLtQiVlayI5MOi3Qpyxtb0=",
+      headersSha256: "fc3fb212caba5a50220c5055825da659eb929b0f95184468e39ea4acb6c400b8",
+    });
+  });
+
   it("validates the manifest schema, detached digest, locked artifacts, and all evidence", async () => {
     expect(() => validateCapturedManifestSchema(capturedSchema)).not.toThrow();
     expect(() => validateCapturedManifest(capturedManifest, capturedSchema)).not.toThrow();
@@ -446,11 +458,6 @@ describe("captured webhook evidence", () => {
       expect(capture.webhookTimestamp).toMatch(/^\d+$/);
       expect(record(capture.provenance).kind).toBe("captured");
       expect(capture.expectedResult).toBe("valid");
-
-      const payload = JSON.parse(rawBody.toString("utf8")) as JsonRecord;
-      if (resource.type === "configured-webhook") {
-        expect(payload.webhook_id).toBe(resource.id);
-      }
     }
   });
 
@@ -532,6 +539,31 @@ describe("captured webhook evidence", () => {
         readFileSync(
           resolve(process.cwd(), "contracts/webhooks/captured/keys/configured-webhook.key"),
         ),
+      );
+
+      await expect(validateSecretScanAllowlist(secretPolicy, temporaryRoot)).rejects.toThrow(
+        /secret scan classification violation/,
+      );
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a captured fixture key copied into a non-UTF-8 file", async () => {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "ahasend-secret-scan-binary-"));
+    try {
+      for (const value of secretPolicy.rules as JsonRecord[]) {
+        const allowedPath = value.allowedPath as string;
+        const destination = resolve(temporaryRoot, allowedPath);
+        mkdirSync(dirname(destination), { recursive: true });
+        writeFileSync(destination, readFileSync(resolve(process.cwd(), allowedPath)));
+      }
+      const copiedKey = readFileSync(
+        resolve(process.cwd(), "contracts/webhooks/captured/keys/configured-webhook.key"),
+      );
+      writeFileSync(
+        resolve(temporaryRoot, "copied-configured-webhook.bin"),
+        Buffer.concat([copiedKey, Buffer.from([0xff])]),
       );
 
       await expect(validateSecretScanAllowlist(secretPolicy, temporaryRoot)).rejects.toThrow(

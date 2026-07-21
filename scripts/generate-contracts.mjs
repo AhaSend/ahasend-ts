@@ -307,7 +307,9 @@ export function validateSignedFixture(captureValue, rawBody, keyFileBytes, { cap
     `${capture.fixtureId} body`,
   );
 
-  if (payload.type !== "message.routing") {
+  // Captures are immutable transport evidence and may predate the currently pinned payload
+  // schema. Current payload semantics are enforced on the separately generated synthetic fixture.
+  if (!captured && payload.type !== "message.routing") {
     assertString(payload.webhook_id, `${capture.fixtureId} body.webhook_id`, UUID_PATTERN);
   }
 
@@ -330,26 +332,22 @@ export function validateSignedFixture(captureValue, rawBody, keyFileBytes, { cap
       (resource.type === "route" &&
         (payload.type !== "message.routing" || payload.route_id !== resource.id)) ||
       (resource.type === "configured-webhook" &&
-        (payload.type === "message.routing" || payload.webhook_id !== resource.id))
+        (payload.type === "message.routing" ||
+          (payload.webhook_id !== undefined && payload.webhook_id !== resource.id)))
     ) {
       throw new TypeError(`${capture.fixtureId} body does not match its signing resource`);
     }
   }
 }
 
-async function collectUtf8Files(root, directory = root, files = []) {
+async function collectFiles(root, directory = root, files = []) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (entry.isDirectory() && SCAN_EXCLUDED_DIRECTORIES.has(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) {
-      await collectUtf8Files(root, path, files);
+      await collectFiles(root, path, files);
     } else if (entry.isFile()) {
-      try {
-        const source = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
-        files.push({ path: relative(root, path).replaceAll("\\", "/"), source });
-      } catch (error) {
-        if (!(error instanceof TypeError)) throw error;
-      }
+      files.push({ path: relative(root, path).replaceAll("\\", "/"), bytes: await readFile(path) });
     }
   }
   return files;
@@ -362,7 +360,7 @@ export async function validateSecretScanAllowlist(policyValue, root) {
   const rules = assertArray(policy.rules, "Secret scan allowlist rules");
   if (rules.length !== 3)
     throw new TypeError("Secret scan allowlist must classify three fixture keys");
-  const files = await collectUtf8Files(root);
+  const files = await collectFiles(root);
   const ids = new Set();
   const allowedPaths = new Set();
 
@@ -394,13 +392,12 @@ export async function validateSecretScanAllowlist(policyValue, root) {
     if (sha256Hex(secretBytes) !== rule.secretSha256) {
       throw new TypeError(`${id} allowlisted secret digest mismatch`);
     }
-    const secret = secretBytes.toString("utf8");
     const occurrences = [];
     for (const file of files) {
       let offset = 0;
-      while ((offset = file.source.indexOf(secret, offset)) !== -1) {
+      while ((offset = file.bytes.indexOf(secretBytes, offset)) !== -1) {
         occurrences.push(file.path);
-        offset += secret.length;
+        offset += secretBytes.length;
       }
     }
     if (occurrences.length !== 1 || occurrences[0] !== allowedPath) {
