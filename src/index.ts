@@ -5,15 +5,16 @@ export type { ClientOptions } from "./config.js";
 export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS, optionsFromEnv } from "./config.js";
 
 export {
+  AhaSendAbortError,
   AhaSendAPIError,
   AhaSendAuthenticationError,
   AhaSendBadRequestError,
   AhaSendConflictError,
+  AhaSendConfigurationError,
   AhaSendConnectionError,
   AhaSendError,
   AhaSendIdempotencyConflictError,
   AhaSendIdempotencyMismatchError,
-  AhaSendIdempotencyPreconditionFailedError,
   AhaSendNotFoundError,
   AhaSendPermissionError,
   AhaSendRateLimitError,
@@ -21,8 +22,9 @@ export {
   AhaSendServerError,
   AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
+  isAhaSendError,
 } from "./errors.js";
-export type { ApiErrorBody } from "./errors.js";
+export type { AhaSendErrorCode, ApiErrorBody, SerializedAhaSendError } from "./errors.js";
 
 export {
   DEFAULT_IDEMPOTENCY_CONFIG,
@@ -41,11 +43,7 @@ export {
 } from "./retry.js";
 export type { ResolvedRetryConfig, RetryConfig, RetryStrategy } from "./retry.js";
 
-export {
-  DEFAULT_RATE_LIMIT_CONFIG,
-  RateLimiter,
-  detectCategory,
-} from "./rate-limit.js";
+export { DEFAULT_RATE_LIMIT_CONFIG, RateLimiter, detectCategory } from "./rate-limit.js";
 export type {
   CategoryRateLimit,
   EndpointCategory,

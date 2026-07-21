@@ -8,6 +8,7 @@ import type {
 } from "../src/index.js";
 import { resolveConfig } from "../src/config.js";
 import {
+  AhaSendAbortError,
   AhaSendAuthenticationError,
   AhaSendConnectionError,
   AhaSendNotFoundError,
@@ -17,7 +18,9 @@ import { HttpClient } from "../src/http.js";
 
 type FetchImpl = typeof fetch;
 
-function mockFetch(handler: (url: string, init: RequestInit) => Response | Promise<Response>): FetchImpl {
+function mockFetch(
+  handler: (url: string, init: RequestInit) => Response | Promise<Response>,
+): FetchImpl {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     return handler(url, init ?? {});
@@ -145,11 +148,12 @@ describe("HttpClient", () => {
 
   it("maps non-2xx responses to typed errors", async () => {
     const client = makeClient(
-      mockFetch(() =>
-        new Response(JSON.stringify({ message: "missing" }), {
-          status: 404,
-          headers: { "content-type": "application/json" },
-        }),
+      mockFetch(
+        () =>
+          new Response(JSON.stringify({ message: "missing" }), {
+            status: 404,
+            headers: { "content-type": "application/json" },
+          }),
       ),
     );
 
@@ -160,11 +164,12 @@ describe("HttpClient", () => {
 
   it("exposes status/body/requestId on API errors", async () => {
     const client = makeClient(
-      mockFetch(() =>
-        new Response(JSON.stringify({ message: "nope" }), {
-          status: 401,
-          headers: { "content-type": "application/json", "x-request-id": "req_123" },
-        }),
+      mockFetch(
+        () =>
+          new Response(JSON.stringify({ message: "nope" }), {
+            status: 401,
+            headers: { "content-type": "application/json", "x-request-id": "req_123" },
+          }),
       ),
     );
 
@@ -329,9 +334,8 @@ describe("HttpClient — closing the four high-value P1 test gaps", () => {
     );
   });
 
-  it("AbortSignal cancels an in-flight request and wraps as AhaSendConnectionError", async () => {
+  it("AbortSignal cancels an in-flight request and wraps as AhaSendAbortError", async () => {
     const ctrl = new AbortController();
-    const { AhaSendConnectionError } = await import("../src/errors.js");
     const client = makeClient(
       mockFetch(
         () =>
@@ -349,7 +353,7 @@ describe("HttpClient — closing the four high-value P1 test gaps", () => {
     setTimeout(() => ctrl.abort(), 5);
     await expect(
       client.request({ method: "GET", path: "/x", signal: ctrl.signal }),
-    ).rejects.toBeInstanceOf(AhaSendConnectionError);
+    ).rejects.toBeInstanceOf(AhaSendAbortError);
   });
 
   it("honours HTTP-date form of Retry-After (RFC 9110 §10.2.3)", async () => {
@@ -358,11 +362,12 @@ describe("HttpClient — closing the four high-value P1 test gaps", () => {
     // be unmistakably real but unfriendly to fast unit tests).
     const httpDate = new Date(Date.now() + 60_000).toUTCString();
     const client = makeClient(
-      mockFetch(() =>
-        new Response("rate limit", {
-          status: 429,
-          headers: { "retry-after": httpDate },
-        }),
+      mockFetch(
+        () =>
+          new Response("rate limit", {
+            status: 429,
+            headers: { "retry-after": httpDate },
+          }),
       ),
       { retry: { enabled: false } },
     );

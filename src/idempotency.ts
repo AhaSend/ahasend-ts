@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { AhaSendConfigurationError } from "./errors.js";
 
 export interface IdempotencyConfig {
   autoGenerate?: boolean;
@@ -26,19 +27,19 @@ const HTTP_EDGE_WHITESPACE_PATTERN = /^[\t ]|[\t ]$/;
 export function resolveIdempotencyConfig(override?: IdempotencyConfig): ResolvedIdempotencyConfig {
   if (override !== undefined) {
     if (typeof override !== "object" || override === null || Array.isArray(override)) {
-      throw new Error("AhaSend: `idempotency` must be an object.");
+      throw new AhaSendConfigurationError("AhaSend: `idempotency` must be an object.");
     }
     const prototype = Object.getPrototypeOf(override) as unknown;
     if (prototype !== Object.prototype && prototype !== null) {
-      throw new Error("AhaSend: `idempotency` must be a plain object.");
+      throw new AhaSendConfigurationError("AhaSend: `idempotency` must be a plain object.");
     }
     for (const key of Object.keys(override)) {
       if (key !== "autoGenerate" && key !== "prefix") {
-        throw new Error(`AhaSend: unknown \`idempotency.${key}\` option.`);
+        throw new AhaSendConfigurationError(`AhaSend: unknown \`idempotency.${key}\` option.`);
       }
     }
     if (override.autoGenerate !== undefined && typeof override.autoGenerate !== "boolean") {
-      throw new Error("AhaSend: `idempotency.autoGenerate` must be a boolean.");
+      throw new AhaSendConfigurationError("AhaSend: `idempotency.autoGenerate` must be a boolean.");
     }
     if (override.prefix !== undefined) assertValidPrefix(override.prefix);
   }
@@ -71,18 +72,22 @@ export function assertValidIdempotencyKey(
   name = "idempotency key",
 ): asserts key is string {
   if (typeof key !== "string" || key.length === 0) {
-    throw new Error(`AhaSend: \`${name}\` must be a non-empty string.`);
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a non-empty string.`);
   }
   if (HTTP_EDGE_WHITESPACE_PATTERN.test(key)) {
-    throw new Error(`AhaSend: \`${name}\` must not start or end with spaces or tabs.`);
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` must not start or end with spaces or tabs.`,
+    );
   }
   if (key.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       `AhaSend: \`${name}\` must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
     );
   }
   if (INVALID_HEADER_VALUE_PATTERN.test(key)) {
-    throw new Error(`AhaSend: \`${name}\` contains characters that are invalid in an HTTP header.`);
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` contains characters that are invalid in an HTTP header.`,
+    );
   }
 }
 
@@ -113,18 +118,20 @@ export class IdempotencyKeyBuilder {
 
 function assertValidPrefix(prefix: unknown): asserts prefix is string {
   if (typeof prefix !== "string") {
-    throw new Error("AhaSend: `idempotency.prefix` must be a string.");
+    throw new AhaSendConfigurationError("AhaSend: `idempotency.prefix` must be a string.");
   }
   if (prefix.length > MAX_IDEMPOTENCY_KEY_LENGTH - UUID_LENGTH) {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       `AhaSend: \`idempotency.prefix\` must be at most ${MAX_IDEMPOTENCY_KEY_LENGTH - UUID_LENGTH} characters so generated keys fit the API limit.`,
     );
   }
   if (/^[\t ]/.test(prefix)) {
-    throw new Error("AhaSend: `idempotency.prefix` must not start with spaces or tabs.");
+    throw new AhaSendConfigurationError(
+      "AhaSend: `idempotency.prefix` must not start with spaces or tabs.",
+    );
   }
   if (INVALID_HEADER_VALUE_PATTERN.test(prefix)) {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       "AhaSend: `idempotency.prefix` contains characters that are invalid in an HTTP header.",
     );
   }

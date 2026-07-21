@@ -311,13 +311,14 @@ AhaSendError
 │   ├── AhaSendNotFoundError             404
 │   ├── AhaSendConflictError             409
 │   │   └── AhaSendIdempotencyConflictError    (replay in progress)
-│   ├── AhaSendIdempotencyPreconditionFailedError  412
 │   ├── AhaSendUnprocessableEntityError  422 (not a BadRequest subclass)
 │   │   └── AhaSendIdempotencyMismatchError    (key reused with different body)
 │   ├── AhaSendRateLimitError            429 (.retryAfterSeconds)
 │   └── AhaSendServerError               5xx
 ├── AhaSendConnectionError               network failures
 │   └── AhaSendTimeoutError              configured timeout elapsed
+├── AhaSendAbortError                    caller aborted the operation
+├── AhaSendConfigurationError            invalid SDK options or environment
 └── AhaSendResponseParseError            2xx with a non-JSON body
 ```
 

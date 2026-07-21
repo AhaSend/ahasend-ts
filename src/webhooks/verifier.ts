@@ -1,22 +1,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { AhaSendError } from "../errors.js";
+import { AhaSendConfigurationError, AhaSendWebhookVerificationError } from "../errors.js";
 import type { AnyWebhookEvent } from "./events.js";
+
+export { AhaSendWebhookVerificationError } from "../errors.js";
 
 export const WEBHOOK_ID_HEADER = "webhook-id";
 export const WEBHOOK_TIMESTAMP_HEADER = "webhook-timestamp";
 export const WEBHOOK_SIGNATURE_HEADER = "webhook-signature";
 
 export const DEFAULT_TOLERANCE_SECONDS = 5 * 60;
-
-export class AhaSendWebhookVerificationError extends AhaSendError {
-  public readonly reason: string;
-
-  constructor(reason: string, message?: string) {
-    super(message ?? `Webhook verification failed: ${reason}`);
-    this.name = "AhaSendWebhookVerificationError";
-    this.reason = reason;
-  }
-}
 
 export interface WebhookVerifierOptions {
   toleranceSeconds?: number;
@@ -46,10 +38,10 @@ export class WebhookVerifier {
 
   constructor(secret: string, options: WebhookVerifierOptions = {}) {
     if (!secret || typeof secret !== "string") {
-      throw new Error("WebhookVerifier: secret must be a non-empty string.");
+      throw new AhaSendConfigurationError("WebhookVerifier: secret must be a non-empty string.");
     }
     if (options.toleranceSeconds !== undefined && options.toleranceSeconds <= 0) {
-      throw new Error(
+      throw new AhaSendConfigurationError(
         "WebhookVerifier: toleranceSeconds must be > 0. Use a small positive " +
           "value if you want a tight window; do not disable replay protection.",
       );
@@ -99,8 +91,12 @@ export class WebhookVerifier {
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
-    } catch {
-      throw new AhaSendWebhookVerificationError("invalid_json", "Webhook body is not valid JSON");
+    } catch (cause) {
+      throw new AhaSendWebhookVerificationError(
+        "invalid_json",
+        "Webhook body is not valid JSON",
+        cause,
+      );
     }
     if (
       typeof parsed !== "object" ||
@@ -160,8 +156,5 @@ function signatureMatches(provided: string, expected: string): boolean {
   // equal byte length. `timingSafeEqual` panics on unequal-length
   // buffers, hence the up-front length comparison.
   if (provided.length !== expected.length) return false;
-  return timingSafeEqual(
-    Buffer.from(provided, "utf-8"),
-    Buffer.from(expected, "utf-8"),
-  );
+  return timingSafeEqual(Buffer.from(provided, "utf-8"), Buffer.from(expected, "utf-8"));
 }

@@ -1,5 +1,6 @@
 import type { ClientOptions } from "./config.js";
 import { assertPlainRecord, optionsFromEnv, resolveConfig } from "./config.js";
+import { AhaSendConfigurationError } from "./errors.js";
 import { HttpClient } from "./http.js";
 import { AccountsClient } from "./resources/accounts.js";
 import { APIKeysClient } from "./resources/api-keys.js";
@@ -57,7 +58,7 @@ export class AhaSendClient {
   constructor(options: AhaSendClientOptions) {
     assertPlainRecord(options, "client options");
     if (typeof options.accountId !== "string" || options.accountId.trim().length === 0) {
-      throw new Error("AhaSend: `accountId` is required.");
+      throw new AhaSendConfigurationError("AhaSend: `accountId` is required.");
     }
 
     const { accountId, ...clientOptions } = options;
@@ -86,7 +87,9 @@ export class AhaSendClient {
     const base = optionsFromEnv(env);
     const accountId = env.AHASEND_ACCOUNT_ID;
     if (!accountId) {
-      throw new Error("AhaSend: AHASEND_ACCOUNT_ID environment variable is required.");
+      throw new AhaSendConfigurationError(
+        "AhaSend: AHASEND_ACCOUNT_ID environment variable is required.",
+      );
     }
     return new AhaSendClient({ ...base, accountId });
   }

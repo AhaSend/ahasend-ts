@@ -1,4 +1,5 @@
 import {
+  AhaSendAbortError,
   AhaSendAPIError,
   AhaSendConnectionError,
   AhaSendRateLimitError,
@@ -47,6 +48,7 @@ export function resolveRetryConfig(override?: RetryConfig): ResolvedRetryConfig 
 }
 
 export function isRetryableError(err: unknown): boolean {
+  if (err instanceof AhaSendAbortError) return false;
   if (err instanceof AhaSendTimeoutError) return true;
   if (err instanceof AhaSendConnectionError) return true;
   if (err instanceof AhaSendRateLimitError) return true;
@@ -107,7 +109,7 @@ export function computeRetryDelayMs(
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(signal.reason ?? new Error("Aborted"));
+      reject(new AhaSendAbortError("Request aborted", signal.reason));
       return;
     }
 
@@ -118,7 +120,7 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
     const onAbort = () => {
       clearTimeout(timer);
-      reject(signal?.reason ?? new Error("Aborted"));
+      reject(new AhaSendAbortError("Request aborted", signal?.reason));
     };
 
     if (signal) signal.addEventListener("abort", onAbort, { once: true });

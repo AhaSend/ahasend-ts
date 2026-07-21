@@ -1,5 +1,6 @@
 import type { IdempotencyConfig, ResolvedIdempotencyConfig } from "./idempotency.js";
 import { assertValidIdempotencyKey, resolveIdempotencyConfig } from "./idempotency.js";
+import { AhaSendConfigurationError } from "./errors.js";
 import type { RateLimitConfig, ResolvedRateLimitConfig } from "./rate-limit.js";
 import { resolveRateLimitConfig } from "./rate-limit.js";
 import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
@@ -103,7 +104,7 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
 
   const fetchImpl = options.fetch ?? globalThis.fetch;
   if (typeof fetchImpl !== "function") {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       "AhaSend: `fetch` is not available. Use Node.js 18+ or inject a `fetch` implementation via `options.fetch`.",
     );
   }
@@ -133,7 +134,7 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
 export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOptions {
   const apiKey = env.AHASEND_API_KEY ?? env.AHASEND_TOKEN;
   if (!apiKey) {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       "AhaSend: missing API key. Set AHASEND_API_KEY (or AHASEND_TOKEN) environment variable.",
     );
   }
@@ -154,7 +155,9 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
   if (env.AHASEND_TIMEOUT !== undefined) {
     const seconds = parseFiniteNumber(env.AHASEND_TIMEOUT, "AHASEND_TIMEOUT");
     if (seconds <= 0) {
-      throw new Error("AhaSend: `AHASEND_TIMEOUT` must be a positive number of seconds.");
+      throw new AhaSendConfigurationError(
+        "AhaSend: `AHASEND_TIMEOUT` must be a positive number of seconds.",
+      );
     }
     const timeoutMs = seconds * 1000;
     assertPositiveFiniteNumber(timeoutMs, "AHASEND_TIMEOUT");
@@ -184,7 +187,9 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
   if (env.AHASEND_MAX_RETRIES !== undefined) {
     const maxRetries = parseFiniteNumber(env.AHASEND_MAX_RETRIES, "AHASEND_MAX_RETRIES");
     if (!Number.isInteger(maxRetries) || maxRetries < 0) {
-      throw new Error("AhaSend: `AHASEND_MAX_RETRIES` must be a non-negative integer.");
+      throw new AhaSendConfigurationError(
+        "AhaSend: `AHASEND_MAX_RETRIES` must be a non-negative integer.",
+      );
     }
     retry.maxRetries = maxRetries;
   }
@@ -215,7 +220,9 @@ export function assertRequestOptions(
   );
 
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal)) {
-    throw new Error("AhaSend: `request options.signal` must be an AbortSignal.");
+    throw new AhaSendConfigurationError(
+      "AhaSend: `request options.signal` must be an AbortSignal.",
+    );
   }
   assertHeaders(options.headers, "request options.headers");
 
@@ -233,10 +240,12 @@ export function assertHeaders(
   assertPlainRecord(headers, name);
   for (const [headerName, value] of Object.entries(headers)) {
     if (!HEADER_NAME_PATTERN.test(headerName)) {
-      throw new Error(`AhaSend: \`${name}\` contains an invalid header name "${headerName}".`);
+      throw new AhaSendConfigurationError(
+        `AhaSend: \`${name}\` contains an invalid header name "${headerName}".`,
+      );
     }
     if (typeof value !== "string") {
-      throw new Error(`AhaSend: \`${name}.${headerName}\` must be a string.`);
+      throw new AhaSendConfigurationError(`AhaSend: \`${name}.${headerName}\` must be a string.`);
     }
     assertHeaderValue(value, `${name}.${headerName}`);
     if (headerName.toLowerCase() === "idempotency-key") {
@@ -247,7 +256,7 @@ export function assertHeaders(
 
 function buildBaseUrl(scheme: string | undefined, host: string | undefined): string | undefined {
   if (scheme !== undefined && host === undefined) {
-    throw new Error("AhaSend: `AHASEND_SCHEME` requires `AHASEND_HOST`.");
+    throw new AhaSendConfigurationError("AhaSend: `AHASEND_SCHEME` requires `AHASEND_HOST`.");
   }
   if (host === undefined) return undefined;
   assertNonEmptyString(host, "AHASEND_HOST");
@@ -268,7 +277,7 @@ function assertNotBrowser(allow: boolean): void {
   const isBrowser = typeof g.window !== "undefined" || typeof g.document !== "undefined";
   const isServiceWorker = typeof g.ServiceWorkerGlobalScope !== "undefined";
   if (isBrowser || isServiceWorker) {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       "AhaSend: refusing to construct an AhaSendClient in a browser-like " +
         "environment (window/document/ServiceWorker) — embedding the bearer " +
         "API key in a browser bundle exposes it. Use this SDK from a Node.js " +
@@ -284,8 +293,11 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
   let parsed: URL;
   try {
     parsed = new URL(baseUrl);
-  } catch {
-    throw new Error(`AhaSend: invalid baseUrl "${baseUrl}" — expected a full URL origin.`);
+  } catch (cause) {
+    throw new AhaSendConfigurationError(
+      `AhaSend: invalid baseUrl "${baseUrl}" — expected a full URL origin.`,
+      cause,
+    );
   }
 
   if (
@@ -295,13 +307,13 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
     parsed.search ||
     parsed.hash
   ) {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       `AhaSend: invalid baseUrl "${baseUrl}" — expected an origin without credentials, path, query, or fragment.`,
     );
   }
 
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       `AhaSend: invalid baseUrl protocol "${parsed.protocol}" — expected https or http.`,
     );
   }
@@ -309,7 +321,7 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
   const host = parsed.hostname.toLowerCase();
   const isLocalhost = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
   if (parsed.protocol === "http:" && !isLocalhost && !allowInsecure) {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       `AhaSend: refusing to send the bearer API key over an insecure baseUrl ("${baseUrl}"). ` +
         `Use https:// or set { dangerouslyAllowInsecureBaseUrl: true } to override.`,
     );
@@ -338,12 +350,14 @@ function assertRetryConfig(config: unknown): void {
     assertNonNegativeFiniteNumber(config.maxDelayMs, "retry.maxDelayMs");
   }
   if (config.strategy !== undefined && !RETRY_STRATEGIES.has(config.strategy as string)) {
-    throw new Error('AhaSend: `retry.strategy` must be "exponential", "linear", or "constant".');
+    throw new AhaSendConfigurationError(
+      'AhaSend: `retry.strategy` must be "exponential", "linear", or "constant".',
+    );
   }
 
   const resolved = resolveRetryConfig(config as RetryConfig);
   if (resolved.maxDelayMs < resolved.baseDelayMs) {
-    throw new Error(
+    throw new AhaSendConfigurationError(
       "AhaSend: `retry.maxDelayMs` must be greater than or equal to `retry.baseDelayMs`.",
     );
   }
@@ -387,14 +401,14 @@ function assertTelemetryHooks(hooks: unknown): void {
   assertKnownKeys(hooks, HOOK_NAMES, "hooks");
   for (const [name, hook] of Object.entries(hooks)) {
     if (typeof hook !== "function") {
-      throw new Error(`AhaSend: \`hooks.${name}\` must be a function.`);
+      throw new AhaSendConfigurationError(`AhaSend: \`hooks.${name}\` must be a function.`);
     }
   }
 }
 
 function assertRecord(value: unknown, name: string): asserts value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`AhaSend: \`${name}\` must be an object.`);
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be an object.`);
   }
 }
 
@@ -406,7 +420,7 @@ export function assertPlainRecord(
   assertRecord(value, name);
   const prototype = Object.getPrototypeOf(value) as unknown;
   if (prototype !== Object.prototype && prototype !== null) {
-    throw new Error(`AhaSend: \`${name}\` must be a plain object.`);
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a plain object.`);
   }
 }
 
@@ -418,54 +432,60 @@ function assertKnownKeys(
   for (const key of Object.keys(value)) {
     if (!knownKeys.has(key)) {
       const legacyHint = key === "timeout" ? " Use `timeoutMs` instead." : "";
-      throw new Error(`AhaSend: unknown \`${name}.${key}\` option.${legacyHint}`);
+      throw new AhaSendConfigurationError(
+        `AhaSend: unknown \`${name}.${key}\` option.${legacyHint}`,
+      );
     }
   }
 }
 
 function assertNonEmptyString(value: unknown, name: string): asserts value is string {
   if (typeof value !== "string" || value.trim().length === 0) {
-    throw new Error(`AhaSend: \`${name}\` must be a non-empty string.`);
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a non-empty string.`);
   }
 }
 
 function assertHeaderValue(value: string, name: string): void {
   if (INVALID_HEADER_VALUE_PATTERN.test(value)) {
-    throw new Error(`AhaSend: \`${name}\` contains characters that are invalid in an HTTP header.`);
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` contains characters that are invalid in an HTTP header.`,
+    );
   }
 }
 
 function assertOptionalBoolean(value: unknown, name: string): void {
   if (value !== undefined && typeof value !== "boolean") {
-    throw new Error(`AhaSend: \`${name}\` must be a boolean.`);
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a boolean.`);
   }
 }
 
 function assertPositiveFiniteNumber(value: unknown, name: string): asserts value is number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new Error(`AhaSend: \`${name}\` must be a positive finite number.`);
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a positive finite number.`);
   }
 }
 
 function assertNonNegativeFiniteNumber(value: unknown, name: string): asserts value is number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw new Error(`AhaSend: \`${name}\` must be a non-negative finite number.`);
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` must be a non-negative finite number.`,
+    );
   }
 }
 
 function assertNonNegativeInteger(value: unknown, name: string): asserts value is number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new Error(`AhaSend: \`${name}\` must be a non-negative integer.`);
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a non-negative integer.`);
   }
 }
 
 function parseFiniteNumber(value: string, name: string): number {
   if (value.trim().length === 0) {
-    throw new Error(`AhaSend: \`${name}\` must be a finite number.`);
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a finite number.`);
   }
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    throw new Error(`AhaSend: \`${name}\` must be a finite number.`);
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a finite number.`);
   }
   return parsed;
 }
@@ -474,5 +494,5 @@ function parseBool(value: string, name: string): boolean {
   const normalized = value.trim().toLowerCase();
   if (["true", "1", "yes", "on", "enable", "enabled"].includes(normalized)) return true;
   if (["false", "0", "no", "off", "disable", "disabled"].includes(normalized)) return false;
-  throw new Error(`AhaSend: \`${name}\` must be a boolean value.`);
+  throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a boolean value.`);
 }

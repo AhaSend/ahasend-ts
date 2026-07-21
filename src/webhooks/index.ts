@@ -1,5 +1,4 @@
 export {
-  AhaSendWebhookVerificationError,
   DEFAULT_TOLERANCE_SECONDS,
   WEBHOOK_ID_HEADER,
   WEBHOOK_SIGNATURE_HEADER,
@@ -7,12 +6,9 @@ export {
   WebhookVerifier,
 } from "./verifier.js";
 export type { WebhookVerifierOptions } from "./verifier.js";
+export { AhaSendWebhookVerificationError } from "../errors.js";
 
-export {
-  expressWebhookHandler,
-  fastifyWebhookHandler,
-  nextRouteHandler,
-} from "./adapters.js";
+export { expressWebhookHandler, fastifyWebhookHandler, nextRouteHandler } from "./adapters.js";
 export type {
   ExpressHandler,
   FastifyHandler,

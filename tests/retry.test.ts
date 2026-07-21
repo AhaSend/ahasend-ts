@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AhaSendAbortError,
   AhaSendAuthenticationError,
   AhaSendBadRequestError,
   AhaSendConnectionError,
@@ -44,8 +45,14 @@ describe("isRetryableError", () => {
 
   it("does NOT retry on 4xx client errors", () => {
     expect(isRetryableError(new AhaSendBadRequestError({ ...params, status: 400 }))).toBe(false);
-    expect(isRetryableError(new AhaSendAuthenticationError({ ...params, status: 401 }))).toBe(false);
+    expect(isRetryableError(new AhaSendAuthenticationError({ ...params, status: 401 }))).toBe(
+      false,
+    );
     expect(isRetryableError(new AhaSendNotFoundError({ ...params, status: 404 }))).toBe(false);
+  });
+
+  it("does NOT retry caller aborts", () => {
+    expect(isRetryableError(new AhaSendAbortError())).toBe(false);
   });
 
   it("does NOT retry on plain Error", () => {
@@ -64,12 +71,8 @@ describe("computeBackoffMs", () => {
   });
 
   it("linear strategy returns base * attempt", () => {
-    expect(
-      computeBackoffMs(1, { ...NO_JITTER, strategy: "linear", baseDelayMs: 100 }),
-    ).toBe(100);
-    expect(
-      computeBackoffMs(3, { ...NO_JITTER, strategy: "linear", baseDelayMs: 100 }),
-    ).toBe(300);
+    expect(computeBackoffMs(1, { ...NO_JITTER, strategy: "linear", baseDelayMs: 100 })).toBe(100);
+    expect(computeBackoffMs(3, { ...NO_JITTER, strategy: "linear", baseDelayMs: 100 })).toBe(300);
   });
 
   it("exponential strategy returns base * 2^(attempt-1)", () => {

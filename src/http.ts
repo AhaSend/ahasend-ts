@@ -1,6 +1,7 @@
 import type { ResolvedConfig } from "./config.js";
 import { assertHeaders } from "./config.js";
 import {
+  AhaSendAbortError,
   AhaSendConnectionError,
   AhaSendResponseParseError,
   AhaSendTimeoutError,
@@ -141,8 +142,8 @@ export class HttpClient {
           err,
         );
       }
-      if (err instanceof Error && err.name === "AbortError") {
-        throw new AhaSendConnectionError("Request aborted", err);
+      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) {
+        throw new AhaSendAbortError("Request aborted", err);
       }
       throw new AhaSendConnectionError(
         `Network error while calling ${options.method} ${options.path}`,
@@ -183,8 +184,8 @@ export class HttpClient {
           err,
         );
       }
-      if (err instanceof Error && err.name === "AbortError") {
-        throw new AhaSendConnectionError("Request aborted during body read", err);
+      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) {
+        throw new AhaSendAbortError("Request aborted during body read", err);
       }
       throw err;
     } finally {
@@ -241,22 +242,15 @@ export class HttpClient {
     return init;
   }
 
-  private shouldAutoIdempotency(
-    options: RequestOptions,
-    headers: Record<string, string>,
-  ): boolean {
+  private shouldAutoIdempotency(options: RequestOptions, headers: Record<string, string>): boolean {
     if (!options.autoIdempotency) return false;
     if (!this.config.idempotency.autoGenerate) return false;
     if (options.method !== "POST") return false;
     return headers[IDEMPOTENCY_HEADER.toLowerCase()] === undefined;
   }
 
-  private async parseResponse<T>(
-    response: Response,
-    requestIdFromHeader?: string,
-  ): Promise<T> {
-    const requestId =
-      requestIdFromHeader ?? response.headers.get(REQUEST_ID_HEADER) ?? undefined;
+  private async parseResponse<T>(response: Response, requestIdFromHeader?: string): Promise<T> {
+    const requestId = requestIdFromHeader ?? response.headers.get(REQUEST_ID_HEADER) ?? undefined;
 
     if (response.status === 204 || response.status === 205) {
       if (response.ok) return undefined as T;
@@ -286,6 +280,7 @@ export class HttpClient {
         status: response.status,
         body: rawText,
         requestId,
+        cause: parsed!.error,
       });
     }
 
@@ -341,11 +336,11 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return out;
 }
 
-function safeJsonParse(text: string): { ok: true; value: unknown } | { ok: false } {
+function safeJsonParse(text: string): { ok: true; value: unknown } | { ok: false; error: unknown } {
   try {
     return { ok: true, value: JSON.parse(text) };
-  } catch {
-    return { ok: false };
+  } catch (error) {
+    return { ok: false, error };
   }
 }
 
