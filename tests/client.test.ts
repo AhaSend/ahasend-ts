@@ -165,6 +165,32 @@ describe("AhaSendClient", () => {
     }
   });
 
+  it("keeps the message executor private during facade inspection and serialization", () => {
+    const apiKey = "aha-sk-message-facade-secret";
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const facade = client.messages;
+
+    expect(Object.getOwnPropertyNames(facade)).toEqual([
+      "send",
+      "sendConversation",
+      "list",
+      "iterate",
+      "get",
+      "cancel",
+    ]);
+    expect(Object.getOwnPropertySymbols(facade)).toEqual([]);
+    expect(JSON.stringify(facade)).toBe("{}");
+
+    for (const rendered of [inspect(facade), inspect(facade, { showHidden: true })]) {
+      expect(rendered).not.toContain(apiKey);
+      expect(rendered).not.toContain("OperationExecutor");
+      expect(rendered).not.toContain("HttpClient");
+      expect(rendered).not.toContain("transport");
+      expect(rendered).not.toContain("#operations");
+    }
+  });
+
   it("fromEnv requires AHASEND_ACCOUNT_ID", () => {
     expect(() => AhaSendClient.fromEnv({ AHASEND_API_KEY: "aha-sk-test" })).toThrow(
       /AHASEND_ACCOUNT_ID/,

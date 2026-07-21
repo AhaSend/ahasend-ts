@@ -80,6 +80,7 @@ export type {
   DeliveryAttempt,
   ListMessagesParams,
   Message,
+  MessageSummary,
   MessageContentAttachment,
   MessageContentParsed,
   MessageContentPart,

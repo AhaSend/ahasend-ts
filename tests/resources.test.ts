@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import type { ListDomainsParams } from "../src/resources/domains.js";
-import type { ListMessagesParams } from "../src/resources/messages.js";
+import type {
+  CreateConversationMessageRequest,
+  CreateMessageRequest,
+  ListMessagesParams,
+  Message,
+  MessageSummary,
+  SendMessageResult,
+} from "../src/resources/messages.js";
 import type { PaginationParams } from "../src/types/common.js";
 import { captureFetch, makeClient } from "./helpers/resource-call.js";
 
@@ -29,6 +36,128 @@ describe("Pagination parameter declarations", () => {
 });
 
 describe("MessagesClient", () => {
+  it("matches nested substitution, nullability, non-empty array, and response declarations", () => {
+    const recipients = [
+      {
+        email: "recipient@example.com",
+        substitutions: {
+          customer: { preferences: ["email", { digest: true }] },
+        },
+      },
+    ] as const;
+    const attachments = [
+      { data: "hello", content_type: "text/plain", file_name: "hello.txt" },
+    ] as const;
+    const tags = ["transactional"] as const;
+    const request: CreateMessageRequest = {
+      from: { email: "sender@example.com" },
+      recipients,
+      subject: "Nested substitutions",
+      attachments,
+      tags,
+      substitutions: { campaign: { sequence: [1, 2, 3] } },
+      tracking: null,
+      retention: null,
+    };
+    const conversation: CreateConversationMessageRequest = {
+      from: { email: "sender@example.com" },
+      to: [{ email: "to@example.com" }] as const,
+      cc: [{ email: "cc@example.com" }] as const,
+      bcc: [{ email: "bcc@example.com" }] as const,
+      subject: "Conversation",
+      attachments,
+      tags,
+      tracking: null,
+      retention: null,
+    };
+    // @ts-expect-error recipients has minItems: 1.
+    const emptyRecipients: CreateMessageRequest = { ...request, recipients: [] };
+    // @ts-expect-error to has minItems: 1.
+    const emptyTo: CreateConversationMessageRequest = { ...conversation, to: [] };
+    // @ts-expect-error cc has minItems: 1 when present.
+    const emptyCc: CreateConversationMessageRequest = { ...conversation, cc: [] };
+    // @ts-expect-error bcc has minItems: 1 when present.
+    const emptyBcc: CreateConversationMessageRequest = { ...conversation, bcc: [] };
+    if (false) {
+      // @ts-expect-error request arrays are readonly.
+      request.recipients.push({ email: "another@example.com" });
+      // @ts-expect-error request arrays are readonly.
+      conversation.cc?.push({ email: "another@example.com" });
+    }
+
+    const result: SendMessageResult = {
+      object: "message",
+      id: null,
+      recipient: { email: "recipient@example.com", name: "Recipient" },
+      status: "error",
+      error: "rejected",
+    };
+    const { id: _id, ...withoutId } = result;
+    const { error: _error, ...withoutError } = result;
+    // @ts-expect-error id is a required response key.
+    const missingId: SendMessageResult = withoutId;
+    // @ts-expect-error error is a required response key.
+    const missingError: SendMessageResult = withoutError;
+
+    const summary: MessageSummary = {
+      object: "message",
+      id: null,
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      sent_at: null,
+      delivered_at: null,
+      retain_until: "2026-08-21T08:00:00Z",
+      direction: "outbound",
+      is_bounce_notification: false,
+      bounce_classification: "",
+      delivery_attempts: [],
+      message_id: "<message@example.com>",
+      subject: "Subject",
+      tags: [],
+      sender: "sender@example.com",
+      recipient: "recipient@example.com",
+      status: "queued",
+      num_attempts: 0,
+      click_count: 0,
+      open_count: 0,
+      reference_message_id: null,
+      domain_id: "domain_1",
+      account_id: "acc_1",
+    };
+    const message: Message = { ...summary, content: "raw message" };
+    const { sent_at: _sentAt, ...withoutSentAt } = summary;
+    const { reference_message_id: _referenceId, ...withoutReferenceId } = summary;
+    // @ts-expect-error sent_at is a required serialized timestamp.
+    const missingSentAt: MessageSummary = withoutSentAt;
+    // @ts-expect-error reference_message_id is a required nullable key.
+    const missingReferenceId: MessageSummary = withoutReferenceId;
+
+    expectTypeOf<
+      Awaited<ReturnType<import("../src/index.js").MessagesClient["list"]>>
+    >().toEqualTypeOf<import("../src/types/common.js").PaginatedResponse<MessageSummary>>();
+    expectTypeOf<
+      Awaited<ReturnType<import("../src/index.js").MessagesClient["get"]>>
+    >().toEqualTypeOf<Message>();
+    expect([
+      request,
+      conversation,
+      emptyRecipients,
+      emptyTo,
+      emptyCc,
+      emptyBcc,
+      result,
+      missingId,
+      missingError,
+      _id,
+      _error,
+      message,
+      missingSentAt,
+      missingReferenceId,
+      _sentAt,
+      _referenceId,
+    ]).toHaveLength(16);
+  });
+
   it("send() POSTs /v2/accounts/{account_id}/messages with the request body", async () => {
     const { fetch, calls } = captureFetch(
       (call) =>
@@ -39,7 +168,7 @@ describe("MessagesClient", () => {
               {
                 object: "message",
                 id: call.operationId,
-                recipient: { email: "x@y.com" },
+                recipient: { email: "x@y.com", name: "Recipient" },
                 status: "queued",
                 error: null,
               },
@@ -55,6 +184,9 @@ describe("MessagesClient", () => {
       recipients: [{ email: "x@y.com" }],
       subject: "hi",
       text_content: "hi",
+      substitutions: { customer: { tier: "gold", preferences: ["email"] } },
+      tracking: null,
+      retention: null,
     });
 
     expect(calls).toHaveLength(1);
@@ -62,6 +194,11 @@ describe("MessagesClient", () => {
     expect(call.method).toBe("POST");
     expect(call.url).toBe("https://api.test/v2/accounts/acc_1/messages");
     expect(call.body).toContain(`"recipients":[{"email":"x@y.com"}]`);
+    expect(JSON.parse(call.body!)).toMatchObject({
+      substitutions: { customer: { tier: "gold", preferences: ["email"] } },
+      tracking: null,
+      retention: null,
+    });
     expect(call.operationId).toBe("createMessage");
     expect(message.data[0]!.id).toBe("createMessage");
   });
@@ -78,6 +215,7 @@ describe("MessagesClient", () => {
     });
 
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/conversation");
+    expect(calls[0]!.operationId).toBe("createConversationMessage");
   });
 
   it("list() GETs /messages with query params", async () => {
@@ -92,26 +230,31 @@ describe("MessagesClient", () => {
     expect(url.searchParams.get("after")).toBe("next");
     expect(url.searchParams.has("before")).toBe(false);
     expect(url.searchParams.get("status")).toBe("queued");
+    expect(calls[0]!.operationId).toBe("getMessages");
   });
 
   it("get() GETs a single message", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.messages.get("msg_42");
+    await client.messages.get("opaque/message:id");
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/msg_42");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/opaque%2Fmessage%3Aid");
+    expect(calls[0]!.operationId).toBe("getMessage");
   });
 
   it("cancel() DELETEs /{id}/cancel (per spec)", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.messages.cancel("msg_42");
+    await client.messages.cancel("opaque/message:id");
 
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/msg_42/cancel");
+    expect(calls[0]!.url).toBe(
+      "https://api.test/v2/accounts/acc_1/messages/opaque%2Fmessage%3Aid/cancel",
+    );
+    expect(calls[0]!.operationId).toBe("cancelMessage");
   });
 });
 
@@ -183,9 +326,7 @@ describe("APIKeysClient", () => {
 
     expect(calls[0]!.method).toBe("POST");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys");
-    expect(calls[0]!.body).toBe(
-      JSON.stringify({ label: "ci", scopes: ["messages:send:all"] }),
-    );
+    expect(calls[0]!.body).toBe(JSON.stringify({ label: "ci", scopes: ["messages:send:all"] }));
     expect(calls[0]!.headers["idempotency-key"]).toBe("key-2");
   });
 

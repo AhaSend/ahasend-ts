@@ -62,12 +62,10 @@ describe("paginate", () => {
       { object: "list" as const, data: ["m2"], pagination: { has_more: false } },
     ];
     let i = 0;
-    const fetchPage = vi.fn(
-      async (params: { status?: string; limit?: number; after?: string }) => {
-        seen.push(params);
-        return pages[i++]!;
-      },
-    );
+    const fetchPage = vi.fn(async (params: { status?: string; limit?: number; after?: string }) => {
+      seen.push(params);
+      return pages[i++]!;
+    });
 
     for await (const _ of paginate(fetchPage, { status: "queued", limit: 50 })) {
       // drain
@@ -79,7 +77,11 @@ describe("paginate", () => {
 
   it("collect() drains and respects an explicit limit", async () => {
     const pages = [
-      { object: "list" as const, data: [1, 2, 3], pagination: { has_more: true, next_cursor: "x" } },
+      {
+        object: "list" as const,
+        data: [1, 2, 3],
+        pagination: { has_more: true, next_cursor: "x" },
+      },
       { object: "list" as const, data: [4, 5], pagination: { has_more: false } },
     ];
     let i = 0;
@@ -110,7 +112,10 @@ describe("Resource client iterators", () => {
         return new Response(
           JSON.stringify({
             object: "list",
-            data: [{ object: "message", id: "m1" }, { object: "message", id: "m2" }],
+            data: [
+              { object: "message", id: "m1" },
+              { object: "message", id: "m2" },
+            ],
             pagination: { has_more: true, next_cursor: "p2" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -126,21 +131,22 @@ describe("Resource client iterators", () => {
       );
     });
 
-    const ids: string[] = [];
+    const ids: Array<string | null> = [];
     for await (const msg of client.messages.iterate()) ids.push(msg.id);
     expect(ids).toEqual(["m1", "m2", "m3"]);
   });
 
   it("client.suppressions.iterate() can be drained with collect-like loop", async () => {
-    const client = makeClient(() =>
-      new Response(
-        JSON.stringify({
-          object: "list",
-          data: [{ object: "suppression", id: "s1", email: "a@b.com" }],
-          pagination: { has_more: false },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
+    const client = makeClient(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [{ object: "suppression", id: "s1", email: "a@b.com" }],
+            pagination: { has_more: false },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
     );
 
     const out: string[] = [];
