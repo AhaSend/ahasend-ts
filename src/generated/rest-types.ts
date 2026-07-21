@@ -288,7 +288,9 @@ export interface components {
     CreateSingleMessageResponse: {
       object: "message";
       id: string | null;
-      recipient: components["schemas"]["Recipient"] & Record<string, never>;
+      recipient: components["schemas"]["Recipient"] & {
+        name: unknown;
+      };
       status: "queued" | "scheduled" | "error";
       error: string | null;
       schedule?: components["schemas"]["MessageSchedule"];
@@ -420,9 +422,14 @@ export interface components {
       currency: string;
       allocation_method: "proportional";
       allocation_note: string;
-      parent: components["schemas"]["SubAccountUsageBreakdown"] & Record<string, never>;
+      parent: components["schemas"]["SubAccountUsageBreakdown"] & {
+        account_id: unknown;
+      };
       sub_accounts: Array<
-        components["schemas"]["SubAccountUsageBreakdown"] & Record<string, never>
+        components["schemas"]["SubAccountUsageBreakdown"] & {
+          account_id: unknown;
+          name: unknown;
+        }
       >;
       removed_sub_accounts: components["schemas"]["SubAccountUsageBreakdown"];
       total: components["schemas"]["SubAccountUsageBreakdown"];
@@ -573,7 +580,16 @@ export interface components {
       on_dns_error?: boolean;
       scope: "global" | "scoped";
       domains?: Array<string> | null;
-    } & unknown;
+    } & (
+      | ({
+          scope: "scoped";
+        } & {
+          domains: Array<string>;
+        })
+      | {
+          scope?: Exclude<"global" | "scoped", "scoped">;
+        }
+    );
     UpdateWebhookRequest: {
       name?: string | null;
       url?: string | null;
@@ -615,7 +631,16 @@ export interface components {
       sandbox?: boolean;
       scope: "global" | "scoped";
       domains?: Array<string> | null;
-    } & unknown;
+    } & (
+      | ({
+          scope: "scoped";
+        } & {
+          domains: Array<string>;
+        })
+      | {
+          scope?: Exclude<"global" | "scoped", "scoped">;
+        }
+    );
     PaginatedSMTPCredentialsResponse: {
       object: "list";
       data: Array<components["schemas"]["SMTPCredential"]>;

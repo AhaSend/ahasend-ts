@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { digestJsonArtifact } from "../scripts/digest-artifact.mjs";
 import { parseOpenApi } from "../scripts/generate-contracts.mjs";
 import {
@@ -17,8 +17,10 @@ import {
 } from "../src/generated/contract-digests.js";
 import { OPERATION_DESCRIPTORS, RESOURCE_AUTHORIZATION } from "../src/generated/operations.js";
 import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
+import type { components } from "../src/generated/rest-types.js";
 
 type JsonRecord = Record<string, unknown>;
+type WireSchemas = components["schemas"];
 
 const root = process.cwd();
 const openApiSource = readFileSync(resolve(root, "openapi.yaml"), "utf8");
@@ -66,6 +68,69 @@ describe("SDK artifact generation", () => {
     expect(() => validateOperationProfile(document, profile)).not.toThrow();
     expect(OPERATION_PROFILE.operations).toHaveLength(56);
     expect(OPERATION_PROFILE.iterators).toHaveLength(9);
+  });
+
+  it("preserves inherited required fields in composed wire schemas", () => {
+    expectTypeOf<{
+      object: "message";
+      id: null;
+      recipient: { email: string; name: string };
+      status: "queued";
+      error: null;
+    }>().toExtend<WireSchemas["CreateSingleMessageResponse"]>();
+
+    expectTypeOf<{
+      billing_period: { start: string; end: string };
+      currency: string;
+      allocation_method: "proportional";
+      allocation_note: string;
+      parent: {
+        account_id: string;
+        reception_count: number;
+        allocated_cost: number;
+      };
+      sub_accounts: Array<{
+        account_id: string;
+        name: string;
+        reception_count: number;
+        allocated_cost: number;
+      }>;
+      removed_sub_accounts: { reception_count: number; allocated_cost: number };
+      total: { reception_count: number; allocated_cost: number };
+    }>().toExtend<WireSchemas["SubAccountUsageResponse"]>();
+  });
+
+  it("requires domains for scoped webhook and SMTP credential requests", () => {
+    expectTypeOf<{
+      name: string;
+      url: string;
+      scope: "scoped";
+    }>().not.toExtend<WireSchemas["CreateWebhookRequest"]>();
+    expectTypeOf<{
+      name: string;
+      url: string;
+      scope: "scoped";
+      domains: string[];
+    }>().toExtend<WireSchemas["CreateWebhookRequest"]>();
+    expectTypeOf<{
+      name: string;
+      url: string;
+      scope: "global";
+    }>().toExtend<WireSchemas["CreateWebhookRequest"]>();
+
+    expectTypeOf<{
+      name: string;
+      scope: "scoped";
+    }>().not.toExtend<WireSchemas["CreateSMTPCredentialRequest"]>();
+    expectTypeOf<{
+      name: string;
+      scope: "scoped";
+      domains: string[];
+    }>().toExtend<WireSchemas["CreateSMTPCredentialRequest"]>();
+    expectTypeOf<{
+      name: string;
+      scope: "global";
+    }>().toExtend<WireSchemas["CreateSMTPCredentialRequest"]>();
   });
 
   it("emits the eight closed resource-authorization rule shapes", () => {

@@ -420,13 +420,73 @@ function referenceType(reference) {
   return name === undefined ? "unknown" : `components[\"schemas\"][${JSON.stringify(name)}]`;
 }
 
-function schemaType(schemaValue, level = 0) {
+function conditionalType(schema, enclosingSchemaValue, level) {
+  if (enclosingSchemaValue === undefined) {
+    throw new TypeError("Conditional schema requires an enclosing schema");
+  }
+  const enclosingSchema = assertRecord(enclosingSchemaValue, "conditional enclosing schema");
+  const condition = assertRecord(schema.if, "conditional if schema");
+  const thenSchema = assertRecord(schema.then, "conditional then schema");
+  const conditionProperties =
+    condition.properties === undefined
+      ? {}
+      : assertRecord(condition.properties, "conditional properties");
+  const enclosingProperties = assertRecord(
+    enclosingSchema.properties,
+    "conditional enclosing properties",
+  );
+  const conditionRequired = new Set(
+    Array.isArray(condition.required)
+      ? condition.required.filter((name) => typeof name === "string")
+      : [],
+  );
+  const negatedFields = [];
+
+  for (const [name, value] of Object.entries(conditionProperties)) {
+    const propertyCondition = assertRecord(value, `conditional property ${name}`);
+    if (propertyCondition.const === undefined) {
+      throw new TypeError(`Conditional property ${name} must use const`);
+    }
+    const enclosingProperty = enclosingProperties[name];
+    if (enclosingProperty === undefined) {
+      throw new TypeError(`Conditional property ${name} is absent from its enclosing schema`);
+    }
+    const indent = "  ".repeat(level + 1);
+    const closingIndent = "  ".repeat(level);
+    negatedFields.push(
+      `\n${indent}${propertyName(name)}${conditionRequired.has(name) ? "?" : ""}: Exclude<${schemaType(enclosingProperty, level + 1)}, ${JSON.stringify(propertyCondition.const)}>;\n${closingIndent}`,
+    );
+  }
+
+  for (const name of conditionRequired) {
+    if (!Object.hasOwn(conditionProperties, name)) {
+      const indent = "  ".repeat(level + 1);
+      const closingIndent = "  ".repeat(level);
+      negatedFields.push(`\n${indent}${propertyName(name)}?: never;\n${closingIndent}`);
+    }
+  }
+  if (negatedFields.length === 0) {
+    throw new TypeError("Conditional schema must constrain at least one property");
+  }
+
+  const matching = `(${schemaType(condition, level + 1)}) & (${schemaType(thenSchema, level + 1)})`;
+  const alternate = negatedFields
+    .map(
+      (fields) =>
+        `({${fields}})${schema.else === undefined ? "" : ` & (${schemaType(schema.else, level + 1)})`}`,
+    )
+    .join(" | ");
+  return `((${matching}) | (${alternate}))`;
+}
+
+function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
   if (schemaValue === undefined) return "unknown";
   const schema = assertRecord(schemaValue, "schema");
   if (typeof schema.$ref === "string") return referenceType(schema.$ref);
   if (Array.isArray(schema.enum))
     return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
   if (schema.const !== undefined) return JSON.stringify(schema.const);
+  if (schema.if !== undefined) return conditionalType(schema, enclosingSchemaValue, level);
 
   const combinations = [
     ["allOf", " & "],
@@ -435,16 +495,16 @@ function schemaType(schemaValue, level = 0) {
   ];
   for (const [key, separator] of combinations) {
     if (Array.isArray(schema[key])) {
+      const base = { ...schema };
+      delete base[key];
       const combined = schema[key]
-        .map((part) => `(${schemaType(part, level + 1)})`)
+        .map((part) => `(${schemaType(part, level + 1, key === "allOf" ? base : undefined)})`)
         .join(separator);
       if (
         schema.type === "object" ||
         schema.properties !== undefined ||
         schema.additionalProperties !== undefined
       ) {
-        const base = { ...schema };
-        delete base[key];
         return `(${schemaType(base, level)}) & (${combined})`;
       }
       return combined;
@@ -470,13 +530,21 @@ function schemaType(schemaValue, level = 0) {
   ) {
     const properties =
       schema.properties === undefined ? {} : assertRecord(schema.properties, "properties");
-    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    const required = new Set(
+      Array.isArray(schema.required)
+        ? schema.required.filter((name) => typeof name === "string")
+        : [],
+    );
     const indent = "  ".repeat(level + 1);
     const closingIndent = "  ".repeat(level);
-    const fields = Object.entries(properties).map(
-      ([name, value]) =>
-        `${indent}${propertyName(name)}${required.has(name) ? "" : "?"}: ${schemaType(value, level + 1)};`,
-    );
+    const propertyNames = [
+      ...Object.keys(properties),
+      ...[...required].filter((name) => !Object.hasOwn(properties, name)),
+    ];
+    const fields = propertyNames.map((name) => {
+      const value = properties[name];
+      return `${indent}${propertyName(name)}${required.has(name) ? "" : "?"}: ${value === undefined ? "unknown" : schemaType(value, level + 1)};`;
+    });
     if (schema.additionalProperties === true) fields.push(`${indent}[key: string]: unknown;`);
     else if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) {
       fields.push(`${indent}[key: string]: ${schemaType(schema.additionalProperties, level + 1)};`);
