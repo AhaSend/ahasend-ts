@@ -15,7 +15,10 @@ import { WebhookVerifier } from "../src/webhooks/verifier.js";
 // UTF-8 bytes of the secret, matching the Go SDK.
 const SECRET = "aha-whsec-local-test-secret-please-rotate";
 
-function signEnvelope(body: string, opts: { id?: string; tsSec?: number } = {}): {
+function signEnvelope(
+  body: string,
+  opts: { id?: string; tsSec?: number } = {},
+): {
   headers: Record<string, string>;
 } {
   const id = opts.id ?? "msg_test_1";
@@ -34,15 +37,16 @@ function signEnvelope(body: string, opts: { id?: string; tsSec?: number } = {}):
 
 const eventBody = JSON.stringify({
   type: "message.delivered",
+  webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
   timestamp: new Date().toISOString(),
   data: {
-    account_id: "acc_1",
-    event: "delivered",
+    account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+    event: "on_delivered",
     from: "a@b.com",
     recipient: "x@y.com",
     subject: "hi",
     message_id_header: "<x@y>",
-    id: "msg_1",
+    id: "message-1",
   },
 });
 

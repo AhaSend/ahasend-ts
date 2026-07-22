@@ -251,8 +251,17 @@ describe("Integration: WebhookVerifier (offline — runs unconditionally)", () =
     const ts = Math.floor(Date.now() / 1000);
     const body = JSON.stringify({
       type: "message.delivered",
+      webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
       timestamp: new Date().toISOString(),
-      data: { id, account_id: ACCOUNT_ID, event: "delivered", from: "a@b", recipient: "c@d", subject: "hi", message_id_header: "<x>" },
+      data: {
+        id,
+        account_id: ACCOUNT_ID,
+        event: "on_delivered",
+        from: "a@b",
+        recipient: "c@d",
+        subject: "hi",
+        message_id_header: "<x>",
+      },
     });
     const sig = `v1,${createHmac("sha256", Buffer.from(secret, "utf-8")).update(`${id}.${ts}.${body}`).digest("base64")}`;
 

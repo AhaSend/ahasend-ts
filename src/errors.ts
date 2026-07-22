@@ -68,6 +68,18 @@ export interface SerializedAhaSendError {
   cause?: typeof REDACTED;
 }
 
+export type WebhookVerificationReason =
+  | "missing_webhook_id"
+  | "missing_webhook_timestamp"
+  | "missing_webhook_signature"
+  | "invalid_timestamp"
+  | "timestamp_outside_tolerance"
+  | "signature_mismatch"
+  | "invalid_json"
+  | "invalid_payload"
+  | "invalid_event"
+  | "body_too_large";
+
 /** Base class for every error this SDK throws. */
 export class AhaSendError extends Error {
   public readonly code!: AhaSendErrorCode;
@@ -281,9 +293,9 @@ export class AhaSendServerError extends AhaSendAPIError {
 
 /** Standard-Webhooks signature, timestamp, or payload verification failure. */
 export class AhaSendWebhookVerificationError extends AhaSendError {
-  public readonly reason!: string;
+  public readonly reason!: WebhookVerificationReason;
 
-  constructor(reason: string, message?: string, cause?: unknown) {
+  constructor(reason: WebhookVerificationReason, message?: string, cause?: unknown) {
     super(message ?? `Webhook verification failed: ${reason}`, cause);
     defineHidden(this, "code", "webhook_verification_error");
     defineHidden(this, "reason", reason);

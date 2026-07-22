@@ -1,11 +1,13 @@
 export {
   DEFAULT_TOLERANCE_SECONDS,
+  MAX_WEBHOOK_BODY_BYTES,
   WEBHOOK_ID_HEADER,
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TIMESTAMP_HEADER,
   WebhookVerifier,
 } from "./verifier.js";
 export type { WebhookVerifierOptions } from "./verifier.js";
+export type { WebhookVerificationReason } from "./verifier.js";
 export { AhaSendWebhookVerificationError } from "../errors.js";
 
 export { expressWebhookHandler, fastifyWebhookHandler, nextRouteHandler } from "./adapters.js";
@@ -31,6 +33,7 @@ export type {
   MessageFailedEvent,
   MessageOpenedEvent,
   MessageReceptionEvent,
+  MessageRoutingEvent,
   MessageSuppressedEvent,
   MessageTransientErrorEvent,
   RouteAttachment,
@@ -39,6 +42,8 @@ export type {
   SuppressionCreatedEvent,
   SuppressionEventData,
   UnknownWebhookEvent,
+  CanonicalWebhookEventType,
+  DeprecatedWebhookEventType,
   WebhookEnvelope,
   WebhookEvent,
   WebhookEventType,
