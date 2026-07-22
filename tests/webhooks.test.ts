@@ -89,8 +89,8 @@ describe("generated webhook schema", () => {
       message_id_header: string;
       id: string;
     }>().toExtend<WebhookComponents["schemas"]["MessageWebhookData"]>();
-    expectTypeOf<{ is_bot: string }>().not.toExtend<
-      WebhookComponents["schemas"]["MessageWebhookData"]
+    expectTypeOf<WebhookComponents["schemas"]["MessageWebhookData"]["is_bot"]>().toEqualTypeOf<
+      boolean | undefined
     >();
     expectTypeOf<{
       type: "route.message";
@@ -151,6 +151,62 @@ describe("generated webhook schema", () => {
     const withoutUrl = structuredClone(clicked);
     Reflect.deleteProperty(withoutUrl.data, "url");
     expect(validateKnownWebhookEvent(withoutUrl)).toBe(false);
+  });
+
+  it("validates RFC 3339 date-times and the complete UUID format", () => {
+    const clicked = {
+      type: "message.clicked",
+      timestamp: "2024-05-06t09:49:16.687031577z",
+      data: {
+        account_id: "00000000-0000-0000-0000-000000000000",
+        event: "on_clicked",
+        from: "sender@example.com",
+        recipient: "recipient@example.com",
+        subject: "Hello",
+        message_id_header: "<message@example.com>",
+        url: "https://example.com",
+        user_agent: "AhaSend test",
+        ip: "192.0.2.1",
+        id: "message-1",
+      },
+    };
+
+    expect(validateKnownWebhookEvent(clicked)).toBe(true);
+    expect(
+      validateKnownWebhookEvent({
+        ...clicked,
+        data: { ...clicked.data, account_id: "ffffffff-ffff-ffff-ffff-ffffffffffff" },
+      }),
+    ).toBe(true);
+    for (const timestamp of [
+      "2024-02-29T09:49:16Z",
+      "1990-12-31T23:59:60Z",
+      "1990-12-31T15:59:60-08:00",
+      "1991-01-01T08:59:60+09:00",
+      "2024-05-06T09:49:16+23:59",
+    ]) {
+      expect(validateKnownWebhookEvent({ ...clicked, timestamp }), timestamp).toBe(true);
+    }
+    for (const timestamp of [
+      "2024-99-99T99:99:99Z",
+      "2023-02-29T09:49:16Z",
+      "2024-04-31T09:49:16Z",
+      "2024-05-06T24:00:00Z",
+      "2024-05-06T09:60:00Z",
+      "2024-05-06T09:49:61Z",
+      "2024-05-06T09:49:60Z",
+      "2024-05-06T09:49:16+24:00",
+      "2024-05-06T09:49:16+00:60",
+      "2024-05-06 09:49:16Z",
+    ]) {
+      expect(validateKnownWebhookEvent({ ...clicked, timestamp }), timestamp).toBe(false);
+    }
+    expect(
+      validateKnownWebhookEvent({
+        ...clicked,
+        data: { ...clicked.data, account_id: "00000000000000000000000000000000" },
+      }),
+    ).toBe(false);
   });
 
   it("accepts canonical and deprecated routing inputs against the same full schema", () => {

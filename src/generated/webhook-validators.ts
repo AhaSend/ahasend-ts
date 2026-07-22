@@ -541,11 +541,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function matchesFormat(value: string, format: string | undefined): boolean {
   if (format === "uuid") {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+    return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
   }
   if (format === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
   if (format === "date-time") {
-    return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value);
+    if (!/^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/.test(value)) {
+      return false;
+    }
+    const year = Number(value.slice(0, 4));
+    const month = Number(value.slice(5, 7));
+    const day = Number(value.slice(8, 10));
+    const hour = Number(value.slice(11, 13));
+    const minute = Number(value.slice(14, 16));
+    const second = Number(value.slice(17, 19));
+    if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 60) return false;
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysInMonth =
+      month === 2
+        ? leapYear
+          ? 29
+          : 28
+        : month === 4 || month === 6 || month === 9 || month === 11
+          ? 30
+          : 31;
+    if (day < 1 || day > daysInMonth) return false;
+    const usesZuluOffset = /[Zz]$/.test(value);
+    const offsetHour = usesZuluOffset ? 0 : Number(value.slice(-5, -3));
+    const offsetMinute = usesZuluOffset ? 0 : Number(value.slice(-2));
+    if (offsetHour > 23 || offsetMinute > 59) return false;
+    if (second < 60) return true;
+
+    // RFC 3339 permits :60 only at an inserted leap second. Normalize the
+    // preceding local second to UTC so numeric-offset representations work too.
+    const offsetSign = !usesZuluOffset && value.slice(-6, -5) === "-" ? -1 : 1;
+    const leapSecond = new Date(0);
+    leapSecond.setUTCFullYear(year, month - 1, day);
+    leapSecond.setUTCHours(hour, minute - offsetSign * (offsetHour * 60 + offsetMinute), 59, 0);
+    return (
+      ((leapSecond.getUTCMonth() === 5 && leapSecond.getUTCDate() === 30) ||
+        (leapSecond.getUTCMonth() === 11 && leapSecond.getUTCDate() === 31)) &&
+      leapSecond.getUTCHours() === 23 &&
+      leapSecond.getUTCMinutes() === 59
+    );
   }
   return true;
 }
@@ -557,10 +594,9 @@ function matchesType(value: unknown, type: string, schema: ValidationSchema): bo
   if (type === "number") return typeof value === "number" && Number.isFinite(value);
   if (type === "integer") return typeof value === "number" && Number.isInteger(value);
   if (type === "array") {
-    return (
-      Array.isArray(value) &&
-      (schema.items === undefined || value.every((item) => matchesSchema(item, schema.items!)))
-    );
+    if (!Array.isArray(value)) return false;
+    const itemSchema = schema.items;
+    return itemSchema === undefined || value.every((item) => matchesSchema(item, itemSchema));
   }
   if (type === "object") return isRecord(value) && matchesObject(value, schema);
   return true;
