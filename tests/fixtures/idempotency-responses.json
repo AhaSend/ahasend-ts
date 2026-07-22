@@ -56,6 +56,24 @@
       "retryable": false
     },
     {
+      "name": "replay-marked validation failure",
+      "status": 422,
+      "headers": { "idempotent-replayed": "true" },
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "unprocessable_entity_error",
+      "retryable": false
+    },
+    {
+      "name": "retry-marked validation failure",
+      "status": 422,
+      "headers": { "retry-after": "2" },
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "unprocessable_entity_error",
+      "retryable": false
+    },
+    {
       "name": "ineligible validation failure",
       "status": 422,
       "headers": {},

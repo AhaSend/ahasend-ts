@@ -295,7 +295,10 @@ export function createApiError(params: {
     return new AhaSendConflictError(base);
   }
   if (params.status === 422) {
-    return eligibleKeyedExecution
+    const hasLifecycleHeader =
+      params.headers?.["idempotent-replayed"] !== undefined ||
+      params.headers?.["retry-after"] !== undefined;
+    return eligibleKeyedExecution && !hasLifecycleHeader
       ? new AhaSendIdempotencyMismatchError(base)
       : new AhaSendUnprocessableEntityError(base);
   }

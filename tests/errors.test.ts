@@ -60,6 +60,21 @@ describe("createApiError", () => {
     expect(err).not.toBeInstanceOf(AhaSendBadRequestError);
   });
 
+  it.each([
+    ["a replay header", { "idempotent-replayed": "true" }],
+    ["a retry header", { "retry-after": "3" }],
+  ])("keeps eligible keyed 422 responses with %s generic", (_name, headers) => {
+    const err = createApiError({
+      status: 422,
+      body: { message: "wording is irrelevant" },
+      headers,
+      idempotency: ELIGIBLE_KEYED,
+    });
+
+    expect(err.constructor).toBe(AhaSendUnprocessableEntityError);
+    expect(err).not.toBeInstanceOf(AhaSendIdempotencyMismatchError);
+  });
+
   it("keeps keyed-ineligible and eligible-unkeyed 422 responses generic", () => {
     const keyedIneligible = createIdempotencyExecutionRecord(null, "stable-key");
     const eligibleUnkeyed = createIdempotencyExecutionRecord(

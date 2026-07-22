@@ -16,6 +16,7 @@ import {
   AhaSendIdempotencyMismatchError,
   AhaSendNotFoundError,
   AhaSendRateLimitError,
+  AhaSendUnprocessableEntityError,
 } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 import { OperationExecutor } from "../src/operations.js";
@@ -774,6 +775,37 @@ describe("HttpClient retry behaviour", () => {
         { idempotencyKey: "stable-domain-key" },
       ),
     ).rejects.toBeInstanceOf(AhaSendIdempotencyMismatchError);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["a replay header", { "idempotent-replayed": "true" }],
+    ["a retry header", { "retry-after": "3" }],
+  ])("keeps an eligible keyed 422 with %s generic", async (_name, headers) => {
+    const fetchImpl = mockFetch(
+      () =>
+        new Response(JSON.stringify({ message: "wording is irrelevant" }), {
+          status: 422,
+          headers,
+        }),
+    );
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, { retry: { ...fastRetry, maxRetries: 2 } }),
+    );
+
+    let captured: unknown;
+    try {
+      await executor.execute(
+        "createDomain",
+        { path: { account_id: "acc_1" }, body: { domain: "example.com" } },
+        { idempotencyKey: "stable-domain-key" },
+      );
+    } catch (error) {
+      captured = error;
+    }
+
+    expect(captured?.constructor).toBe(AhaSendUnprocessableEntityError);
+    expect(captured).not.toBeInstanceOf(AhaSendIdempotencyMismatchError);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
