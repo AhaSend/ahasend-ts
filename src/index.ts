@@ -5,6 +5,7 @@ import type { MessagesClient as MessagesClientType } from "./resources/messages.
 import type { RoutesClient as RoutesClientType } from "./resources/routes.js";
 import type { SMTPCredentialsClient as SMTPCredentialsClientType } from "./resources/smtp-credentials.js";
 import type { StatisticsClient as StatisticsClientType } from "./resources/statistics.js";
+import type { SubAccountsClient as SubAccountsClientType } from "./resources/sub-accounts.js";
 import type { SuppressionsClient as SuppressionsClientType } from "./resources/suppressions.js";
 import type { WebhooksClient as WebhooksClientType } from "./resources/webhooks.js";
 
@@ -175,5 +176,17 @@ export type {
   SMTPCredentialScope,
 } from "./resources/smtp-credentials.js";
 export type SMTPCredentialsClient = SMTPCredentialsClientType;
+
+export type {
+  CreateSubAccountRequest,
+  ListSubAccountsParams,
+  SubAccount,
+  SubAccountStatus,
+  SubAccountUsageBreakdown,
+  SubAccountUsageResponse,
+  SuspendSubAccountRequest,
+  UpdateSubAccountRequest,
+} from "./resources/sub-accounts.js";
+export type SubAccountsClient = SubAccountsClientType;
 
 export { SDK_VERSION } from "./version.js";

@@ -39,6 +39,7 @@ const SENTINELS = {
   ROUTE_ID: "route-sentinel-id",
   USER_ID: "user-sentinel-id",
   CREDENTIAL_ID: "cred-sentinel-id",
+  SUB_ACCOUNT_ID: "sub-sentinel-id",
 } as const;
 
 const SUBSTITUTIONS: Array<[string, string]> = [
@@ -51,6 +52,7 @@ const SUBSTITUTIONS: Array<[string, string]> = [
   [SENTINELS.ROUTE_ID, "{route_id}"],
   [SENTINELS.USER_ID, "{user_id}"],
   [SENTINELS.CREDENTIAL_ID, "{smtp_credential_id}"],
+  [SENTINELS.SUB_ACCOUNT_ID, "{sub_account_id}"],
 ];
 
 interface OpenAPIDoc {
@@ -452,6 +454,56 @@ describe("Spec conformance — every SDK method maps to a real OpenAPI operation
     it("delete", async () => {
       const { client, calls } = captureClient();
       await client.smtpCredentials.delete(SENTINELS.CREDENTIAL_ID);
+      expectMatchesSpec(calls[0]!);
+    });
+  });
+
+  describe("subAccounts", () => {
+    it("list", async () => {
+      const { client, calls } = captureClient();
+      await client.subAccounts.list();
+      expectMatchesSpec(calls[0]!);
+    });
+
+    it("create", async () => {
+      const { client, calls } = captureClient();
+      await client.subAccounts.create({ name: "Child", website: "child.example.com" });
+      expectMatchesSpec(calls[0]!);
+    });
+
+    it("usage", async () => {
+      const { client, calls } = captureClient();
+      await client.subAccounts.usage();
+      expectMatchesSpec(calls[0]!);
+    });
+
+    it("get", async () => {
+      const { client, calls } = captureClient();
+      await client.subAccounts.get(SENTINELS.SUB_ACCOUNT_ID);
+      expectMatchesSpec(calls[0]!);
+    });
+
+    it("update", async () => {
+      const { client, calls } = captureClient();
+      await client.subAccounts.update(SENTINELS.SUB_ACCOUNT_ID, { name: "Renamed" });
+      expectMatchesSpec(calls[0]!);
+    });
+
+    it("delete", async () => {
+      const { client, calls } = captureClient();
+      await client.subAccounts.delete(SENTINELS.SUB_ACCOUNT_ID);
+      expectMatchesSpec(calls[0]!);
+    });
+
+    it("suspend", async () => {
+      const { client, calls } = captureClient();
+      await client.subAccounts.suspend(SENTINELS.SUB_ACCOUNT_ID, { reason: "Requested" });
+      expectMatchesSpec(calls[0]!);
+    });
+
+    it("unsuspend", async () => {
+      const { client, calls } = captureClient();
+      await client.subAccounts.unsuspend(SENTINELS.SUB_ACCOUNT_ID);
       expectMatchesSpec(calls[0]!);
     });
   });

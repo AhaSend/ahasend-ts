@@ -10,6 +10,7 @@ import { MessagesClient } from "./resources/messages.js";
 import { RoutesClient } from "./resources/routes.js";
 import { SMTPCredentialsClient } from "./resources/smtp-credentials.js";
 import { StatisticsClient } from "./resources/statistics.js";
+import { SubAccountsClient } from "./resources/sub-accounts.js";
 import { SuppressionsClient } from "./resources/suppressions.js";
 import { WebhooksClient } from "./resources/webhooks.js";
 import { forwardOptions } from "./resources/_helpers.js";
@@ -85,6 +86,7 @@ export class AhaSendClient {
   readonly #routes: Readonly<RoutesClient>;
   readonly #accounts: Readonly<AccountsClient>;
   readonly #smtpCredentials: Readonly<SMTPCredentialsClient>;
+  readonly #subAccounts: Readonly<SubAccountsClient>;
 
   constructor(options: AhaSendClientOptions) {
     assertPlainRecord(options, "client options");
@@ -109,6 +111,7 @@ export class AhaSendClient {
     this.#smtpCredentials = createFrozenFacade(
       new SMTPCredentialsClient(this.#operations, accountId),
     );
+    this.#subAccounts = createFrozenFacade(new SubAccountsClient(this.#operations, accountId));
   }
 
   get accountId(): UUID {
@@ -149,6 +152,10 @@ export class AhaSendClient {
 
   get smtpCredentials(): Readonly<SMTPCredentialsClient> {
     return this.#smtpCredentials;
+  }
+
+  get subAccounts(): Readonly<SubAccountsClient> {
+    return this.#subAccounts;
   }
 
   /**

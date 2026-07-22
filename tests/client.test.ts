@@ -22,6 +22,7 @@ import type {
   RoutesClient,
   SMTPCredentialsClient,
   StatisticsClient,
+  SubAccountsClient,
   SuppressionsClient,
   TelemetryHooks,
   WebhooksClient,
@@ -157,6 +158,7 @@ describe("AhaSendClient", () => {
       client.routes,
       client.accounts,
       client.smtpCredentials,
+      client.subAccounts,
     ];
 
     expect(client.messages).toBe(client.messages);
@@ -400,6 +402,37 @@ describe("AhaSendClient", () => {
     }
   });
 
+  it("keeps the sub-account executor and nested resource private during facade inspection", () => {
+    const apiKey = "aha-sk-sub-account-facade-secret";
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const facade = client.subAccounts;
+
+    expect(Object.getOwnPropertyNames(facade)).toEqual([
+      "list",
+      "iterate",
+      "create",
+      "usage",
+      "get",
+      "update",
+      "delete",
+      "suspend",
+      "unsuspend",
+    ]);
+    expect(Object.getOwnPropertySymbols(facade)).toEqual([]);
+    expect(JSON.stringify(facade)).toBe("{}");
+
+    for (const rendered of [inspect(facade), inspect(facade, { showHidden: true })]) {
+      expect(rendered).not.toContain(apiKey);
+      expect(rendered).not.toContain("SubAccountsClient");
+      expect(rendered).not.toContain("OperationExecutor");
+      expect(rendered).not.toContain("HttpClient");
+      expect(rendered).not.toContain("transport");
+      expect(rendered).not.toContain("#operations");
+      expect(rendered).not.toContain("apiKeys");
+    }
+  });
+
   it("fromEnv requires AHASEND_ACCOUNT_ID", () => {
     expect(() => AhaSendClient.fromEnv({ AHASEND_API_KEY: "aha-sk-test" })).toThrow(
       /AHASEND_ACCOUNT_ID/,
@@ -462,6 +495,7 @@ describe("root public exports", () => {
       "RoutesClient",
       "SMTPCredentialsClient",
       "StatisticsClient",
+      "SubAccountsClient",
       "SuppressionsClient",
       "WebhooksClient",
       "resolveConfig",
@@ -504,6 +538,7 @@ describe("root public exports", () => {
       Readonly<SMTPCredentialsClient>
     >();
     expectTypeOf<AhaSendClient["statistics"]>().toEqualTypeOf<Readonly<StatisticsClient>>();
+    expectTypeOf<AhaSendClient["subAccounts"]>().toEqualTypeOf<Readonly<SubAccountsClient>>();
     expectTypeOf<AhaSendClient["suppressions"]>().toEqualTypeOf<Readonly<SuppressionsClient>>();
     expectTypeOf<AhaSendClient["webhooks"]>().toEqualTypeOf<Readonly<WebhooksClient>>();
   });
