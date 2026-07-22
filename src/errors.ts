@@ -4,6 +4,30 @@ import { isEligibleKeyedExecution, parsePositiveIntegerRetryAfter } from "./idem
 const AHASEND_ERROR_BRAND = Symbol.for("@ahasend/sdk.error");
 const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");
 const REDACTED = "[REDACTED]" as const;
+const HTTP_MONTHS: readonly string[] = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+const HTTP_SHORT_WEEKDAYS: readonly string[] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const HTTP_LONG_WEEKDAYS: readonly string[] = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 
 export type AhaSendErrorCode =
   | "ahasend_error"
@@ -321,12 +345,102 @@ function parseRetryAfter(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const seconds = parsePositiveIntegerRetryAfter(value);
   if (seconds !== undefined) return seconds;
-  const date = Date.parse(value);
-  if (!Number.isNaN(date)) {
-    const dateSeconds = Math.ceil((date - Date.now()) / 1000);
+  const now = Date.now();
+  const date = parseHttpDate(value, now);
+  if (date !== undefined) {
+    const dateSeconds = Math.ceil((date - now) / 1000);
     return Number.isSafeInteger(dateSeconds) && dateSeconds > 0 ? dateSeconds : undefined;
   }
   return undefined;
+}
+
+/** Parse the three HTTP-date forms required by RFC 9110 without Date.parse's permissive extensions. */
+function parseHttpDate(value: string, now: number): number | undefined {
+  const imfFixdate =
+    /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), ([0-9]{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) ([0-9]{2}):([0-9]{2}):([0-9]{2}) GMT$/.exec(
+      value,
+    );
+  if (imfFixdate) {
+    return validatedHttpDate(
+      Number(imfFixdate[4]),
+      monthIndex(imfFixdate[3]),
+      Number(imfFixdate[2]),
+      Number(imfFixdate[5]),
+      Number(imfFixdate[6]),
+      Number(imfFixdate[7]),
+      weekdayIndex(imfFixdate[1], HTTP_SHORT_WEEKDAYS),
+    );
+  }
+
+  const rfc850Date =
+    /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), ([0-9]{2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-([0-9]{2}) ([0-9]{2}):([0-9]{2}):([0-9]{2}) GMT$/.exec(
+      value,
+    );
+  if (rfc850Date) {
+    const currentYear = new Date(now).getUTCFullYear();
+    let year = Math.floor(currentYear / 100) * 100 + Number(rfc850Date[4]);
+    if (year > currentYear + 50) year -= 100;
+    return validatedHttpDate(
+      year,
+      monthIndex(rfc850Date[3]),
+      Number(rfc850Date[2]),
+      Number(rfc850Date[5]),
+      Number(rfc850Date[6]),
+      Number(rfc850Date[7]),
+      weekdayIndex(rfc850Date[1], HTTP_LONG_WEEKDAYS),
+    );
+  }
+
+  const asctimeDate =
+    /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:([0-9]{2})| ([0-9])) ([0-9]{2}):([0-9]{2}):([0-9]{2}) ([0-9]{4})$/.exec(
+      value,
+    );
+  if (!asctimeDate) return undefined;
+  return validatedHttpDate(
+    Number(asctimeDate[8]),
+    monthIndex(asctimeDate[2]),
+    Number(asctimeDate[3] ?? asctimeDate[4]),
+    Number(asctimeDate[5]),
+    Number(asctimeDate[6]),
+    Number(asctimeDate[7]),
+    weekdayIndex(asctimeDate[1], HTTP_SHORT_WEEKDAYS),
+  );
+}
+
+function monthIndex(value: string | undefined): number {
+  return value === undefined ? -1 : HTTP_MONTHS.indexOf(value);
+}
+
+function weekdayIndex(value: string | undefined, weekdays: readonly string[]): number {
+  return value === undefined ? -1 : weekdays.indexOf(value);
+}
+
+function validatedHttpDate(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  weekday: number,
+): number | undefined {
+  if (second > 60) return undefined;
+  const normalizedSecond = Math.min(second, 59);
+  const date = new Date(0);
+  date.setUTCFullYear(year, month, day);
+  date.setUTCHours(hour, minute, normalizedSecond, 0);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month ||
+    date.getUTCDate() !== day ||
+    date.getUTCHours() !== hour ||
+    date.getUTCMinutes() !== minute ||
+    date.getUTCSeconds() !== normalizedSecond ||
+    date.getUTCDay() !== weekday
+  ) {
+    return undefined;
+  }
+  return date.getTime() + (second === 60 ? 1000 : 0);
 }
 
 function defineHidden(target: object, key: PropertyKey, value: unknown): void {

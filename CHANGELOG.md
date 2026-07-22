@@ -19,8 +19,10 @@ Initial release.
   operation, reused across retries; explicit `idempotencyKey` option;
   `IdempotencyKeyBuilder` for related operations.
 - Retries with exponential / linear / constant backoff and jitter on
-  408/429/5xx/network/timeout. `Retry-After` honoured (seconds and
-  HTTP-date forms, capped at one hour).
+  408/429/5xx/network/timeout and eligible idempotency-in-progress 409
+  responses. Valid `Retry-After` seconds and HTTP-date forms are
+  authoritative up to the configured retry maximum (30 seconds by
+  default).
 - Three-bucket rate limiter (general / statistics / send-message)
   reconciled against the server's `X-RateLimit-Remaining` on every
   response.
@@ -35,7 +37,7 @@ Initial release.
   `UnknownWebhookEvent` branch, and adapters for Express, Fastify,
   and Next.js.
 - Typed error hierarchy mapping every HTTP status the API uses,
-  including idempotency-specific 409/412/422 variants and a
+  including idempotency-specific 409/422 variants and a
   transport-level `AhaSendResponseParseError` for non-JSON 2xx bodies.
 - Security guards: HTTPS-only base URL (localhost exempt) and a
   browser-environment check, both with explicit opt-outs.

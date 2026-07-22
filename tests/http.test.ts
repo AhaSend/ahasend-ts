@@ -643,6 +643,31 @@ describe("HttpClient retry behaviour", () => {
     expect(attempts).toBe(2);
   });
 
+  it("falls back to backoff for a malformed date-like Retry-After", async () => {
+    let attempts = 0;
+    const retryDelays: number[] = [];
+    const client = makeClient(
+      mockFetch(() => {
+        attempts++;
+        if (attempts === 1) {
+          return new Response("rate limit", {
+            status: 429,
+            headers: { "retry-after": "Sun, 31 Feb 2099 00:00:00 GMT" },
+          });
+        }
+        return new Response("{}", { status: 200 });
+      }),
+      {
+        hooks: { onRetry: ({ delayMs }) => retryDelays.push(delayMs) },
+        retry: fastRetry,
+      },
+    );
+
+    await client.request({ method: "GET", path: "/x" });
+    expect(attempts).toBe(2);
+    expect(retryDelays).toEqual([1]);
+  });
+
   it("throws the last error after exhausting retries", async () => {
     let attempts = 0;
     const client = makeClient(

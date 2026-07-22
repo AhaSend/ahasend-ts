@@ -162,10 +162,12 @@ literally — include your own separator (`"myapp-"`, not `"myapp"`).
 
 ### Retries
 
-Automatic on `408`, `429`, `5xx`, network failures, and timeouts —
-never on other 4xx. The server's `Retry-After` (seconds or HTTP-date)
-is honoured in full, capped at one hour. Configure via the `retry`
-option; `maxRetries: 3` means up to 4 total attempts.
+Automatic on `408`, `429`, `5xx`, network failures, timeouts, and eligible
+keyed `409` responses while an idempotent operation is still in progress —
+never on other 4xx. A valid server `Retry-After` (seconds or HTTP-date) is
+authoritative for that retry and capped at the configured `maxDelayMs` (30
+seconds by default). Configure via the `retry` option; `maxRetries: 3` means
+up to 4 total attempts.
 
 ### Rate limiting
 

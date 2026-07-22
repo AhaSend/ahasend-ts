@@ -1,5 +1,5 @@
 import { inspect } from "node:util";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
 import * as errors from "../src/errors.js";
 import {
@@ -175,17 +175,42 @@ describe("createApiError", () => {
     expect((err as AhaSendRateLimitError).retryAfterSeconds).toBe(12);
   });
 
-  it.each(["0", "-1", "1.5", "not-a-delay"])(
-    "treats malformed or nonpositive Retry-After %j as absent",
-    (retryAfter) => {
-      const err = createApiError({
-        status: 429,
-        body: null,
-        headers: { "retry-after": retryAfter },
-      }) as AhaSendRateLimitError;
-      expect(err.retryAfterSeconds).toBeUndefined();
-    },
-  );
+  it.each([
+    "Fri, 02 Jan 2026 00:00:00 GMT",
+    "Friday, 02-Jan-26 00:00:00 GMT",
+    "Fri Jan  2 00:00:00 2026",
+    "Thu, 01 Jan 2026 23:59:60 GMT",
+  ])("parses RFC 9110 HTTP-date form %j", (retryAfter) => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 0, 1));
+    const err = createApiError({
+      status: 429,
+      body: null,
+      headers: { "retry-after": retryAfter },
+    }) as AhaSendRateLimitError;
+
+    expect(err.retryAfterSeconds).toBe(86_400);
+    now.mockRestore();
+  });
+
+  it.each([
+    "0",
+    "-1",
+    "1.5",
+    "not-a-delay",
+    "2099-12-31",
+    "Sun, 31 Feb 2099 00:00:00 GMT",
+    "Fri, 31 Dec 2099 23:59:59 GMT",
+    "Thu, 31 Dec 2099 23:59:59 UTC",
+    "Thu, 01 Jan 2026 23:59:61 GMT",
+    "Thursday, 31-Dec-99 23:59:59 GMT",
+  ])("treats malformed or nonpositive Retry-After %j as absent", (retryAfter) => {
+    const err = createApiError({
+      status: 429,
+      body: null,
+      headers: { "retry-after": retryAfter },
+    }) as AhaSendRateLimitError;
+    expect(err.retryAfterSeconds).toBeUndefined();
+  });
 
   it("does not use messages to alter 403, 409, or 422 classification", () => {
     for (const message of ["in progress", "payload mismatch", "completely changed"]) {
