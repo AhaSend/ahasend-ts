@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import type { ListRoutesParams } from "../src/resources/routes.js";
 import type { ListSuppressionsParams } from "../src/resources/suppressions.js";
-import type { ListWebhooksParams } from "../src/resources/webhooks.js";
+import type {
+  CreatedWebhook,
+  CreateWebhookRequest,
+  ListWebhooksParams,
+  UpdateWebhookRequest,
+  Webhook,
+} from "../src/resources/webhooks.js";
 import { captureFetch, makeClient } from "./helpers/resource-call.js";
 
 describe("Filtered pagination parameter declarations", () => {
@@ -21,6 +27,105 @@ describe("Filtered pagination parameter declarations", () => {
 });
 
 describe("WebhooksClient (account-scoped per spec)", () => {
+  it("models scoped/global creates, partial updates, and required response fields", () => {
+    const globalOmitted: CreateWebhookRequest = {
+      name: "global omitted",
+      url: "https://hooks.example/omitted",
+      scope: "global",
+    };
+    const globalNull: CreateWebhookRequest = {
+      name: "global null",
+      url: "https://hooks.example/null",
+      scope: "global",
+      domains: null,
+    };
+    const globalEmpty: CreateWebhookRequest = {
+      name: "global empty",
+      url: "https://hooks.example/empty",
+      scope: "global",
+      domains: [] as const,
+    };
+    const globalDomains: CreateWebhookRequest = {
+      name: "global domains",
+      url: "https://hooks.example/domains",
+      scope: "global",
+      domains: ["ignored.example"] as const,
+    };
+    const scoped: CreateWebhookRequest = {
+      name: "scoped",
+      url: "https://hooks.example/scoped",
+      scope: "scoped",
+      domains: ["example.com"] as const,
+    };
+    // @ts-expect-error Scoped creates require at least one domain.
+    const emptyScoped: CreateWebhookRequest = {
+      name: "empty scoped",
+      url: "https://hooks.example/empty-scoped",
+      scope: "scoped",
+      domains: [],
+    };
+    const requestWithSecret: CreateWebhookRequest = {
+      name: "selected secret",
+      url: "https://hooks.example/secret",
+      scope: "global",
+      // @ts-expect-error The server selects and returns the signing secret.
+      secret: "client-selected",
+    };
+    if (false) {
+      // @ts-expect-error Scoped create domains are readonly.
+      scoped.domains.push("another.example");
+    }
+
+    const preserve: UpdateWebhookRequest = {
+      name: null,
+      url: null,
+      enabled: null,
+      scope: null,
+      domains: null,
+    };
+    const clear: UpdateWebhookRequest = { domains: [] as const };
+    const webhook: Webhook = {
+      object: "webhook",
+      id: "wh_1",
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      name: "Delivery hook",
+      url: "https://hooks.example/aha",
+      enabled: true,
+      on_reception: false,
+      on_delivered: true,
+      on_transient_error: false,
+      on_failed: false,
+      on_bounced: false,
+      on_suppressed: false,
+      on_opened: false,
+      on_clicked: false,
+      on_suppression_created: false,
+      on_dns_error: false,
+      scope: "global",
+      domains: [],
+      success_count: 1,
+      error_count: 0,
+      errors_since_last_success: 0,
+      last_request_at: null,
+    };
+    const created: CreatedWebhook = { ...webhook, secret: "whsec_created" };
+    const { domains: _domains, ...withoutDomains } = webhook;
+    // @ts-expect-error Response domains are required.
+    const missingDomains: Webhook = withoutDomains;
+    // @ts-expect-error The base webhook response never exposes the signing secret.
+    const hiddenSecret = webhook.secret;
+
+    expectTypeOf<Webhook["domains"]>().toEqualTypeOf<string[]>();
+    expectTypeOf<Webhook["last_request_at"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<CreatedWebhook["secret"]>().toEqualTypeOf<string>();
+    expect([globalOmitted, globalNull, globalEmpty, globalDomains, scoped]).toHaveLength(5);
+    expect(preserve).toMatchObject({ name: null, scope: null, domains: null });
+    expect(clear.domains).toEqual([]);
+    expect(created).toMatchObject({ domains: [], secret: "whsec_created" });
+    void [emptyScoped, requestWithSecret, missingDomains, hiddenSecret, _domains];
+  });
+
   it("list() hits /v2/accounts/{id}/webhooks with event-filter query params", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
@@ -41,14 +146,45 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     expect(calls[0]!.operationId).toBe("getWebhooks");
   });
 
-  it("create() POSTs the body and includes Idempotency-Key when provided", async () => {
-    const { fetch, calls } = captureFetch();
+  it("iterate() fetches configured webhooks through getWebhooks", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [{ object: "webhook", id: "wh_1", domains: [] }],
+            pagination: { has_more: false },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
     const client = makeClient(fetch);
-    await client.webhooks.create(
+    const webhooks = client.webhooks.iterate({ enabled: true, limit: 25 });
+
+    await expect(webhooks.next()).resolves.toMatchObject({
+      done: false,
+      value: { id: "wh_1", domains: [] },
+    });
+    await expect(webhooks.next()).resolves.toEqual({ done: true, value: undefined });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.operationId).toBe("getWebhooks");
+  });
+
+  it("create() dispatches createWebhook and returns its one-time secret", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(JSON.stringify({ domains: [], secret: "whsec_created" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = makeClient(fetch);
+    const created = await client.webhooks.create(
       {
         name: "delivery hook",
         url: "https://hooks.example/aha",
         scope: "global",
+        domains: ["ignored.example"],
         on_delivered: true,
       },
       { idempotencyKey: "wh-1" },
@@ -56,24 +192,53 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     const call = calls[0]!;
     expect(call.method).toBe("POST");
     expect(call.url).toBe("https://api.test/v2/accounts/acc_1/webhooks");
-    expect(call.body).toContain(`"name":"delivery hook"`);
+    expect(JSON.parse(call.body!)).toEqual({
+      name: "delivery hook",
+      url: "https://hooks.example/aha",
+      scope: "global",
+      domains: ["ignored.example"],
+      on_delivered: true,
+    });
     expect(call.headers["idempotency-key"]).toBe("wh-1");
+    expect(call.operationId).toBe("createWebhook");
+    expect(created).toEqual({ domains: [], secret: "whsec_created" });
   });
 
-  it("update() PUTs to /webhooks/{id}", async () => {
+  it("get() dispatches getWebhook and encodes the webhook ID", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.webhooks.update("wh_42", { enabled: false });
+
+    await client.webhooks.get("wh/42");
+
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/webhooks/wh%2F42");
+    expect(calls[0]!.operationId).toBe("getWebhook");
+  });
+
+  it("update() dispatches updateWebhook and preserves null or sends an empty domain list", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.webhooks.update("wh/42", { name: null, scope: null, domains: null });
+    await client.webhooks.update("wh/42", { domains: [] });
+
     expect(calls[0]!.method).toBe("PUT");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/webhooks/wh_42");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/webhooks/wh%2F42");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ name: null, scope: null, domains: null });
+    expect(calls[0]!.operationId).toBe("updateWebhook");
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ domains: [] });
+    expect(calls[1]!.operationId).toBe("updateWebhook");
   });
 
-  it("delete() DELETEs /webhooks/{id}", async () => {
+  it("delete() dispatches deleteWebhook", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.webhooks.delete("wh_42");
+
+    await client.webhooks.delete("wh/42");
+
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/webhooks/wh_42");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/webhooks/wh%2F42");
+    expect(calls[0]!.operationId).toBe("deleteWebhook");
   });
 });
 

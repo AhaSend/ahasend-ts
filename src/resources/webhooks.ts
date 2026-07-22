@@ -1,7 +1,8 @@
-import type { HttpClient } from "../http.js";
+import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
+  NonEmptyArray,
   PaginatedResponse,
   PaginationParams,
   RequestOptions,
@@ -21,22 +22,23 @@ export interface Webhook {
   name: string;
   url: string;
   enabled: boolean;
-  on_reception?: boolean;
-  on_delivered?: boolean;
-  on_transient_error?: boolean;
-  on_failed?: boolean;
-  on_bounced?: boolean;
-  on_suppressed?: boolean;
-  on_opened?: boolean;
-  on_clicked?: boolean;
-  on_suppression_created?: boolean;
-  on_dns_error?: boolean;
-  scope?: WebhookScope;
-  domains?: string[] | null;
-  success_count?: number;
-  error_count?: number;
-  errors_since_last_success?: number;
-  last_request_at?: ISODateTime | null;
+  on_reception: boolean;
+  on_delivered: boolean;
+  on_transient_error: boolean;
+  on_failed: boolean;
+  on_bounced: boolean;
+  on_suppressed: boolean;
+  on_opened: boolean;
+  on_clicked: boolean;
+  on_suppression_created: boolean;
+  on_dns_error: boolean;
+  scope: WebhookScope;
+  /** Always present. Global webhooks return an empty array. */
+  domains: string[];
+  success_count: number;
+  error_count: number;
+  errors_since_last_success: number;
+  last_request_at: ISODateTime | null;
 }
 
 export interface CreatedWebhook extends Webhook {
@@ -61,32 +63,33 @@ interface CreateWebhookBase {
 
 /**
  * Discriminated union mirroring the spec: `scope: "scoped"` requires a
- * `domains` array; `scope: "global"` must not supply one.
+ * non-empty `domains` array. Global webhooks may omit `domains` or send
+ * any array or `null`; the API accepts and ignores supplied values.
  */
 export type CreateWebhookRequest =
-  | (CreateWebhookBase & { scope: "global"; domains?: never })
-  | (CreateWebhookBase & { scope: "scoped"; domains: string[] });
+  | (CreateWebhookBase & { scope: "global"; domains?: readonly string[] | null })
+  | (CreateWebhookBase & { scope: "scoped"; domains: NonEmptyArray<string> });
 
 export interface UpdateWebhookRequest {
-  /** Required on the persisted webhook — cannot be cleared via `null`. */
-  name?: string;
-  /** Required on the persisted webhook — cannot be cleared via `null`. */
-  url?: string;
-  enabled?: boolean;
-  on_reception?: boolean;
-  on_delivered?: boolean;
-  on_transient_error?: boolean;
-  on_failed?: boolean;
-  on_bounced?: boolean;
-  on_suppressed?: boolean;
-  on_opened?: boolean;
-  on_clicked?: boolean;
-  on_suppression_created?: boolean;
-  on_dns_error?: boolean;
-  /** Required on the persisted webhook — cannot be cleared via `null`. */
-  scope?: WebhookScope;
-  /** `null` clears the scoped domains list; an array replaces it. */
-  domains?: string[] | null;
+  /** Omit or send `null` to preserve the stored value. */
+  name?: string | null;
+  /** Omit or send `null` to preserve the stored value. */
+  url?: string | null;
+  enabled?: boolean | null;
+  on_reception?: boolean | null;
+  on_delivered?: boolean | null;
+  on_transient_error?: boolean | null;
+  on_failed?: boolean | null;
+  on_bounced?: boolean | null;
+  on_suppressed?: boolean | null;
+  on_opened?: boolean | null;
+  on_clicked?: boolean | null;
+  on_suppression_created?: boolean | null;
+  on_dns_error?: boolean | null;
+  /** Omit or send `null` to preserve the stored scope. */
+  scope?: WebhookScope | null;
+  /** Omit or send `null` to preserve associations; `[]` explicitly clears them. */
+  domains?: readonly string[] | null;
 }
 
 export type ListWebhooksParams = PaginationParams & {
@@ -111,71 +114,96 @@ export type ListWebhooksParams = PaginationParams & {
  * subset of domains.
  */
 export class WebhooksClient {
-  constructor(
-    private readonly http: HttpClient,
-    private readonly accountId: UUID,
-  ) {}
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
 
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
+
+  /**
+   * Fetch one page of configured webhooks. The global read role sees all
+   * webhooks; domain-scoped read roles see webhooks associated with at least
+   * one authorized domain.
+   */
   list(
     params: ListWebhooksParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Webhook>> {
-    return this.http.request<PaginatedResponse<Webhook>>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks`,
-      query: params as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<PaginatedResponse<Webhook>>(
+      "getWebhooks",
+      {
+        path: { account_id: this.#accountId },
+        query: params as Readonly<Record<string, unknown>>,
+      },
+      forwardOptions(options),
+    );
   }
 
   iterate(
     params: ListWebhooksParams = {},
     options: RequestOptions = {},
   ): AsyncGenerator<Webhook, void, undefined> {
-    return paginate<Webhook, ListWebhooksParams>(
-      (p) => this.list(p, options),
-      params,
-    );
+    return paginate<Webhook, ListWebhooksParams>((p) => this.list(p, options), params);
   }
 
+  /**
+   * Create a configured webhook. Scoped webhooks require at least one domain
+   * and write permission for every supplied domain. Global webhooks require
+   * `webhooks:write:all`; supplied domains are accepted but ignored.
+   *
+   * The response is the only time the signing `secret` is exposed.
+   */
   create(
     body: CreateWebhookRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreatedWebhook> {
-    return this.http.request<CreatedWebhook>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks`,
-      body,
-      ...forwardWithIdempotency(options),
-    });
+    return this.#operations.execute<CreatedWebhook>(
+      "createWebhook",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
+    );
   }
 
+  /**
+   * Fetch a configured webhook. Requires the global read role or a read role
+   * matching at least one associated domain.
+   */
   get(webhookId: UUID, options: RequestOptions = {}): Promise<Webhook> {
-    return this.http.request<Webhook>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks/${encodeURIComponent(webhookId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<Webhook>(
+      "getWebhook",
+      { path: { account_id: this.#accountId, webhook_id: webhookId } },
+      forwardOptions(options),
+    );
   }
 
+  /**
+   * Partially update a configured webhook. A domain-scoped key must be
+   * authorized for the existing webhook and every newly supplied domain;
+   * changing to global requires `webhooks:write:all`.
+   */
   update(
     webhookId: UUID,
     body: UpdateWebhookRequest,
     options: RequestOptions = {},
   ): Promise<Webhook> {
-    return this.http.request<Webhook>({
-      method: "PUT",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks/${encodeURIComponent(webhookId)}`,
-      body,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<Webhook>(
+      "updateWebhook",
+      { path: { account_id: this.#accountId, webhook_id: webhookId }, body },
+      forwardOptions(options),
+    );
   }
 
+  /**
+   * Delete a configured webhook. Requires the global delete role or a delete
+   * role matching at least one associated domain.
+   */
   delete(webhookId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.http.request<SuccessResponse>({
-      method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/webhooks/${encodeURIComponent(webhookId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<SuccessResponse>(
+      "deleteWebhook",
+      { path: { account_id: this.#accountId, webhook_id: webhookId } },
+      forwardOptions(options),
+    );
   }
 }
