@@ -18,6 +18,10 @@ export type {
   NextHandler,
   NodeStyleRequest,
   NodeStyleResponse,
+  WebhookAdapter,
+  WebhookAdapterErrorContext,
+  WebhookAdapterErrorStage,
+  WebhookAdapterOptions,
 } from "./adapters.js";
 
 export { isKnownWebhookEvent, isKnownWebhookEventType } from "./events.js";

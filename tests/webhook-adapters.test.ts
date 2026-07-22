@@ -7,31 +7,27 @@ import {
   fastifyWebhookHandler,
   nextRouteHandler,
   type ExpressHandler,
+  type WebhookAdapterErrorContext,
+  type WebhookAdapterOptions,
 } from "../src/webhooks/adapters.js";
-import type { AnyWebhookEvent, WebhookEvent } from "../src/webhooks/events.js";
+import type { AnyWebhookEvent } from "../src/webhooks/events.js";
 import { WebhookVerifier } from "../src/webhooks/verifier.js";
 
-// AhaSend webhook secrets are raw strings — the HMAC key is the literal
-// UTF-8 bytes of the secret, matching the Go SDK.
 const SECRET = "aha-whsec-local-test-secret-please-rotate";
 
-function signEnvelope(
-  body: string,
-  opts: { id?: string; tsSec?: number } = {},
-): {
-  headers: Record<string, string>;
-} {
-  const id = opts.id ?? "msg_test_1";
-  const tsSec = opts.tsSec ?? Math.floor(Date.now() / 1000);
-  const sig = `v1,${createHmac("sha256", Buffer.from(SECRET, "utf-8"))
-    .update(`${id}.${tsSec}.${body}`)
-    .digest("base64")}`;
+function signEnvelope(body: string | Buffer): Record<string, string> {
+  const id = "msg_test_1";
+  const timestamp = String(Math.floor(Date.now() / 1000));
   return {
-    headers: {
-      "webhook-id": id,
-      "webhook-timestamp": String(tsSec),
-      "webhook-signature": sig,
-    },
+    "webhook-id": id,
+    "webhook-timestamp": timestamp,
+    "webhook-signature": `v1,${createHmac("sha256", Buffer.from(SECRET, "utf-8"))
+      .update(id)
+      .update(".")
+      .update(timestamp)
+      .update(".")
+      .update(body)
+      .digest("base64")}`,
   };
 }
 
@@ -54,6 +50,7 @@ class MockExpressRes {
   statusCode = 0;
   writableEnded = false;
   body: string | undefined;
+
   end(payload?: string | Buffer): void {
     this.writableEnded = true;
     if (payload !== undefined) {
@@ -61,6 +58,47 @@ class MockExpressRes {
     }
   }
 }
+
+class MockFastifyReply {
+  sent = false;
+  status = 0;
+  payload: unknown;
+
+  code(status: number): MockFastifyReply {
+    this.status = status;
+    return this;
+  }
+
+  send(payload?: unknown): void {
+    this.sent = true;
+    this.payload = payload;
+  }
+}
+
+describe("shared webhook adapter options", () => {
+  it("are accepted as the trailing argument by all three factories", () => {
+    const options: WebhookAdapterOptions = {
+      maxBodyBytes: 1024,
+      onError: async (_error, context: WebhookAdapterErrorContext) => {
+        expect(Object.keys(context).sort()).toEqual(["adapter", "stage"]);
+      },
+    };
+    const verifier = new WebhookVerifier(SECRET);
+
+    expect(expressWebhookHandler(verifier, vi.fn(), options)).toBeTypeOf("function");
+    expect(fastifyWebhookHandler(verifier, vi.fn(), options)).toBeTypeOf("function");
+    expect(nextRouteHandler(verifier, vi.fn(), options)).toBeTypeOf("function");
+  });
+
+  it("rejects non-positive and non-integer body limits consistently", () => {
+    const verifier = new WebhookVerifier(SECRET);
+    for (const maxBodyBytes of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => expressWebhookHandler(verifier, vi.fn(), { maxBodyBytes })).toThrow(TypeError);
+      expect(() => fastifyWebhookHandler(verifier, vi.fn(), { maxBodyBytes })).toThrow(TypeError);
+      expect(() => nextRouteHandler(verifier, vi.fn(), { maxBodyBytes })).toThrow(TypeError);
+    }
+  });
+});
 
 describe("expressWebhookHandler", () => {
   it("verifies, parses, and invokes the handler with a typed event", async () => {
@@ -70,220 +108,369 @@ describe("expressWebhookHandler", () => {
       received.push(event);
     };
     const middleware = expressWebhookHandler(verifier, handler);
-
-    const { headers } = signEnvelope(eventBody);
-    const req = { headers, rawBody: eventBody };
     const res = new MockExpressRes();
+    const next = vi.fn();
 
-    await middleware(req, res);
+    await middleware({ headers: signEnvelope(eventBody), rawBody: eventBody }, res, next);
 
     expect(received).toHaveLength(1);
     expect(received[0]!.type).toBe("message.delivered");
     expect(res.statusCode).toBe(200);
     expect(res.writableEnded).toBe(true);
+    expect(next).not.toHaveBeenCalled();
   });
 
-  it("returns a generic 400 on signature mismatch (no reason echoed)", async () => {
+  it("returns opaque 400 responses for invalid signatures and known-event schemas", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const handler = vi.fn();
     const middleware = expressWebhookHandler(verifier, handler);
 
-    const { headers } = signEnvelope(eventBody);
-    const tamperedBody = eventBody.replace("hi", "TAMPERED");
-    const req = { headers, rawBody: tamperedBody };
-    const res = new MockExpressRes();
-
-    await middleware(req, res);
+    for (const body of [eventBody.replace("hi", "tampered"), '{"type":"message.delivered"}']) {
+      const res = new MockExpressRes();
+      const next = vi.fn();
+      await middleware({ headers: signEnvelope(eventBody), rawBody: body }, res, next);
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toBeUndefined();
+      expect(next).not.toHaveBeenCalled();
+    }
     expect(handler).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(400);
-    // Stripe/Svix-style: no body, no reason — never give an attacker
-    // probing the endpoint a per-failure signal.
-    expect(res.body).toBeUndefined();
   });
 
-  it("captures raw body from a streamed request when no rawBody is set", async () => {
-    const verifier = new WebhookVerifier(SECRET);
-    const handler = vi.fn(async () => {});
-    const middleware = expressWebhookHandler(verifier, handler);
+  it("enforces the 1048576-byte default for preloaded bodies", async () => {
+    const middleware = expressWebhookHandler(new WebhookVerifier(SECRET), vi.fn());
+    const res = new MockExpressRes();
+    const next = vi.fn();
 
+    await middleware({ headers: {}, rawBody: Buffer.alloc(1_048_577) }, res, next);
+
+    expect(res.statusCode).toBe(413);
+    expect(res.body).toBeUndefined();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("bounds streamed bodies using the configured byte ceiling", async () => {
+    const middleware = expressWebhookHandler(new WebhookVerifier(SECRET), vi.fn(), {
+      maxBodyBytes: 4,
+    });
     const stream = new EventEmitter();
-    const { headers } = signEnvelope(eventBody);
     const req = {
-      headers,
+      headers: {},
       on: stream.on.bind(stream),
+      off: stream.off.bind(stream),
     };
     const res = new MockExpressRes();
+    const next = vi.fn();
 
-    const promise = middleware(req, res);
-    stream.emit("data", Buffer.from(eventBody, "utf-8"));
+    const pending = middleware(req, res, next);
+    stream.emit("data", Buffer.from("123"));
+    stream.emit("data", Buffer.from("45"));
+    await pending;
     stream.emit("end");
-    await promise;
 
-    expect(handler).toHaveBeenCalledOnce();
-    expect(res.statusCode).toBe(200);
-  });
-
-  it("returns a generic 500 if the handler throws", async () => {
-    const verifier = new WebhookVerifier(SECRET);
-    const middleware = expressWebhookHandler(verifier, () => {
-      throw new Error("oops");
-    });
-
-    const { headers } = signEnvelope(eventBody);
-    const req = { headers, rawBody: eventBody };
-    const res = new MockExpressRes();
-
-    await middleware(req, res);
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(413);
     expect(res.body).toBeUndefined();
+    expect(next).not.toHaveBeenCalled();
   });
 
-  it("does NOT hang when express.json() already parsed the body", async () => {
-    const verifier = new WebhookVerifier(SECRET);
-    const handler = vi.fn();
-    const middleware = expressWebhookHandler(verifier, handler);
-
-    const { headers } = signEnvelope(eventBody);
-    // Simulate: express.json() ran first, body is now a parsed object,
-    // and the original bytes are gone.
-    const req = { headers, body: JSON.parse(eventBody) };
-    const res = new MockExpressRes();
-
-    await Promise.race([
-      middleware(req, res),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("hang")), 500)),
-    ]);
-    expect(handler).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("does not overwrite a status set by the handler", async () => {
-    const verifier = new WebhookVerifier(SECRET);
-    const middleware = expressWebhookHandler(verifier, async (_event, _req, res) => {
-      res.statusCode = 202;
-      res.end("custom");
+  it("passes setup errors to next once and observes only stable non-sensitive context", async () => {
+    const contexts: WebhookAdapterErrorContext[] = [];
+    const errors: unknown[] = [];
+    const middleware = expressWebhookHandler(new WebhookVerifier(SECRET), vi.fn(), {
+      onError(error, context) {
+        errors.push(error);
+        contexts.push(context);
+      },
     });
+    const next = vi.fn();
 
-    const { headers } = signEnvelope(eventBody);
-    const req = { headers, rawBody: eventBody };
+    await middleware(
+      {
+        headers: { authorization: "secret-header" },
+        body: { signature: "secret-signature", body: "secret-body" },
+      },
+      new MockExpressRes(),
+      next,
+    );
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledWith(errors[0]);
+    expect(contexts).toEqual([{ adapter: "express", stage: "setup" }]);
+    expect(Object.keys(contexts[0]!)).toEqual(["adapter", "stage"]);
+    expect(JSON.stringify(contexts[0])).not.toContain("secret");
+  });
+
+  it("passes the original stream error to next once", async () => {
+    const original = new Error("socket reset");
+    const observer = vi.fn();
+    const middleware = expressWebhookHandler(new WebhookVerifier(SECRET), vi.fn(), {
+      onError: observer,
+    });
+    const stream = new EventEmitter();
+    const next = vi.fn();
+    const pending = middleware(
+      { headers: {}, on: stream.on.bind(stream), off: stream.off.bind(stream) },
+      new MockExpressRes(),
+      next,
+    );
+
+    stream.emit("error", original);
+    await pending;
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledWith(original);
+    expect(observer).toHaveBeenCalledWith(original, { adapter: "express", stage: "stream" });
+  });
+
+  it.each([
+    ["resolving", () => Promise.resolve()],
+    [
+      "throwing",
+      () => {
+        throw new Error("observer throw");
+      },
+    ],
+    ["rejecting", () => Promise.reject(new Error("observer rejection"))],
+  ])("keeps the original application error when the observer is %s", async (_name, onError) => {
+    const original = new Error("application failure");
+    const middleware = expressWebhookHandler(
+      new WebhookVerifier(SECRET),
+      async (_event, _request, response) => {
+        response.end();
+        throw original;
+      },
+      { onError },
+    );
+    const res = new MockExpressRes();
+    const next = vi.fn();
+
+    await middleware({ headers: signEnvelope(eventBody), rawBody: eventBody }, res, next);
+    await Promise.resolve();
+
+    expect(res.writableEnded).toBe(true);
+    expect(next).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledWith(original);
+  });
+
+  it("does not await an observer before taking the native error path", async () => {
+    const original = new Error("application failure");
+    const never = new Promise<void>(() => {});
+    const middleware = expressWebhookHandler(
+      new WebhookVerifier(SECRET),
+      () => {
+        throw original;
+      },
+      { onError: () => never },
+    );
+    const next = vi.fn();
+
+    await middleware(
+      { headers: signEnvelope(eventBody), rawBody: eventBody },
+      new MockExpressRes(),
+      next,
+    );
+
+    expect(next).toHaveBeenCalledWith(original);
+  });
+
+  it("does not overwrite a response completed by the handler", async () => {
+    const middleware = expressWebhookHandler(
+      new WebhookVerifier(SECRET),
+      async (_event, _req, res) => {
+        res.statusCode = 202;
+        res.end("custom");
+      },
+    );
     const res = new MockExpressRes();
 
-    await middleware(req, res);
+    await middleware({ headers: signEnvelope(eventBody), rawBody: eventBody }, res, vi.fn());
+
     expect(res.statusCode).toBe(202);
     expect(res.body).toBe("custom");
   });
 });
 
-class MockFastifyReply {
-  sent = false;
-  status = 0;
-  payload: unknown;
-  code(status: number): MockFastifyReply {
-    this.status = status;
-    return this;
-  }
-  send(payload?: unknown): void {
-    this.sent = true;
-    this.payload = payload;
-  }
-}
-
 describe("fastifyWebhookHandler", () => {
   it("verifies and dispatches when rawBody is present", async () => {
-    const verifier = new WebhookVerifier(SECRET);
     const handler = vi.fn(async () => {});
-    const middleware = fastifyWebhookHandler(verifier, handler);
-
-    const { headers } = signEnvelope(eventBody);
-    const request = { headers, rawBody: eventBody };
+    const route = fastifyWebhookHandler(new WebhookVerifier(SECRET), handler);
     const reply = new MockFastifyReply();
 
-    await middleware(request, reply);
+    await route({ headers: signEnvelope(eventBody), rawBody: eventBody }, reply);
+
     expect(handler).toHaveBeenCalledOnce();
     expect(reply.sent).toBe(true);
     expect(reply.status).toBe(200);
   });
 
-  it("returns 400 raw_body_required when no body is available", async () => {
-    const verifier = new WebhookVerifier(SECRET);
-    const handler = vi.fn();
-    const middleware = fastifyWebhookHandler(verifier, handler);
-
-    const { headers } = signEnvelope(eventBody);
-    const request = { headers };
+  it("returns opaque 400 for verification failure", async () => {
+    const route = fastifyWebhookHandler(new WebhookVerifier(SECRET), vi.fn());
     const reply = new MockFastifyReply();
 
-    await middleware(request, reply);
-    expect(handler).not.toHaveBeenCalled();
+    await route(
+      { headers: signEnvelope(eventBody), rawBody: eventBody.replace("hi", "tampered") },
+      reply,
+    );
+
     expect(reply.status).toBe(400);
-    // Adapters return generic 400s now (no reason echoed in body).
     expect(reply.payload).toBeUndefined();
   });
 
-  it("returns a generic 400 on signature mismatch (no reason echoed)", async () => {
-    const verifier = new WebhookVerifier(SECRET);
-    const middleware = fastifyWebhookHandler(verifier, vi.fn());
+  it("enforces default and configured body ceilings", async () => {
+    for (const [body, options] of [
+      [Buffer.alloc(1_048_577), undefined],
+      ["12345", { maxBodyBytes: 4 }],
+    ] as const) {
+      const route = fastifyWebhookHandler(new WebhookVerifier(SECRET), vi.fn(), options);
+      const reply = new MockFastifyReply();
+      await route({ headers: {}, rawBody: body }, reply);
+      expect(reply.status).toBe(413);
+      expect(reply.payload).toBeUndefined();
+    }
+  });
 
-    const { headers } = signEnvelope(eventBody);
-    const request = { headers, rawBody: eventBody.replace("hi", "TAMPERED") };
+  it("throws and observes setup failures even if a reply was already sent", async () => {
+    const observer = vi.fn();
+    const route = fastifyWebhookHandler(new WebhookVerifier(SECRET), vi.fn(), {
+      onError: observer,
+    });
+    const reply = new MockFastifyReply();
+    reply.sent = true;
+
+    let original: unknown;
+    try {
+      await route({ headers: {} }, reply);
+    } catch (error) {
+      original = error;
+    }
+
+    expect(original).toBeInstanceOf(Error);
+    expect(observer).toHaveBeenCalledWith(original, { adapter: "fastify", stage: "setup" });
+    expect(reply.status).toBe(0);
+  });
+
+  it("throws the original application failure after reply.sent", async () => {
+    const original = new Error("application failure");
+    const observer = vi.fn(() => Promise.reject(new Error("observer rejection")));
+    const route = fastifyWebhookHandler(
+      new WebhookVerifier(SECRET),
+      async (_event, _request, reply) => {
+        reply.send();
+        throw original;
+      },
+      { onError: observer },
+    );
     const reply = new MockFastifyReply();
 
-    await middleware(request, reply);
-    expect(reply.status).toBe(400);
-    expect(reply.payload).toBeUndefined();
+    await expect(
+      route({ headers: signEnvelope(eventBody), rawBody: eventBody }, reply),
+    ).rejects.toBe(original);
+    await Promise.resolve();
+
+    expect(observer).toHaveBeenCalledWith(original, {
+      adapter: "fastify",
+      stage: "application",
+    });
+    expect(reply.sent).toBe(true);
   });
 });
 
 describe("nextRouteHandler", () => {
-  it("verifies and returns the handler's Response", async () => {
-    const verifier = new WebhookVerifier(SECRET);
+  it("verifies and returns the handler response", async () => {
     const handler = vi.fn(async () => new Response("ok", { status: 202 }));
-    const route = nextRouteHandler(verifier, handler);
-
-    const { headers } = signEnvelope(eventBody);
+    const route = nextRouteHandler(new WebhookVerifier(SECRET), handler);
     const request = new Request("https://example.test/webhooks", {
       method: "POST",
-      headers,
+      headers: signEnvelope(eventBody),
       body: eventBody,
     });
 
-    const res = await route(request);
+    const response = await route(request);
+
     expect(handler).toHaveBeenCalledOnce();
-    expect(res.status).toBe(202);
-    expect(await res.text()).toBe("ok");
+    expect(response.status).toBe(202);
+    expect(await response.text()).toBe("ok");
   });
 
-  it("returns a generic 400 on signature mismatch (no reason echoed)", async () => {
-    const verifier = new WebhookVerifier(SECRET);
-    const route = nextRouteHandler(verifier, vi.fn());
-
-    const { headers } = signEnvelope(eventBody);
+  it("returns opaque 400 for verification failure", async () => {
+    const route = nextRouteHandler(new WebhookVerifier(SECRET), vi.fn());
     const request = new Request("https://example.test/webhooks", {
       method: "POST",
-      headers,
-      body: eventBody.replace("hi", "TAMPERED"),
+      headers: signEnvelope(eventBody),
+      body: eventBody.replace("hi", "tampered"),
     });
 
-    const res = await route(request);
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe("");
+    const response = await route(request);
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("");
   });
 
-  it("returns a generic 500 when the handler throws", async () => {
-    const verifier = new WebhookVerifier(SECRET);
-    const route = nextRouteHandler(verifier, () => {
-      throw new Error("boom");
-    });
+  it("enforces default and configured byte ceilings with opaque 413 responses", async () => {
+    for (const [body, options] of [
+      [Buffer.alloc(1_048_577), undefined],
+      ["€€", { maxBodyBytes: 5 }],
+    ] as const) {
+      const route = nextRouteHandler(new WebhookVerifier(SECRET), vi.fn(), options);
+      const request = new Request("https://example.test/webhooks", {
+        method: "POST",
+        body,
+      });
+      const response = await route(request);
+      expect(response.status).toBe(413);
+      expect(await response.text()).toBe("");
+    }
+  });
 
-    const { headers } = signEnvelope(eventBody);
-    const request = new Request("https://example.test/webhooks", {
+  it.each([
+    ["resolving", () => Promise.resolve()],
+    [
+      "throwing",
+      () => {
+        throw new Error("observer throw");
+      },
+    ],
+    ["rejecting", () => Promise.reject(new Error("observer rejection"))],
+  ])("rejects with the original application error when observer is %s", async (_name, onError) => {
+    const original = new Error("application failure");
+    const route = nextRouteHandler(
+      new WebhookVerifier(SECRET),
+      () => {
+        throw original;
+      },
+      { onError },
+    );
+    const request = new Request("https://example.test/webhooks?signature=secret", {
       method: "POST",
-      headers,
+      headers: signEnvelope(eventBody),
       body: eventBody,
     });
 
-    const res = await route(request);
-    expect(res.status).toBe(500);
-    expect(await res.text()).toBe("");
+    await expect(route(request)).rejects.toBe(original);
+    await Promise.resolve();
+  });
+
+  it("reports exact non-sensitive context", async () => {
+    const original = new Error("application failure");
+    const observer = vi.fn();
+    const route = nextRouteHandler(
+      new WebhookVerifier(SECRET),
+      () => {
+        throw original;
+      },
+      { onError: observer },
+    );
+    const request = new Request("https://example.test/private?signature=secret", {
+      method: "POST",
+      headers: signEnvelope(eventBody),
+      body: eventBody,
+    });
+
+    await expect(route(request)).rejects.toBe(original);
+
+    const context = observer.mock.calls[0]![1] as WebhookAdapterErrorContext;
+    expect(context).toEqual({ adapter: "next", stage: "application" });
+    expect(Object.keys(context)).toEqual(["adapter", "stage"]);
+    expect(JSON.stringify(context)).not.toContain("private");
+    expect(JSON.stringify(context)).not.toContain("secret");
   });
 });

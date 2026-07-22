@@ -1,6 +1,24 @@
 import { Buffer } from "node:buffer";
-import { WebhookVerifier } from "./verifier.js";
+import { AhaSendWebhookVerificationError } from "../errors.js";
+import { MAX_WEBHOOK_BODY_BYTES, WebhookVerifier } from "./verifier.js";
 import type { AnyWebhookEvent } from "./events.js";
+
+const DEFAULT_MAX_BODY_BYTES = MAX_WEBHOOK_BODY_BYTES;
+
+export type WebhookAdapter = "express" | "fastify" | "next";
+export type WebhookAdapterErrorStage = "setup" | "stream" | "application";
+
+/** Non-sensitive metadata supplied to adapter error observers. */
+export interface WebhookAdapterErrorContext {
+  readonly adapter: WebhookAdapter;
+  readonly stage: WebhookAdapterErrorStage;
+}
+
+/** Options shared by every framework adapter. */
+export interface WebhookAdapterOptions {
+  maxBodyBytes?: number;
+  onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
+}
 
 /**
  * Minimal Node-style request shape — matches express, http.IncomingMessage,
@@ -10,7 +28,9 @@ export interface NodeStyleRequest {
   headers: Record<string, string | string[] | undefined>;
   rawBody?: string | Buffer;
   body?: unknown;
+  readableEnded?: boolean;
   on?(event: string, listener: (...args: unknown[]) => void): unknown;
+  off?(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
 /**
@@ -23,9 +43,7 @@ export interface NodeStyleResponse {
   end(payload?: string | Buffer): unknown;
 }
 
-/**
- * Minimal Fastify reply shape.
- */
+/** Minimal Fastify reply shape. */
 export interface FastifyStyleReply {
   sent?: boolean;
   code(status: number): FastifyStyleReply;
@@ -52,27 +70,47 @@ export type NextHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
 /**
  * Express middleware. Captures the raw request body (or reuses `req.rawBody`
  * if already populated by `express.raw()`), verifies the AhaSend signature,
- * parses the typed event, and dispatches to your handler. Returns 400 on
- * verification failure with a short reason string in the body.
+ * parses the typed event, and dispatches to your handler.
  */
 export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
   verifier: WebhookVerifier,
   handler: ExpressHandler<T>,
-): (req: NodeStyleRequest, res: NodeStyleResponse) => Promise<void> {
-  return async (req, res) => {
+  options: WebhookAdapterOptions = {},
+): (
+  req: NodeStyleRequest,
+  res: NodeStyleResponse,
+  next: (error: unknown) => void,
+) => Promise<void> {
+  const adapterOptions = normalizeOptions(options);
+
+  return async (req, res, next) => {
     let rawBody: Buffer;
     try {
-      rawBody = await readNodeRawBody(req);
-    } catch {
-      writeError(res, 400);
+      const availableBody = pickNodeRawBody(req, adapterOptions.maxBodyBytes);
+      rawBody = availableBody ?? (await readNodeRawBody(req, adapterOptions.maxBodyBytes));
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        completeExpress(res, 413, next, adapterOptions.onError);
+        return;
+      }
+      propagateExpress(error, stageForNodeReadError(error), next, adapterOptions.onError);
       return;
     }
 
     let event: AnyWebhookEvent;
     try {
       event = verifier.parse(req.headers, rawBody);
-    } catch {
-      writeError(res, 400);
+    } catch (error) {
+      if (error instanceof AhaSendWebhookVerificationError) {
+        completeExpress(
+          res,
+          error.reason === "body_too_large" ? 413 : 400,
+          next,
+          adapterOptions.onError,
+        );
+        return;
+      }
+      propagateExpress(error, "setup", next, adapterOptions.onError);
       return;
     }
 
@@ -82,130 +120,297 @@ export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
         if (!res.statusCode) res.statusCode = 200;
         res.end();
       }
-    } catch {
-      if (!res.writableEnded) writeError(res, 500);
+    } catch (error) {
+      propagateExpress(error, "application", next, adapterOptions.onError);
     }
   };
 }
 
 /**
- * Fastify handler. Requires the route (or the global plugin) to be
- * configured with `rawBody: true` (e.g. via `fastify-raw-body`) so that
- * the request body is available unparsed for HMAC verification.
+ * Fastify handler. Requires the route (or the global plugin) to be configured
+ * with `rawBody: true` so that the request body is available unparsed.
  */
 export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
   verifier: WebhookVerifier,
   handler: FastifyHandler<T>,
+  options: WebhookAdapterOptions = {},
 ): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void> {
+  const adapterOptions = normalizeOptions(options);
+
   return async (request, reply) => {
-    const rawBody = pickFastifyRawBody(request);
-    if (rawBody === undefined) {
-      reply.code(400).send();
-      return;
+    let rawBody: string | Buffer;
+    try {
+      rawBody = pickFastifyRawBody(request, adapterOptions.maxBodyBytes);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        completeFastify(reply, 413, adapterOptions.onError);
+        return;
+      }
+      observeError(adapterOptions.onError, error, "fastify", "setup");
+      throw error;
     }
 
     let event: AnyWebhookEvent;
     try {
       event = verifier.parse(request.headers, rawBody);
-    } catch {
-      reply.code(400).send();
-      return;
+    } catch (error) {
+      if (error instanceof AhaSendWebhookVerificationError) {
+        completeFastify(
+          reply,
+          error.reason === "body_too_large" ? 413 : 400,
+          adapterOptions.onError,
+        );
+        return;
+      }
+      observeError(adapterOptions.onError, error, "fastify", "setup");
+      throw error;
     }
 
     try {
       await handler(event as T, request, reply);
       if (!reply.sent) reply.code(200).send();
-    } catch {
-      if (!reply.sent) reply.code(500).send();
+    } catch (error) {
+      observeError(adapterOptions.onError, error, "fastify", "application");
+      throw error;
     }
   };
 }
 
-/**
- * Next.js (app router) route handler. Drop into `app/api/webhooks/route.ts`:
- *
- *     export const POST = nextRouteHandler(verifier, async (event) => {
- *       // ...
- *       return new Response(null, { status: 200 });
- *     });
- */
+/** Next.js app-router route handler. */
 export function nextRouteHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
   verifier: WebhookVerifier,
   handler: NextHandler<T>,
+  options: WebhookAdapterOptions = {},
 ): (request: Request) => Promise<Response> {
+  const adapterOptions = normalizeOptions(options);
+
   return async (request) => {
-    const rawBody = await request.text();
+    let rawBody: Buffer;
+    try {
+      rawBody = await readWebRawBody(request, adapterOptions.maxBodyBytes);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) return opaqueResponse(413);
+      observeError(adapterOptions.onError, error, "next", "stream");
+      throw error;
+    }
 
     let event: AnyWebhookEvent;
     try {
       event = verifier.parse(request.headers, rawBody);
-    } catch {
-      return new Response(null, { status: 400 });
+    } catch (error) {
+      if (error instanceof AhaSendWebhookVerificationError) {
+        return opaqueResponse(error.reason === "body_too_large" ? 413 : 400);
+      }
+      observeError(adapterOptions.onError, error, "next", "setup");
+      throw error;
     }
 
     try {
       return await handler(event as T, request);
-    } catch {
-      return new Response(null, { status: 500 });
+    } catch (error) {
+      observeError(adapterOptions.onError, error, "next", "application");
+      throw error;
     }
   };
 }
 
-async function readNodeRawBody(req: NodeStyleRequest): Promise<Buffer> {
-  if (req.rawBody !== undefined) {
-    return Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from(req.rawBody, "utf-8");
-  }
-  if (req.body !== undefined) {
-    if (Buffer.isBuffer(req.body)) return req.body;
-    if (typeof req.body === "string") return Buffer.from(req.body, "utf-8");
-    // Body has been parsed into a JS object by an upstream middleware
-    // such as `express.json()`. The original bytes are gone; we can't
-    // verify the HMAC. Refuse explicitly rather than hanging on stream
-    // events that have already fired.
-    throw new Error(
-      "raw_body_required: an upstream middleware parsed the body. " +
-        "Mount `express.raw({ type: '*/*' })` on the webhook route, or " +
-        "use a route-specific raw-body parser, before this handler.",
-    );
-  }
-  // If the request stream has already been drained by an upstream
-  // middleware (parse failure, content-type rejection, etc.) but
-  // `body`/`rawBody` were never populated, attaching `data`/`end`
-  // listeners will never fire and the request hangs until the client
-  // times out. Detect that case eagerly.
-  if ((req as { readableEnded?: boolean }).readableEnded === true) {
-    throw new Error(
-      "raw_body_required: request stream has already been consumed by an " +
-        "upstream middleware. Mount a raw-body parser (e.g. " +
-        "`express.raw({ type: '*/*' })`) on the webhook route.",
-    );
-  }
-  if (typeof req.on !== "function") {
-    throw new Error(
-      "raw_body_required: request has no rawBody, body, or stream interface.",
-    );
-  }
-  return new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on!("data", (...args) => {
-      const chunk = args[0];
-      if (Buffer.isBuffer(chunk)) chunks.push(chunk);
-      else if (typeof chunk === "string") chunks.push(Buffer.from(chunk, "utf-8"));
-    });
-    req.on!("end", () => resolve(Buffer.concat(chunks)));
-    req.on!("error", (...args) => reject(args[0] as Error));
-  });
+interface NormalizedAdapterOptions {
+  maxBodyBytes: number;
+  onError: WebhookAdapterOptions["onError"];
 }
 
-function pickFastifyRawBody(request: NodeStyleRequest): string | Buffer | undefined {
-  if (request.rawBody !== undefined) return request.rawBody;
-  if (typeof request.body === "string") return request.body;
-  if (Buffer.isBuffer(request.body)) return request.body;
+class BodyTooLargeError extends Error {}
+
+class NodeStreamError {
+  constructor(readonly cause: unknown) {}
+}
+
+function normalizeOptions(options: WebhookAdapterOptions): NormalizedAdapterOptions {
+  const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+  if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) {
+    throw new TypeError("maxBodyBytes must be a positive safe integer");
+  }
+  return { maxBodyBytes, onError: options.onError };
+}
+
+function pickNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Buffer | undefined {
+  if (req.rawBody !== undefined) return toBoundedBuffer(req.rawBody, maxBodyBytes);
+  if (req.body !== undefined) {
+    if (Buffer.isBuffer(req.body) || typeof req.body === "string") {
+      return toBoundedBuffer(req.body, maxBodyBytes);
+    }
+    throw new Error("Raw webhook body unavailable: configure a route-specific raw-body parser.");
+  }
+  if (req.readableEnded === true) {
+    throw new Error("Raw webhook body unavailable: the request stream was already consumed.");
+  }
+  if (typeof req.on !== "function") {
+    throw new Error("Raw webhook body unavailable: request has no readable stream.");
+  }
   return undefined;
 }
 
-function writeError(res: NodeStyleResponse, status: number, body?: string): void {
-  res.statusCode = status;
-  if (body !== undefined) res.end(body);
-  else res.end();
+function readNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let byteLength = 0;
+    let settled = false;
+
+    const onData = (...args: unknown[]) => {
+      if (settled) return;
+      const value = args[0];
+      let chunk: Buffer;
+      if (Buffer.isBuffer(value)) chunk = value;
+      else if (typeof value === "string") chunk = Buffer.from(value, "utf-8");
+      else {
+        settled = true;
+        cleanup();
+        reject(
+          new NodeStreamError(new TypeError("Webhook request stream emitted a non-byte chunk")),
+        );
+        return;
+      }
+      byteLength += chunk.length;
+      if (byteLength > maxBodyBytes) {
+        settled = true;
+        reject(new BodyTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onEnd = () => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        resolve(Buffer.concat(chunks, byteLength));
+      } else {
+        cleanup();
+      }
+    };
+    const onStreamError = (...args: unknown[]) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new NodeStreamError(args[0]));
+    };
+    const cleanup = () => {
+      req.off?.("data", onData);
+      req.off?.("end", onEnd);
+      req.off?.("error", onStreamError);
+    };
+
+    req.on!("data", onData);
+    req.on!("end", onEnd);
+    req.on!("error", onStreamError);
+  });
+}
+
+function pickFastifyRawBody(request: NodeStyleRequest, maxBodyBytes: number): string | Buffer {
+  if (request.rawBody !== undefined) {
+    assertBodyWithinLimit(request.rawBody, maxBodyBytes);
+    return request.rawBody;
+  }
+  if (typeof request.body === "string" || Buffer.isBuffer(request.body)) {
+    assertBodyWithinLimit(request.body, maxBodyBytes);
+    return request.body;
+  }
+  throw new Error("Raw webhook body unavailable: enable Fastify raw-body capture.");
+}
+
+async function readWebRawBody(request: Request, maxBodyBytes: number): Promise<Buffer> {
+  if (request.body === null) return Buffer.alloc(0);
+  const reader = request.body.getReader();
+  const chunks: Buffer[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return Buffer.concat(chunks, byteLength);
+      const chunk = Buffer.from(value);
+      byteLength += chunk.length;
+      if (byteLength > maxBodyBytes) {
+        void reader.cancel().catch(() => undefined);
+        throw new BodyTooLargeError();
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function toBoundedBuffer(body: string | Buffer, maxBodyBytes: number): Buffer {
+  assertBodyWithinLimit(body, maxBodyBytes);
+  return Buffer.isBuffer(body) ? body : Buffer.from(body, "utf-8");
+}
+
+function assertBodyWithinLimit(body: string | Buffer, maxBodyBytes: number): void {
+  const byteLength = typeof body === "string" ? Buffer.byteLength(body, "utf-8") : body.length;
+  if (byteLength > maxBodyBytes) throw new BodyTooLargeError();
+}
+
+function stageForNodeReadError(error: unknown): WebhookAdapterErrorStage {
+  return error instanceof NodeStreamError ? "stream" : "setup";
+}
+
+function unwrapNodeReadError(error: unknown): unknown {
+  return error instanceof NodeStreamError ? error.cause : error;
+}
+
+function completeExpress(
+  res: NodeStyleResponse,
+  status: number,
+  next: (error: unknown) => void,
+  onError: WebhookAdapterOptions["onError"],
+): void {
+  try {
+    res.statusCode = status;
+    res.end();
+  } catch (error) {
+    propagateExpress(error, "setup", next, onError);
+  }
+}
+
+function propagateExpress(
+  error: unknown,
+  stage: WebhookAdapterErrorStage,
+  next: (error: unknown) => void,
+  onError: WebhookAdapterOptions["onError"],
+): void {
+  const originalError = unwrapNodeReadError(error);
+  observeError(onError, originalError, "express", stage);
+  next(originalError);
+}
+
+function completeFastify(
+  reply: FastifyStyleReply,
+  status: number,
+  onError: WebhookAdapterOptions["onError"],
+): void {
+  try {
+    reply.code(status).send();
+  } catch (error) {
+    observeError(onError, error, "fastify", "setup");
+    throw error;
+  }
+}
+
+function opaqueResponse(status: number): Response {
+  return new Response(null, { status });
+}
+
+function observeError(
+  observer: WebhookAdapterOptions["onError"],
+  error: unknown,
+  adapter: WebhookAdapter,
+  stage: WebhookAdapterErrorStage,
+): void {
+  if (observer === undefined) return;
+  const context = Object.freeze({ adapter, stage });
+  try {
+    const pending = observer(error, context);
+    if (pending !== undefined) void Promise.resolve(pending).catch(() => undefined);
+  } catch {
+    // Error observers are diagnostic only and never replace the native path.
+  }
 }
