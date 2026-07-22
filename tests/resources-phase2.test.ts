@@ -5,7 +5,7 @@ import type {
   DeliverabilityStatistics,
   DeliveryTimeStatistics,
 } from "../src/resources/statistics.js";
-import type { ListSuppressionsParams } from "../src/resources/suppressions.js";
+import type { ListSuppressionsParams, Suppression } from "../src/resources/suppressions.js";
 import type {
   CreatedWebhook,
   CreateWebhookRequest,
@@ -23,11 +23,19 @@ describe("Filtered pagination parameter declarations", () => {
       before: "previous",
       domain: "example.com",
     };
+    // @ts-expect-error Suppression list cursors are mutually exclusive.
+    const invalidSuppressions: ListSuppressionsParams = {
+      limit: 50,
+      after: "next",
+      before: "previous",
+      email: "blocked@example.com",
+    };
     const routes: ListRoutesParams = { limit: 10, after: "next", domain: "example.com" };
 
     expect(webhooks.enabled).toBe(true);
     expect(suppressions.domain).toBe("example.com");
     expect(routes.domain).toBe("example.com");
+    void invalidSuppressions;
   });
 });
 
@@ -341,59 +349,137 @@ describe("StatisticsClient", () => {
 });
 
 describe("SuppressionsClient", () => {
-  it("list() GETs /suppressions with pagination", async () => {
+  it("models required suppression response fields", () => {
+    expectTypeOf<Suppression>().toEqualTypeOf<{
+      object: "suppression";
+      id: string;
+      created_at: string;
+      email: string;
+      domain: string;
+      reason: string;
+      expires_at: string;
+    }>();
+  });
+
+  it("list() dispatches getSuppressions with filters, limit, and one cursor", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.suppressions.list({
-      limit: 50,
-      before: "previous",
-      domain: "example.com",
-    });
+    await client.suppressions.list(
+      {
+        limit: 50,
+        before: "previous",
+        domain: "example.com",
+        email: "blocked@example.com",
+        from_time: "2026-01-01T00:00:00Z",
+        to_time: "2026-06-01T00:00:00Z",
+      },
+      { headers: { "x-trace-id": "suppression-list-1" } },
+    );
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toContain("/v2/accounts/acc_1/suppressions?");
     const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/v2/accounts/acc_1/suppressions");
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("before")).toBe("previous");
     expect(url.searchParams.has("after")).toBe(false);
     expect(url.searchParams.get("domain")).toBe("example.com");
+    expect(url.searchParams.get("email")).toBe("blocked@example.com");
+    expect(url.searchParams.get("from_time")).toBe("2026-01-01T00:00:00Z");
+    expect(url.searchParams.get("to_time")).toBe("2026-06-01T00:00:00Z");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("suppression-list-1");
+    expect(calls[0]!.operationId).toBe("getSuppressions");
   });
 
-  it("create() POSTs body", async () => {
-    const { fetch, calls } = captureFetch();
+  it("iterate() fetches the first page through getSuppressions", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              {
+                object: "suppression",
+                id: "sup_1",
+                created_at: "2026-01-02T00:00:00Z",
+                email: "blocked@example.com",
+                domain: "example.com",
+                reason: "manual",
+                expires_at: "2027-01-01T00:00:00Z",
+              },
+            ],
+            pagination: { has_more: false },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
     const client = makeClient(fetch);
-    await client.suppressions.create({
+    const suppressions = client.suppressions.iterate({
       email: "blocked@example.com",
-      reason: "manual",
-      expires_at: "2027-01-01T00:00:00Z",
+      limit: 25,
+      after: "next",
     });
-    expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.body).toContain(`"email":"blocked@example.com"`);
+
+    await expect(suppressions.next()).resolves.toMatchObject({
+      done: false,
+      value: { id: "sup_1", reason: "manual" },
+    });
+    await expect(suppressions.next()).resolves.toEqual({ done: true, value: undefined });
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("email")).toBe("blocked@example.com");
+    expect(url.searchParams.get("limit")).toBe("25");
+    expect(url.searchParams.get("after")).toBe("next");
+    expect(calls[0]!.operationId).toBe("getSuppressions");
   });
 
-  it("delete() DELETEs /suppressions with email+domain query (per spec)", async () => {
+  it("create() dispatches createSuppression with body and idempotency options", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.suppressions.delete({ email: "blocked@example.com", domain: "example.com" });
+    await client.suppressions.create(
+      {
+        email: "blocked@example.com",
+        reason: "manual",
+        expires_at: "2027-01-01T00:00:00Z",
+      },
+      { idempotencyKey: "suppression-create-1" },
+    );
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.body).toBe(
+      `{"email":"blocked@example.com","reason":"manual","expires_at":"2027-01-01T00:00:00Z"}`,
+    );
+    expect(calls[0]!.headers["idempotency-key"]).toBe("suppression-create-1");
+    expect(calls[0]!.operationId).toBe("createSuppression");
+  });
+
+  it("delete() dispatches deleteSuppression with its required email query", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+    await client.suppressions.delete(
+      { email: "blocked@example.com", domain: "example.com" },
+      { headers: { "x-trace-id": "suppression-delete-1" } },
+    );
     expect(calls[0]!.method).toBe("DELETE");
     const url = new URL(calls[0]!.url);
     expect(url.pathname).toBe("/v2/accounts/acc_1/suppressions");
     expect(url.searchParams.get("email")).toBe("blocked@example.com");
     expect(url.searchParams.get("domain")).toBe("example.com");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("suppression-delete-1");
+    expect(calls[0]!.operationId).toBe("deleteSuppression");
   });
 
-  it("wipe() DELETEs /suppressions/all (per spec — dangerous)", async () => {
+  it("wipe() dispatches deleteAllSuppressions with default parameters", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
     await client.suppressions.wipe();
     expect(calls[0]!.method).toBe("DELETE");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/suppressions/all");
+    expect(calls[0]!.operationId).toBe("deleteAllSuppressions");
   });
 
-  it("wipe({domain}) sends optional domain query param", async () => {
+  it("wipe({ domain }) forwards the optional generated query parameter", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
     await client.suppressions.wipe({ domain: "example.com" });
     expect(new URL(calls[0]!.url).searchParams.get("domain")).toBe("example.com");
+    expect(calls[0]!.operationId).toBe("deleteAllSuppressions");
   });
 });
 

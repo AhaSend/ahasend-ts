@@ -1,4 +1,4 @@
-import type { HttpClient } from "../http.js";
+import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
@@ -16,8 +16,8 @@ export interface Suppression {
   id: UUID;
   created_at: ISODateTime;
   email: string;
-  domain?: string | null;
-  reason?: string | null;
+  domain: string;
+  reason: string;
   expires_at: ISODateTime;
 }
 
@@ -55,43 +55,44 @@ export interface WipeSuppressionsParams {
  * Suppressions are identified by `(email, domain)`, not by id.
  */
 export class SuppressionsClient {
-  constructor(
-    private readonly http: HttpClient,
-    private readonly accountId: UUID,
-  ) {}
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
+
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
 
   list(
     params: ListSuppressionsParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Suppression>> {
-    return this.http.request<PaginatedResponse<Suppression>>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/suppressions`,
-      query: params as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<PaginatedResponse<Suppression>>(
+      "getSuppressions",
+      {
+        path: { account_id: this.#accountId },
+        query: params as Readonly<Record<string, unknown>>,
+      },
+      forwardOptions(options),
+    );
   }
 
   iterate(
     params: ListSuppressionsParams = {},
     options: RequestOptions = {},
   ): AsyncGenerator<Suppression, void, undefined> {
-    return paginate<Suppression, ListSuppressionsParams>(
-      (p) => this.list(p, options),
-      params,
-    );
+    return paginate<Suppression, ListSuppressionsParams>((p) => this.list(p, options), params);
   }
 
   create(
     body: CreateSuppressionRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreateSuppressionResponse> {
-    return this.http.request<CreateSuppressionResponse>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/suppressions`,
-      body,
-      ...forwardWithIdempotency(options),
-    });
+    return this.#operations.execute<CreateSuppressionResponse>(
+      "createSuppression",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
+    );
   }
 
   /**
@@ -99,16 +100,15 @@ export class SuppressionsClient {
    * `(email, domain)` — there is no suppression-by-id endpoint — so this
    * method accepts those fields directly as query parameters.
    */
-  delete(
-    params: DeleteSuppressionParams,
-    options: RequestOptions = {},
-  ): Promise<SuccessResponse> {
-    return this.http.request<SuccessResponse>({
-      method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/suppressions`,
-      query: params as unknown as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+  delete(params: DeleteSuppressionParams, options: RequestOptions = {}): Promise<SuccessResponse> {
+    return this.#operations.execute<SuccessResponse>(
+      "deleteSuppression",
+      {
+        path: { account_id: this.#accountId },
+        query: params as unknown as Readonly<Record<string, unknown>>,
+      },
+      forwardOptions(options),
+    );
   }
 
   /**
@@ -119,11 +119,13 @@ export class SuppressionsClient {
     params: WipeSuppressionsParams = {},
     options: RequestOptions = {},
   ): Promise<SuccessResponse> {
-    return this.http.request<SuccessResponse>({
-      method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/suppressions/all`,
-      query: params as unknown as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<SuccessResponse>(
+      "deleteAllSuppressions",
+      {
+        path: { account_id: this.#accountId },
+        query: params as unknown as Readonly<Record<string, unknown>>,
+      },
+      forwardOptions(options),
+    );
   }
 }
