@@ -126,7 +126,7 @@ describe("SubAccountsClient operations", () => {
     const client = makeClient(fetch);
 
     const items: SubAccount[] = [];
-    for await (const item of client.subAccounts.iterate({ limit: 10, after: "page-1" })) {
+    for await (const item of client.subAccounts.iterate({ limit: 10, before: "page-1" })) {
       items.push(item);
     }
 
@@ -139,8 +139,8 @@ describe("SubAccountsClient operations", () => {
     const first = new URL(calls[0]!.url);
     const second = new URL(calls[1]!.url);
     expect(first.searchParams.get("limit")).toBe("10");
-    expect(first.searchParams.get("after")).toBe("page-1");
-    expect(first.searchParams.has("before")).toBe(false);
+    expect(first.searchParams.get("before")).toBe("page-1");
+    expect(first.searchParams.has("after")).toBe(false);
     expect(second.searchParams.get("limit")).toBe("10");
     expect(second.searchParams.get("after")).toBe("page-2");
     expect(second.searchParams.has("before")).toBe(false);

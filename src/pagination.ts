@@ -20,7 +20,8 @@ export async function* paginate<T, P extends PaginationParams>(
     const next = page.pagination.next_cursor;
     if (!next) return;
 
-    params = { ...params, after: next };
+    const { before: _before, ...remainingParams } = params;
+    params = { ...remainingParams, after: next } as P;
   }
 }
 

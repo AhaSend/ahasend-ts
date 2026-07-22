@@ -21,7 +21,7 @@ export interface SubAccount {
   name: string;
   website: string;
   status: SubAccountStatus;
-  /** OpenAPI `int64`, represented as a JavaScript number. The API caps this value at 1 billion. */
+  /** OpenAPI `int64`, represented as a number and only exact within the safe-integer range. */
   monthly_credit: number;
   /** OpenAPI `int64`, represented as a number and only exact within the safe-integer range. */
   domain_count: number;

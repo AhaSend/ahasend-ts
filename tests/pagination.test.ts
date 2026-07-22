@@ -55,6 +55,28 @@ describe("paginate", () => {
     expect(seenAfter).toEqual([undefined, "c1"]);
   });
 
+  it("replaces an initial before cursor when advancing", async () => {
+    const seen: Array<{ after?: string; before?: string; limit?: number }> = [];
+    const pages = [
+      { object: "list" as const, data: ["a"], pagination: { has_more: true, next_cursor: "c1" } },
+      { object: "list" as const, data: ["b"], pagination: { has_more: false } },
+    ];
+    let i = 0;
+    const fetchPage = vi.fn(async (params: { after?: string; before?: string; limit?: number }) => {
+      seen.push(params);
+      return pages[i++]!;
+    });
+
+    const out: string[] = [];
+    for await (const item of paginate(fetchPage, { before: "previous", limit: 5 })) out.push(item);
+
+    expect(out).toEqual(["a", "b"]);
+    expect(seen).toEqual([
+      { before: "previous", limit: 5 },
+      { after: "c1", limit: 5 },
+    ]);
+  });
+
   it("preserves filter params from the initial call across pages", async () => {
     const seen: Array<{ status?: string; limit?: number; after?: string }> = [];
     const pages = [

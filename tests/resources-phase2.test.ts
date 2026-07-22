@@ -814,7 +814,7 @@ describe("SMTPCredentialsClient", () => {
 });
 
 describe("AhaSendClient surface", () => {
-  it("exposes all 9 resource clients + ping", () => {
+  it("exposes all 10 resource clients + ping", () => {
     const client = makeClient(captureFetch().fetch);
     expect(client.messages).toBeDefined();
     expect(client.domains).toBeDefined();
@@ -825,6 +825,7 @@ describe("AhaSendClient surface", () => {
     expect(client.routes).toBeDefined();
     expect(client.accounts).toBeDefined();
     expect(client.smtpCredentials).toBeDefined();
+    expect(client.subAccounts).toBeDefined();
     expect(typeof client.ping).toBe("function");
   });
 });
