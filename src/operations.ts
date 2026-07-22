@@ -1,7 +1,8 @@
 import type { OperationId, RetryMode } from "./generated/operations.js";
 import { OPERATION_DESCRIPTORS } from "./generated/operations.js";
 import type { HttpClient } from "./http.js";
-import type { AhaSendPromise, RequestOptions } from "./types/common.js";
+import { IDEMPOTENCY_HEADER } from "./idempotency.js";
+import type { AhaSendPromise, IdempotencyRequestOptions } from "./types/common.js";
 
 export interface OperationParameters {
   readonly path?: Readonly<Record<string, string | number>>;
@@ -23,7 +24,7 @@ export class OperationExecutor {
   execute<T>(
     operationId: OperationId,
     parameters: OperationParameters = {},
-    options: RequestOptions = {},
+    options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<T> {
     const descriptor = OPERATION_DESCRIPTORS[operationId];
     const path = descriptor.path.replace(PATH_PARAMETER, (_placeholder, name: string) => {
@@ -36,6 +37,10 @@ export class OperationExecutor {
 
     const query = selectDeclaredQuery(parameters.query, descriptor.query);
     const retryMode: RetryMode = descriptor.retry;
+    const headers =
+      options.idempotencyKey !== undefined
+        ? { ...(options.headers ?? {}), [IDEMPOTENCY_HEADER]: options.idempotencyKey }
+        : options.headers;
 
     return this.http.request<T>({
       method: descriptor.method,
@@ -45,7 +50,7 @@ export class OperationExecutor {
         ? { body: parameters.body }
         : {}),
       ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.headers ? { headers: options.headers } : {}),
+      ...(headers ? { headers } : {}),
       operationId,
       retryMode,
       autoIdempotency: descriptor.idempotency,

@@ -5,7 +5,7 @@ export type { IdempotencyRequestOptions } from "../types/common.js";
 interface ForwardedOptions {
   readonly signal?: AbortSignal;
   readonly headers?: Record<string, string>;
-  readonly autoIdempotency?: true;
+  readonly idempotencyKey?: string;
 }
 
 export function forwardOptions(options: RequestOptions = {}): ForwardedOptions {
@@ -16,26 +16,12 @@ export function forwardOptions(options: RequestOptions = {}): ForwardedOptions {
   });
 }
 
-/**
- * For the 9 spec-documented idempotency endpoints. Sets `autoIdempotency`
- * so the HTTP layer will inject an `Idempotency-Key` when the caller has
- * not supplied one; everything else (e.g. `domains.checkDns()`) opts out
- * by using `forwardOptions()` instead.
- */
+/** Validate and freeze idempotency-aware request options for executor dispatch. */
 export function forwardWithIdempotency(options: IdempotencyRequestOptions = {}): ForwardedOptions {
   assertRequestOptions(options, true);
-  const headers =
-    options.headers || options.idempotencyKey !== undefined
-      ? Object.freeze({
-          ...(options.headers ?? {}),
-          ...(options.idempotencyKey !== undefined
-            ? { "Idempotency-Key": options.idempotencyKey }
-            : {}),
-        })
-      : undefined;
   return Object.freeze({
     ...(options.signal ? { signal: options.signal } : {}),
-    ...(headers ? { headers } : {}),
-    autoIdempotency: true,
+    ...(options.headers ? { headers: Object.freeze({ ...options.headers }) } : {}),
+    ...(options.idempotencyKey !== undefined ? { idempotencyKey: options.idempotencyKey } : {}),
   });
 }

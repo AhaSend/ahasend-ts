@@ -536,12 +536,9 @@ describe("resource option forwarding", () => {
     expect(Object.isFrozen(idempotent)).toBe(true);
     expect(Object.isFrozen(idempotent.headers)).toBe(true);
     expect(idempotent).toEqual({
-      headers: { "x-trace-id": "trace-1", "Idempotency-Key": "operation-1" },
-      autoIdempotency: true,
-    });
-    expect(generatedIdempotency).toEqual({
       headers: { "x-trace-id": "trace-1" },
-      autoIdempotency: true,
+      idempotencyKey: "operation-1",
     });
+    expect(generatedIdempotency).toEqual({ headers: { "x-trace-id": "trace-1" } });
   });
 });

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { APIKey, APIKeyScope, CreatedAPIKey } from "../src/resources/api-keys.js";
 // @ts-expect-error APIKeyRequestOptions was never released from the API-key module.
@@ -23,6 +25,18 @@ import type {
 } from "../src/resources/smtp-credentials.js";
 import type { PaginationParams } from "../src/types/common.js";
 import { captureFetch, makeClient } from "./helpers/resource-call.js";
+
+describe("Resource helper boundary", () => {
+  it("contains no generated route, path encoding, method, or transport idempotency policy", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/resources/_helpers.ts"), "utf8");
+
+    expect(source).not.toMatch(/["'`]\/v2\//);
+    expect(source).not.toContain("encodeURIComponent");
+    expect(source).not.toMatch(/\b(?:method|path)\s*:/);
+    expect(source).not.toContain("autoIdempotency");
+    expect(source).not.toContain("Idempotency-Key");
+  });
+});
 
 describe("Pagination parameter declarations", () => {
   it("accepts limit with at most one cursor", () => {
