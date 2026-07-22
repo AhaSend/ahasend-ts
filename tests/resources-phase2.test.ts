@@ -1,5 +1,10 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { ListRoutesParams } from "../src/resources/routes.js";
+import type {
+  CreatedRoute,
+  CreateRouteRequest,
+  ListRoutesParams,
+  Route,
+} from "../src/resources/routes.js";
 import type {
   BounceClassificationCount,
   DeliverabilityStatistics,
@@ -31,11 +36,18 @@ describe("Filtered pagination parameter declarations", () => {
       email: "blocked@example.com",
     };
     const routes: ListRoutesParams = { limit: 10, after: "next", domain: "example.com" };
+    // @ts-expect-error Route list cursors are mutually exclusive.
+    const invalidRoutes: ListRoutesParams = {
+      limit: 10,
+      after: "next",
+      before: "previous",
+      domain: "example.com",
+    };
 
     expect(webhooks.enabled).toBe(true);
     expect(suppressions.domain).toBe("example.com");
     expect(routes.domain).toBe("example.com");
-    void invalidSuppressions;
+    void [invalidSuppressions, invalidRoutes];
   });
 });
 
@@ -484,38 +496,152 @@ describe("SuppressionsClient", () => {
 });
 
 describe("RoutesClient", () => {
-  it("list() supports a domain filter", async () => {
+  it("keeps the route secret response-only in its public types", () => {
+    const requestWithSecret: CreateRouteRequest = {
+      name: "Selected secret",
+      url: "https://hooks.example/inbound",
+      recipient: "support@example.com",
+      // @ts-expect-error The server selects and returns the route signing secret.
+      secret: "client-selected",
+    };
+    const route: Route = {
+      object: "route",
+      id: "rt_1",
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      name: "Inbound replies",
+      url: "https://hooks.example/inbound",
+      recipient: "support@example.com",
+      attachments: true,
+      headers: false,
+      group_by_message_id: false,
+      strip_replies: true,
+      enabled: true,
+      success_count: 1,
+      error_count: 0,
+      errors_since_last_success: 0,
+      last_request_at: null,
+    };
+    const created: CreatedRoute = { ...route, secret: "rtsec_created" };
+    // @ts-expect-error Ordinary route responses never expose the signing secret.
+    const hiddenSecret = route.secret;
+
+    expectTypeOf<CreatedRoute["secret"]>().toEqualTypeOf<string>();
+    expect(created).toMatchObject({ id: "rt_1", secret: "rtsec_created" });
+    void [requestWithSecret, hiddenSecret];
+  });
+
+  it("list() dispatches getRoutes with its domain filter, limit, and one cursor", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.routes.list({ domain: "example.com", limit: 10, after: "next" });
+    await client.routes.list(
+      { domain: "example.com", limit: 10, after: "next" },
+      { headers: { "x-trace-id": "route-list-1" } },
+    );
     const url = new URL(calls[0]!.url);
     expect(url.searchParams.get("domain")).toBe("example.com");
     expect(url.searchParams.get("limit")).toBe("10");
     expect(url.searchParams.get("after")).toBe("next");
     expect(url.searchParams.has("before")).toBe(false);
+    expect(calls[0]!.headers["x-trace-id"]).toBe("route-list-1");
+    expect(calls[0]!.operationId).toBe("getRoutes");
   });
 
-  it("create() POSTs the route body (no `domain` field — per spec)", async () => {
-    const { fetch, calls } = captureFetch();
+  it("iterate() fetches the first page through getRoutes", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [{ object: "route", id: "rt_1", recipient: "support@example.com" }],
+            pagination: { has_more: false },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
     const client = makeClient(fetch);
-    await client.routes.create({
+    const routes = client.routes.iterate({ domain: "example.com", limit: 10, before: "previous" });
+
+    await expect(routes.next()).resolves.toMatchObject({
+      done: false,
+      value: { id: "rt_1", recipient: "support@example.com" },
+    });
+    await expect(routes.next()).resolves.toEqual({ done: true, value: undefined });
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("domain")).toBe("example.com");
+    expect(url.searchParams.get("limit")).toBe("10");
+    expect(url.searchParams.get("before")).toBe("previous");
+    expect(calls[0]!.operationId).toBe("getRoutes");
+  });
+
+  it("create() dispatches createRoute and returns its one-time secret", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(JSON.stringify({ object: "route", id: "rt_1", secret: "rtsec_created" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = makeClient(fetch);
+    const created = await client.routes.create(
+      {
+        name: "Inbound replies",
+        url: "https://hooks.example/inbound",
+        recipient: "support@example.com",
+        attachments: true,
+      },
+      { idempotencyKey: "route-create-1" },
+    );
+    expect(calls[0]!.method).toBe("POST");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
       name: "Inbound replies",
       url: "https://hooks.example/inbound",
       recipient: "support@example.com",
       attachments: true,
     });
-    expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.body).toContain(`"recipient":"support@example.com"`);
-    expect(calls[0]!.body).toContain(`"attachments":true`);
-    expect(calls[0]!.body).not.toContain(`"domain"`);
+    expect(calls[0]!.headers["idempotency-key"]).toBe("route-create-1");
+    expect(calls[0]!.operationId).toBe("createRoute");
+    expect(created).toEqual({ object: "route", id: "rt_1", secret: "rtsec_created" });
   });
 
-  it("update() PUTs to /routes/{id}", async () => {
+  it("get() dispatches getRoute and encodes the route ID", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.routes.update("rt_1", { enabled: false });
+
+    await client.routes.get("rt/42");
+
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/routes/rt%2F42");
+    expect(calls[0]!.operationId).toBe("getRoute");
+  });
+
+  it("update() dispatches updateRoute with body and request options", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+    await client.routes.update(
+      "rt/42",
+      { recipient: "replies@example.net", enabled: false },
+      { headers: { "x-trace-id": "route-update-1" } },
+    );
     expect(calls[0]!.method).toBe("PUT");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/routes/rt_1");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/routes/rt%2F42");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      recipient: "replies@example.net",
+      enabled: false,
+    });
+    expect(calls[0]!.headers["x-trace-id"]).toBe("route-update-1");
+    expect(calls[0]!.operationId).toBe("updateRoute");
+  });
+
+  it("delete() dispatches deleteRoute", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.routes.delete("rt/42");
+
+    expect(calls[0]!.method).toBe("DELETE");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/routes/rt%2F42");
+    expect(calls[0]!.operationId).toBe("deleteRoute");
   });
 });
 

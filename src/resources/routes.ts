@@ -1,4 +1,4 @@
-import type { HttpClient } from "../http.js";
+import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
@@ -70,68 +70,87 @@ export type ListRoutesParams = PaginationParams & {
  * `WebhookVerifier` from `@ahasend/sdk/webhooks`.
  */
 export class RoutesClient {
-  constructor(
-    private readonly http: HttpClient,
-    private readonly accountId: UUID,
-  ) {}
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
 
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
+
+  /**
+   * Fetch one page of routes. A domain-scoped read key must provide its
+   * matching `domain` filter; the global read role may list without one.
+   */
   list(
     params: ListRoutesParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Route>> {
-    return this.http.request<PaginatedResponse<Route>>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes`,
-      query: params as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<PaginatedResponse<Route>>(
+      "getRoutes",
+      {
+        path: { account_id: this.#accountId },
+        query: params as Readonly<Record<string, unknown>>,
+      },
+      forwardOptions(options),
+    );
   }
 
   iterate(
     params: ListRoutesParams = {},
     options: RequestOptions = {},
   ): AsyncGenerator<Route, void, undefined> {
-    return paginate<Route, ListRoutesParams>(
-      (p) => this.list(p, options),
-      params,
+    return paginate<Route, ListRoutesParams>((p) => this.list(p, options), params);
+  }
+
+  /**
+   * Create a route. Authorization uses the domain in `recipient`: the global
+   * write role or its matching domain-specific write role is sufficient.
+   *
+   * The response is the only time the route signing `secret` is exposed.
+   */
+  create(body: CreateRouteRequest, options: IdempotencyRequestOptions = {}): Promise<CreatedRoute> {
+    return this.#operations.execute<CreatedRoute>(
+      "createRoute",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
     );
   }
 
-  create(body: CreateRouteRequest, options: IdempotencyRequestOptions = {}): Promise<CreatedRoute> {
-    return this.http.request<CreatedRoute>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes`,
-      body,
-      ...forwardWithIdempotency(options),
-    });
-  }
-
+  /**
+   * Fetch a route. Requires the global read role or a read role matching the
+   * route's existing recipient domain.
+   */
   get(routeId: UUID, options: RequestOptions = {}): Promise<Route> {
-    return this.http.request<Route>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes/${encodeURIComponent(routeId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<Route>(
+      "getRoute",
+      { path: { account_id: this.#accountId, route_id: routeId } },
+      forwardOptions(options),
+    );
   }
 
-  update(
-    routeId: UUID,
-    body: UpdateRouteRequest,
-    options: RequestOptions = {},
-  ): Promise<Route> {
-    return this.http.request<Route>({
-      method: "PUT",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes/${encodeURIComponent(routeId)}`,
-      body,
-      ...forwardOptions(options),
-    });
+  /**
+   * Update a route. A domain-scoped key must authorize both the existing
+   * recipient domain and any replacement recipient domain; the global write
+   * role satisfies both checks.
+   */
+  update(routeId: UUID, body: UpdateRouteRequest, options: RequestOptions = {}): Promise<Route> {
+    return this.#operations.execute<Route>(
+      "updateRoute",
+      { path: { account_id: this.#accountId, route_id: routeId }, body },
+      forwardOptions(options),
+    );
   }
 
+  /**
+   * Delete a route. Requires the global delete role or a delete role matching
+   * the route's existing recipient domain.
+   */
   delete(routeId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.http.request<SuccessResponse>({
-      method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes/${encodeURIComponent(routeId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<SuccessResponse>(
+      "deleteRoute",
+      { path: { account_id: this.#accountId, route_id: routeId } },
+      forwardOptions(options),
+    );
   }
 }
