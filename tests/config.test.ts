@@ -61,6 +61,18 @@ describe("resolveConfig", () => {
     ).toThrow(/unknown .* option/i);
   });
 
+  it.each(["standard", "statistics"] as const)(
+    "rejects a %s burst that cannot hold one request token",
+    (category) => {
+      expect(() =>
+        resolveConfig({
+          apiKey: "aha-sk-test",
+          rateLimit: { [category]: { burst: 0.5 } },
+        }),
+      ).toThrow(/burst.*greater than or equal to 1/i);
+    },
+  );
+
   it("rejects non-HTTPS baseUrls without the override flag", () => {
     expect(() =>
       resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://api.example.com" }),

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "../src/config.js";
-import { AhaSendAbortError } from "../src/errors.js";
+import { AhaSendAbortError, AhaSendTimeoutError } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 import {
   DEFAULT_RATE_LIMIT_CONFIG,
@@ -152,6 +152,62 @@ describe("RateLimiter", () => {
 
     await clock.advance(1000);
     await next;
+  });
+
+  it("bounds queued pacing by the configured request timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const client = new HttpClient(
+        resolveConfig({
+          apiKey: "test-key",
+          fetch,
+          timeoutMs: 100,
+          retry: { enabled: false },
+          rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+        }),
+      );
+
+      await client.request({ method: "GET", path: "/v2/ping" });
+      const queued = client.request({ method: "GET", path: "/v2/ping" });
+      const rejected = expect(queued).rejects.toBeInstanceOf(AhaSendTimeoutError);
+
+      await vi.advanceTimersByTimeAsync(100);
+      await rejected;
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves caller cancellation while a transport request waits for a token", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const client = new HttpClient(
+      resolveConfig({
+        apiKey: "test-key",
+        fetch,
+        retry: { enabled: false },
+        rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+      }),
+    );
+    await client.request({ method: "GET", path: "/v2/ping" });
+
+    const controller = new AbortController();
+    const queued = client.request({ method: "GET", path: "/v2/ping", signal: controller.signal });
+    controller.abort("caller stopped waiting");
+
+    await expect(queued).rejects.toBeInstanceOf(AhaSendAbortError);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("rejects an already-aborted acquisition without entering the queue", async () => {

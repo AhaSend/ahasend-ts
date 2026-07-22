@@ -94,11 +94,8 @@ export class HttpClient {
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      // Acquire a token on every attempt, including retries. Server-directed
-      // 429 delay handling is separate and remains owned by retry policy.
-      await this.rateLimiter.acquire(options.method, options.path, options.signal);
       try {
-        return await this.executeOnce<T>(execution, options, attempt);
+        return await this.executeAttempt<T>(execution, options, attempt);
       } catch (err) {
         lastError = err;
         const requestId = extractRequestId(err);
@@ -130,13 +127,38 @@ export class HttpClient {
     throw lastError;
   }
 
-  private async executeOnce<T>(
+  private async executeAttempt<T>(
     execution: HttpExecutionRecord,
     options: RequestOptions,
     attempt: number,
   ): Promise<AhaSendResponse<T>> {
-    const { url, init } = execution;
     const controller = this.linkAbortSignal(options.signal, this.config.timeoutMs);
+
+    try {
+      // Acquire on every attempt, including retries. Starting the attempt
+      // timeout first prevents local pacing from waiting without a bound.
+      await this.rateLimiter.acquire(options.method, options.path, controller.signal);
+    } catch (err) {
+      controller.cleanup();
+      if (controller.timedOut) {
+        throw new AhaSendTimeoutError(
+          `Request to ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms while waiting for local rate limit`,
+          err,
+        );
+      }
+      throw err;
+    }
+
+    return this.executeOnce<T>(execution, options, attempt, controller);
+  }
+
+  private async executeOnce<T>(
+    execution: HttpExecutionRecord,
+    options: RequestOptions,
+    attempt: number,
+    controller: LinkedAbortSignal,
+  ): Promise<AhaSendResponse<T>> {
+    const { url, init } = execution;
     const startedAt = Date.now();
 
     this.config.hooks.onRequest({
@@ -337,7 +359,7 @@ export class HttpClient {
   private linkAbortSignal(
     userSignal: AbortSignal | undefined,
     timeoutMs: number,
-  ): { signal: AbortSignal; cleanup: () => void; timedOut: boolean } {
+  ): LinkedAbortSignal {
     const controller = new AbortController();
     let timedOut = false;
 
@@ -366,6 +388,12 @@ export class HttpClient {
       },
     };
   }
+}
+
+interface LinkedAbortSignal {
+  readonly signal: AbortSignal;
+  readonly timedOut: boolean;
+  cleanup(): void;
 }
 
 interface HttpExecutionRecord {

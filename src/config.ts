@@ -402,6 +402,11 @@ function assertRateLimitConfig(config: unknown): void {
     }
     if (value.burst !== undefined) {
       assertPositiveFiniteNumber(value.burst, `rateLimit.${category}.burst`);
+      if (value.burst < 1) {
+        throw new AhaSendConfigurationError(
+          `AhaSend: \`rateLimit.${category}.burst\` must be greater than or equal to 1.`,
+        );
+      }
     }
   }
 }

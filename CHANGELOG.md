@@ -24,8 +24,8 @@ Initial release.
   authoritative up to the configured retry maximum (30 seconds by
   default).
 - Opt-in two-bucket rate limiter for the documented standard and
-  statistics tiers, with cancellable local pacing independent of
-  undocumented remaining headers.
+  statistics tiers, with timeout-bounded, cancellable local pacing
+  independent of undocumented remaining headers.
 - Typed telemetry hooks (`onRequest`, `onResponse`, `onRetry`,
   `onError`) carrying the server `x-request-id`;
   successful response envelopes carry `requestId` / `idempotentReplayed`.

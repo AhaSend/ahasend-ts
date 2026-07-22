@@ -172,8 +172,10 @@ up to 4 total attempts.
 
 An opt-in two-bucket token limiter (standard / statistics) paces requests
 to the API's documented limits. Statistics calls are paced to 1 req/s, so
-fan-out dashboards queue rather than 429. Local bucket state does not rely
-on undocumented remaining headers returned by the server.
+fan-out dashboards queue rather than 429. A request's `timeoutMs` includes
+time spent waiting for a local token, and each configured burst must be at
+least one token. Local bucket state does not rely on undocumented remaining
+headers returned by the server.
 
 ### Telemetry
 
