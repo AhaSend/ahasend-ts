@@ -710,29 +710,106 @@ describe("AccountsClient", () => {
 });
 
 describe("SMTPCredentialsClient", () => {
-  it("list() hits /smtp-credentials", async () => {
+  it("list() dispatches getSMTPCredentials with pagination and request options", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.smtpCredentials.list();
-    expect(calls[0]!.url).toContain("/v2/accounts/acc_1/smtp-credentials");
-  });
-
-  it("create() POSTs body", async () => {
-    const { fetch, calls } = captureFetch();
-    const client = makeClient(fetch);
-    await client.smtpCredentials.create({ name: "ci-cred", scope: "global" });
-    expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.body).toContain(`"scope":"global"`);
-  });
-
-  it("delete() targets /smtp-credentials/{id}", async () => {
-    const { fetch, calls } = captureFetch();
-    const client = makeClient(fetch);
-    await client.smtpCredentials.delete("cred_1");
-    expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe(
-      "https://api.test/v2/accounts/acc_1/smtp-credentials/cred_1",
+    await client.smtpCredentials.list(
+      { limit: 25, before: "previous" },
+      { headers: { "x-trace-id": "smtp-list-1" } },
     );
+
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/v2/accounts/acc_1/smtp-credentials");
+    expect(url.searchParams.get("limit")).toBe("25");
+    expect(url.searchParams.get("before")).toBe("previous");
+    expect(url.searchParams.has("after")).toBe(false);
+    expect(calls[0]!.headers["x-trace-id"]).toBe("smtp-list-1");
+    expect(calls[0]!.operationId).toBe("getSMTPCredentials");
+  });
+
+  it("iterate() fetches the first page through getSMTPCredentials", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [{ object: "credential_smtp", id: "cred_1", domains: [] }],
+            pagination: { has_more: false },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = makeClient(fetch);
+    const credentials = client.smtpCredentials.iterate({ limit: 10, after: "next" });
+
+    await expect(credentials.next()).resolves.toMatchObject({
+      done: false,
+      value: { id: "cred_1", domains: [] },
+    });
+    await expect(credentials.next()).resolves.toEqual({ done: true, value: undefined });
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("limit")).toBe("10");
+    expect(url.searchParams.get("after")).toBe("next");
+    expect(calls[0]!.operationId).toBe("getSMTPCredentials");
+  });
+
+  it("create() dispatches createSMTPCredential and returns the one-time password", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "credential_smtp",
+            id: "cred_1",
+            scope: "global",
+            domains: [],
+            password: "smtp-password",
+          }),
+          { status: 201, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = makeClient(fetch);
+    const created = await client.smtpCredentials.create(
+      { name: "ci-cred", scope: "global", domains: ["ignored.example"] },
+      { idempotencyKey: "smtp-create-1" },
+    );
+
+    expect(calls[0]!.method).toBe("POST");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      name: "ci-cred",
+      scope: "global",
+      domains: ["ignored.example"],
+    });
+    expect(calls[0]!.headers["idempotency-key"]).toBe("smtp-create-1");
+    expect(calls[0]!.operationId).toBe("createSMTPCredential");
+    expect(created).toMatchObject({ domains: [], password: "smtp-password" });
+  });
+
+  it("get() dispatches getSMTPCredential and encodes the credential ID", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.smtpCredentials.get("cred/42", {
+      headers: { "x-trace-id": "smtp-get-1" },
+    });
+
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/smtp-credentials/cred%2F42");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("smtp-get-1");
+    expect(calls[0]!.operationId).toBe("getSMTPCredential");
+  });
+
+  it("delete() dispatches deleteSMTPCredential", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.smtpCredentials.delete("cred/42", {
+      headers: { "x-trace-id": "smtp-delete-1" },
+    });
+
+    expect(calls[0]!.method).toBe("DELETE");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/smtp-credentials/cred%2F42");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("smtp-delete-1");
+    expect(calls[0]!.operationId).toBe("deleteSMTPCredential");
   });
 });
 

@@ -16,6 +16,11 @@ import type {
   MessageSummary,
   SendMessageResult,
 } from "../src/resources/messages.js";
+import type {
+  CreateSMTPCredentialRequest,
+  SMTPCredential,
+  SMTPCredentialsClient,
+} from "../src/resources/smtp-credentials.js";
 import type { PaginationParams } from "../src/types/common.js";
 import { captureFetch, makeClient } from "./helpers/resource-call.js";
 
@@ -72,6 +77,85 @@ describe("Account declarations", () => {
 
   it("does not expose the account-specific ListMembersParams alias", () => {
     expectTypeOf<RemovedListMembersParams>().toEqualTypeOf<RemovedListMembersParams>();
+  });
+});
+
+describe("SMTP credential declarations", () => {
+  it("models every global domain form and requires non-empty scoped domains", () => {
+    const globalOmitted: CreateSMTPCredentialRequest = {
+      name: "global omitted",
+      scope: "global",
+    };
+    const globalNull: CreateSMTPCredentialRequest = {
+      name: "global null",
+      scope: "global",
+      domains: null,
+    };
+    const globalEmpty: CreateSMTPCredentialRequest = {
+      name: "global empty",
+      scope: "global",
+      domains: [],
+    };
+    const globalNonEmpty: CreateSMTPCredentialRequest = {
+      name: "global supplied",
+      scope: "global",
+      domains: ["ignored.example"],
+    };
+    const scoped: CreateSMTPCredentialRequest = {
+      name: "scoped",
+      scope: "scoped",
+      domains: ["example.com"],
+    };
+    // @ts-expect-error Scoped credentials require domains.
+    const scopedMissing: CreateSMTPCredentialRequest = {
+      name: "scoped missing",
+      scope: "scoped",
+    };
+    // @ts-expect-error Scoped credential domains must be non-empty.
+    const scopedEmpty: CreateSMTPCredentialRequest = {
+      name: "scoped empty",
+      scope: "scoped",
+      domains: [],
+    };
+    if (false) {
+      // @ts-expect-error Request domain arrays are readonly.
+      scoped.domains.push("another.example");
+    }
+
+    expect(globalOmitted).not.toHaveProperty("domains");
+    expect(globalNull.domains).toBeNull();
+    expect(globalEmpty.domains).toEqual([]);
+    expect(globalNonEmpty.domains).toEqual(["ignored.example"]);
+    expect(scoped.domains).toEqual(["example.com"]);
+    void [scopedMissing, scopedEmpty];
+  });
+
+  it("requires non-null response domains and exposes no update method", () => {
+    const credential: SMTPCredential = {
+      object: "credential_smtp",
+      id: "cred_1",
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      name: "Production SMTP",
+      username: "smtp-user",
+      sandbox: false,
+      scope: "global",
+      domains: [],
+    };
+    const { domains: _domains, ...withoutDomains } = credential;
+    // @ts-expect-error domains is a required SMTP credential response field.
+    const missingDomains: SMTPCredential = withoutDomains;
+    // @ts-expect-error SMTP credential response domains cannot be null.
+    const nullDomains: SMTPCredential = { ...credential, domains: null };
+    if (false) {
+      const client = {} as SMTPCredentialsClient;
+      // @ts-expect-error SMTP credentials have no update operation.
+      client.update;
+    }
+
+    expectTypeOf<SMTPCredential["domains"]>().toEqualTypeOf<string[]>();
+    expect(credential.domains).toEqual([]);
+    void [missingDomains, nullDomains, _domains];
   });
 });
 

@@ -106,7 +106,9 @@ export class AhaSendClient {
     this.#suppressions = createFrozenFacade(new SuppressionsClient(this.#operations, accountId));
     this.#routes = createFrozenFacade(new RoutesClient(this.#operations, accountId));
     this.#accounts = createFrozenFacade(new AccountsClient(this.#operations, accountId));
-    this.#smtpCredentials = createFrozenFacade(new SMTPCredentialsClient(this.#http, accountId));
+    this.#smtpCredentials = createFrozenFacade(
+      new SMTPCredentialsClient(this.#operations, accountId),
+    );
   }
 
   get accountId(): UUID {
