@@ -444,7 +444,7 @@ describe("HttpClient cancellation and attempt timeouts", () => {
     }
   });
 
-  it("keeps caller abort precedence when fetch rejects after the timeout deadline", async () => {
+  it("keeps caller abort precedence when fetch rejects with its timeout-typed reason", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -453,7 +453,10 @@ describe("HttpClient cancellation and attempt timeouts", () => {
           new Promise<Response>((_, reject) => {
             init.signal?.addEventListener(
               "abort",
-              () => setTimeout(() => reject(makeAbortError()), 150),
+              () => {
+                const reason = init.signal?.reason;
+                setTimeout(() => reject(reason), 150);
+              },
               { once: true },
             );
           }),
@@ -466,7 +469,7 @@ describe("HttpClient cancellation and attempt timeouts", () => {
       const rejected = expect(request).rejects.toBeInstanceOf(AhaSendAbortError);
 
       await vi.advanceTimersByTimeAsync(25);
-      controller.abort("caller cancelled during fetch");
+      controller.abort(new AhaSendTimeoutError("caller-provided abort reason"));
       await vi.advanceTimersByTimeAsync(150);
       await rejected;
       expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -505,7 +508,7 @@ describe("HttpClient cancellation and attempt timeouts", () => {
     }
   });
 
-  it("keeps caller abort precedence when a body read rejects after the timeout deadline", async () => {
+  it("keeps caller abort precedence when body reading rejects with its timeout-typed reason", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -516,7 +519,10 @@ describe("HttpClient cancellation and attempt timeouts", () => {
             new Promise<string>((_, reject) => {
               init.signal?.addEventListener(
                 "abort",
-                () => setTimeout(() => reject(makeAbortError()), 150),
+                () => {
+                  const reason = init.signal?.reason;
+                  setTimeout(() => reject(reason), 150);
+                },
                 { once: true },
               );
             }),
@@ -531,7 +537,7 @@ describe("HttpClient cancellation and attempt timeouts", () => {
       const rejected = expect(request).rejects.toBeInstanceOf(AhaSendAbortError);
 
       await vi.advanceTimersByTimeAsync(25);
-      controller.abort("caller cancelled during body read");
+      controller.abort(new AhaSendTimeoutError("caller-provided abort reason"));
       await vi.advanceTimersByTimeAsync(150);
       await rejected;
       expect(fetchImpl).toHaveBeenCalledTimes(1);

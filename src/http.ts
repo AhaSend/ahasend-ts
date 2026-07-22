@@ -166,12 +166,11 @@ export class HttpClient {
           headers: { ...(init.headers as Record<string, string>) },
           signal: controller.signal,
         });
-        this.throwIfAttemptAborted(controller, options, "during fetch");
       } catch (err) {
-        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
         if (controller.signal.aborted) {
           throw this.createAttemptAbortError(controller, options, "during fetch", err);
         }
+        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
         if (err instanceof Error && err.name === "AbortError") {
           throw new AhaSendAbortError("Request aborted", err);
         }
@@ -180,6 +179,7 @@ export class HttpClient {
           err,
         );
       }
+      this.throwIfAttemptAborted(controller, options, "during fetch");
 
       // Keep the timer armed until the body has been fully read. A server
       // that sends headers quickly and then stalls remains inside this
@@ -199,17 +199,17 @@ export class HttpClient {
       let data: T;
       try {
         data = await this.parseResponse<T>(response, execution.idempotency, requestId);
-        this.throwIfAttemptAborted(controller, options, "during body read");
       } catch (err) {
-        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
         if (controller.signal.aborted) {
           throw this.createAttemptAbortError(controller, options, "during body read", err);
         }
+        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
         if (err instanceof Error && err.name === "AbortError") {
           throw new AhaSendAbortError("Request aborted during body read", err);
         }
         throw err;
       }
+      this.throwIfAttemptAborted(controller, options, "during body read");
 
       return {
         data,
