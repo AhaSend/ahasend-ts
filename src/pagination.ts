@@ -1,3 +1,4 @@
+import { AhaSendError } from "./errors.js";
 import type { PaginatedResponse, PaginationParams } from "./types/common.js";
 
 /**
@@ -24,7 +25,7 @@ export async function* paginate<T, P extends PaginationParams>(
     const cursor = backwards ? page.pagination.previous_cursor : page.pagination.next_cursor;
     if (!cursor) return;
     if (seenCursors.has(cursor)) {
-      throw new Error("Pagination cursor did not advance");
+      throw new AhaSendError("Pagination cursor did not advance");
     }
     seenCursors.add(cursor);
 

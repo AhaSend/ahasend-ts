@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { AhaSendError, isAhaSendError } from "../src/index.js";
 import { collect, paginate } from "../src/pagination.js";
 import type { PaginatedResponse } from "../src/types/common.js";
 import { AhaSendClient } from "../src/client.js";
@@ -116,7 +117,14 @@ describe("paginate", () => {
       }
     };
 
-    await expect(drain()).rejects.toThrow("Pagination cursor did not advance");
+    const error = await drain().catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(AhaSendError);
+    expect(isAhaSendError(error)).toBe(true);
+    expect(error).toMatchObject({
+      code: "ahasend_error",
+      message: "Pagination cursor did not advance",
+    });
     expect(fetchPage).toHaveBeenCalledTimes(2);
   });
 
