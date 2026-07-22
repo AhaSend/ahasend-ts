@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import type {
   AhaSendPromise,
@@ -30,6 +32,22 @@ function mockFetch(
     const url = typeof input === "string" ? input : input.toString();
     return handler(url, init ?? {});
   }) as unknown as FetchImpl;
+}
+
+function listen(server: ReturnType<typeof createServer>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+}
+
+function close(server: ReturnType<typeof createServer>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
 }
 
 function makeClient(
@@ -91,6 +109,39 @@ describe("HttpClient", () => {
     expect(seenUrl).not.toContain("also_skip");
   });
 
+  it.each([
+    ["http://localhost:4010", "http://localhost:4010/v2/ping"],
+    ["http://127.0.0.1:4010", "http://127.0.0.1:4010/v2/ping"],
+    ["http://[::1]:4010", "http://[::1]:4010/v2/ping"],
+  ])("joins a generated route to the local origin %s", async (baseUrl, expectedUrl) => {
+    let seenUrl = "";
+    const client = makeClient(
+      mockFetch((url) => {
+        seenUrl = url;
+        return new Response("{}", { status: 200 });
+      }),
+      { baseUrl },
+    );
+
+    await client.request({ method: "GET", path: "/v2/ping" });
+
+    expect(seenUrl).toBe(expectedUrl);
+  });
+
+  it("keeps even network-path-like routes on the configured origin", async () => {
+    let seenUrl = "";
+    const client = makeClient(
+      mockFetch((url) => {
+        seenUrl = url;
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await client.request({ method: "GET", path: "//attacker.test/v2/ping" });
+
+    expect(seenUrl).toBe("https://api.test/attacker.test/v2/ping");
+  });
+
   it("repeats array query params", async () => {
     let seenUrl = "";
     const client = makeClient(
@@ -131,7 +182,7 @@ describe("HttpClient", () => {
     expect(headers["content-type"]).toBe("application/json");
   });
 
-  it("passes through custom headers with lowercase keys", async () => {
+  it("passes through non-owned custom headers with lowercase keys", async () => {
     let seenInit: RequestInit | undefined;
     const client = makeClient(
       mockFetch((_url, init) => {
@@ -144,11 +195,11 @@ describe("HttpClient", () => {
       method: "POST",
       path: "/x",
       body: {},
-      headers: { "Idempotency-Key": "key-1" },
+      headers: { "X-Trace-Id": "trace-1" },
     });
 
     const headers = seenInit?.headers as Record<string, string>;
-    expect(headers["idempotency-key"]).toBe("key-1");
+    expect(headers["x-trace-id"]).toBe("trace-1");
   });
 
   it("maps non-2xx responses to typed errors", async () => {
@@ -253,7 +304,7 @@ describe("HttpClient", () => {
     expect(headers["idempotency-key"]).toBeUndefined();
   });
 
-  it("does NOT overwrite an explicitly provided Idempotency-Key", async () => {
+  it("does NOT overwrite an explicitly provided idempotency option", async () => {
     let seenInit: RequestInit | undefined;
     const client = makeClient(
       mockFetch((_url, init) => {
@@ -266,11 +317,47 @@ describe("HttpClient", () => {
       method: "POST",
       path: "/x",
       body: {},
-      headers: { "Idempotency-Key": "user-supplied-key" },
+      idempotencyKey: "user-supplied-key",
+      autoIdempotency: true,
     });
 
     const headers = seenInit?.headers as Record<string, string>;
     expect(headers["idempotency-key"]).toBe("user-supplied-key");
+  });
+
+  it("blocks cross-origin redirects before owned headers can reach the target", async () => {
+    let targetRequests = 0;
+    const target = createServer((_request, response) => {
+      targetRequests++;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("{}");
+    });
+    const redirector = createServer((_request, response) => {
+      const targetAddress = target.address() as AddressInfo;
+      response.writeHead(302, { location: `http://127.0.0.1:${targetAddress.port}/stolen` });
+      response.end();
+    });
+
+    await Promise.all([listen(target), listen(redirector)]);
+    try {
+      const redirectAddress = redirector.address() as AddressInfo;
+      const client = makeClient(globalThis.fetch, {
+        baseUrl: `http://127.0.0.1:${redirectAddress.port}`,
+        retry: { enabled: false },
+      });
+
+      await expect(
+        client.request({
+          method: "POST",
+          path: "/redirect",
+          body: { secret: true },
+          idempotencyKey: "redirect-key",
+        }),
+      ).rejects.toBeInstanceOf(AhaSendConnectionError);
+      expect(targetRequests).toBe(0);
+    } finally {
+      await Promise.all([close(target), close(redirector)]);
+    }
   });
 
   it("does NOT auto-inject when idempotency.autoGenerate is disabled", async () => {

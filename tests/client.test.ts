@@ -126,7 +126,7 @@ describe("AhaSendClient", () => {
     const client = new AhaSendClient({
       apiKey,
       accountId: "acc_inspect",
-      defaultHeaders: { authorization: sensitiveHeader },
+      defaultHeaders: { "x-private-header": sensitiveHeader },
       fetch: mockFetch(() => new Response("{}", { status: 200 })),
     });
 

@@ -44,19 +44,21 @@ describe("resolveConfig", () => {
     ).toThrow(/insecure|https/i);
   });
 
-  it("allows only explicit localhost and loopback HTTP origins for local mocks", () => {
-    expect(() =>
-      resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://localhost:4010" }),
-    ).not.toThrow();
-    expect(() =>
-      resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://127.0.0.1:4010" }),
-    ).not.toThrow();
-    expect(() =>
-      resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://[::1]:4010" }),
-    ).not.toThrow();
-    expect(() =>
-      resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://dev.localhost:4010" }),
-    ).toThrow(/insecure|https/i);
+  it.each(["http://localhost:4010", "http://127.0.0.1:4010", "http://[::1]:4010"])(
+    "allows the explicit local HTTP origin %s",
+    (baseUrl) => {
+      expect(resolveConfig({ apiKey: "aha-sk-test", baseUrl }).baseUrl).toBe(baseUrl);
+    },
+  );
+
+  it.each([
+    "http://dev.localhost:4010",
+    "http://127.0.0.2:4010",
+    "http://127.1:4010",
+    "http://[::]:4010",
+    "http://[0:0:0:0:0:0:0:1]:4010",
+  ])("rejects the non-explicit local HTTP form %s", (baseUrl) => {
+    expect(() => resolveConfig({ apiKey: "aha-sk-test", baseUrl })).toThrow(/insecure|https/i);
   });
 
   it("dangerouslyAllowInsecureBaseUrl opt-in lets http:// through", () => {
@@ -95,19 +97,27 @@ describe("resolveConfig", () => {
     }
   });
 
-  it("strips trailing slashes from baseUrl", () => {
+  it("normalizes an origin with one trailing slash", () => {
     const resolved = resolveConfig({
       apiKey: "aha-sk-test",
-      baseUrl: "https://api.example.com///",
+      baseUrl: "https://api.example.com/",
     });
     expect(resolved.baseUrl).toBe("https://api.example.com");
   });
 
   it.each([
     "https://user:password@api.example.com",
+    "https://@api.example.com",
+    "https://:@api.example.com",
     "https://api.example.com/v2",
     "https://api.example.com?region=us",
+    "https://api.example.com?",
     "https://api.example.com#fragment",
+    "https://api.example.com#",
+    "https://api.example.com///",
+    " https://api.example.com",
+    "https:api.example.com",
+    "https:\\api.example.com",
     "ftp://api.example.com",
   ])("rejects a baseUrl that is not an HTTP(S) origin: %s", (baseUrl) => {
     expect(() => resolveConfig({ apiKey: "aha-sk-test", baseUrl })).toThrow(
@@ -178,6 +188,20 @@ describe("resolveConfig", () => {
   });
 
   it.each([
+    "Accept",
+    "AUTHORIZATION",
+    "Content-Length",
+    "content-TYPE",
+    "HOST",
+    "Idempotency-Key",
+    "User-Agent",
+  ])("rejects the transport-owned default header %s case-insensitively", (header) => {
+    expect(() =>
+      resolveConfig({ apiKey: "aha-sk-test", defaultHeaders: { [header]: "override" } }),
+    ).toThrow(/owned|cannot be overridden/i);
+  });
+
+  it.each([
     ["negative retries", { maxRetries: -1 }],
     ["fractional retries", { maxRetries: 1.5 }],
     ["negative base delay", { baseDelayMs: -1 }],
@@ -227,6 +251,28 @@ describe("resolveConfig", () => {
     ).toThrow(/plain object/i);
     expect(() => client.ping(new Date(0) as never)).toThrow(/plain object/i);
     expect(() => client.messages.send({} as never, new Map() as never)).toThrow(/plain object/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "aCcEpT",
+    "Authorization",
+    "CONTENT-LENGTH",
+    "Content-Type",
+    "Host",
+    "IDEMPOTENCY-KEY",
+    "USER-AGENT",
+  ])("rejects the transport-owned request header %s before fetch", (header) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: "account-id",
+      fetch: fetchImpl,
+    });
+
+    expect(() => client.ping({ headers: { [header]: "override" } })).toThrow(
+      /owned|cannot be overridden/i,
+    );
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

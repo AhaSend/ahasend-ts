@@ -78,6 +78,15 @@ const RETRY_STRATEGIES = new Set(["exponential", "linear", "constant"]);
 const HOOK_NAMES = new Set(["onRequest", "onResponse", "onRetry", "onError"]);
 const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const INVALID_HEADER_VALUE_PATTERN = /[\u0000-\u0008\u000a-\u001f\u007f]|[^\u0000-\u00ff]/;
+const TRANSPORT_OWNED_HEADERS = new Set([
+  "accept",
+  "authorization",
+  "content-length",
+  "content-type",
+  "host",
+  "idempotency-key",
+  "user-agent",
+]);
 
 export function resolveConfig(options: ClientOptions): ResolvedConfig {
   assertPlainRecord(options, "options");
@@ -231,7 +240,7 @@ export function assertRequestOptions(
   }
 }
 
-/** @internal Validate a header record without relying on transport-specific behavior. */
+/** @internal Validate caller headers and reject names owned by the SDK transport. */
 export function assertHeaders(
   headers: unknown,
   name: string,
@@ -248,8 +257,10 @@ export function assertHeaders(
       throw new AhaSendConfigurationError(`AhaSend: \`${name}.${headerName}\` must be a string.`);
     }
     assertHeaderValue(value, `${name}.${headerName}`);
-    if (headerName.toLowerCase() === "idempotency-key") {
-      assertValidIdempotencyKey(value, `${name}.${headerName}`);
+    if (TRANSPORT_OWNED_HEADERS.has(headerName.toLowerCase())) {
+      throw new AhaSendConfigurationError(
+        `AhaSend: \`${name}.${headerName}\` is owned by the SDK transport and cannot be overridden.`,
+      );
     }
   }
 }
@@ -303,9 +314,13 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
   if (
     parsed.username ||
     parsed.password ||
-    !/^\/*$/.test(parsed.pathname) ||
-    parsed.search ||
-    parsed.hash
+    baseUrl.includes("@") ||
+    parsed.pathname !== "/" ||
+    baseUrl.includes("?") ||
+    baseUrl.includes("#") ||
+    baseUrl !== baseUrl.trim() ||
+    ((parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      !/^https?:\/\//i.test(baseUrl))
   ) {
     throw new AhaSendConfigurationError(
       "AhaSend: invalid baseUrl — expected an origin without credentials, path, query, or fragment.",
@@ -318,8 +333,7 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
     );
   }
 
-  const host = parsed.hostname.toLowerCase();
-  const isLocalhost = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  const isLocalhost = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\/?$/i.test(baseUrl);
   if (parsed.protocol === "http:" && !isLocalhost && !allowInsecure) {
     throw new AhaSendConfigurationError(
       "AhaSend: refusing to send the bearer API key over an insecure baseUrl. " +

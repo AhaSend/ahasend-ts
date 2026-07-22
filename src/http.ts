@@ -13,6 +13,7 @@ import {
   generateIdempotencyKey,
   IDEMPOTENCY_HEADER,
   IDEMPOTENT_REPLAYED_HEADER,
+  assertValidIdempotencyKey,
 } from "./idempotency.js";
 import type { IdempotencyExecutionRecord } from "./idempotency.js";
 import type { OperationId, RetryMode } from "./generated/operations.js";
@@ -29,6 +30,8 @@ export interface RequestOptions {
   query?: Record<string, unknown>;
   body?: unknown;
   headers?: Record<string, string>;
+  /** Validated explicit key forwarded separately from caller-controlled headers. */
+  idempotencyKey?: string;
   signal?: AbortSignal;
   /**
    * Resource clients set this on the 9 spec-documented idempotency
@@ -65,6 +68,9 @@ export class HttpClient {
 
   request<T>(options: RequestOptions): AhaSendPromise<T> {
     assertHeaders(options.headers, "request headers");
+    if (options.idempotencyKey !== undefined) {
+      assertValidIdempotencyKey(options.idempotencyKey, "request idempotency key");
+    }
     let responseEnvelope: AhaSendResponse<T>;
     const bodyPromise = this.requestWithResponse<T>(options).then((envelope) => {
       responseEnvelope = envelope;
@@ -209,8 +215,8 @@ export class HttpClient {
   }
 
   private buildUrl(path: string, query?: Record<string, unknown>): string {
-    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-    const url = new URL(`${this.config.baseUrl}${normalizedPath}`);
+    const url = new URL(this.config.baseUrl);
+    url.pathname = `/${path.replace(/^\/+/, "")}`;
 
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -241,6 +247,7 @@ export class HttpClient {
     const init: RequestInit = {
       method: options.method,
       headers,
+      redirect: "error",
     };
 
     if (options.body !== undefined && options.method !== "GET") {
@@ -248,7 +255,9 @@ export class HttpClient {
       init.body = JSON.stringify(options.body);
     }
 
-    if (this.shouldAutoIdempotency(options, headers)) {
+    if (options.idempotencyKey !== undefined) {
+      headers[IDEMPOTENCY_HEADER.toLowerCase()] = options.idempotencyKey;
+    } else if (this.shouldAutoIdempotency(options)) {
       headers[IDEMPOTENCY_HEADER.toLowerCase()] = generateIdempotencyKey(
         this.config.idempotency.prefix,
       );
@@ -258,11 +267,10 @@ export class HttpClient {
     return Object.freeze(init);
   }
 
-  private shouldAutoIdempotency(options: RequestOptions, headers: Record<string, string>): boolean {
+  private shouldAutoIdempotency(options: RequestOptions): boolean {
     if (!(options.execution?.idempotency ?? options.autoIdempotency)) return false;
     if (!this.config.idempotency.autoGenerate) return false;
-    if (options.method !== "POST") return false;
-    return headers[IDEMPOTENCY_HEADER.toLowerCase()] === undefined;
+    return options.method === "POST";
   }
 
   private buildExecutionRecord(
