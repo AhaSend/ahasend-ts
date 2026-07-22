@@ -653,6 +653,15 @@ describe("WebhookVerifier", () => {
     expect(() => verifier.verify(headers, body)).not.toThrow();
   });
 
+  it("rejects malformed non-ASCII signatures with the closed mismatch reason", () => {
+    const { headers, body } = buildEnvelope(SECRET, validDelivery);
+    headers["webhook-signature"] = "é".repeat(headers["webhook-signature"]!.length);
+
+    expect(reasonFrom(() => new WebhookVerifier(SECRET).verify(headers, body))).toBe(
+      "signature_mismatch",
+    );
+  });
+
   it("accepts a Headers instance", () => {
     const verifier = new WebhookVerifier(SECRET);
     const { headers, body } = buildEnvelope(SECRET, {

@@ -187,6 +187,8 @@ function sign(key: Buffer, id: string, timestamp: string, rawBody: RawBody): str
 }
 
 function signatureMatches(provided: string, expected: string): boolean {
-  if (provided.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(provided, "utf-8"), Buffer.from(expected, "utf-8"));
+  const providedBytes = Buffer.from(provided, "utf-8");
+  const expectedBytes = Buffer.from(expected, "utf-8");
+  if (providedBytes.length !== expectedBytes.length) return false;
+  return timingSafeEqual(providedBytes, expectedBytes);
 }
