@@ -1,3 +1,6 @@
+import type { IdempotencyExecutionRecord } from "./idempotency.js";
+import { isEligibleKeyedExecution, parsePositiveIntegerRetryAfter } from "./idempotency.js";
+
 const AHASEND_ERROR_BRAND = Symbol.for("@ahasend/sdk.error");
 const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");
 const REDACTED = "[REDACTED]" as const;
@@ -209,9 +212,12 @@ export class AhaSendConflictError extends AhaSendAPIError {
 
 /** 409 Conflict for an idempotent request still in progress. */
 export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
-  constructor(params: APIErrorParams) {
+  public readonly retryAfterSeconds: number | undefined;
+
+  constructor(params: APIErrorParams & { retryAfterSeconds?: number | undefined }) {
     super(params);
     defineHidden(this, "code", "idempotency_conflict_error");
+    defineHidden(this, "retryAfterSeconds", params.retryAfterSeconds);
   }
 }
 
@@ -266,23 +272,30 @@ export function createApiError(params: {
   body: ApiErrorBody | string | null;
   requestId?: string | undefined;
   headers?: Record<string, string>;
+  idempotency?: IdempotencyExecutionRecord;
   cause?: unknown;
 }): AhaSendAPIError {
   const message = extractMessage(params.body) ?? `AhaSend API error (HTTP ${params.status})`;
   const base = { ...params, message };
-  const isIdempotencyReplay = params.headers?.["idempotent-replayed"] !== undefined;
+  const eligibleKeyedExecution = isEligibleKeyedExecution(params.idempotency);
 
   if (params.status === 400) return new AhaSendBadRequestError(base);
   if (params.status === 401) return new AhaSendAuthenticationError(base);
   if (params.status === 403) return new AhaSendPermissionError(base);
   if (params.status === 404) return new AhaSendNotFoundError(base);
   if (params.status === 409) {
-    return isIdempotencyReplay
-      ? new AhaSendIdempotencyConflictError(base)
-      : new AhaSendConflictError(base);
+    const retryAfterSeconds = parsePositiveIntegerRetryAfter(params.headers?.["retry-after"]);
+    if (
+      eligibleKeyedExecution &&
+      params.headers?.["idempotent-replayed"] === "false" &&
+      retryAfterSeconds !== undefined
+    ) {
+      return new AhaSendIdempotencyConflictError({ ...base, retryAfterSeconds });
+    }
+    return new AhaSendConflictError(base);
   }
   if (params.status === 422) {
-    return isIdempotencyReplay
+    return eligibleKeyedExecution
       ? new AhaSendIdempotencyMismatchError(base)
       : new AhaSendUnprocessableEntityError(base);
   }
@@ -301,21 +314,16 @@ function extractMessage(body: ApiErrorBody | string | null): string | undefined 
   return undefined;
 }
 
-const MAX_RETRY_AFTER_SECONDS = 60 * 60;
-
 function parseRetryAfter(value: string | undefined): number | undefined {
   if (!value) return undefined;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return clampRetryAfter(seconds);
+  const seconds = parsePositiveIntegerRetryAfter(value);
+  if (seconds !== undefined) return seconds;
   const date = Date.parse(value);
   if (!Number.isNaN(date)) {
-    return clampRetryAfter(Math.max(0, Math.ceil((date - Date.now()) / 1000)));
+    const dateSeconds = Math.ceil((date - Date.now()) / 1000);
+    return Number.isSafeInteger(dateSeconds) && dateSeconds > 0 ? dateSeconds : undefined;
   }
   return undefined;
-}
-
-function clampRetryAfter(seconds: number): number {
-  return Math.min(seconds, MAX_RETRY_AFTER_SECONDS);
 }
 
 function defineHidden(target: object, key: PropertyKey, value: unknown): void {

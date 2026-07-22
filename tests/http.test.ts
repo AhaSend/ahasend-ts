@@ -10,11 +10,15 @@ import { resolveConfig } from "../src/config.js";
 import {
   AhaSendAbortError,
   AhaSendAuthenticationError,
+  AhaSendConflictError,
   AhaSendConnectionError,
+  AhaSendIdempotencyConflictError,
+  AhaSendIdempotencyMismatchError,
   AhaSendNotFoundError,
   AhaSendRateLimitError,
 } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
+import { OperationExecutor } from "../src/operations.js";
 
 type FetchImpl = typeof fetch;
 
@@ -380,7 +384,6 @@ describe("HttpClient — closing the four high-value P1 test gaps", () => {
     expect(captured).toBeInstanceOf(AhaSendRateLimitError);
     const rate = captured as AhaSendRateLimitError;
     // The HTTP-date should parse to roughly 60 seconds in the future.
-    // Clamp at 60 minutes (3600s) so a malicious server can't lock the SDK out.
     expect(rate.retryAfterSeconds).toBeGreaterThanOrEqual(55);
     expect(rate.retryAfterSeconds).toBeLessThanOrEqual(60);
   });
@@ -422,6 +425,47 @@ describe("HttpClient response promises", () => {
     expect(envelope.response).toBe(response);
     expect(envelope.requestId).toBe("req_123");
     expect(envelope.idempotentReplayed).toBe(true);
+  });
+
+  it("distinguishes fresh keyed success from an exact stored success replay", async () => {
+    const calls: Array<{ body: BodyInit | null | undefined; key: string | undefined }> = [];
+    let attempt = 0;
+    const responseBody = { object: "domain", domain: "example.com" };
+    const executor = new OperationExecutor(
+      makeClient(
+        mockFetch((_url, init) => {
+          calls.push({
+            body: init.body,
+            key: (init.headers as Record<string, string>)["idempotency-key"],
+          });
+          attempt++;
+          return new Response(JSON.stringify(responseBody), {
+            status: 201,
+            headers: attempt === 2 ? { "idempotent-replayed": "true" } : {},
+          });
+        }),
+        { retry: { enabled: false } },
+      ),
+    );
+    const parameters = {
+      path: { account_id: "acc_1" },
+      body: { domain: "example.com" },
+    };
+    const options = { idempotencyKey: "stable-domain-key" };
+
+    const fresh = await executor.execute("createDomain", parameters, options).withResponse();
+    const stored = await executor.execute("createDomain", parameters, options).withResponse();
+
+    expect(fresh.response.status).toBe(201);
+    expect(fresh.data).toEqual(responseBody);
+    expect(fresh.idempotentReplayed).toBeUndefined();
+    expect(stored.response.status).toBe(201);
+    expect(stored.data).toEqual(responseBody);
+    expect(stored.idempotentReplayed).toBe(true);
+    expect(calls).toEqual([
+      { body: JSON.stringify(parameters.body), key: "stable-domain-key" },
+      { body: JSON.stringify(parameters.body), key: "stable-domain-key" },
+    ]);
   });
 
   it("returns primitive JSON through both promise views", async () => {
@@ -652,5 +696,134 @@ describe("HttpClient retry behaviour", () => {
     expect(attempts).toBe(3);
     expect(seenKeys).toHaveLength(3);
     expect(new Set(seenKeys).size).toBe(1); // all the same key
+  });
+
+  it("recovers an exact in-progress tuple with the unchanged keyed execution", async () => {
+    const bodies: BodyInit[] = [];
+    const keys: string[] = [];
+    let attempts = 0;
+    const client = makeClient(
+      mockFetch((_url, init) => {
+        attempts++;
+        bodies.push(init.body!);
+        keys.push((init.headers as Record<string, string>)["idempotency-key"]!);
+        if (attempts === 1) {
+          return new Response(JSON.stringify({ message: "text may change" }), {
+            status: 409,
+            headers: { "idempotent-replayed": "false", "retry-after": "10" },
+          });
+        }
+        return new Response(JSON.stringify({ object: "domain", domain: "example.com" }), {
+          status: 201,
+        });
+      }),
+      { retry: { ...fastRetry, maxRetries: 1 } },
+    );
+    const executor = new OperationExecutor(client);
+    const body = { domain: "example.com" };
+
+    await expect(
+      executor.execute(
+        "createDomain",
+        { path: { account_id: "acc_1" }, body },
+        {
+          idempotencyKey: "stable-domain-key",
+        },
+      ),
+    ).resolves.toMatchObject({ domain: "example.com" });
+
+    expect(attempts).toBe(2);
+    expect(bodies).toEqual([JSON.stringify(body), JSON.stringify(body)]);
+    expect(keys).toEqual(["stable-domain-key", "stable-domain-key"]);
+  });
+
+  it.each([
+    ["missing retry", { "idempotent-replayed": "false" }],
+    ["malformed retry", { "idempotent-replayed": "false", "retry-after": "0" }],
+    ["wrong replay", { "idempotent-replayed": "true", "retry-after": "1" }],
+  ])("does not retry an incomplete in-progress tuple: %s", async (_name, headers) => {
+    const fetchImpl = mockFetch(
+      () => new Response(JSON.stringify({ message: "in progress" }), { status: 409, headers }),
+    );
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, { retry: { ...fastRetry, maxRetries: 2 } }),
+    );
+
+    await expect(
+      executor.execute(
+        "createDomain",
+        { path: { account_id: "acc_1" }, body: { domain: "example.com" } },
+        { idempotencyKey: "stable-domain-key" },
+      ),
+    ).rejects.toBeInstanceOf(AhaSendConflictError);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("specializes eligible keyed headerless 422 without retrying", async () => {
+    const fetchImpl = mockFetch(
+      () => new Response(JSON.stringify({ message: "wording is irrelevant" }), { status: 422 }),
+    );
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, { retry: { ...fastRetry, maxRetries: 2 } }),
+    );
+
+    await expect(
+      executor.execute(
+        "createDomain",
+        { path: { account_id: "acc_1" }, body: { domain: "example.com" } },
+        { idempotencyKey: "stable-domain-key" },
+      ),
+    ).rejects.toBeInstanceOf(AhaSendIdempotencyMismatchError);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a stored deterministic 4xx replay status, body, and exact replay header", async () => {
+    const responseBody = { message: "suppression already exists", marker: "stored-body" };
+    const fetchImpl = mockFetch(
+      () =>
+        new Response(JSON.stringify(responseBody), {
+          status: 409,
+          headers: { "idempotent-replayed": "true" },
+        }),
+    );
+    const executor = new OperationExecutor(makeClient(fetchImpl));
+
+    let captured: unknown;
+    try {
+      await executor.execute(
+        "createSuppression",
+        { path: { account_id: "acc_1" }, body: { email: "person@example.com" } },
+        { idempotencyKey: "stored-suppression-key" },
+      );
+    } catch (error) {
+      captured = error;
+    }
+
+    expect(captured).toBeInstanceOf(AhaSendConflictError);
+    expect(captured).not.toBeInstanceOf(AhaSendIdempotencyConflictError);
+    expect(captured).toMatchObject({
+      status: 409,
+      body: responseBody,
+      headers: { "idempotent-replayed": "true" },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a secret-create controller 4xx terminal for manual lease completion", async () => {
+    const fetchImpl = mockFetch(
+      () => new Response(JSON.stringify({ message: "invalid scope" }), { status: 400 }),
+    );
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, { retry: { ...fastRetry, maxRetries: 2 } }),
+    );
+
+    await expect(
+      executor.execute(
+        "createAPIKey",
+        { path: { account_id: "acc_1" }, body: { label: "key", scopes: ["invalid"] } },
+        { idempotencyKey: "secret-create-key" },
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

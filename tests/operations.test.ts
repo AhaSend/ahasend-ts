@@ -50,9 +50,11 @@ describe("OperationExecutor", () => {
     );
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
-        operationId: "getDomain",
-        retryMode: "safe",
-        autoIdempotency: false,
+        execution: {
+          operationId: "getDomain",
+          retryMode: "safe",
+          idempotency: null,
+        },
       }),
     );
   });
@@ -83,10 +85,36 @@ describe("OperationExecutor", () => {
       method: "POST",
       path: "/v2/accounts/acc_1/domains",
       body,
-      operationId: "createDomain",
-      retryMode: "idempotency_key",
-      autoIdempotency: true,
+      execution: {
+        operationId: "createDomain",
+        retryMode: "idempotency_key",
+        idempotency: { completion: "automatic" },
+      },
     });
+  });
+
+  it("passes deeply frozen automatic and manual-secret execution records", async () => {
+    const http = makeHttp(mockFetch(() => new Response("{}", { status: 201 })));
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    await executor.execute("createDomain", {
+      path: { account_id: "acc_1" },
+      body: { domain: "example.com" },
+    });
+    await executor.execute("createAPIKey", {
+      path: { account_id: "acc_1" },
+      body: { label: "key", scopes: [] },
+    });
+
+    const automatic = request.mock.calls[0]![0].execution!;
+    const manual = request.mock.calls[1]![0].execution!;
+    expect(Object.isFrozen(automatic)).toBe(true);
+    expect(Object.isFrozen(automatic.idempotency)).toBe(true);
+    expect(Object.isFrozen(manual)).toBe(true);
+    expect(Object.isFrozen(manual.idempotency)).toBe(true);
+    expect(automatic.idempotency?.completion).toBe("automatic");
+    expect(manual.idempotency?.completion).toBe("manual_secret");
   });
 
   it("filters query values to the names declared by the descriptor", async () => {

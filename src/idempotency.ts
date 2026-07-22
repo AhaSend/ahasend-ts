@@ -19,6 +19,21 @@ export const DEFAULT_IDEMPOTENCY_CONFIG: ResolvedIdempotencyConfig = Object.free
 export const IDEMPOTENCY_HEADER = "Idempotency-Key";
 export const IDEMPOTENT_REPLAYED_HEADER = "Idempotent-Replayed";
 
+/** How the API persists a completed idempotent operation. @internal */
+export type IdempotencyCompletionMode = "automatic" | "manual_secret";
+
+/** Idempotency facts fixed by an OpenAPI operation descriptor. @internal */
+export interface IdempotencyOperationPolicy {
+  readonly completion: IdempotencyCompletionMode;
+}
+
+/** Final idempotency facts for one HTTP execution. @internal */
+export interface IdempotencyExecutionRecord {
+  readonly eligible: boolean;
+  readonly key: string | undefined;
+  readonly completion: IdempotencyCompletionMode | undefined;
+}
+
 const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 const UUID_LENGTH = 36;
 const INVALID_HEADER_VALUE_PATTERN = /[\u0000-\u0008\u000a-\u001f\u007f]|[^\u0000-\u00ff]/;
@@ -64,6 +79,32 @@ export function generateIdempotencyKey(prefix?: string): string {
   if (prefix !== undefined) assertValidPrefix(prefix);
   const uuid = randomUUID();
   return prefix && prefix.length > 0 ? `${prefix}${uuid}` : uuid;
+}
+
+/** Freeze the descriptor and finalized-key facts used for response classification. @internal */
+export function createIdempotencyExecutionRecord(
+  policy: IdempotencyOperationPolicy | null,
+  key: string | undefined,
+): IdempotencyExecutionRecord {
+  return Object.freeze({
+    eligible: policy !== null,
+    key,
+    completion: policy?.completion,
+  });
+}
+
+/** A response can be an idempotency lifecycle state only for an eligible keyed call. @internal */
+export function isEligibleKeyedExecution(
+  execution: IdempotencyExecutionRecord | undefined,
+): boolean {
+  return execution?.eligible === true && execution.key !== undefined;
+}
+
+/** Parse the positive whole-second form required by idempotency in-progress responses. @internal */
+export function parsePositiveIntegerRetryAfter(value: string | undefined): number | undefined {
+  if (value === undefined || !/^\d+$/.test(value)) return undefined;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 /** @internal Validate caller-provided keys before they reach fetch. */

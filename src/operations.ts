@@ -1,6 +1,7 @@
 import type { OperationId, RetryMode } from "./generated/operations.js";
 import { OPERATION_DESCRIPTORS } from "./generated/operations.js";
 import type { HttpClient } from "./http.js";
+import type { IdempotencyOperationPolicy } from "./idempotency.js";
 import { IDEMPOTENCY_HEADER } from "./idempotency.js";
 import type { AhaSendPromise, IdempotencyRequestOptions } from "./types/common.js";
 
@@ -12,7 +13,17 @@ export interface OperationParameters {
 
 type OperationTransport = Pick<HttpClient, "request">;
 
+export interface OperationExecutionRecord {
+  readonly operationId: OperationId;
+  readonly retryMode: RetryMode;
+  readonly idempotency: IdempotencyOperationPolicy | null;
+}
+
 const PATH_PARAMETER = /\{([^{}]+)\}/g;
+const MANUAL_SECRET_COMPLETION_OPERATIONS: ReadonlySet<OperationId> = new Set([
+  "createAPIKey",
+  "createSubAccountAPIKey",
+]);
 
 /**
  * Internal bridge between generated operation facts and the HTTP transport.
@@ -36,7 +47,7 @@ export class OperationExecutor {
     });
 
     const query = selectDeclaredQuery(parameters.query, descriptor.query);
-    const retryMode: RetryMode = descriptor.retry;
+    const execution = createOperationExecutionRecord(operationId);
     const headers =
       options.idempotencyKey !== undefined
         ? { ...(options.headers ?? {}), [IDEMPOTENCY_HEADER]: options.idempotencyKey }
@@ -51,11 +62,26 @@ export class OperationExecutor {
         : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(headers ? { headers } : {}),
-      operationId,
-      retryMode,
-      autoIdempotency: descriptor.idempotency,
+      execution,
     });
   }
+}
+
+function createOperationExecutionRecord(operationId: OperationId): OperationExecutionRecord {
+  const descriptor = OPERATION_DESCRIPTORS[operationId];
+  const idempotency = descriptor.idempotency
+    ? Object.freeze<IdempotencyOperationPolicy>({
+        completion: MANUAL_SECRET_COMPLETION_OPERATIONS.has(operationId)
+          ? "manual_secret"
+          : "automatic",
+      })
+    : null;
+
+  return Object.freeze({
+    operationId,
+    retryMode: descriptor.retry,
+    idempotency,
+  });
 }
 
 function selectDeclaredQuery(

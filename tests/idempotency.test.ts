@@ -3,7 +3,10 @@ import {
   DEFAULT_IDEMPOTENCY_CONFIG,
   IdempotencyKeyBuilder,
   assertValidIdempotencyKey,
+  createIdempotencyExecutionRecord,
   generateIdempotencyKey,
+  isEligibleKeyedExecution,
+  parsePositiveIntegerRetryAfter,
   resolveIdempotencyConfig,
 } from "../src/idempotency.js";
 
@@ -149,5 +152,39 @@ describe("idempotency key boundaries", () => {
     expect(key).toHaveLength(255);
     expect(key.slice(prefix.length)).toMatch(UUID_REGEX);
     expect(() => generateIdempotencyKey(`${prefix}p`)).toThrow(/219/);
+  });
+});
+
+describe("idempotency execution records", () => {
+  it("freezes finalized eligibility, completion, and stable-key facts", () => {
+    const policy = Object.freeze({ completion: "manual_secret" as const });
+    const execution = createIdempotencyExecutionRecord(policy, "stable-key");
+
+    expect(execution).toEqual({
+      eligible: true,
+      key: "stable-key",
+      completion: "manual_secret",
+    });
+    expect(Object.isFrozen(execution)).toBe(true);
+    expect(isEligibleKeyedExecution(execution)).toBe(true);
+    expect(isEligibleKeyedExecution(createIdempotencyExecutionRecord(policy, undefined))).toBe(
+      false,
+    );
+    expect(isEligibleKeyedExecution(createIdempotencyExecutionRecord(null, "stable-key"))).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    ["1", 1],
+    ["300", 300],
+    ["0", undefined],
+    ["-1", undefined],
+    ["1.5", undefined],
+    [" 1", undefined],
+    ["9007199254740992", undefined],
+    [undefined, undefined],
+  ])("parses positive whole-second Retry-After %j as %s", (value, expected) => {
+    expect(parsePositiveIntegerRetryAfter(value)).toBe(expected);
   });
 });

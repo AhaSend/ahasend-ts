@@ -25,6 +25,12 @@ import {
   isAhaSendError,
 } from "../src/errors.js";
 import { AhaSendWebhookVerificationError as WebhookEntryError } from "../src/webhooks/index.js";
+import { createIdempotencyExecutionRecord } from "../src/idempotency.js";
+
+const ELIGIBLE_KEYED = createIdempotencyExecutionRecord(
+  Object.freeze({ completion: "automatic" }),
+  "stable-key",
+);
 
 describe("createApiError", () => {
   it("maps 400 to AhaSendBadRequestError", () => {
@@ -43,15 +49,29 @@ describe("createApiError", () => {
     expect(err).not.toBeInstanceOf(AhaSendIdempotencyMismatchError);
   });
 
-  it("maps 422 with Idempotent-Replayed header to AhaSendIdempotencyMismatchError", () => {
+  it("maps headerless 422 only for an eligible keyed execution", () => {
     const err = createApiError({
       status: 422,
       body: { message: "payload mismatch" },
-      headers: { "idempotent-replayed": "false" },
+      idempotency: ELIGIBLE_KEYED,
     });
     expect(err).toBeInstanceOf(AhaSendIdempotencyMismatchError);
     expect(err).toBeInstanceOf(AhaSendUnprocessableEntityError);
     expect(err).not.toBeInstanceOf(AhaSendBadRequestError);
+  });
+
+  it("keeps keyed-ineligible and eligible-unkeyed 422 responses generic", () => {
+    const keyedIneligible = createIdempotencyExecutionRecord(null, "stable-key");
+    const eligibleUnkeyed = createIdempotencyExecutionRecord(
+      Object.freeze({ completion: "automatic" }),
+      undefined,
+    );
+
+    for (const idempotency of [keyedIneligible, eligibleUnkeyed]) {
+      expect(
+        createApiError({ status: 422, body: { message: "changed" }, idempotency }),
+      ).toBeInstanceOf(AhaSendUnprocessableEntityError);
+    }
   });
 
   it("maps generic 409 to AhaSendConflictError (e.g. duplicate domain)", () => {
@@ -60,14 +80,51 @@ describe("createApiError", () => {
     expect(err).not.toBeInstanceOf(AhaSendIdempotencyConflictError);
   });
 
-  it("maps 409 with Idempotent-Replayed header to AhaSendIdempotencyConflictError", () => {
+  it("maps the complete eligible 409 in-progress tuple", () => {
     const err = createApiError({
       status: 409,
       body: { message: "in progress" },
-      headers: { "idempotent-replayed": "false" },
+      headers: { "idempotent-replayed": "false", "retry-after": "3" },
+      idempotency: ELIGIBLE_KEYED,
     });
     expect(err).toBeInstanceOf(AhaSendIdempotencyConflictError);
     expect(err).toBeInstanceOf(AhaSendConflictError);
+    expect((err as AhaSendIdempotencyConflictError).retryAfterSeconds).toBe(3);
+  });
+
+  it.each([
+    ["missing replay header", { "retry-after": "3" }],
+    ["wrong replay value", { "idempotent-replayed": "true", "retry-after": "3" }],
+    ["missing delay", { "idempotent-replayed": "false" }],
+    ["zero delay", { "idempotent-replayed": "false", "retry-after": "0" }],
+    ["fractional delay", { "idempotent-replayed": "false", "retry-after": "1.5" }],
+    [
+      "date delay",
+      { "idempotent-replayed": "false", "retry-after": "Wed, 21 Oct 2037 07:28:00 GMT" },
+    ],
+  ])("keeps 409 generic with %s", (_name, headers) => {
+    const err = createApiError({
+      status: 409,
+      body: { message: "arbitrary conflict text" },
+      headers,
+      idempotency: ELIGIBLE_KEYED,
+    });
+    expect(err.constructor).toBe(AhaSendConflictError);
+  });
+
+  it("keeps the exact in-progress headers generic without eligible keyed context", () => {
+    const headers = { "idempotent-replayed": "false", "retry-after": "3" };
+    expect(createApiError({ status: 409, body: null, headers }).constructor).toBe(
+      AhaSendConflictError,
+    );
+    expect(
+      createApiError({
+        status: 409,
+        body: null,
+        headers,
+        idempotency: createIdempotencyExecutionRecord(null, "stable-key"),
+      }).constructor,
+    ).toBe(AhaSendConflictError);
   });
 
   it("does not define a special 412 class or mapping", () => {
@@ -101,6 +158,32 @@ describe("createApiError", () => {
     });
     expect(err).toBeInstanceOf(AhaSendRateLimitError);
     expect((err as AhaSendRateLimitError).retryAfterSeconds).toBe(12);
+  });
+
+  it.each(["0", "-1", "1.5", "not-a-delay"])(
+    "treats malformed or nonpositive Retry-After %j as absent",
+    (retryAfter) => {
+      const err = createApiError({
+        status: 429,
+        body: null,
+        headers: { "retry-after": retryAfter },
+      }) as AhaSendRateLimitError;
+      expect(err.retryAfterSeconds).toBeUndefined();
+    },
+  );
+
+  it("does not use messages to alter 403, 409, or 422 classification", () => {
+    for (const message of ["in progress", "payload mismatch", "completely changed"]) {
+      expect(createApiError({ status: 403, body: { message } })).toBeInstanceOf(
+        AhaSendPermissionError,
+      );
+      expect(createApiError({ status: 409, body: { message } }).constructor).toBe(
+        AhaSendConflictError,
+      );
+      expect(createApiError({ status: 422, body: { message } }).constructor).toBe(
+        AhaSendUnprocessableEntityError,
+      );
+    }
   });
 
   it("maps 500 to AhaSendServerError", () => {

@@ -1,14 +1,19 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AhaSendAbortError,
   AhaSendAuthenticationError,
   AhaSendBadRequestError,
   AhaSendConnectionError,
+  AhaSendIdempotencyConflictError,
   AhaSendNotFoundError,
   AhaSendRateLimitError,
   AhaSendServerError,
   AhaSendTimeoutError,
+  createApiError,
 } from "../src/errors.js";
+import { createIdempotencyExecutionRecord } from "../src/idempotency.js";
 import {
   DEFAULT_RETRY_CONFIG,
   computeBackoffMs,
@@ -19,6 +24,20 @@ import {
 } from "../src/retry.js";
 
 const NO_JITTER = { ...DEFAULT_RETRY_CONFIG, jitter: false };
+const lifecycleFixtures = JSON.parse(
+  readFileSync(resolve(process.cwd(), "tests/fixtures/idempotency-responses.json"), "utf8"),
+) as {
+  classifications: Array<{
+    name: string;
+    status: number;
+    headers: Record<string, string>;
+    eligible: boolean;
+    keyed: boolean;
+    expectedCode: string;
+    retryable: boolean;
+    retryAfterSeconds?: number;
+  }>;
+};
 
 describe("resolveRetryConfig", () => {
   it("returns defaults when no override is provided", () => {
@@ -36,10 +55,19 @@ describe("resolveRetryConfig", () => {
 
 describe("isRetryableError", () => {
   const params = { status: 0, body: null, message: "x" };
-  it("retries on Timeout, Connection, RateLimit, Server", () => {
+  it("retries on Timeout, Connection, RateLimit, in-progress, and Server", () => {
     expect(isRetryableError(new AhaSendTimeoutError())).toBe(true);
     expect(isRetryableError(new AhaSendConnectionError("net"))).toBe(true);
     expect(isRetryableError(new AhaSendRateLimitError({ ...params, status: 429 }))).toBe(true);
+    expect(
+      isRetryableError(
+        new AhaSendIdempotencyConflictError({
+          ...params,
+          status: 409,
+          retryAfterSeconds: 1,
+        }),
+      ),
+    ).toBe(true);
     expect(isRetryableError(new AhaSendServerError({ ...params, status: 500 }))).toBe(true);
   });
 
@@ -60,6 +88,31 @@ describe("isRetryableError", () => {
     expect(isRetryableError("string")).toBe(false);
     expect(isRetryableError(null)).toBe(false);
   });
+});
+
+describe("fixture-driven idempotency lifecycle policy", () => {
+  it.each(lifecycleFixtures.classifications)(
+    "$name has stable status/header classification and retry policy",
+    (fixture) => {
+      const policy = fixture.eligible ? Object.freeze({ completion: "automatic" as const }) : null;
+      const idempotency = createIdempotencyExecutionRecord(
+        policy,
+        fixture.keyed ? "fixture-key" : undefined,
+      );
+      const error = createApiError({
+        status: fixture.status,
+        body: { message: "message text is deliberately not a classifier" },
+        headers: fixture.headers,
+        idempotency,
+      });
+
+      expect(error.code).toBe(fixture.expectedCode);
+      expect(isRetryableError(error)).toBe(fixture.retryable);
+      expect((error as { retryAfterSeconds?: number }).retryAfterSeconds).toBe(
+        fixture.retryAfterSeconds,
+      );
+    },
+  );
 });
 
 describe("computeBackoffMs", () => {
@@ -127,7 +180,7 @@ describe("computeRetryDelayMs", () => {
     expect(delay).toBe(10_000);
   });
 
-  it("uses backoff when it exceeds Retry-After", () => {
+  it("uses a valid Retry-After as the authority even below backoff", () => {
     const err = new AhaSendRateLimitError({
       status: 429,
       message: "rate limit",
@@ -140,20 +193,53 @@ describe("computeRetryDelayMs", () => {
       { ...NO_JITTER, baseDelayMs: 100, strategy: "exponential" },
       () => 0,
     );
-    expect(delay).toBe(1600); // 100 * 2^4 = 1600 > 1000ms (Retry-After)
+    expect(delay).toBe(1000);
   });
 
-  it("does NOT cap Retry-After at maxDelayMs (server hint is the source of truth)", () => {
+  it("caps a server Retry-After at the configured maximum", () => {
     const err = new AhaSendRateLimitError({
       status: 429,
       message: "rate limit",
       body: null,
       retryAfterSeconds: 999,
     });
-    // Server says wait 999s; we must honour it even if maxDelayMs is 5s,
-    // otherwise we just retry into another 429.
     const delay = computeRetryDelayMs(err, 1, { ...NO_JITTER, maxDelayMs: 5000 });
-    expect(delay).toBe(999_000);
+    expect(delay).toBe(5000);
+  });
+
+  it("accepts the maximum boundary without changing it", () => {
+    const err = new AhaSendRateLimitError({
+      status: 429,
+      message: "rate limit",
+      body: null,
+      retryAfterSeconds: 5,
+    });
+    expect(computeRetryDelayMs(err, 1, { ...NO_JITTER, maxDelayMs: 5000 })).toBe(5000);
+  });
+
+  it.each([undefined, 0, -1, 1.5, Number.POSITIVE_INFINITY])(
+    "falls back to bounded backoff for malformed/nonpositive server delay %s",
+    (retryAfterSeconds) => {
+      const err = new AhaSendRateLimitError({
+        status: 429,
+        message: "rate limit",
+        body: null,
+        retryAfterSeconds,
+      });
+      expect(
+        computeRetryDelayMs(err, 1, { ...NO_JITTER, baseDelayMs: 100, maxDelayMs: 5000 }),
+      ).toBe(100);
+    },
+  );
+
+  it("uses the same bounded authority for idempotency in-progress", () => {
+    const err = new AhaSendIdempotencyConflictError({
+      status: 409,
+      message: "any message",
+      body: null,
+      retryAfterSeconds: 10,
+    });
+    expect(computeRetryDelayMs(err, 1, { ...NO_JITTER, maxDelayMs: 3000 })).toBe(3000);
   });
 });
 

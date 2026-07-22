@@ -9,11 +9,14 @@ import {
 } from "./errors.js";
 import type { ApiErrorBody } from "./errors.js";
 import {
+  createIdempotencyExecutionRecord,
   generateIdempotencyKey,
   IDEMPOTENCY_HEADER,
   IDEMPOTENT_REPLAYED_HEADER,
 } from "./idempotency.js";
+import type { IdempotencyExecutionRecord } from "./idempotency.js";
 import type { OperationId, RetryMode } from "./generated/operations.js";
+import type { OperationExecutionRecord } from "./operations.js";
 import { RateLimiter } from "./rate-limit.js";
 import { computeRetryDelayMs, isRetryableError, sleep } from "./retry.js";
 import type { AhaSendPromise, AhaSendResponse } from "./types/common.js";
@@ -39,6 +42,8 @@ export interface RequestOptions {
   operationId?: OperationId;
   /** Generated retry-safety classification for this operation. */
   retryMode?: RetryMode;
+  /** Immutable generated policy for operation-aware response handling. */
+  execution?: OperationExecutionRecord;
 }
 
 export type QueryValue =
@@ -75,10 +80,10 @@ export class HttpClient {
   private async requestWithResponse<T>(options: RequestOptions): Promise<AhaSendResponse<T>> {
     const url = this.buildUrl(options.path, options.query);
     const init = this.buildRequestInit(options);
+    const execution = this.buildExecutionRecord(options, url, init);
 
     const retry = this.config.retry;
-    const maxAttempts =
-      retry.enabled && this.isRetryAllowed(options, init) ? retry.maxRetries + 1 : 1;
+    const maxAttempts = retry.enabled && this.isRetryAllowed(execution) ? retry.maxRetries + 1 : 1;
     const hooks = this.config.hooks;
 
     let lastError: unknown;
@@ -89,7 +94,7 @@ export class HttpClient {
       // this, a 429 retry would bypass the local limiter entirely.
       await this.rateLimiter.acquire(options.method, options.path, options.signal);
       try {
-        return await this.executeOnce<T>(url, init, options, attempt);
+        return await this.executeOnce<T>(execution, options, attempt);
       } catch (err) {
         lastError = err;
         const requestId = extractRequestId(err);
@@ -122,11 +127,11 @@ export class HttpClient {
   }
 
   private async executeOnce<T>(
-    url: string,
-    init: RequestInit,
+    execution: HttpExecutionRecord,
     options: RequestOptions,
     attempt: number,
   ): Promise<AhaSendResponse<T>> {
+    const { url, init } = execution;
     const controller = this.linkAbortSignal(options.signal, this.config.timeoutMs);
     const startedAt = Date.now();
 
@@ -139,7 +144,11 @@ export class HttpClient {
 
     let response: Response;
     try {
-      response = await this.config.fetch(url, { ...init, signal: controller.signal });
+      response = await this.config.fetch(url, {
+        ...init,
+        headers: { ...(init.headers as Record<string, string>) },
+        signal: controller.signal,
+      });
     } catch (err) {
       controller.cleanup();
       if (controller.timedOut) {
@@ -174,7 +183,7 @@ export class HttpClient {
       if (requestId) responseEvent.requestId = requestId;
       this.config.hooks.onResponse(responseEvent);
 
-      const data = await this.parseResponse<T>(response, requestId);
+      const data = await this.parseResponse<T>(response, execution.idempotency, requestId);
       return {
         data,
         response,
@@ -245,23 +254,43 @@ export class HttpClient {
       );
     }
 
-    return init;
+    Object.freeze(headers);
+    return Object.freeze(init);
   }
 
   private shouldAutoIdempotency(options: RequestOptions, headers: Record<string, string>): boolean {
-    if (!options.autoIdempotency) return false;
+    if (!(options.execution?.idempotency ?? options.autoIdempotency)) return false;
     if (!this.config.idempotency.autoGenerate) return false;
     if (options.method !== "POST") return false;
     return headers[IDEMPOTENCY_HEADER.toLowerCase()] === undefined;
   }
 
-  private isRetryAllowed(options: RequestOptions, init: RequestInit): boolean {
-    if (options.retryMode === "never") return false;
-    if (options.retryMode !== "idempotency_key") return true;
-    return new Headers(init.headers).has(IDEMPOTENCY_HEADER);
+  private buildExecutionRecord(
+    options: RequestOptions,
+    url: string,
+    init: RequestInit,
+  ): HttpExecutionRecord {
+    const headers = init.headers as Record<string, string>;
+    const key = headers[IDEMPOTENCY_HEADER.toLowerCase()];
+    return Object.freeze({
+      url,
+      init,
+      retryMode: options.execution?.retryMode ?? options.retryMode,
+      idempotency: createIdempotencyExecutionRecord(options.execution?.idempotency ?? null, key),
+    });
   }
 
-  private async parseResponse<T>(response: Response, requestIdFromHeader?: string): Promise<T> {
+  private isRetryAllowed(execution: HttpExecutionRecord): boolean {
+    if (execution.retryMode === "never") return false;
+    if (execution.retryMode !== "idempotency_key") return true;
+    return execution.idempotency.key !== undefined;
+  }
+
+  private async parseResponse<T>(
+    response: Response,
+    idempotency: IdempotencyExecutionRecord,
+    requestIdFromHeader?: string,
+  ): Promise<T> {
     const requestId = requestIdFromHeader ?? response.headers.get(REQUEST_ID_HEADER) ?? undefined;
 
     if (response.status === 204 || response.status === 205) {
@@ -277,6 +306,7 @@ export class HttpClient {
         body: (parsed?.ok ? parsed.value : rawText) as ApiErrorBody | string | null,
         requestId,
         headers: headersToRecord(response.headers),
+        idempotency,
       });
     }
 
@@ -331,6 +361,13 @@ export class HttpClient {
       },
     };
   }
+}
+
+interface HttpExecutionRecord {
+  readonly url: string;
+  readonly init: RequestInit;
+  readonly retryMode: RetryMode | undefined;
+  readonly idempotency: IdempotencyExecutionRecord;
 }
 
 function lowercaseHeaders(headers?: Record<string, string>): Record<string, string> {
