@@ -8,8 +8,9 @@ import type {
   SuccessResponse,
   UUID,
 } from "../types/common.js";
-import { forwardOptions, forwardWithIdempotency } from "./_helpers.js";
+import { createFrozenFacade, forwardOptions, forwardWithIdempotency } from "./_helpers.js";
 import type { IdempotencyRequestOptions } from "./_helpers.js";
+import { SubAccountAPIKeysClient } from "./sub-account-api-keys.js";
 
 export type SubAccountStatus = "active" | "suspended" | "parent-suspended" | "deleted";
 
@@ -80,10 +81,12 @@ export type ListSubAccountsParams = PaginationParams;
 export class SubAccountsClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
+  readonly #apiKeys: Readonly<SubAccountAPIKeysClient>;
 
   constructor(operations: OperationExecutor, accountId: UUID) {
     this.#operations = operations;
     this.#accountId = accountId;
+    this.#apiKeys = createFrozenFacade(new SubAccountAPIKeysClient(operations, accountId));
   }
 
   list(
@@ -172,5 +175,9 @@ export class SubAccountsClient {
       { path: { account_id: this.#accountId, sub_account_id: subAccountId } },
       forwardOptions(options),
     );
+  }
+
+  get apiKeys(): Readonly<SubAccountAPIKeysClient> {
+    return this.#apiKeys;
   }
 }

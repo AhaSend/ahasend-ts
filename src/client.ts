@@ -13,7 +13,7 @@ import { StatisticsClient } from "./resources/statistics.js";
 import { SubAccountsClient } from "./resources/sub-accounts.js";
 import { SuppressionsClient } from "./resources/suppressions.js";
 import { WebhooksClient } from "./resources/webhooks.js";
-import { forwardOptions } from "./resources/_helpers.js";
+import { createFrozenFacade, forwardOptions } from "./resources/_helpers.js";
 import type { AhaSendPromise, RequestOptions, UUID } from "./types/common.js";
 
 const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");
@@ -23,27 +23,6 @@ interface SerializedAhaSendClient {
   readonly name: "AhaSendClient";
   readonly accountId: UUID;
   readonly apiKey: typeof REDACTED;
-}
-
-function createFrozenFacade<T extends object>(resource: T): Readonly<T> {
-  const facade: Record<PropertyKey, unknown> = {};
-  const prototype = Object.getPrototypeOf(resource) as object | null;
-
-  if (prototype) {
-    for (const key of Reflect.ownKeys(prototype)) {
-      if (key === "constructor") continue;
-      const value: unknown = Object.getOwnPropertyDescriptor(prototype, key)?.value;
-      if (typeof value !== "function") continue;
-      Object.defineProperty(facade, key, {
-        value: value.bind(resource),
-        writable: false,
-        enumerable: false,
-        configurable: false,
-      });
-    }
-  }
-
-  return Object.freeze(facade) as Readonly<T>;
 }
 
 export interface AhaSendClientOptions extends ClientOptions {

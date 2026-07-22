@@ -3,7 +3,7 @@
 export const OPENAPI_SHA256 =
   "fab9eb040c028d91951cee9e1c9bda0653af1b260239844224bc288a10c25c3c" as const;
 export const OPERATION_PROFILE_SHA256 =
-  "14ed4cfe303cec778238989408fc423ada79d1754d7ec5cd26c3548852ccc655" as const;
+  "295f7e16604a165ca2b6cc709b3c0fd3b2055fbefddd627b76d7810a9ae2bac3" as const;
 
 export const CONTRACT_DIGESTS = Object.freeze({
   openapi: OPENAPI_SHA256,

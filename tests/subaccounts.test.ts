@@ -1,5 +1,13 @@
+import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { IdempotencyRequestOptions, RequestOptions } from "../src/index.js";
+import type {
+  APIKey,
+  CreatedAPIKey,
+  IdempotencyRequestOptions,
+  PaginationParams,
+  RequestOptions,
+  SubAccountAPIKeysClient,
+} from "../src/index.js";
 import type {
   ListSubAccountsParams,
   SubAccount,
@@ -80,6 +88,55 @@ describe("SubAccountsClient declarations", () => {
     >();
     expectTypeOf<Parameters<SubAccountsClient["unsuspend"]>[1]>().toEqualTypeOf<
       RequestOptions | undefined
+    >();
+  });
+});
+
+describe("SubAccountAPIKeysClient declarations", () => {
+  it("freezes sub-account and key identifier order in each signature", () => {
+    expectTypeOf<Parameters<SubAccountAPIKeysClient["list"]>[0]>().toEqualTypeOf<string>();
+    expectTypeOf<Parameters<SubAccountAPIKeysClient["get"]>>().toEqualTypeOf<
+      [subAccountId: string, keyId: string, options?: RequestOptions]
+    >();
+    expectTypeOf<Parameters<SubAccountAPIKeysClient["update"]>>().toEqualTypeOf<
+      [
+        subAccountId: string,
+        keyId: string,
+        body: import("../src/index.js").UpdateAPIKeyRequest,
+        options?: RequestOptions,
+      ]
+    >();
+    expectTypeOf<Parameters<SubAccountAPIKeysClient["delete"]>>().toEqualTypeOf<
+      [subAccountId: string, keyId: string, options?: RequestOptions]
+    >();
+  });
+
+  it("uses PaginationParams directly and retains cursor XOR", () => {
+    const after: PaginationParams = { limit: 25, after: "next" };
+    const before: PaginationParams = { limit: 25, before: "previous" };
+    // @ts-expect-error Child API-key list cursors are mutually exclusive.
+    const both: PaginationParams = { limit: 25, after: "next", before: "previous" };
+
+    expectTypeOf<Parameters<SubAccountAPIKeysClient["list"]>[1]>().toEqualTypeOf<
+      PaginationParams | undefined
+    >();
+    expectTypeOf<Parameters<SubAccountAPIKeysClient["iterate"]>[1]>().toEqualTypeOf<
+      PaginationParams | undefined
+    >();
+    expect([after, before, both]).toHaveLength(3);
+  });
+
+  it("returns the one-time secret only from create and accepts idempotency there", () => {
+    expectTypeOf<ReturnType<SubAccountAPIKeysClient["create"]>>().toEqualTypeOf<
+      Promise<CreatedAPIKey>
+    >();
+    expectTypeOf<ReturnType<SubAccountAPIKeysClient["list"]>>().toEqualTypeOf<
+      Promise<import("../src/index.js").PaginatedResponse<APIKey>>
+    >();
+    expectTypeOf<ReturnType<SubAccountAPIKeysClient["get"]>>().toEqualTypeOf<Promise<APIKey>>();
+    expectTypeOf<ReturnType<SubAccountAPIKeysClient["update"]>>().toEqualTypeOf<Promise<APIKey>>();
+    expectTypeOf<Parameters<SubAccountAPIKeysClient["create"]>[2]>().toEqualTypeOf<
+      IdempotencyRequestOptions | undefined
     >();
   });
 });
@@ -228,5 +285,132 @@ describe("SubAccountsClient operations", () => {
     );
     expect(calls[1]!.body).toBeUndefined();
     expect(calls[1]!.operationId).toBe("unsuspendSubAccount");
+  });
+});
+
+describe("SubAccountAPIKeysClient operations", () => {
+  it("list() substitutes the child sentinel and forwards pagination and options", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.subAccounts.apiKeys.list(
+      "sub/42",
+      { limit: 25, before: "previous" },
+      { headers: { "x-trace-id": "child-key-list-1" } },
+    );
+
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/v2/accounts/acc_1/sub-accounts/sub%2F42/api-keys");
+    expect(url.searchParams.get("limit")).toBe("25");
+    expect(url.searchParams.get("before")).toBe("previous");
+    expect(url.searchParams.has("after")).toBe(false);
+    expect(calls[0]!.headers["x-trace-id"]).toBe("child-key-list-1");
+    expect(calls[0]!.operationId).toBe("listSubAccountAPIKeys");
+  });
+
+  it("iterate() preserves the child id and limit while advancing the cursor", async () => {
+    const { fetch, calls } = captureFetch(
+      (_call, index) =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [{ object: "api_key", id: index === 0 ? "key_1" : "key_2" }],
+            pagination:
+              index === 0 ? { has_more: true, next_cursor: "page-2" } : { has_more: false },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = makeClient(fetch);
+
+    const items: APIKey[] = [];
+    for await (const item of client.subAccounts.apiKeys.iterate("sub/42", {
+      limit: 10,
+      before: "page-1",
+    })) {
+      items.push(item);
+    }
+
+    expect(items.map(({ id }) => id)).toEqual(["key_1", "key_2"]);
+    expect(calls).toHaveLength(2);
+    expect(calls.map(({ operationId }) => operationId)).toEqual([
+      "listSubAccountAPIKeys",
+      "listSubAccountAPIKeys",
+    ]);
+    for (const call of calls) {
+      expect(new URL(call.url).pathname).toBe("/v2/accounts/acc_1/sub-accounts/sub%2F42/api-keys");
+      expect(new URL(call.url).searchParams.get("limit")).toBe("10");
+    }
+    expect(new URL(calls[0]!.url).searchParams.get("before")).toBe("page-1");
+    expect(new URL(calls[1]!.url).searchParams.get("after")).toBe("page-2");
+    expect(new URL(calls[1]!.url).searchParams.has("before")).toBe(false);
+  });
+
+  it("create() returns the one-time secret and forwards idempotency", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({ object: "api_key", id: "key_1", secret_key: "aha-sk-child" }),
+          { status: 201, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = makeClient(fetch);
+
+    const created = await client.subAccounts.apiKeys.create(
+      "sub/42",
+      { label: "Bootstrap", scopes: ["messages:send:all"] },
+      { idempotencyKey: "child-key-create-1" },
+    );
+
+    expect(created.secret_key).toBe("aha-sk-child");
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/sub-accounts/sub%2F42/api-keys");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      label: "Bootstrap",
+      scopes: ["messages:send:all"],
+    });
+    expect(calls[0]!.headers["idempotency-key"]).toBe("child-key-create-1");
+    expect(calls[0]!.operationId).toBe("createSubAccountAPIKey");
+  });
+
+  it("get(), update(), and delete() preserve sub-account then key identifier order", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.subAccounts.apiKeys.get("sub/42", "key/7");
+    await client.subAccounts.apiKeys.update("sub/42", "key/7", { label: "Rotated" });
+    await client.subAccounts.apiKeys.delete("sub/42", "key/7");
+
+    const expectedUrl = "https://api.test/v2/accounts/acc_1/sub-accounts/sub%2F42/api-keys/key%2F7";
+    expect(calls.map(({ method, url, operationId }) => ({ method, url, operationId }))).toEqual([
+      { method: "GET", url: expectedUrl, operationId: "getSubAccountAPIKey" },
+      { method: "PUT", url: expectedUrl, operationId: "updateSubAccountAPIKey" },
+      { method: "DELETE", url: expectedUrl, operationId: "deleteSubAccountAPIKey" },
+    ]);
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ label: "Rotated" });
+  });
+
+  it("keeps child executor and transport state out of inspection and serialization", () => {
+    const { fetch } = captureFetch();
+    const facade = makeClient(fetch).subAccounts.apiKeys;
+
+    expect(Object.isFrozen(facade)).toBe(true);
+    expect(Object.getOwnPropertyNames(facade)).toEqual([
+      "list",
+      "iterate",
+      "create",
+      "get",
+      "update",
+      "delete",
+    ]);
+    expect(Object.getOwnPropertySymbols(facade)).toEqual([]);
+    expect(JSON.stringify(facade)).toBe("{}");
+
+    for (const rendered of [inspect(facade), inspect(facade, { showHidden: true })]) {
+      expect(rendered).not.toContain("OperationExecutor");
+      expect(rendered).not.toContain("HttpClient");
+      expect(rendered).not.toContain("transport");
+      expect(rendered).not.toContain("#operations");
+    }
   });
 });

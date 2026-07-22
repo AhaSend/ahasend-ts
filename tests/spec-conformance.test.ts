@@ -506,6 +506,43 @@ describe("Spec conformance — every SDK method maps to a real OpenAPI operation
       await client.subAccounts.unsuspend(SENTINELS.SUB_ACCOUNT_ID);
       expectMatchesSpec(calls[0]!);
     });
+
+    describe("apiKeys", () => {
+      it("list", async () => {
+        const { client, calls } = captureClient();
+        await client.subAccounts.apiKeys.list(SENTINELS.SUB_ACCOUNT_ID);
+        expectMatchesSpec(calls[0]!);
+      });
+
+      it("create", async () => {
+        const { client, calls } = captureClient();
+        await client.subAccounts.apiKeys.create(SENTINELS.SUB_ACCOUNT_ID, {
+          label: "Bootstrap",
+          scopes: ["messages:send:all"],
+        });
+        expectMatchesSpec(calls[0]!);
+      });
+
+      it("get", async () => {
+        const { client, calls } = captureClient();
+        await client.subAccounts.apiKeys.get(SENTINELS.SUB_ACCOUNT_ID, SENTINELS.KEY_ID);
+        expectMatchesSpec(calls[0]!);
+      });
+
+      it("update", async () => {
+        const { client, calls } = captureClient();
+        await client.subAccounts.apiKeys.update(SENTINELS.SUB_ACCOUNT_ID, SENTINELS.KEY_ID, {
+          label: "Rotated",
+        });
+        expectMatchesSpec(calls[0]!);
+      });
+
+      it("delete", async () => {
+        const { client, calls } = captureClient();
+        await client.subAccounts.apiKeys.delete(SENTINELS.SUB_ACCOUNT_ID, SENTINELS.KEY_ID);
+        expectMatchesSpec(calls[0]!);
+      });
+    });
   });
 });
 
@@ -593,5 +630,17 @@ describe("Generated operation contract parity", () => {
       expect(OPERATION_DESCRIPTORS[iterator.operationId].method).toBe("GET");
       expect(OPERATION_DESCRIPTORS[iterator.operationId].success[0]?.schema).toMatch(/^Paginated/);
     }
+  });
+
+  it("maps all 13 sub-account operations to the parent and nested facades exactly once", () => {
+    const mappings = OPERATION_PROFILE.operations.filter(({ facade }) =>
+      facade.startsWith("subAccounts"),
+    );
+    expect(mappings).toHaveLength(13);
+    expect(mappings.filter(({ facade }) => facade === "subAccounts")).toHaveLength(8);
+    expect(mappings.filter(({ facade }) => facade === "subAccounts.apiKeys")).toHaveLength(5);
+    expect(new Set(mappings.map(({ operationId }) => operationId)).size).toBe(13);
+    expect(OPERATION_PROFILE.operations).toHaveLength(56);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(9);
   });
 });

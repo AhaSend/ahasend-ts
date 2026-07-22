@@ -153,28 +153,28 @@
     },
     {
       "operationId": "listSubAccountAPIKeys",
-      "facade": "subAccounts",
-      "method": "listApiKeys"
+      "facade": "subAccounts.apiKeys",
+      "method": "list"
     },
     {
       "operationId": "createSubAccountAPIKey",
-      "facade": "subAccounts",
-      "method": "createApiKey"
+      "facade": "subAccounts.apiKeys",
+      "method": "create"
     },
     {
       "operationId": "getSubAccountAPIKey",
-      "facade": "subAccounts",
-      "method": "getApiKey"
+      "facade": "subAccounts.apiKeys",
+      "method": "get"
     },
     {
       "operationId": "updateSubAccountAPIKey",
-      "facade": "subAccounts",
-      "method": "updateApiKey"
+      "facade": "subAccounts.apiKeys",
+      "method": "update"
     },
     {
       "operationId": "deleteSubAccountAPIKey",
-      "facade": "subAccounts",
-      "method": "deleteApiKey"
+      "facade": "subAccounts.apiKeys",
+      "method": "delete"
     },
     {
       "operationId": "getSuppressions",
@@ -305,8 +305,8 @@
     },
     {
       "operationId": "listSubAccountAPIKeys",
-      "facade": "subAccounts",
-      "method": "iterateApiKeys"
+      "facade": "subAccounts.apiKeys",
+      "method": "iterate"
     },
     {
       "operationId": "getSuppressions",
