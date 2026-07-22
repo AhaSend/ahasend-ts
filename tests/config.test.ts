@@ -38,6 +38,29 @@ describe("resolveConfig", () => {
     expect(resolved.idempotency).toEqual({ autoGenerate: false, prefix: "myapp" });
   });
 
+  it("resolves opt-in pacing for the standard and statistics categories", () => {
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      rateLimit: {
+        enabled: true,
+        standard: { requestsPerSecond: 50 },
+        statistics: { enabled: false },
+      },
+    });
+
+    expect(resolved.rateLimit).toEqual({
+      enabled: true,
+      standard: { requestsPerSecond: 50, burst: 200, enabled: true },
+      statistics: { requestsPerSecond: 1, burst: 1, enabled: false },
+    });
+  });
+
+  it.each(["general", "sendMessage"])("rejects the obsolete rate-limit category %s", (key) => {
+    expect(() =>
+      resolveConfig({ apiKey: "aha-sk-test", rateLimit: { [key]: {} } } as never),
+    ).toThrow(/unknown .* option/i);
+  });
+
   it("rejects non-HTTPS baseUrls without the override flag", () => {
     expect(() =>
       resolveConfig({ apiKey: "aha-sk-test", baseUrl: "http://api.example.com" }),
@@ -219,7 +242,7 @@ describe("resolveConfig", () => {
   it.each([
     ["retry", { retry: new Date(0) }],
     ["rateLimit", { rateLimit: new Map() }],
-    ["rateLimit.general", { rateLimit: { general: new Date(0) } }],
+    ["rateLimit.standard", { rateLimit: { standard: new Date(0) } }],
     ["hooks", { hooks: new Map() }],
     ["idempotency", { idempotency: new Date(0) }],
   ])("rejects a non-plain %s configuration object", (_name, invalid) => {

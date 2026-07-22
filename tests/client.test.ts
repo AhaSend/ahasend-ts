@@ -34,6 +34,8 @@ import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src
 import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src/index.js";
 // @ts-expect-error ListMembersParams is not part of the public API.
 import type { ListMembersParams as RemovedListMembersParams } from "../src/index.js";
+// @ts-expect-error Rate-limit categories are internal transport policy.
+import type { EndpointCategory as InternalEndpointCategory } from "../src/index.js";
 import * as publicApi from "../src/index.js";
 import { forwardOptions, forwardWithIdempotency } from "../src/resources/_helpers.js";
 
@@ -549,7 +551,7 @@ describe("root public exports", () => {
     expectTypeOf<IdempotencyRequestOptions>().toExtend<RequestOptions>();
     expectTypeOf<IdempotencyConfig>().toHaveProperty("autoGenerate");
     expectTypeOf<RetryConfig>().toHaveProperty("maxRetries");
-    expectTypeOf<RateLimitConfig["general"]>().toEqualTypeOf<
+    expectTypeOf<RateLimitConfig["standard"]>().toEqualTypeOf<
       Partial<CategoryRateLimit> | undefined
     >();
     expectTypeOf<TelemetryHooks["onRequest"]>().parameter(0).toEqualTypeOf<RequestEvent>();

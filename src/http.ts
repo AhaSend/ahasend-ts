@@ -94,10 +94,8 @@ export class HttpClient {
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      // Acquire a token on every attempt — including retries — so the
-      // local bucket stays in sync with the server-reconciled state
-      // updated by `recordResponseHeaders` on each response. Without
-      // this, a 429 retry would bypass the local limiter entirely.
+      // Acquire a token on every attempt, including retries. Server-directed
+      // 429 delay handling is separate and remains owned by retry policy.
       await this.rateLimiter.acquire(options.method, options.path, options.signal);
       try {
         return await this.executeOnce<T>(execution, options, attempt);
@@ -176,7 +174,6 @@ export class HttpClient {
     // misbehaving server that sends headers quickly then stalls on the
     // body would otherwise escape the configured `timeout`.
     try {
-      this.rateLimiter.recordResponseHeaders(options.method, options.path, response.headers);
       const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
       const responseEvent: import("./telemetry.js").ResponseEvent = {
         method: options.method,

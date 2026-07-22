@@ -23,9 +23,9 @@ Initial release.
   responses. Valid `Retry-After` seconds and HTTP-date forms are
   authoritative up to the configured retry maximum (30 seconds by
   default).
-- Three-bucket rate limiter (general / statistics / send-message)
-  reconciled against the server's `X-RateLimit-Remaining` on every
-  response.
+- Opt-in two-bucket rate limiter for the documented standard and
+  statistics tiers, with cancellable local pacing independent of
+  undocumented remaining headers.
 - Typed telemetry hooks (`onRequest`, `onResponse`, `onRetry`,
   `onError`) carrying the server `x-request-id`;
   successful response envelopes carry `requestId` / `idempotentReplayed`.

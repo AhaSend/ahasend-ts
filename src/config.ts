@@ -381,14 +381,10 @@ function assertRetryConfig(config: unknown): void {
 function assertRateLimitConfig(config: unknown): void {
   if (config === undefined) return;
   assertPlainRecord(config, "rateLimit");
-  assertKnownKeys(
-    config,
-    new Set(["enabled", "general", "statistics", "sendMessage"]),
-    "rateLimit",
-  );
+  assertKnownKeys(config, new Set(["enabled", "standard", "statistics"]), "rateLimit");
   assertOptionalBoolean(config.enabled, "rateLimit.enabled");
 
-  for (const category of ["general", "statistics", "sendMessage"] as const) {
+  for (const category of ["standard", "statistics"] as const) {
     const value = config[category];
     if (value === undefined) continue;
     assertPlainRecord(value, `rateLimit.${category}`);

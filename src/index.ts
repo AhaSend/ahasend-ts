@@ -49,7 +49,7 @@ export type { IdempotencyConfig } from "./idempotency.js";
 
 export type { RetryConfig, RetryStrategy } from "./retry.js";
 
-export type { CategoryRateLimit, EndpointCategory, RateLimitConfig } from "./rate-limit.js";
+export type { CategoryRateLimit, RateLimitConfig } from "./rate-limit.js";
 
 export { composeHooks } from "./telemetry.js";
 export type {

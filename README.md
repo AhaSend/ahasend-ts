@@ -76,10 +76,9 @@ const client = new AhaSendClient({
     jitter: true,
   },
   rateLimit: {
-    enabled: true,
-    general:     { requestsPerSecond: 100, burst: 200 },
+    enabled: false,                    // opt in to local request pacing
+    standard:    { requestsPerSecond: 100, burst: 200 },
     statistics:  { requestsPerSecond: 1,   burst: 1   },
-    sendMessage: { requestsPerSecond: 100, burst: 200 },
   },
   hooks: {},                          // telemetry — see below
 });
@@ -171,11 +170,10 @@ up to 4 total attempts.
 
 ### Rate limiting
 
-A three-bucket token limiter (general / statistics / send-message)
-paces requests to the API's documented limits, and reconciles each
-bucket against the server's `X-RateLimit-Remaining` header on every
-response. Statistics calls are paced to 1 req/s — fan-out dashboards
-queue rather than 429.
+An opt-in two-bucket token limiter (standard / statistics) paces requests
+to the API's documented limits. Statistics calls are paced to 1 req/s, so
+fan-out dashboards queue rather than 429. Local bucket state does not rely
+on undocumented remaining headers returned by the server.
 
 ### Telemetry
 
