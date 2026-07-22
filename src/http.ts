@@ -16,6 +16,7 @@ import {
   assertValidIdempotencyKey,
 } from "./idempotency.js";
 import type { IdempotencyExecutionRecord } from "./idempotency.js";
+import { OPERATION_DESCRIPTORS } from "./generated/operations.js";
 import type { OperationId, RetryMode } from "./generated/operations.js";
 import type { OperationExecutionRecord } from "./operations.js";
 import { RateLimiter } from "./rate-limit.js";
@@ -94,33 +95,51 @@ export class HttpClient {
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let startedAt: number | undefined;
       try {
-        return await this.executeAttempt<T>(execution, options, attempt);
+        const envelope = await this.executeAttempt<T>(
+          execution,
+          options,
+          () => {
+            startedAt = Date.now();
+            hooks.onRequest(this.buildAttemptEvent(execution, options, attempt));
+          },
+          (response, requestId) => {
+            const responseEvent: import("./telemetry.js").ResponseEvent = {
+              ...this.buildAttemptEvent(execution, options, attempt),
+              status: response.status,
+              durationMs: elapsedSince(startedAt),
+            };
+            if (requestId) responseEvent.requestId = requestId;
+            hooks.onResponse(Object.freeze(responseEvent));
+          },
+        );
+        return envelope;
       } catch (err) {
         lastError = err;
+        const durationMs = elapsedSince(startedAt);
         const requestId = extractRequestId(err);
+        const status = extractStatus(err);
         const errorEvent: import("./telemetry.js").ErrorEvent = {
-          method: options.method,
-          path: options.path,
-          url,
-          attempt,
+          ...this.buildAttemptEvent(execution, options, attempt),
+          durationMs,
           error: err,
         };
+        if (status !== undefined) errorEvent.status = status;
         if (requestId) errorEvent.requestId = requestId;
-        hooks.onError(errorEvent);
+        hooks.onError(Object.freeze(errorEvent));
         if (attempt === maxAttempts) throw err;
         if (!isRetryableError(err)) throw err;
         const delayMs = computeRetryDelayMs(err, attempt, retry);
         const retryEvent: import("./telemetry.js").RetryEvent = {
-          method: options.method,
-          path: options.path,
-          url,
-          attempt,
+          ...this.buildAttemptEvent(execution, options, attempt),
           delayMs,
+          durationMs,
           error: err,
         };
+        if (status !== undefined) retryEvent.status = status;
         if (requestId) retryEvent.requestId = requestId;
-        hooks.onRetry(retryEvent);
+        hooks.onRetry(Object.freeze(retryEvent));
         await sleep(delayMs, options.signal);
       }
     }
@@ -130,34 +149,28 @@ export class HttpClient {
   private async executeAttempt<T>(
     execution: HttpExecutionRecord,
     options: RequestOptions,
-    attempt: number,
+    onStarted: () => void,
+    onResponseComplete: (response: Response, requestId: string | undefined) => void,
   ): Promise<AhaSendResponse<T>> {
     // Local pacing is part of the total call, so it observes caller cancellation,
     // but it is outside the per-attempt network timeout budget.
     await this.rateLimiter.acquire(options.method, options.path, options.signal);
 
     const controller = this.linkAbortSignal(options.signal, this.config.timeoutMs);
+    onStarted();
 
-    return this.executeOnce<T>(execution, options, attempt, controller);
+    return this.executeOnce<T>(execution, options, controller, onResponseComplete);
   }
 
   private async executeOnce<T>(
     execution: HttpExecutionRecord,
     options: RequestOptions,
-    attempt: number,
     controller: LinkedAbortSignal,
+    onResponseComplete: (response: Response, requestId: string | undefined) => void,
   ): Promise<AhaSendResponse<T>> {
     const { url, init } = execution;
-    const startedAt = Date.now();
     try {
       this.throwIfAttemptAborted(controller, options, "before fetch");
-
-      this.config.hooks.onRequest({
-        method: options.method,
-        path: options.path,
-        url,
-        attempt,
-      });
 
       let response: Response;
       try {
@@ -185,40 +198,34 @@ export class HttpClient {
       // that sends headers quickly and then stalls remains inside this
       // attempt's timeout budget.
       const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
-      const responseEvent: import("./telemetry.js").ResponseEvent = {
-        method: options.method,
-        path: options.path,
-        url,
-        status: response.status,
-        durationMs: Date.now() - startedAt,
-        attempt,
-      };
-      if (requestId) responseEvent.requestId = requestId;
-      this.config.hooks.onResponse(responseEvent);
 
-      let data: T;
       try {
-        data = await this.parseResponse<T>(response, execution.idempotency, requestId);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          throw this.createAttemptAbortError(controller, options, "during body read", err);
+        let data: T;
+        try {
+          data = await this.parseResponse<T>(response, execution.idempotency, requestId);
+        } catch (err) {
+          if (controller.signal.aborted) {
+            throw this.createAttemptAbortError(controller, options, "during body read", err);
+          }
+          if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
+          if (err instanceof Error && err.name === "AbortError") {
+            throw new AhaSendAbortError("Request aborted during body read", err);
+          }
+          throw err;
         }
-        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
-        if (err instanceof Error && err.name === "AbortError") {
-          throw new AhaSendAbortError("Request aborted during body read", err);
-        }
-        throw err;
-      }
-      this.throwIfAttemptAborted(controller, options, "during body read");
+        this.throwIfAttemptAborted(controller, options, "during body read");
 
-      return {
-        data,
-        response,
-        ...(requestId ? { requestId } : {}),
-        ...(response.headers.get(IDEMPOTENT_REPLAYED_HEADER) === "true"
-          ? { idempotentReplayed: true as const }
-          : {}),
-      };
+        return {
+          data,
+          response,
+          ...(requestId ? { requestId } : {}),
+          ...(response.headers.get(IDEMPOTENT_REPLAYED_HEADER) === "true"
+            ? { idempotentReplayed: true as const }
+            : {}),
+        };
+      } finally {
+        onResponseComplete(response, requestId);
+      }
     } finally {
       controller.cleanup();
     }
@@ -293,8 +300,25 @@ export class HttpClient {
     return Object.freeze({
       url,
       init,
+      operationId: options.execution?.operationId ?? options.operationId,
+      routeTemplate: options.execution
+        ? OPERATION_DESCRIPTORS[options.execution.operationId].path
+        : options.path,
       retryMode: options.execution?.retryMode ?? options.retryMode,
       idempotency: createIdempotencyExecutionRecord(options.execution?.idempotency ?? null, key),
+    });
+  }
+
+  private buildAttemptEvent(
+    execution: HttpExecutionRecord,
+    options: RequestOptions,
+    attempt: number,
+  ): import("./telemetry.js").RequestEvent {
+    return Object.freeze({
+      operationId: execution.operationId,
+      method: options.method,
+      routeTemplate: execution.routeTemplate,
+      attempt,
     });
   }
 
@@ -426,6 +450,8 @@ interface LinkedAbortSignal {
 interface HttpExecutionRecord {
   readonly url: string;
   readonly init: RequestInit;
+  readonly operationId: OperationId | undefined;
+  readonly routeTemplate: string;
   readonly retryMode: RetryMode | undefined;
   readonly idempotency: IdempotencyExecutionRecord;
 }
@@ -457,6 +483,16 @@ function extractRequestId(err: unknown): string | undefined {
   if (typeof err !== "object" || err === null) return undefined;
   const candidate = (err as { requestId?: unknown }).requestId;
   return typeof candidate === "string" ? candidate : undefined;
+}
+
+function extractStatus(err: unknown): number | undefined {
+  if (typeof err !== "object" || err === null) return undefined;
+  const candidate = (err as { status?: unknown }).status;
+  return typeof candidate === "number" ? candidate : undefined;
+}
+
+function elapsedSince(startedAt: number | undefined): number {
+  return startedAt === undefined ? 0 : Date.now() - startedAt;
 }
 
 /**
