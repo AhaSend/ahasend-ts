@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "../src/config.js";
-import { AhaSendAbortError, AhaSendTimeoutError } from "../src/errors.js";
+import { AhaSendAbortError } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 import {
   DEFAULT_RATE_LIMIT_CONFIG,
@@ -154,14 +154,15 @@ describe("RateLimiter", () => {
     await next;
   });
 
-  it("bounds queued pacing by the configured request timeout", async () => {
+  it("does not spend the per-attempt timeout while queued for pacing", async () => {
     vi.useFakeTimers();
     try {
-      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-        new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+      const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
       );
       const client = new HttpClient(
         resolveConfig({
@@ -175,11 +176,13 @@ describe("RateLimiter", () => {
 
       await client.request({ method: "GET", path: "/v2/ping" });
       const queued = client.request({ method: "GET", path: "/v2/ping" });
-      const rejected = expect(queued).rejects.toBeInstanceOf(AhaSendTimeoutError);
 
       await vi.advanceTimersByTimeAsync(100);
-      await rejected;
       expect(fetch).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(900);
+      await queued;
+      expect(fetch).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }

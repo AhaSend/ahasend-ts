@@ -16,6 +16,7 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 export interface ClientOptions {
   apiKey: string;
   baseUrl?: string;
+  /** Timeout for each fetch attempt, including response-body reading. */
   timeoutMs?: number;
   userAgent?: string;
   debug?: boolean;

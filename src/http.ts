@@ -132,22 +132,11 @@ export class HttpClient {
     options: RequestOptions,
     attempt: number,
   ): Promise<AhaSendResponse<T>> {
-    const controller = this.linkAbortSignal(options.signal, this.config.timeoutMs);
+    // Local pacing is part of the total call, so it observes caller cancellation,
+    // but it is outside the per-attempt network timeout budget.
+    await this.rateLimiter.acquire(options.method, options.path, options.signal);
 
-    try {
-      // Acquire on every attempt, including retries. Starting the attempt
-      // timeout first prevents local pacing from waiting without a bound.
-      await this.rateLimiter.acquire(options.method, options.path, controller.signal);
-    } catch (err) {
-      controller.cleanup();
-      if (controller.timedOut) {
-        throw new AhaSendTimeoutError(
-          `Request to ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms while waiting for local rate limit`,
-          err,
-        );
-      }
-      throw err;
-    }
+    const controller = this.linkAbortSignal(options.signal, this.config.timeoutMs);
 
     return this.executeOnce<T>(execution, options, attempt, controller);
   }
@@ -160,42 +149,41 @@ export class HttpClient {
   ): Promise<AhaSendResponse<T>> {
     const { url, init } = execution;
     const startedAt = Date.now();
-
-    this.config.hooks.onRequest({
-      method: options.method,
-      path: options.path,
-      url,
-      attempt,
-    });
-
-    let response: Response;
     try {
-      response = await this.config.fetch(url, {
-        ...init,
-        headers: { ...(init.headers as Record<string, string>) },
-        signal: controller.signal,
+      this.throwIfAttemptAborted(controller, options, "before fetch");
+
+      this.config.hooks.onRequest({
+        method: options.method,
+        path: options.path,
+        url,
+        attempt,
       });
-    } catch (err) {
-      controller.cleanup();
-      if (controller.timedOut) {
-        throw new AhaSendTimeoutError(
-          `Request to ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms`,
+
+      let response: Response;
+      try {
+        response = await this.config.fetch(url, {
+          ...init,
+          headers: { ...(init.headers as Record<string, string>) },
+          signal: controller.signal,
+        });
+        this.throwIfAttemptAborted(controller, options, "during fetch");
+      } catch (err) {
+        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
+        if (controller.signal.aborted) {
+          throw this.createAttemptAbortError(controller, options, "during fetch", err);
+        }
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new AhaSendAbortError("Request aborted", err);
+        }
+        throw new AhaSendConnectionError(
+          `Network error while calling ${options.method} ${options.path}`,
           err,
         );
       }
-      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) {
-        throw new AhaSendAbortError("Request aborted", err);
-      }
-      throw new AhaSendConnectionError(
-        `Network error while calling ${options.method} ${options.path}`,
-        err,
-      );
-    }
 
-    // Keep the timer armed until the body has been fully read. A
-    // misbehaving server that sends headers quickly then stalls on the
-    // body would otherwise escape the configured `timeout`.
-    try {
+      // Keep the timer armed until the body has been fully read. A server
+      // that sends headers quickly and then stalls remains inside this
+      // attempt's timeout budget.
       const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
       const responseEvent: import("./telemetry.js").ResponseEvent = {
         method: options.method,
@@ -208,7 +196,21 @@ export class HttpClient {
       if (requestId) responseEvent.requestId = requestId;
       this.config.hooks.onResponse(responseEvent);
 
-      const data = await this.parseResponse<T>(response, execution.idempotency, requestId);
+      let data: T;
+      try {
+        data = await this.parseResponse<T>(response, execution.idempotency, requestId);
+        this.throwIfAttemptAborted(controller, options, "during body read");
+      } catch (err) {
+        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
+        if (controller.signal.aborted) {
+          throw this.createAttemptAbortError(controller, options, "during body read", err);
+        }
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new AhaSendAbortError("Request aborted during body read", err);
+        }
+        throw err;
+      }
+
       return {
         data,
         response,
@@ -217,17 +219,6 @@ export class HttpClient {
           ? { idempotentReplayed: true as const }
           : {}),
       };
-    } catch (err) {
-      if (controller.timedOut) {
-        throw new AhaSendTimeoutError(
-          `Response body read for ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms`,
-          err,
-        );
-      }
-      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) {
-        throw new AhaSendAbortError("Request aborted during body read", err);
-      }
-      throw err;
     } finally {
       controller.cleanup();
     }
@@ -361,19 +352,25 @@ export class HttpClient {
     timeoutMs: number,
   ): LinkedAbortSignal {
     const controller = new AbortController();
-    let timedOut = false;
+    let source: AbortSource | undefined;
 
-    const onUserAbort = () => controller.abort(userSignal?.reason);
+    const abort = (nextSource: AbortSource, reason?: unknown) => {
+      // The first cancellation source wins. In particular, a timeout that
+      // fires after caller cancellation must not relabel the public error.
+      if (controller.signal.aborted) return;
+      source = nextSource;
+      controller.abort(reason);
+    };
+    const onUserAbort = () => abort("caller", userSignal?.reason);
     if (userSignal) {
-      if (userSignal.aborted) controller.abort(userSignal.reason);
+      if (userSignal.aborted) abort("caller", userSignal.reason);
       else userSignal.addEventListener("abort", onUserAbort, { once: true });
     }
 
     const timer =
-      timeoutMs > 0
+      timeoutMs > 0 && !controller.signal.aborted
         ? setTimeout(() => {
-            timedOut = true;
-            controller.abort();
+            abort("timeout");
           }, timeoutMs)
         : null;
 
@@ -383,16 +380,46 @@ export class HttpClient {
         if (timer) clearTimeout(timer);
         if (userSignal) userSignal.removeEventListener("abort", onUserAbort);
       },
-      get timedOut() {
-        return timedOut;
+      get source() {
+        return source;
       },
     };
   }
+
+  private throwIfAttemptAborted(
+    controller: LinkedAbortSignal,
+    options: RequestOptions,
+    phase: AttemptPhase,
+  ): void {
+    if (controller.signal.aborted) {
+      throw this.createAttemptAbortError(controller, options, phase, controller.signal.reason);
+    }
+  }
+
+  private createAttemptAbortError(
+    controller: LinkedAbortSignal,
+    options: RequestOptions,
+    phase: AttemptPhase,
+    cause?: unknown,
+  ): AhaSendAbortError | AhaSendTimeoutError {
+    if (controller.source === "timeout") {
+      const bodyRead = phase === "during body read" ? " response body read" : "";
+      return new AhaSendTimeoutError(
+        `Request${bodyRead} to ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms`,
+        cause,
+      );
+    }
+    const bodyRead = phase === "during body read" ? " during body read" : "";
+    return new AhaSendAbortError(`Request aborted${bodyRead}`, cause);
+  }
 }
+
+type AbortSource = "caller" | "timeout";
+type AttemptPhase = "before fetch" | "during fetch" | "during body read";
 
 interface LinkedAbortSignal {
   readonly signal: AbortSignal;
-  readonly timedOut: boolean;
+  readonly source: AbortSource | undefined;
   cleanup(): void;
 }
 

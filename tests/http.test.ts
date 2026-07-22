@@ -16,6 +16,7 @@ import {
   AhaSendIdempotencyMismatchError,
   AhaSendNotFoundError,
   AhaSendRateLimitError,
+  AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
 } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
@@ -30,6 +31,12 @@ function mockFetch(
     const url = typeof input === "string" ? input : input.toString();
     return handler(url, init ?? {});
   }) as unknown as FetchImpl;
+}
+
+function makeAbortError(): Error {
+  const error = new Error("aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 function makeClient(
@@ -370,50 +377,218 @@ describe("HttpClient", () => {
   });
 });
 
-describe("HttpClient — closing the four high-value P1 test gaps", () => {
-  it("fires AhaSendTimeoutError when the configured timeout elapses", async () => {
-    // Signal-aware mock: reject with AbortError when the SDK's timeout
-    // fires, matching real `fetch` behaviour. Without this the mock
-    // sits forever and the SDK timeout never gets a chance to surface.
-    const client = makeClient(
-      mockFetch(
-        (_url, init) =>
-          new Promise<Response>((_, reject) => {
-            init.signal?.addEventListener("abort", () => {
-              const err = new Error("aborted");
-              err.name = "AbortError";
-              reject(err);
-            });
-          }),
-      ),
-      { timeoutMs: 30, retry: { enabled: false } },
-    );
-    const { AhaSendTimeoutError } = await import("../src/errors.js");
-    await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
-      AhaSendTimeoutError,
-    );
+describe("HttpClient cancellation and attempt timeouts", () => {
+  it("keeps the attempt timeout stopped in the pacing queue and lets caller abort win", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+      const client = makeClient(fetchImpl, {
+        timeoutMs: 100,
+        retry: { enabled: false },
+        rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+      });
+      await client.request({ method: "GET", path: "/x" });
+
+      const controller = new AbortController();
+      const queued = client.request({ method: "GET", path: "/x", signal: controller.signal });
+      let settled = false;
+      void queued.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+
+      await vi.advanceTimersByTimeAsync(250);
+      expect(settled).toBe(false);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+      controller.abort("caller cancelled while queued");
+      await expect(queued).rejects.toMatchObject({ code: "abort_error" });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("AbortSignal cancels an in-flight request and wraps as AhaSendAbortError", async () => {
-    const ctrl = new AbortController();
-    const client = makeClient(
-      mockFetch(
-        () =>
+  it("keeps timeout precedence when the caller aborts before a timed-out fetch settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const fetchImpl = mockFetch(
+        (_url, init) =>
           new Promise<Response>((_, reject) => {
-            setTimeout(() => {
-              const err = new Error("aborted");
-              err.name = "AbortError";
-              reject(err);
-            }, 10);
+            init.signal?.addEventListener(
+              "abort",
+              () => setTimeout(() => reject(makeAbortError()), 150),
+              { once: true },
+            );
           }),
-      ),
-      { retry: { enabled: false } },
-    );
+      );
+      const client = makeClient(fetchImpl, {
+        timeoutMs: 100,
+        retry: { enabled: false },
+      });
+      const request = client.request({ method: "GET", path: "/x", signal: controller.signal });
+      const rejected = expect(request).rejects.toBeInstanceOf(AhaSendTimeoutError);
 
-    setTimeout(() => ctrl.abort(), 5);
-    await expect(
-      client.request({ method: "GET", path: "/x", signal: ctrl.signal }),
-    ).rejects.toBeInstanceOf(AhaSendAbortError);
+      await vi.advanceTimersByTimeAsync(100);
+      controller.abort("caller cancelled after timeout");
+      await vi.advanceTimersByTimeAsync(150);
+      await rejected;
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps caller abort precedence when fetch rejects after the timeout deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const fetchImpl = mockFetch(
+        (_url, init) =>
+          new Promise<Response>((_, reject) => {
+            init.signal?.addEventListener(
+              "abort",
+              () => setTimeout(() => reject(makeAbortError()), 150),
+              { once: true },
+            );
+          }),
+      );
+      const client = makeClient(fetchImpl, {
+        timeoutMs: 100,
+        retry: { maxRetries: 2, baseDelayMs: 1, jitter: false },
+      });
+      const request = client.request({ method: "GET", path: "/x", signal: controller.signal });
+      const rejected = expect(request).rejects.toBeInstanceOf(AhaSendAbortError);
+
+      await vi.advanceTimersByTimeAsync(25);
+      controller.abort("caller cancelled during fetch");
+      await vi.advanceTimersByTimeAsync(150);
+      await rejected;
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("includes response-body reading in the per-attempt timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = mockFetch((_url, init) => {
+        const response = new Response("{}", { status: 200 });
+        vi.spyOn(response, "text").mockImplementation(
+          () =>
+            new Promise<string>((_, reject) => {
+              init.signal?.addEventListener("abort", () => reject(makeAbortError()), {
+                once: true,
+              });
+            }),
+        );
+        return response;
+      });
+      const client = makeClient(fetchImpl, {
+        timeoutMs: 100,
+        retry: { enabled: false },
+      });
+      const request = client.request({ method: "GET", path: "/x" });
+      const rejected = expect(request).rejects.toBeInstanceOf(AhaSendTimeoutError);
+
+      await vi.advanceTimersByTimeAsync(100);
+      await rejected;
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps caller abort precedence when a body read rejects after the timeout deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const fetchImpl = mockFetch((_url, init) => {
+        const response = new Response("{}", { status: 200 });
+        vi.spyOn(response, "text").mockImplementation(
+          () =>
+            new Promise<string>((_, reject) => {
+              init.signal?.addEventListener(
+                "abort",
+                () => setTimeout(() => reject(makeAbortError()), 150),
+                { once: true },
+              );
+            }),
+        );
+        return response;
+      });
+      const client = makeClient(fetchImpl, {
+        timeoutMs: 100,
+        retry: { maxRetries: 2, baseDelayMs: 1, jitter: false },
+      });
+      const request = client.request({ method: "GET", path: "/x", signal: controller.signal });
+      const rejected = expect(request).rejects.toBeInstanceOf(AhaSendAbortError);
+
+      await vi.advanceTimersByTimeAsync(25);
+      controller.abort("caller cancelled during body read");
+      await vi.advanceTimersByTimeAsync(150);
+      await rejected;
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not spend the per-attempt timeout during retry backoff", async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      const fetchImpl = mockFetch(() => {
+        attempts++;
+        return attempts === 1
+          ? new Response("server error", { status: 500 })
+          : new Response("{}", { status: 200 });
+      });
+      const client = makeClient(fetchImpl, {
+        timeoutMs: 100,
+        retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 1000, jitter: false },
+      });
+      const request = client.request({ method: "GET", path: "/x" });
+
+      await vi.advanceTimersByTimeAsync(250);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(750);
+      await expect(request).resolves.toEqual({});
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels retry backoff with a non-retryable public abort error", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+      const client = makeClient(fetchImpl, {
+        timeoutMs: 100,
+        retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 1000, jitter: false },
+      });
+      const request = client.request({ method: "GET", path: "/x", signal: controller.signal });
+      const rejected = expect(request).rejects.toBeInstanceOf(AhaSendAbortError);
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      controller.abort("caller cancelled during backoff");
+
+      await rejected;
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("honours HTTP-date form of Retry-After (RFC 9110 §10.2.3)", async () => {

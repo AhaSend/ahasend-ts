@@ -128,7 +128,7 @@ export class AhaSendConnectionError extends AhaSendError {
   }
 }
 
-/** A caller-provided AbortSignal cancelled SDK work. */
+/** A caller-provided AbortSignal cancelled SDK work in any execution phase. */
 export class AhaSendAbortError extends AhaSendError {
   constructor(message = "Request aborted", cause?: unknown) {
     super(message, cause);
@@ -136,7 +136,7 @@ export class AhaSendAbortError extends AhaSendError {
   }
 }
 
-/** The configured `timeoutMs` elapsed before the response body completed. */
+/** The per-attempt `timeoutMs` elapsed during fetch or response-body reading. */
 export class AhaSendTimeoutError extends AhaSendConnectionError {
   constructor(message = "Request timed out", cause?: unknown) {
     super(message, cause);
