@@ -51,6 +51,21 @@ describe("resolveTelemetryHooks", () => {
     await Promise.resolve();
     expect(onRequest).toHaveBeenCalledOnce();
   });
+
+  it("snapshots callbacks instead of re-reading a mutable hook container", async () => {
+    const onRequest = vi.fn();
+    const configured: TelemetryHooks = { onRequest };
+    const hooks = resolveTelemetryHooks(configured);
+    Object.defineProperty(configured, "onRequest", {
+      get: () => {
+        throw new Error("hook container was re-read");
+      },
+    });
+
+    expect(() => hooks.onRequest(REQUEST_EVENT)).not.toThrow();
+    await Promise.resolve();
+    expect(onRequest).toHaveBeenCalledOnce();
+  });
 });
 
 describe("composeHooks", () => {
@@ -61,6 +76,20 @@ describe("composeHooks", () => {
     composed.onRequest!(REQUEST_EVENT);
     expect(a).toHaveBeenCalledOnce();
     expect(b).toHaveBeenCalledOnce();
+  });
+
+  it("snapshots registered handlers before composing them", () => {
+    const onRequest = vi.fn();
+    const configured: TelemetryHooks = { onRequest };
+    const composed = composeHooks(configured);
+    Object.defineProperty(configured, "onRequest", {
+      get: () => {
+        throw new Error("composed hook container was re-read");
+      },
+    });
+
+    expect(() => composed.onRequest!(REQUEST_EVENT)).not.toThrow();
+    expect(onRequest).toHaveBeenCalledOnce();
   });
 
   it("swallows errors thrown by hooks so the pipeline keeps running", () => {
@@ -245,6 +274,46 @@ describe("HttpClient telemetry integration", () => {
 
     await expect(client.ping()).rejects.toMatchObject({ status: 400, requestId: "req_bad" });
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not re-read mutable hook properties while executing requests", async () => {
+    const observedRequest = vi.fn();
+    const observedError = vi.fn();
+    const hooks: TelemetryHooks = {
+      onRequest: observedRequest,
+      onError: observedError,
+    };
+    const fetch = mockFetch(
+      () =>
+        new Response(JSON.stringify({ message: "invalid" }), {
+          status: 400,
+          headers: { "x-request-id": "req_original" },
+        }),
+    );
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: "acc_1",
+      baseUrl: "https://api.test",
+      hooks,
+      fetch,
+    });
+
+    for (const name of ["onRequest", "onError"] as const) {
+      Object.defineProperty(hooks, name, {
+        get: () => {
+          throw new Error(`${name} was re-read`);
+        },
+      });
+    }
+
+    await expect(client.ping()).rejects.toMatchObject({
+      status: 400,
+      requestId: "req_original",
+    });
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(observedRequest).toHaveBeenCalledOnce();
+    expect(observedError).toHaveBeenCalledOnce();
   });
 
   it("reports generated operation facts and measures through response parsing", async () => {

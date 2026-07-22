@@ -49,11 +49,19 @@ export type ResolvedTelemetryHooks = Required<{
 const NOOP = () => {};
 
 export function resolveTelemetryHooks(hooks?: TelemetryHooks): ResolvedTelemetryHooks {
+  // Snapshot the callback references once. Re-reading a caller-owned hook
+  // container during a request would let later mutation (including a throwing
+  // property accessor) escape the telemetry isolation boundary.
+  const onRequest = hooks?.onRequest;
+  const onResponse = hooks?.onResponse;
+  const onRetry = hooks?.onRetry;
+  const onError = hooks?.onError;
+
   return {
-    onRequest: (event) => deferCall(hooks?.onRequest, event),
-    onResponse: (event) => deferCall(hooks?.onResponse, event),
-    onRetry: (event) => deferCall(hooks?.onRetry, event),
-    onError: (event) => deferCall(hooks?.onError, event),
+    onRequest: (event) => deferCall(onRequest, event),
+    onResponse: (event) => deferCall(onResponse, event),
+    onRetry: (event) => deferCall(onRetry, event),
+    onError: (event) => deferCall(onError, event),
   };
 }
 
@@ -65,19 +73,23 @@ export function resolveTelemetryHooks(hooks?: TelemetryHooks): ResolvedTelemetry
 export function composeHooks(...hookSets: Array<TelemetryHooks | undefined>): TelemetryHooks {
   const sets = hookSets.filter((h): h is TelemetryHooks => h !== undefined);
   if (sets.length === 0) return {};
+  const onRequestHooks = sets.map((set) => set.onRequest);
+  const onResponseHooks = sets.map((set) => set.onResponse);
+  const onRetryHooks = sets.map((set) => set.onRetry);
+  const onErrorHooks = sets.map((set) => set.onError);
 
   return {
     onRequest: (event) => {
-      for (const set of sets) safeCall(set.onRequest, event);
+      for (const hook of onRequestHooks) safeCall(hook, event);
     },
     onResponse: (event) => {
-      for (const set of sets) safeCall(set.onResponse, event);
+      for (const hook of onResponseHooks) safeCall(hook, event);
     },
     onRetry: (event) => {
-      for (const set of sets) safeCall(set.onRetry, event);
+      for (const hook of onRetryHooks) safeCall(hook, event);
     },
     onError: (event) => {
-      for (const set of sets) safeCall(set.onError, event);
+      for (const hook of onErrorHooks) safeCall(hook, event);
     },
   };
 }

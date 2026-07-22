@@ -183,18 +183,21 @@ headers returned by the server.
 const client = new AhaSendClient({
   apiKey, accountId,
   hooks: {
-    onRequest:  (e) => log.debug(`→ ${e.method} ${e.path}`),
+    onRequest:  (e) => log.debug(`→ ${e.method} ${e.routeTemplate}`),
     onResponse: (e) => metrics.timing("ahasend.request", e.durationMs, { status: e.status }),
-    onRetry:    (e) => log.warn(`retrying ${e.path} in ${e.delayMs}ms`),
+    onRetry:    (e) => log.warn(`retrying ${e.routeTemplate} in ${e.delayMs}ms`),
     onError:    (e) => sentry.captureException(e.error),
   },
 });
 ```
 
-Events carry the method, path, URL, attempt number, duration, status,
-and the server's `x-request-id`. Hooks that throw are swallowed — they
-can never break a request. `debug: true` adds a console hookset on top
-of yours.
+Events carry the generated `operationId` when known, method, unexpanded
+`routeTemplate`, attempt number, duration, status, and the server's
+`x-request-id` where applicable. They omit request URLs and expanded path
+parameters, so query strings and caller identifiers are not exposed by default.
+Hooks run asynchronously without delaying the request; synchronous throws and
+returned-promise rejections are swallowed. `debug: true` adds a console hookset
+on top of yours.
 
 ### Pagination
 
