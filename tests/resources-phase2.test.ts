@@ -1,5 +1,10 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { ListRoutesParams } from "../src/resources/routes.js";
+import type {
+  BounceClassificationCount,
+  DeliverabilityStatistics,
+  DeliveryTimeStatistics,
+} from "../src/resources/statistics.js";
 import type { ListSuppressionsParams } from "../src/resources/suppressions.js";
 import type {
   CreatedWebhook,
@@ -243,45 +248,95 @@ describe("WebhooksClient (account-scoped per spec)", () => {
 });
 
 describe("StatisticsClient", () => {
-  it("deliverability() hits /transactional/deliverability with spec-named params", async () => {
+  it("retains required response counters and delivery-time breakdowns", () => {
+    expectTypeOf<DeliverabilityStatistics>().toEqualTypeOf<{
+      from_timestamp: string;
+      to_timestamp: string;
+      reception_count: number;
+      delivered_count: number;
+      deferred_count: number;
+      bounced_count: number;
+      failed_count: number;
+      suppressed_count: number;
+      opened_count: number;
+      clicked_count: number;
+    }>();
+    expectTypeOf<BounceClassificationCount>().toEqualTypeOf<{
+      classification: string;
+      count: number;
+    }>();
+    expectTypeOf<DeliveryTimeStatistics["delivered_count"]>().toEqualTypeOf<number>();
+    expectTypeOf<DeliveryTimeStatistics["delivery_times"]>().toEqualTypeOf<
+      Array<{ recipient_domain: string; delivery_time: number; count: number }>
+    >();
+  });
+
+  it("deliverability() dispatches generated operation facts with spec-named params", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.statistics.deliverability({
-      from_time: "2026-04-01T00:00:00Z",
-      to_time: "2026-04-30T00:00:00Z",
-      group_by: "day",
-      sender_domain: "example.com",
-    });
-    const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe(
-      "/v2/accounts/acc_1/statistics/transactional/deliverability",
+    await client.statistics.deliverability(
+      {
+        from_time: "2026-04-01T00:00:00Z",
+        to_time: "2026-04-30T00:00:00Z",
+        group_by: "day",
+        sender_domain: "example.com",
+      },
+      { headers: { "x-trace-id": "stats-1" } },
     );
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/v2/accounts/acc_1/statistics/transactional/deliverability");
     expect(url.searchParams.get("from_time")).toBe("2026-04-01T00:00:00Z");
     expect(url.searchParams.get("to_time")).toBe("2026-04-30T00:00:00Z");
     expect(url.searchParams.get("group_by")).toBe("day");
     expect(url.searchParams.get("sender_domain")).toBe("example.com");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("stats-1");
+    expect(calls[0]!.operationId).toBe("getDeliverabilityStatistics");
   });
 
-  it("bounces() hits /statistics/transactional/bounce (singular per spec)", async () => {
+  it("bounces() dispatches getBounceStatistics", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
     await client.statistics.bounces({
       from_time: "2026-04-01T00:00:00Z",
       to_time: "2026-04-30T00:00:00Z",
     });
-    expect(calls[0]!.url).toContain("/statistics/transactional/bounce");
-    expect(calls[0]!.url).not.toContain("/bounces");
+    expect(calls[0]!.url).toBe(
+      "https://api.test/v2/accounts/acc_1/statistics/transactional/bounce?from_time=2026-04-01T00%3A00%3A00Z&to_time=2026-04-30T00%3A00%3A00Z",
+    );
+    expect(calls[0]!.operationId).toBe("getBounceStatistics");
   });
 
-  it("deliveryTimes() hits /statistics/transactional/delivery-time (singular)", async () => {
+  it("deliveryTimes() dispatches getDeliveryTimeStatistics", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
     await client.statistics.deliveryTimes({
       from_time: "2026-04-01T00:00:00Z",
       to_time: "2026-04-30T00:00:00Z",
     });
-    expect(calls[0]!.url).toContain("/statistics/transactional/delivery-time");
-    expect(calls[0]!.url).not.toContain("/delivery-times");
+    expect(calls[0]!.url).toBe(
+      "https://api.test/v2/accounts/acc_1/statistics/transactional/delivery-time?from_time=2026-04-01T00%3A00%3A00Z&to_time=2026-04-30T00%3A00%3A00Z",
+    );
+    expect(calls[0]!.operationId).toBe("getDeliveryTimeStatistics");
+  });
+
+  it("defaults each statistics parameter object to an empty query", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.statistics.deliverability();
+    await client.statistics.bounces();
+    await client.statistics.deliveryTimes();
+
+    expect(calls.map(({ url }) => url)).toEqual([
+      "https://api.test/v2/accounts/acc_1/statistics/transactional/deliverability",
+      "https://api.test/v2/accounts/acc_1/statistics/transactional/bounce",
+      "https://api.test/v2/accounts/acc_1/statistics/transactional/delivery-time",
+    ]);
+    expect(calls.map(({ operationId }) => operationId)).toEqual([
+      "getDeliverabilityStatistics",
+      "getBounceStatistics",
+      "getDeliveryTimeStatistics",
+    ]);
   });
 });
 
