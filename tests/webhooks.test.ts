@@ -209,6 +209,63 @@ describe("generated webhook schema", () => {
     ).toBe(false);
   });
 
+  it("validates email fields as RFC 5321 mailboxes", () => {
+    const clicked = {
+      type: "message.clicked",
+      timestamp: "2024-05-06T09:49:16Z",
+      data: {
+        account_id: "4cdd7bdd-294e-4762-892f-83d40abf5a87",
+        event: "on_clicked",
+        from: "sender@example.com",
+        recipient: "recipient@example.com",
+        subject: "Hello",
+        message_id_header: "<message@example.com>",
+        url: "https://example.com",
+        user_agent: "AhaSend test",
+        ip: "192.0.2.1",
+        id: "message-1",
+      },
+    };
+
+    for (const email of [
+      '"a@b"@example.com',
+      '"a\\"b"@example.com',
+      "postbox@mailserver1",
+      "customer/department=shipping@example.com",
+      "user@[127.0.0.1]",
+      "user@[IPv6:2001:db8::1]",
+      "user@[IPv6:2001:db8:0:0:0:0:0:1]",
+      "user@[IPv6:::ffff:192.0.2.1]",
+      "user@[example:address-literal]",
+    ]) {
+      expect(
+        validateKnownWebhookEvent({ ...clicked, data: { ...clicked.data, from: email } }),
+        email,
+      ).toBe(true);
+    }
+    for (const email of [
+      "sender@bad_domain.com",
+      "a,b@example.com",
+      ".sender@example.com",
+      "sender..name@example.com",
+      "sender@-example.com",
+      "sender@example-.com",
+      "user@[300.0.0.1]",
+      "user@[IPv6:2001:db8::1::2]",
+      "user@[IPv6:]",
+      "user@[bad_tag:value]",
+      "user@[example:bad\\value]",
+      '"unterminated@example.com',
+      '"line\nbreak"@example.com',
+      "dörte@example.com",
+    ]) {
+      expect(
+        validateKnownWebhookEvent({ ...clicked, data: { ...clicked.data, from: email } }),
+        email,
+      ).toBe(false);
+    }
+  });
+
   it("accepts canonical and deprecated routing inputs against the same full schema", () => {
     const routing = {
       type: "message.routing",
