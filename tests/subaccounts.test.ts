@@ -160,14 +160,14 @@ describe("SubAccountsClient operations", () => {
     expect(calls[0]!.operationId).toBe("listSubAccounts");
   });
 
-  it("iterate() preserves the limit while advancing the cursor", async () => {
+  it("iterate() preserves the limit and backward direction while advancing", async () => {
     const { fetch, calls } = captureFetch((_call, index) =>
       index === 0
         ? new Response(
             JSON.stringify({
               object: "list",
               data: [{ object: "sub_account", id: "sub_1", name: "First" }],
-              pagination: { has_more: true, next_cursor: "page-2" },
+              pagination: { has_more: true, previous_cursor: "page-2" },
             }),
             { headers: { "content-type": "application/json" } },
           )
@@ -199,8 +199,8 @@ describe("SubAccountsClient operations", () => {
     expect(first.searchParams.get("before")).toBe("page-1");
     expect(first.searchParams.has("after")).toBe(false);
     expect(second.searchParams.get("limit")).toBe("10");
-    expect(second.searchParams.get("after")).toBe("page-2");
-    expect(second.searchParams.has("before")).toBe(false);
+    expect(second.searchParams.get("before")).toBe("page-2");
+    expect(second.searchParams.has("after")).toBe(false);
   });
 
   it("create() sends the body and its explicit idempotency key", async () => {
@@ -308,7 +308,7 @@ describe("SubAccountAPIKeysClient operations", () => {
     expect(calls[0]!.operationId).toBe("listSubAccountAPIKeys");
   });
 
-  it("iterate() preserves the child id and limit while advancing the cursor", async () => {
+  it("iterate() preserves the child id, limit, and backward direction", async () => {
     const { fetch, calls } = captureFetch(
       (_call, index) =>
         new Response(
@@ -316,7 +316,7 @@ describe("SubAccountAPIKeysClient operations", () => {
             object: "list",
             data: [{ object: "api_key", id: index === 0 ? "key_1" : "key_2" }],
             pagination:
-              index === 0 ? { has_more: true, next_cursor: "page-2" } : { has_more: false },
+              index === 0 ? { has_more: true, previous_cursor: "page-2" } : { has_more: false },
           }),
           { headers: { "content-type": "application/json" } },
         ),
@@ -342,8 +342,8 @@ describe("SubAccountAPIKeysClient operations", () => {
       expect(new URL(call.url).searchParams.get("limit")).toBe("10");
     }
     expect(new URL(calls[0]!.url).searchParams.get("before")).toBe("page-1");
-    expect(new URL(calls[1]!.url).searchParams.get("after")).toBe("page-2");
-    expect(new URL(calls[1]!.url).searchParams.has("before")).toBe(false);
+    expect(new URL(calls[1]!.url).searchParams.get("before")).toBe("page-2");
+    expect(new URL(calls[1]!.url).searchParams.has("after")).toBe(false);
   });
 
   it("create() returns the one-time secret and forwards idempotency", async () => {

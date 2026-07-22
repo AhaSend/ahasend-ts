@@ -36,65 +36,88 @@ describe("paginate", () => {
     expect(fetchPage).toHaveBeenCalledOnce();
   });
 
-  it("threads the cursor into subsequent calls", async () => {
-    const seenAfter: Array<string | undefined> = [];
+  it("advances forward while preserving the limit and filters", async () => {
+    const seen: Array<{ status?: string; limit?: number; after?: string; before?: string }> = [];
     const pages = [
       { object: "list" as const, data: ["a"], pagination: { has_more: true, next_cursor: "c1" } },
-      { object: "list" as const, data: ["b"], pagination: { has_more: false } },
+      { object: "list" as const, data: ["b"], pagination: { has_more: true, next_cursor: "c2" } },
+      { object: "list" as const, data: ["c"], pagination: { has_more: false } },
     ];
     let i = 0;
-    const fetchPage = vi.fn(async (params: { after?: string; limit?: number }) => {
-      seenAfter.push(params.after);
-      return pages[i++]!;
-    });
+    const fetchPage = vi.fn(
+      async (params: { status?: string; limit?: number; after?: string; before?: string }) => {
+        seen.push(params);
+        return pages[i++]!;
+      },
+    );
 
     const out: string[] = [];
-    for await (const item of paginate(fetchPage, { limit: 5 })) out.push(item);
+    for await (const item of paginate(fetchPage, { status: "queued", limit: 5 })) out.push(item);
 
-    expect(out).toEqual(["a", "b"]);
-    expect(seenAfter).toEqual([undefined, "c1"]);
-  });
-
-  it("replaces an initial before cursor when advancing", async () => {
-    const seen: Array<{ after?: string; before?: string; limit?: number }> = [];
-    const pages = [
-      { object: "list" as const, data: ["a"], pagination: { has_more: true, next_cursor: "c1" } },
-      { object: "list" as const, data: ["b"], pagination: { has_more: false } },
-    ];
-    let i = 0;
-    const fetchPage = vi.fn(async (params: { after?: string; before?: string; limit?: number }) => {
-      seen.push(params);
-      return pages[i++]!;
-    });
-
-    const out: string[] = [];
-    for await (const item of paginate(fetchPage, { before: "previous", limit: 5 })) out.push(item);
-
-    expect(out).toEqual(["a", "b"]);
+    expect(out).toEqual(["a", "b", "c"]);
     expect(seen).toEqual([
-      { before: "previous", limit: 5 },
-      { after: "c1", limit: 5 },
+      { status: "queued", limit: 5 },
+      { status: "queued", limit: 5, after: "c1" },
+      { status: "queued", limit: 5, after: "c2" },
     ]);
   });
 
-  it("preserves filter params from the initial call across pages", async () => {
-    const seen: Array<{ status?: string; limit?: number; after?: string }> = [];
+  it("advances backward while preserving the limit and filters", async () => {
+    const seen: Array<{ status?: string; limit?: number; after?: string; before?: string }> = [];
     const pages = [
-      { object: "list" as const, data: ["m1"], pagination: { has_more: true, next_cursor: "x" } },
-      { object: "list" as const, data: ["m2"], pagination: { has_more: false } },
+      {
+        object: "list" as const,
+        data: ["c"],
+        pagination: { has_more: true, previous_cursor: "c1" },
+      },
+      {
+        object: "list" as const,
+        data: ["b"],
+        pagination: { has_more: true, previous_cursor: "c0" },
+      },
+      { object: "list" as const, data: ["a"], pagination: { has_more: false } },
     ];
     let i = 0;
-    const fetchPage = vi.fn(async (params: { status?: string; limit?: number; after?: string }) => {
-      seen.push(params);
-      return pages[i++]!;
-    });
+    const fetchPage = vi.fn(
+      async (params: { status?: string; limit?: number; after?: string; before?: string }) => {
+        seen.push(params);
+        return pages[i++]!;
+      },
+    );
 
-    for await (const _ of paginate(fetchPage, { status: "queued", limit: 50 })) {
-      // drain
+    const out: string[] = [];
+    for await (const item of paginate(fetchPage, {
+      status: "queued",
+      limit: 5,
+      before: "c2",
+    })) {
+      out.push(item);
     }
-    expect(seen).toHaveLength(2);
-    expect(seen[0]).toEqual({ status: "queued", limit: 50 });
-    expect(seen[1]).toEqual({ status: "queued", limit: 50, after: "x" });
+
+    expect(out).toEqual(["c", "b", "a"]);
+    expect(seen).toEqual([
+      { status: "queued", limit: 5, before: "c2" },
+      { status: "queued", limit: 5, before: "c1" },
+      { status: "queued", limit: 5, before: "c0" },
+    ]);
+  });
+
+  it("rejects a cursor that would revisit a page", async () => {
+    const pages = [
+      { object: "list" as const, data: ["a"], pagination: { has_more: true, next_cursor: "c1" } },
+      { object: "list" as const, data: ["b"], pagination: { has_more: true, next_cursor: "c1" } },
+    ];
+    let i = 0;
+    const fetchPage = vi.fn(async () => pages[i++]!);
+
+    const drain = async () => {
+      for await (const _item of paginate(fetchPage, {})) {
+        // drain
+      }
+    };
+
+    await expect(drain()).rejects.toThrow("Pagination cursor did not advance");
+    expect(fetchPage).toHaveBeenCalledTimes(2);
   });
 
   it("collect() drains and respects an explicit limit", async () => {
@@ -117,9 +140,13 @@ describe("paginate", () => {
 });
 
 describe("Resource client iterators", () => {
-  function makeClient(handler: (call: number) => Response): AhaSendClient {
+  function makeClient(
+    handler: (call: number, input: RequestInfo | URL, init?: RequestInit) => Response,
+  ): AhaSendClient {
     let n = 0;
-    const fetchImpl: FetchImpl = vi.fn(async () => handler(++n)) as unknown as FetchImpl;
+    const fetchImpl: FetchImpl = vi.fn(async (input, init) =>
+      handler(++n, input, init),
+    ) as unknown as FetchImpl;
     return new AhaSendClient({
       apiKey: "aha-sk-test",
       accountId: "acc_1",
@@ -174,5 +201,34 @@ describe("Resource client iterators", () => {
     const out: string[] = [];
     for await (const s of client.suppressions.iterate()) out.push(s.id);
     expect(out).toEqual(["s1"]);
+  });
+
+  it("preserves request options and remains cancellable between pages", async () => {
+    const requestHeaders: string[] = [];
+    const client = makeClient((call, _input, init) => {
+      requestHeaders.push(new Headers(init?.headers).get("x-trace-id") ?? "");
+      return new Response(
+        JSON.stringify({
+          object: "list",
+          data: [{ object: "message", id: "m1" }],
+          pagination: { has_more: true, next_cursor: call === 1 ? "p2" : "p3" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const controller = new AbortController();
+    const iterator = client.messages.iterate(
+      { limit: 1, status: "queued" },
+      { headers: { "x-trace-id": "trace-1" }, signal: controller.signal },
+    );
+
+    await expect(iterator.next()).resolves.toMatchObject({ value: { id: "m1" }, done: false });
+    await expect(iterator.next()).resolves.toMatchObject({ value: { id: "m1" }, done: false });
+    controller.abort("stop pagination");
+    await expect(iterator.next()).rejects.toMatchObject({
+      name: "AhaSendAbortError",
+      code: "abort_error",
+    });
+    expect(requestHeaders).toEqual(["trace-1", "trace-1"]);
   });
 });
