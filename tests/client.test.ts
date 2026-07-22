@@ -30,6 +30,8 @@ import type {
 import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src/index.js";
 // @ts-expect-error APIKeyRequestOptions was never released from the public API.
 import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src/index.js";
+// @ts-expect-error ListMembersParams is not part of the public API.
+import type { ListMembersParams as RemovedListMembersParams } from "../src/index.js";
 import * as publicApi from "../src/index.js";
 import { forwardOptions, forwardWithIdempotency } from "../src/resources/_helpers.js";
 
@@ -348,6 +350,31 @@ describe("AhaSendClient", () => {
     }
   });
 
+  it("keeps the account executor private during facade inspection and serialization", () => {
+    const apiKey = "aha-sk-account-facade-secret";
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const facade = client.accounts;
+
+    expect(Object.getOwnPropertyNames(facade)).toEqual([
+      "get",
+      "update",
+      "listMembers",
+      "addMember",
+      "removeMember",
+    ]);
+    expect(Object.getOwnPropertySymbols(facade)).toEqual([]);
+    expect(JSON.stringify(facade)).toBe("{}");
+
+    for (const rendered of [inspect(facade), inspect(facade, { showHidden: true })]) {
+      expect(rendered).not.toContain(apiKey);
+      expect(rendered).not.toContain("OperationExecutor");
+      expect(rendered).not.toContain("HttpClient");
+      expect(rendered).not.toContain("transport");
+      expect(rendered).not.toContain("#operations");
+    }
+  });
+
   it("fromEnv requires AHASEND_ACCOUNT_ID", () => {
     expect(() => AhaSendClient.fromEnv({ AHASEND_API_KEY: "aha-sk-test" })).toThrow(
       /AHASEND_ACCOUNT_ID/,
@@ -462,6 +489,10 @@ describe("root public exports", () => {
 
   it("does not expose the unreleased APIKeyRequestOptions type alias", () => {
     expectTypeOf<RemovedAPIKeyRequestOptions>().toEqualTypeOf<RemovedAPIKeyRequestOptions>();
+  });
+
+  it("does not expose the account-specific ListMembersParams type alias", () => {
+    expectTypeOf<RemovedListMembersParams>().toEqualTypeOf<RemovedListMembersParams>();
   });
 });
 

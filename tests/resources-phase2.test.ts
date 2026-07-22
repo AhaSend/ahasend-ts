@@ -646,33 +646,41 @@ describe("RoutesClient", () => {
 });
 
 describe("AccountsClient", () => {
-  it("get() hits /accounts/{id}", async () => {
+  it("get() dispatches getAccount with request options", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.accounts.get();
+    await client.accounts.get({ headers: { "x-trace-id": "account-get-1" } });
     expect(calls[0]!.method).toBe("GET");
     expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("account-get-1");
+    expect(calls[0]!.operationId).toBe("getAccount");
   });
 
-  it("update() PUTs to /accounts/{id}", async () => {
+  it("update() dispatches updateAccount with the request body", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.accounts.update({ name: "New Name" });
+    await client.accounts.update(
+      { name: "New Name" },
+      { headers: { "x-trace-id": "account-update-1" } },
+    );
     expect(calls[0]!.method).toBe("PUT");
     expect(calls[0]!.body).toBe(`{"name":"New Name"}`);
+    expect(calls[0]!.headers["x-trace-id"]).toBe("account-update-1");
+    expect(calls[0]!.operationId).toBe("updateAccount");
   });
 
-  it("listMembers() hits /members (spec does not document pagination params)", async () => {
+  it("listMembers() dispatches getAccountMembers without query parameters", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.accounts.listMembers();
+    await client.accounts.listMembers({ headers: { "x-trace-id": "members-list-1" } });
     const url = new URL(calls[0]!.url);
     expect(url.pathname).toBe("/v2/accounts/acc_1/members");
-    // Spec exposes no query params; SDK must not append them.
     expect(url.search).toBe("");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("members-list-1");
+    expect(calls[0]!.operationId).toBe("getAccountMembers");
   });
 
-  it("addMember() POSTs and supports Idempotency-Key", async () => {
+  it("addMember() dispatches addAccountMember with its body and idempotency key", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
     await client.accounts.addMember(
@@ -680,15 +688,24 @@ describe("AccountsClient", () => {
       { idempotencyKey: "mem-1" },
     );
     expect(calls[0]!.method).toBe("POST");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      email: "new@example.com",
+      role: "Developer",
+    });
     expect(calls[0]!.headers["idempotency-key"]).toBe("mem-1");
+    expect(calls[0]!.operationId).toBe("addAccountMember");
   });
 
-  it("removeMember() DELETEs the user", async () => {
+  it("removeMember() dispatches removeAccountMember and encodes the user ID", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.accounts.removeMember("usr_42");
+    await client.accounts.removeMember("usr/42", {
+      headers: { "x-trace-id": "member-remove-1" },
+    });
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/members/usr_42");
+    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/members/usr%2F42");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("member-remove-1");
+    expect(calls[0]!.operationId).toBe("removeAccountMember");
   });
 });
 

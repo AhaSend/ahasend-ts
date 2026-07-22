@@ -105,7 +105,7 @@ export class AhaSendClient {
     this.#statistics = createFrozenFacade(new StatisticsClient(this.#operations, accountId));
     this.#suppressions = createFrozenFacade(new SuppressionsClient(this.#operations, accountId));
     this.#routes = createFrozenFacade(new RoutesClient(this.#operations, accountId));
-    this.#accounts = createFrozenFacade(new AccountsClient(this.#http, accountId));
+    this.#accounts = createFrozenFacade(new AccountsClient(this.#operations, accountId));
     this.#smtpCredentials = createFrozenFacade(new SMTPCredentialsClient(this.#http, accountId));
   }
 

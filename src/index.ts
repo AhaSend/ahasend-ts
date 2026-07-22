@@ -163,7 +163,6 @@ export type {
   AccountMemberRole,
   AddAccountMemberRequest,
   ListAccountMembersResponse,
-  ListMembersParams,
   UpdateAccountRequest,
   UserAccount,
 } from "./resources/accounts.js";

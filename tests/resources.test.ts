@@ -2,6 +2,9 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type { APIKey, APIKeyScope, CreatedAPIKey } from "../src/resources/api-keys.js";
 // @ts-expect-error APIKeyRequestOptions was never released from the API-key module.
 import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src/resources/api-keys.js";
+import type { Account } from "../src/resources/accounts.js";
+// @ts-expect-error ListMembersParams is not part of the account resource surface.
+import type { ListMembersParams as RemovedListMembersParams } from "../src/resources/accounts.js";
 import type { Domain, ListDomainsParams } from "../src/resources/domains.js";
 // @ts-expect-error DomainRequestOptions was never released from the domain module.
 import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src/resources/domains.js";
@@ -45,6 +48,30 @@ describe("Pagination parameter declarations", () => {
     expect(messages.status).toBe("queued");
     expect(domains.dns_valid).toBe(true);
     expect(invalidDomains.dns_valid).toBe(false);
+  });
+});
+
+describe("Account declarations", () => {
+  it("requires a nullable parent account identifier", () => {
+    const account: Account = {
+      object: "account",
+      id: "acc_1",
+      parent_account_id: null,
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      name: "Primary account",
+      owner_id: "usr_1",
+    };
+    const { parent_account_id: _parentAccountId, ...withoutParentAccountId } = account;
+    // @ts-expect-error parent_account_id is a required nullable response key.
+    const missingParentAccountId: Account = withoutParentAccountId;
+
+    expect(account.parent_account_id).toBeNull();
+    void [missingParentAccountId, _parentAccountId];
+  });
+
+  it("does not expose the account-specific ListMembersParams alias", () => {
+    expectTypeOf<RemovedListMembersParams>().toEqualTypeOf<RemovedListMembersParams>();
   });
 });
 
