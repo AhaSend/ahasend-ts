@@ -112,7 +112,10 @@ describe("createApiError", () => {
     ["wrong replay value", { "idempotent-replayed": "true", "retry-after": "3" }],
     ["missing delay", { "idempotent-replayed": "false" }],
     ["zero delay", { "idempotent-replayed": "false", "retry-after": "0" }],
+    ["negative delay", { "idempotent-replayed": "false", "retry-after": "-1" }],
     ["fractional delay", { "idempotent-replayed": "false", "retry-after": "1.5" }],
+    ["space-prefixed delay", { "idempotent-replayed": "false", "retry-after": " 1" }],
+    ["unsafe integer delay", { "idempotent-replayed": "false", "retry-after": "9007199254740992" }],
     [
       "date delay",
       { "idempotent-replayed": "false", "retry-after": "Wed, 21 Oct 2037 07:28:00 GMT" },
@@ -189,6 +192,26 @@ describe("createApiError", () => {
     }) as AhaSendRateLimitError;
 
     expect(err.retryAfterSeconds).toBe(86_400);
+    now.mockRestore();
+  });
+
+  it("applies the RFC 850 rollover at the exact 50-year timestamp boundary", () => {
+    const currentTime = Date.UTC(2026, 6, 22);
+    const now = vi.spyOn(Date, "now").mockReturnValue(currentTime);
+
+    const atBoundary = createApiError({
+      status: 429,
+      body: null,
+      headers: { "retry-after": "Wednesday, 22-Jul-76 00:00:00 GMT" },
+    }) as AhaSendRateLimitError;
+    const overBoundary = createApiError({
+      status: 429,
+      body: null,
+      headers: { "retry-after": "Thursday, 23-Jul-76 00:00:00 GMT" },
+    }) as AhaSendRateLimitError;
+
+    expect(atBoundary.retryAfterSeconds).toBe((Date.UTC(2076, 6, 22) - currentTime) / 1000);
+    expect(overBoundary.retryAfterSeconds).toBeUndefined();
     now.mockRestore();
   });
 

@@ -5,8 +5,6 @@ import {
   assertValidIdempotencyKey,
   createIdempotencyExecutionRecord,
   generateIdempotencyKey,
-  isEligibleKeyedExecution,
-  parsePositiveIntegerRetryAfter,
   resolveIdempotencyConfig,
 } from "../src/idempotency.js";
 
@@ -166,25 +164,5 @@ describe("idempotency execution records", () => {
       completion: "manual_secret",
     });
     expect(Object.isFrozen(execution)).toBe(true);
-    expect(isEligibleKeyedExecution(execution)).toBe(true);
-    expect(isEligibleKeyedExecution(createIdempotencyExecutionRecord(policy, undefined))).toBe(
-      false,
-    );
-    expect(isEligibleKeyedExecution(createIdempotencyExecutionRecord(null, "stable-key"))).toBe(
-      false,
-    );
-  });
-
-  it.each([
-    ["1", 1],
-    ["300", 300],
-    ["0", undefined],
-    ["-1", undefined],
-    ["1.5", undefined],
-    [" 1", undefined],
-    ["9007199254740992", undefined],
-    [undefined, undefined],
-  ])("parses positive whole-second Retry-After %j as %s", (value, expected) => {
-    expect(parsePositiveIntegerRetryAfter(value)).toBe(expected);
   });
 });

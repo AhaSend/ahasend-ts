@@ -1,5 +1,4 @@
 import type { IdempotencyExecutionRecord } from "./idempotency.js";
-import { isEligibleKeyedExecution, parsePositiveIntegerRetryAfter } from "./idempotency.js";
 
 const AHASEND_ERROR_BRAND = Symbol.for("@ahasend/sdk.error");
 const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");
@@ -301,7 +300,8 @@ export function createApiError(params: {
 }): AhaSendAPIError {
   const message = extractMessage(params.body) ?? `AhaSend API error (HTTP ${params.status})`;
   const base = { ...params, message };
-  const eligibleKeyedExecution = isEligibleKeyedExecution(params.idempotency);
+  const eligibleKeyedExecution =
+    params.idempotency?.eligible === true && params.idempotency.key !== undefined;
 
   if (params.status === 400) return new AhaSendBadRequestError(base);
   if (params.status === 401) return new AhaSendAuthenticationError(base);
@@ -354,6 +354,12 @@ function parseRetryAfter(value: string | undefined): number | undefined {
   return undefined;
 }
 
+function parsePositiveIntegerRetryAfter(value: string | undefined): number | undefined {
+  if (value === undefined || !/^\d+$/.test(value)) return undefined;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : undefined;
+}
+
 /** Parse the three HTTP-date forms required by RFC 9110 without Date.parse's permissive extensions. */
 function parseHttpDate(value: string, now: number): number | undefined {
   const imfFixdate =
@@ -379,7 +385,17 @@ function parseHttpDate(value: string, now: number): number | undefined {
   if (rfc850Date) {
     const currentYear = new Date(now).getUTCFullYear();
     let year = Math.floor(currentYear / 100) * 100 + Number(rfc850Date[4]);
-    if (year > currentYear + 50) year -= 100;
+    const candidate = httpDateTimestamp(
+      year,
+      monthIndex(rfc850Date[3]),
+      Number(rfc850Date[2]),
+      Number(rfc850Date[5]),
+      Number(rfc850Date[6]),
+      Number(rfc850Date[7]),
+    );
+    const rolloverBoundary = new Date(now);
+    rolloverBoundary.setUTCFullYear(currentYear + 50);
+    if (candidate > rolloverBoundary.getTime()) year -= 100;
     return validatedHttpDate(
       year,
       monthIndex(rfc850Date[3]),
@@ -440,6 +456,20 @@ function validatedHttpDate(
   ) {
     return undefined;
   }
+  return date.getTime() + (second === 60 ? 1000 : 0);
+}
+
+function httpDateTimestamp(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): number {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month, day);
+  date.setUTCHours(hour, minute, Math.min(second, 59), 0);
   return date.getTime() + (second === 60 ? 1000 : 0);
 }
 

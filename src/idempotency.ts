@@ -93,20 +93,6 @@ export function createIdempotencyExecutionRecord(
   });
 }
 
-/** A response can be an idempotency lifecycle state only for an eligible keyed call. @internal */
-export function isEligibleKeyedExecution(
-  execution: IdempotencyExecutionRecord | undefined,
-): boolean {
-  return execution?.eligible === true && execution.key !== undefined;
-}
-
-/** Parse the positive whole-second form required by idempotency in-progress responses. @internal */
-export function parsePositiveIntegerRetryAfter(value: string | undefined): number | undefined {
-  if (value === undefined || !/^\d+$/.test(value)) return undefined;
-  const seconds = Number(value);
-  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : undefined;
-}
-
 /** @internal Validate caller-provided keys before they reach fetch. */
 export function assertValidIdempotencyKey(
   key: unknown,
