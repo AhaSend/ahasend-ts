@@ -78,6 +78,7 @@ const RETRY_STRATEGIES = new Set(["exponential", "linear", "constant"]);
 const HOOK_NAMES = new Set(["onRequest", "onResponse", "onRetry", "onError"]);
 const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const INVALID_HEADER_VALUE_PATTERN = /[\u0000-\u0008\u000a-\u001f\u007f]|[^\u0000-\u00ff]/;
+const HTTP_ORIGIN_PATTERN = /^https?:\/\/[^\s/?#\\]+\/?$/i;
 const TRANSPORT_OWNED_HEADERS = new Set([
   "accept",
   "authorization",
@@ -320,7 +321,7 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
     baseUrl.includes("#") ||
     baseUrl !== baseUrl.trim() ||
     ((parsed.protocol === "https:" || parsed.protocol === "http:") &&
-      !/^https?:\/\//i.test(baseUrl))
+      !HTTP_ORIGIN_PATTERN.test(baseUrl))
   ) {
     throw new AhaSendConfigurationError(
       "AhaSend: invalid baseUrl — expected an origin without credentials, path, query, or fragment.",

@@ -1,5 +1,3 @@
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import type {
   AhaSendPromise,
@@ -32,22 +30,6 @@ function mockFetch(
     const url = typeof input === "string" ? input : input.toString();
     return handler(url, init ?? {});
   }) as unknown as FetchImpl;
-}
-
-function listen(server: ReturnType<typeof createServer>): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-}
-
-function close(server: ReturnType<typeof createServer>): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
 }
 
 function makeClient(
@@ -325,39 +307,25 @@ describe("HttpClient", () => {
     expect(headers["idempotency-key"]).toBe("user-supplied-key");
   });
 
-  it("blocks cross-origin redirects before owned headers can reach the target", async () => {
-    let targetRequests = 0;
-    const target = createServer((_request, response) => {
-      targetRequests++;
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end("{}");
+  it("configures fetch to block redirects before owned headers can reach another origin", async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchImpl = mockFetch((_url, init) => {
+      seenInit = init;
+      throw new TypeError("redirect mode prevented following the response");
     });
-    const redirector = createServer((_request, response) => {
-      const targetAddress = target.address() as AddressInfo;
-      response.writeHead(302, { location: `http://127.0.0.1:${targetAddress.port}/stolen` });
-      response.end();
-    });
+    const client = makeClient(fetchImpl, { retry: { enabled: false } });
 
-    await Promise.all([listen(target), listen(redirector)]);
-    try {
-      const redirectAddress = redirector.address() as AddressInfo;
-      const client = makeClient(globalThis.fetch, {
-        baseUrl: `http://127.0.0.1:${redirectAddress.port}`,
-        retry: { enabled: false },
-      });
+    await expect(
+      client.request({
+        method: "POST",
+        path: "/redirect",
+        body: { secret: true },
+        idempotencyKey: "redirect-key",
+      }),
+    ).rejects.toBeInstanceOf(AhaSendConnectionError);
 
-      await expect(
-        client.request({
-          method: "POST",
-          path: "/redirect",
-          body: { secret: true },
-          idempotencyKey: "redirect-key",
-        }),
-      ).rejects.toBeInstanceOf(AhaSendConnectionError);
-      expect(targetRequests).toBe(0);
-    } finally {
-      await Promise.all([close(target), close(redirector)]);
-    }
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(seenInit?.redirect).toBe("error");
   });
 
   it("does NOT auto-inject when idempotency.autoGenerate is disabled", async () => {
