@@ -1,22 +1,215 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
-import { isKnownWebhookEvent } from "../src/webhooks/events.js";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { digestYamlArtifact } from "../scripts/digest-artifact.mjs";
+import { parseWebhookContract } from "../scripts/generate-contracts.mjs";
+import { generateSdkArtifacts } from "../scripts/generate-sdk.mjs";
+import { WEBHOOK_SHA256 } from "../src/generated/contract-digests.js";
+import type { components as WebhookComponents } from "../src/generated/webhook-types.js";
 import {
-  AhaSendWebhookVerificationError,
-  WebhookVerifier,
-} from "../src/webhooks/verifier.js";
+  CANONICAL_WEBHOOK_EVENT_TYPES,
+  DEPRECATED_WEBHOOK_EVENT_TYPES,
+  WEBHOOK_CONTRACT_SHA256,
+  WEBHOOK_SCHEMA_NAMES,
+} from "../src/generated/webhook-types.js";
+import {
+  validateKnownWebhookEvent,
+  validateUnknownWebhookEvent,
+  validateWebhookEvent,
+} from "../src/generated/webhook-validators.js";
+import { isKnownWebhookEvent } from "../src/webhooks/events.js";
+import { AhaSendWebhookVerificationError, WebhookVerifier } from "../src/webhooks/verifier.js";
 
 // AhaSend webhook secrets are raw strings: the HMAC key is the literal
 // UTF-8 bytes of the secret as the user pastes it from the dashboard.
 // This matches the Go SDK at ahasend-go/webhooks/webhooks.go.
 const SECRET = "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
 const PREFIXED_SECRET = `aha-whsec-${SECRET}`;
+const ROOT = process.cwd();
+const OPENAPI_SOURCE = readFileSync(resolve(ROOT, "openapi.yaml"), "utf8");
+const WEBHOOK_SOURCE = readFileSync(resolve(ROOT, "webhooks.yaml"), "utf8");
+
+function record(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("expected a record");
+  }
+  return value as Record<string, unknown>;
+}
+
+describe("generated webhook schema", () => {
+  it("binds generated artifacts to the pinned webhook contract digest", () => {
+    const lock = JSON.parse(readFileSync(resolve(ROOT, "contracts.lock.json"), "utf8")) as {
+      artifactHashes: Record<string, string>;
+    };
+    const digest = digestYamlArtifact(Buffer.from(WEBHOOK_SOURCE, "utf8"));
+
+    expect(digest).toBe(lock.artifactHashes["webhooks.yaml"]);
+    expect(WEBHOOK_CONTRACT_SHA256).toBe(digest);
+    expect(WEBHOOK_SHA256).toBe(digest);
+  });
+
+  it("regenerates webhook output deterministically and passes clean check mode", async () => {
+    const first = await generateSdkArtifacts(OPENAPI_SOURCE, WEBHOOK_SOURCE);
+    const second = await generateSdkArtifacts(OPENAPI_SOURCE, WEBHOOK_SOURCE);
+    const generatedPaths = [
+      "src/generated/webhook-types.ts",
+      "src/generated/webhook-validators.ts",
+    ] as const;
+
+    for (const path of generatedPaths) {
+      expect(first.get(path), path).toBe(second.get(path));
+      expect(readFileSync(resolve(ROOT, path), "utf8"), path).toBe(first.get(path));
+    }
+
+    const beforeCheck = generatedPaths.map((path) => readFileSync(resolve(ROOT, path), "utf8"));
+    const check = spawnSync(process.execPath, ["scripts/generate-sdk.mjs", "--check"], {
+      cwd: ROOT,
+      encoding: "utf8",
+    });
+    expect(check.stderr).toBe("");
+    expect(check.status).toBe(0);
+    expect(generatedPaths.map((path) => readFileSync(resolve(ROOT, path), "utf8"))).toEqual(
+      beforeCheck,
+    );
+  });
+
+  it("models canonical routing, deprecated input compatibility, and optional is_bot", () => {
+    expect(CANONICAL_WEBHOOK_EVENT_TYPES).toContain("message.routing");
+    expect(CANONICAL_WEBHOOK_EVENT_TYPES).not.toContain("route.message");
+    expect(DEPRECATED_WEBHOOK_EVENT_TYPES).toEqual(["route.message"]);
+
+    expectTypeOf<{
+      account_id: string;
+      event: "on_opened";
+      from: string;
+      recipient: string;
+      subject: string;
+      message_id_header: string;
+      id: string;
+    }>().toExtend<WebhookComponents["schemas"]["MessageWebhookData"]>();
+    expectTypeOf<{ is_bot: string }>().not.toExtend<
+      WebhookComponents["schemas"]["MessageWebhookData"]
+    >();
+    expectTypeOf<{
+      type: "route.message";
+      route_id: string;
+      timestamp: string;
+      data: WebhookComponents["schemas"]["RouteWebhookData"];
+    }>().toExtend<WebhookComponents["schemas"]["RouteWebhookPayload"]>();
+  });
+
+  it("covers every declared webhook schema and canonical event example", () => {
+    const document = parseWebhookContract(WEBHOOK_SOURCE);
+    const schemas = record(record(document["components"])["schemas"]);
+    const webhooks = record(document["webhooks"]);
+
+    expect(WEBHOOK_SCHEMA_NAMES).toEqual(Object.keys(schemas));
+    expect(WEBHOOK_SCHEMA_NAMES).toHaveLength(18);
+    expect(CANONICAL_WEBHOOK_EVENT_TYPES).toEqual(Object.keys(webhooks));
+    expect(CANONICAL_WEBHOOK_EVENT_TYPES).toHaveLength(11);
+
+    for (const [eventType, webhookValue] of Object.entries(webhooks)) {
+      const post = record(record(webhookValue)["post"]);
+      const requestBody = record(post["requestBody"]);
+      const content = record(requestBody["content"]);
+      const mediaType = record(content["application/json"]);
+      expect(validateKnownWebhookEvent(mediaType["example"]), eventType).toBe(true);
+    }
+  });
+
+  it("validates complete known envelopes and nested payload fields", () => {
+    const clicked = {
+      type: "message.clicked",
+      timestamp: "2024-05-06T09:49:16.687031577Z",
+      data: {
+        account_id: "4cdd7bdd-294e-4762-892f-83d40abf5a87",
+        event: "on_clicked",
+        from: "sender@example.com",
+        recipient: "recipient@example.com",
+        subject: "Hello",
+        message_id_header: "<message@example.com>",
+        url: "https://example.com",
+        user_agent: "AhaSend test",
+        ip: "192.0.2.1",
+        id: "message-1",
+        is_bot: false,
+      },
+    };
+
+    expect(validateKnownWebhookEvent(clicked)).toBe(true);
+    const withoutOptionalBoolean = structuredClone(clicked);
+    Reflect.deleteProperty(withoutOptionalBoolean.data, "is_bot");
+    expect(validateKnownWebhookEvent(withoutOptionalBoolean)).toBe(true);
+    expect(
+      validateKnownWebhookEvent({
+        ...clicked,
+        data: { ...clicked.data, is_bot: "false" },
+      }),
+    ).toBe(false);
+    const withoutUrl = structuredClone(clicked);
+    Reflect.deleteProperty(withoutUrl.data, "url");
+    expect(validateKnownWebhookEvent(withoutUrl)).toBe(false);
+  });
+
+  it("accepts canonical and deprecated routing inputs against the same full schema", () => {
+    const routing = {
+      type: "message.routing",
+      route_id: "abe11757-2886-4b55-96f1-0e0afc95795a",
+      timestamp: "2024-05-06T13:15:46Z",
+      data: {
+        id: "route-message-1",
+        from: "sender@example.com",
+        to: "support@example.com",
+        subject: "Help",
+        message_id: "<route@example.com>",
+        size: 512,
+        bounce: false,
+        html_body: "<p>Help</p>",
+        plain_body: "Help",
+        attachments: [{ filename: "note.txt", content_type: "text/plain", data: "SGVsbG8=" }],
+        headers: { "X-Mailer": "AhaSend test" },
+      },
+    } as const;
+
+    expect(validateKnownWebhookEvent(routing)).toBe(true);
+    expect(validateKnownWebhookEvent({ ...routing, type: "route.message" })).toBe(true);
+    expect(
+      validateKnownWebhookEvent({
+        ...routing,
+        data: { ...routing.data, attachments: [{ filename: "note.txt" }] },
+      }),
+    ).toBe(false);
+  });
+
+  it("validates future event types only against the schema-defined common envelope", () => {
+    const future = {
+      type: "message.future_event",
+      timestamp: "2026-07-22T12:00:00Z",
+      data: { future_field: true },
+      future_envelope_field: "preserved",
+    };
+
+    expect(validateUnknownWebhookEvent(future)).toBe(true);
+    expect(validateWebhookEvent(future)).toBe(true);
+    expect(validateUnknownWebhookEvent({ ...future, data: "not-an-object" })).toBe(false);
+    expect(validateUnknownWebhookEvent({ type: future.type, timestamp: future.timestamp })).toBe(
+      false,
+    );
+    expect(
+      validateUnknownWebhookEvent({
+        type: "message.clicked",
+        timestamp: future.timestamp,
+        data: {},
+      }),
+    ).toBe(false);
+  });
+});
 
 function sign(secret: string, id: string, ts: number, body: string): string {
   const toSign = `${id}.${ts}.${body}`;
-  return `v1,${createHmac("sha256", Buffer.from(secret, "utf-8"))
-    .update(toSign)
-    .digest("base64")}`;
+  return `v1,${createHmac("sha256", Buffer.from(secret, "utf-8")).update(toSign).digest("base64")}`;
 }
 
 function buildEnvelope(

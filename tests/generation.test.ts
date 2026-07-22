@@ -14,6 +14,7 @@ import {
   CONTRACT_DIGESTS,
   OPENAPI_SHA256,
   OPERATION_PROFILE_SHA256,
+  WEBHOOK_SHA256,
 } from "../src/generated/contract-digests.js";
 import { OPERATION_DESCRIPTORS, RESOURCE_AUTHORIZATION } from "../src/generated/operations.js";
 import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
@@ -24,6 +25,7 @@ type WireSchemas = components["schemas"];
 
 const root = process.cwd();
 const openApiSource = readFileSync(resolve(root, "openapi.yaml"), "utf8");
+const webhookSource = readFileSync(resolve(root, "webhooks.yaml"), "utf8");
 const document = parseOpenApi(openApiSource);
 const profilePath = resolve(root, "src/generated/operation-profile.json");
 const digestPath = resolve(root, "src/generated/operation-profile.sha256");
@@ -31,8 +33,8 @@ const profile = JSON.parse(readFileSync(profilePath, "utf8")) as JsonRecord;
 
 describe("SDK artifact generation", () => {
   it("reproduces every committed artifact byte-for-byte", async () => {
-    const artifacts = await generateSdkArtifacts(openApiSource);
-    expect(artifacts.size).toBe(6);
+    const artifacts = await generateSdkArtifacts(openApiSource, webhookSource);
+    expect(artifacts.size).toBe(8);
     for (const [path, expected] of artifacts) {
       expect(readFileSync(resolve(root, path), "utf8"), path).toBe(expected);
     }
@@ -55,6 +57,7 @@ describe("SDK artifact generation", () => {
     expect(OPERATION_PROFILE_SHA256).toBe(digest);
     expect(CONTRACT_DIGESTS).toEqual({
       openapi: OPENAPI_SHA256,
+      webhooks: WEBHOOK_SHA256,
       operationProfile: digest,
     });
     expect(OPERATION_PROFILE).toEqual(profile);

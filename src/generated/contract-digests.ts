@@ -2,10 +2,13 @@
 
 export const OPENAPI_SHA256 =
   "fab9eb040c028d91951cee9e1c9bda0653af1b260239844224bc288a10c25c3c" as const;
+export const WEBHOOK_SHA256 =
+  "cf98c7a0ea3cca3fa8b93c1d19440eb1a4eeafb33c8079373ed5083ecc77587b" as const;
 export const OPERATION_PROFILE_SHA256 =
   "295f7e16604a165ca2b6cc709b3c0fd3b2055fbefddd627b76d7810a9ae2bac3" as const;
 
 export const CONTRACT_DIGESTS = Object.freeze({
   openapi: OPENAPI_SHA256,
+  webhooks: WEBHOOK_SHA256,
   operationProfile: OPERATION_PROFILE_SHA256,
 });

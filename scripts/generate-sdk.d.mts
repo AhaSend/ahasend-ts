@@ -11,4 +11,7 @@ export function validateAuthorizationRegistry(
   document: unknown,
   registry?: Readonly<Record<string, OpenApiRecord>>,
 ): Readonly<Record<string, OpenApiRecord>>;
-export function generateSdkArtifacts(openApiSource: string): Promise<Map<string, string>>;
+export function generateSdkArtifacts(
+  openApiSource: string,
+  webhookSource: string,
+): Promise<Map<string, string>>;
