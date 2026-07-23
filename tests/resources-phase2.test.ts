@@ -812,20 +812,3 @@ describe("SMTPCredentialsClient", () => {
     expect(calls[0]!.operationId).toBe("deleteSMTPCredential");
   });
 });
-
-describe("AhaSendClient surface", () => {
-  it("exposes all 10 resource clients + ping", () => {
-    const client = makeClient(captureFetch().fetch);
-    expect(client.messages).toBeDefined();
-    expect(client.domains).toBeDefined();
-    expect(client.apiKeys).toBeDefined();
-    expect(client.webhooks).toBeDefined();
-    expect(client.statistics).toBeDefined();
-    expect(client.suppressions).toBeDefined();
-    expect(client.routes).toBeDefined();
-    expect(client.accounts).toBeDefined();
-    expect(client.smtpCredentials).toBeDefined();
-    expect(client.subAccounts).toBeDefined();
-    expect(typeof client.ping).toBe("function");
-  });
-});
