@@ -6,6 +6,24 @@
 
 import { Buffer as Buffer_2 } from 'node:buffer';
 
+// @public
+class AhaSendError extends Error {
+    // (undocumented)
+    [INSPECT_CUSTOM](): SerializedAhaSendError;
+    constructor(message: string, cause?: unknown);
+    // Warning: (ae-forgotten-export) The symbol "AhaSendErrorCode" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly code: AhaSendErrorCode;
+    // Warning: (ae-forgotten-export) The symbol "SerializedAhaSendError" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    toJSON(): SerializedAhaSendError;
+}
+
+// @public (undocumented)
+type AhaSendErrorCode = "ahasend_error" | "configuration_error" | "connection_error" | "abort_error" | "timeout_error" | "response_parse_error" | "api_error" | "authentication_error" | "permission_error" | "not_found_error" | "bad_request_error" | "conflict_error" | "idempotency_conflict_error" | "unprocessable_entity_error" | "idempotency_mismatch_error" | "rate_limit_error" | "server_error" | "webhook_verification_error";
+
 // Warning: (ae-forgotten-export) The symbol "AhaSendError" needs to be exported by the entry point index.d.ts
 //
 // @public
@@ -15,8 +33,16 @@ export class AhaSendWebhookVerificationError extends AhaSendError {
     readonly reason: WebhookVerificationReason;
 }
 
+// Warning: (ae-forgotten-export) The symbol "KnownWebhookEvent" needs to be exported by the entry point index.d.ts
+//
+// @public (undocumented)
+type AnyWebhookEvent$1 = KnownWebhookEvent | UnknownWebhookEvent;
+
 // @public (undocumented)
 export type AnyWebhookEvent = WebhookEvent | UnknownWebhookEvent;
+
+// @public (undocumented)
+const CANONICAL_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "suppression.created", "domain.dns_error", "message.routing"];
 
 // Warning: (ae-forgotten-export) The symbol "CANONICAL_WEBHOOK_EVENT_TYPES" needs to be exported by the entry point index.d.ts
 //
@@ -24,7 +50,136 @@ export type AnyWebhookEvent = WebhookEvent | UnknownWebhookEvent;
 export type CanonicalWebhookEventType = (typeof CANONICAL_WEBHOOK_EVENT_TYPES)[number];
 
 // @public (undocumented)
+interface components {
+    // (undocumented)
+    schemas: {
+        MessageWebhookPayload: {
+            type: "message.reception" | "message.delivered" | "message.transient_error" | "message.failed" | "message.bounced" | "message.suppressed" | "message.opened" | "message.clicked";
+            webhook_id: string;
+            timestamp: string;
+            data: components["schemas"]["MessageWebhookData"];
+        };
+        MessageReceptionWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
+            type?: "message.reception";
+        };
+        MessageDeliveredWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
+            type?: "message.delivered";
+        };
+        MessageTransientErrorWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
+            type?: "message.transient_error";
+        };
+        MessageFailedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
+            type?: "message.failed";
+        };
+        MessageBouncedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
+            type?: "message.bounced";
+        };
+        MessageSuppressedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
+            type?: "message.suppressed";
+        };
+        MessageOpenedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
+            type?: "message.opened";
+        };
+        MessageClickedWebhookPayload: {
+            type: "message.clicked";
+            timestamp: string;
+            data: components["schemas"]["MessageClickedWebhookData"];
+        };
+        MessageWebhookData: {
+            account_id: string;
+            event: "on_reception" | "on_delivered" | "on_transient_error" | "on_failed" | "on_bounced" | "on_suppressed" | "on_opened" | "on_clicked";
+            from: string;
+            recipient: string;
+            subject: string;
+            message_id_header: string;
+            id: string;
+            user_agent?: string;
+            ip?: string;
+            is_bot?: boolean;
+        };
+        MessageClickedWebhookData: {
+            account_id: string;
+            event: string;
+            from: string;
+            recipient: string;
+            subject: string;
+            message_id_header: string;
+            url: string;
+            user_agent: string;
+            ip: string;
+            id: string;
+            is_bot?: boolean;
+        };
+        SuppressionWebhookPayload: {
+            type: "suppression.created";
+            timestamp: string;
+            data: components["schemas"]["SuppressionWebhookData"];
+        };
+        SuppressionWebhookData: {
+            account_id: string;
+            recipient: string;
+            created_at: string;
+            expires_at: string;
+            reason: string;
+            sending_domain: string;
+        };
+        DomainWebhookPayload: {
+            type: "domain.dns_error";
+            webhook_id: string;
+            timestamp: string;
+            data: components["schemas"]["DomainWebhookData"];
+        };
+        DomainWebhookData: {
+            domain: string;
+            account_id: string;
+            spf_valid: boolean;
+            dkim_valid: boolean;
+            dmarc_valid: boolean;
+            dns_last_checked_at: string;
+        };
+        RouteWebhookPayload: {
+            type: "message.routing" | "route.message";
+            timestamp: string;
+            route_id: string;
+            data: components["schemas"]["RouteWebhookData"];
+        };
+        RouteWebhookData: {
+            id: string;
+            from: string;
+            reply_to?: string;
+            to: string;
+            subject: string;
+            message_id: string;
+            size: number;
+            spam_score?: number;
+            bounce: boolean;
+            cc?: string;
+            date?: string;
+            in_reply_to?: string;
+            references?: string;
+            auto_submitted?: string;
+            html_body: string;
+            plain_body: string;
+            reply_from_plain_body?: string;
+            attachments?: Array<components["schemas"]["RouteAttachment"]>;
+            headers?: {
+                [key: string]: string;
+            };
+        };
+        RouteAttachment: {
+            filename: string;
+            content_type: string;
+            content_id?: string;
+            data: string;
+        };
+    };
+}
+
+// @public (undocumented)
 export const DEFAULT_TOLERANCE_SECONDS: number;
+
+// @public (undocumented)
+const DEPRECATED_WEBHOOK_EVENT_TYPES: readonly ["route.message"];
 
 // Warning: (ae-forgotten-export) The symbol "DEPRECATED_WEBHOOK_EVENT_TYPES" needs to be exported by the entry point index.d.ts
 //
@@ -63,6 +218,12 @@ export interface FastifyStyleReply {
 // @public
 export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(verifier: WebhookVerifier, handler: FastifyHandler<T>, options?: WebhookAdapterOptions): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void>;
 
+// @public (undocumented)
+type HeadersInput = Record<string, string | string[] | undefined> | Headers;
+
+// @public (undocumented)
+const INSPECT_CUSTOM: unique symbol;
+
 // Warning: (ae-forgotten-export) The symbol "AnyWebhookEvent$1" needs to be exported by the entry point index.d.ts
 //
 // @public
@@ -70,6 +231,12 @@ export function isKnownWebhookEvent(event: AnyWebhookEvent$1): event is WebhookE
 
 // @public (undocumented)
 export function isKnownWebhookEventType(type: string): type is WebhookEventType;
+
+// @public (undocumented)
+const KNOWN_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "suppression.created", "domain.dns_error", "message.routing", "route.message"];
+
+// @public (undocumented)
+type KnownWebhookEvent = webhookEvents[keyof webhookEvents];
 
 // @public (undocumented)
 export const MAX_WEBHOOK_BODY_BYTES: number;
@@ -142,6 +309,12 @@ export interface NodeStyleResponse {
 }
 
 // @public (undocumented)
+type RawBody = string | Buffer;
+
+// @public (undocumented)
+const REDACTED: "[REDACTED]";
+
+// @public (undocumented)
 export type RouteAttachment = components["schemas"]["RouteAttachment"];
 
 // @public (undocumented)
@@ -149,6 +322,32 @@ export type RouteEventData = components["schemas"]["RouteWebhookData"];
 
 // @public @deprecated (undocumented)
 export type RouteMessageEvent = MessageRoutingEvent;
+
+// @public (undocumented)
+interface SerializedAhaSendError {
+    // Warning: (ae-forgotten-export) The symbol "REDACTED" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    body?: typeof REDACTED;
+    // (undocumented)
+    cause?: typeof REDACTED;
+    // (undocumented)
+    code: AhaSendErrorCode;
+    // (undocumented)
+    headers?: typeof REDACTED;
+    // (undocumented)
+    message: string;
+    // (undocumented)
+    name: string;
+    // (undocumented)
+    reason?: string;
+    // (undocumented)
+    requestId?: string;
+    // (undocumented)
+    retryAfterSeconds?: number;
+    // (undocumented)
+    status?: number;
+}
 
 // @public (undocumented)
 export type SuppressionCreatedEvent = webhookEvents["suppression.created"];
@@ -215,6 +414,32 @@ export interface WebhookEnvelope<TType extends WebhookEventType, TData> {
 
 // @public
 export type WebhookEvent = MessageReceptionEvent | MessageDeliveredEvent | MessageTransientErrorEvent | MessageFailedEvent | MessageBouncedEvent | MessageSuppressedEvent | MessageOpenedEvent | MessageClickedEvent | SuppressionCreatedEvent | DomainDNSErrorEvent | MessageRoutingEvent;
+
+// @public (undocumented)
+interface webhookEvents {
+    // (undocumented)
+    "domain.dns_error": components["schemas"]["DomainWebhookPayload"];
+    // (undocumented)
+    "message.bounced": components["schemas"]["MessageBouncedWebhookPayload"];
+    // (undocumented)
+    "message.clicked": components["schemas"]["MessageClickedWebhookPayload"];
+    // (undocumented)
+    "message.delivered": components["schemas"]["MessageDeliveredWebhookPayload"];
+    // (undocumented)
+    "message.failed": components["schemas"]["MessageFailedWebhookPayload"];
+    // (undocumented)
+    "message.opened": components["schemas"]["MessageOpenedWebhookPayload"];
+    // (undocumented)
+    "message.reception": components["schemas"]["MessageReceptionWebhookPayload"];
+    // (undocumented)
+    "message.routing": components["schemas"]["RouteWebhookPayload"];
+    // (undocumented)
+    "message.suppressed": components["schemas"]["MessageSuppressedWebhookPayload"];
+    // (undocumented)
+    "message.transient_error": components["schemas"]["MessageTransientErrorWebhookPayload"];
+    // (undocumented)
+    "suppression.created": components["schemas"]["SuppressionWebhookPayload"];
+}
 
 // Warning: (ae-forgotten-export) The symbol "KNOWN_WEBHOOK_EVENT_TYPES" needs to be exported by the entry point index.d.ts
 //

@@ -9,7 +9,8 @@
     "enabled": true,
     "reportFileName": "ahasend-sdk-webhooks",
     "reportFolder": "<projectFolder>/etc",
-    "reportTempFolder": "<projectFolder>/temp"
+    "reportTempFolder": "<projectFolder>/temp",
+    "includeForgottenExports": true
   },
   "docModel": {
     "enabled": false
