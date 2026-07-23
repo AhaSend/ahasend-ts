@@ -24,6 +24,17 @@ interface AllowedMarker {
   readonly source: string;
 }
 
+interface BindingSegment {
+  readonly name: string;
+  readonly node: ts.BindingElement;
+}
+
+interface BindingAlias {
+  readonly initializer: ts.Expression;
+  readonly localName: string;
+  readonly segments: readonly BindingSegment[];
+}
+
 const ALLOWED_MARKERS: Readonly<Record<string, readonly AllowedMarker[]>> = {
   "tests/integration/sdk.integration.test.ts": [
     {
@@ -56,15 +67,6 @@ function propertyName(node: ts.PropertyName): string | undefined {
   if (ts.isComputedPropertyName(node) && ts.isStringLiteral(node.expression)) {
     return node.expression.text;
   }
-  return undefined;
-}
-
-function callableRoot(node: ts.Expression): string | undefined {
-  if (ts.isIdentifier(node)) return node.text;
-  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-    return callableRoot(node.expression);
-  }
-  if (ts.isCallExpression(node)) return callableRoot(node.expression);
   return undefined;
 }
 
@@ -119,6 +121,8 @@ function findMarkers(file: string, contents: string): Marker[] {
   const lines = contents.split(/\r?\n/u);
   const declarations = new Map<string, ts.Expression[]>();
   const callableAliases = new Set(VITEST_CALLABLES);
+  const namespaceAliases = new Set<string>();
+  const bindingAliases: BindingAlias[] = [];
 
   function addDeclaration(name: string, initializer: ts.Expression): void {
     const existing = declarations.get(name);
@@ -129,20 +133,51 @@ function findMarkers(file: string, contents: string): Marker[] {
     }
   }
 
+  function collectBindingAliases(
+    pattern: ts.ObjectBindingPattern,
+    initializer: ts.Expression,
+    segments: readonly BindingSegment[] = [],
+  ): void {
+    for (const element of pattern.elements) {
+      const nameNode =
+        element.propertyName ?? (ts.isIdentifier(element.name) ? element.name : undefined);
+      const name = nameNode === undefined ? undefined : propertyName(nameNode);
+      if (name === undefined) continue;
+      const nextSegments = [...segments, { name, node: element }];
+
+      if (ts.isIdentifier(element.name)) {
+        bindingAliases.push({
+          initializer,
+          localName: element.name.text,
+          segments: nextSegments,
+        });
+      } else if (ts.isObjectBindingPattern(element.name)) {
+        collectBindingAliases(element.name, initializer, nextSegments);
+      }
+    }
+  }
+
   function collectDeclarations(node: ts.Node): void {
     if (
-      ts.isImportSpecifier(node) &&
-      ts.isStringLiteral(node.parent.parent.parent.moduleSpecifier) &&
-      node.parent.parent.parent.moduleSpecifier.text === "vitest"
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === "vitest"
     ) {
-      const importedName = node.propertyName?.text ?? node.name.text;
-      if (VITEST_CALLABLES.has(importedName)) callableAliases.add(node.name.text);
-    } else if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer !== undefined
-    ) {
-      addDeclaration(node.name.text, node.initializer);
+      const bindings = node.importClause?.namedBindings;
+      if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
+        namespaceAliases.add(bindings.name.text);
+      } else if (bindings !== undefined) {
+        for (const element of bindings.elements) {
+          const importedName = element.propertyName?.text ?? element.name.text;
+          if (VITEST_CALLABLES.has(importedName)) callableAliases.add(element.name.text);
+        }
+      }
+    } else if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
+      if (ts.isIdentifier(node.name)) {
+        addDeclaration(node.name.text, node.initializer);
+      } else if (ts.isObjectBindingPattern(node.name)) {
+        collectBindingAliases(node.name, node.initializer);
+      }
     }
 
     ts.forEachChild(node, collectDeclarations);
@@ -150,22 +185,82 @@ function findMarkers(file: string, contents: string): Marker[] {
 
   collectDeclarations(sourceFile);
 
-  function isCallableExpression(node: ts.Expression): boolean {
+  type ExpressionKind = "callable" | "namespace" | undefined;
+
+  function expressionKind(node: ts.Expression): ExpressionKind {
     const expression = unwrapExpression(node);
-    if (ts.isConditionalExpression(expression)) {
-      return (
-        isCallableExpression(expression.whenTrue) && isCallableExpression(expression.whenFalse)
-      );
+    if (ts.isIdentifier(expression)) {
+      if (callableAliases.has(expression.text)) return "callable";
+      if (namespaceAliases.has(expression.text)) return "namespace";
+      return undefined;
     }
-    return callableAliases.has(callableRoot(expression) ?? "");
+
+    if (ts.isConditionalExpression(expression)) {
+      const whenTrue = expressionKind(expression.whenTrue);
+      return whenTrue !== undefined && whenTrue === expressionKind(expression.whenFalse)
+        ? whenTrue
+        : undefined;
+    }
+
+    if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+      const ownerKind = expressionKind(expression.expression);
+      if (ownerKind === "callable") return "callable";
+      const name = terminalProperty(expression);
+      return ownerKind === "namespace" && name !== undefined && VITEST_CALLABLES.has(name)
+        ? "callable"
+        : undefined;
+    }
+
+    if (ts.isCallExpression(expression)) {
+      const name = terminalProperty(unwrapExpression(expression.expression));
+      return name !== undefined &&
+        VITEST_BUILDERS.has(name) &&
+        expressionKind(expression.expression) === "callable"
+        ? "callable"
+        : undefined;
+    }
+
+    return undefined;
+  }
+
+  function bindingAliasKind(binding: BindingAlias): ExpressionKind {
+    let kind = expressionKind(binding.initializer);
+    for (const segment of binding.segments) {
+      if (kind === "callable") continue;
+      if (kind === "namespace" && VITEST_CALLABLES.has(segment.name)) {
+        kind = "callable";
+      } else {
+        return undefined;
+      }
+    }
+    return kind;
   }
 
   let aliasesAdded: boolean;
   do {
     aliasesAdded = false;
     for (const [name, initializers] of declarations) {
-      if (!callableAliases.has(name) && initializers.some(isCallableExpression)) {
+      if (
+        !namespaceAliases.has(name) &&
+        initializers.some((initializer) => expressionKind(initializer) === "namespace")
+      ) {
+        namespaceAliases.add(name);
+        aliasesAdded = true;
+      } else if (
+        !callableAliases.has(name) &&
+        initializers.some((initializer) => expressionKind(initializer) === "callable")
+      ) {
         callableAliases.add(name);
+        aliasesAdded = true;
+      }
+    }
+    for (const binding of bindingAliases) {
+      const kind = bindingAliasKind(binding);
+      if (kind === "namespace" && !namespaceAliases.has(binding.localName)) {
+        namespaceAliases.add(binding.localName);
+        aliasesAdded = true;
+      } else if (kind === "callable" && !callableAliases.has(binding.localName)) {
+        callableAliases.add(binding.localName);
         aliasesAdded = true;
       }
     }
@@ -182,6 +277,24 @@ function findMarkers(file: string, contents: string): Marker[] {
       modifier,
       source: (lines[line] ?? "").trim(),
     });
+  }
+
+  const bindingModifiers = new Map<number, ForbiddenModifier>();
+  for (const binding of bindingAliases) {
+    let kind = expressionKind(binding.initializer);
+    for (const segment of binding.segments) {
+      if (kind === "callable") {
+        const modifier = FORBIDDEN_MODIFIERS.find((candidate) => candidate === segment.name);
+        if (modifier !== undefined) {
+          bindingModifiers.set(segment.node.getStart(sourceFile), modifier);
+        }
+      } else if (kind === "namespace" && VITEST_CALLABLES.has(segment.name)) {
+        kind = "callable";
+        continue;
+      } else {
+        break;
+      }
+    }
   }
 
   function optionPropertyModifier(
@@ -236,12 +349,20 @@ function findMarkers(file: string, contents: string): Marker[] {
   }
 
   function visit(node: ts.Node): void {
-    const modifier = propertyModifier(node);
-    if (modifier !== undefined) addMarker(node, modifier);
+    const bindingModifier = bindingModifiers.get(node.getStart(sourceFile));
+    if (bindingModifier !== undefined) {
+      addMarker(node, bindingModifier);
+    } else if (
+      (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+      expressionKind(node) === "callable"
+    ) {
+      const modifier = propertyModifier(node);
+      if (modifier !== undefined) addMarker(node, modifier);
+    }
 
     if (
       ts.isCallExpression(node) &&
-      isCallableExpression(node.expression) &&
+      expressionKind(node.expression) === "callable" &&
       !VITEST_BUILDERS.has(terminalProperty(unwrapExpression(node.expression)) ?? "")
     ) {
       for (const argument of node.arguments.slice(1, 3)) {
@@ -398,10 +519,55 @@ describe("committed test policy", () => {
     expect(auditMarkers(markers).unexpected).toEqual(markers);
   });
 
+  it("rejects namespace-import options and destructured Vitest modifiers", () => {
+    const contents = [
+      `import * as vitest from "vitest";`,
+      `const hiddenOptions = { skip: true };`,
+      `vitest.it("hidden by options", hiddenOptions, () => {});`,
+      `const { test: check } = vitest;`,
+      `check("focused by options", { only: SHOULD_FOCUS }, () => {});`,
+      `const { todo: hiddenTodo } = check;`,
+      `hiddenTodo("hidden by alias");`,
+      `const { test: { skip: hiddenTest } } = vitest;`,
+      `hiddenTest("hidden by nested alias", () => {});`,
+    ].join("\n");
+
+    const markers = findMarkers("tests/example.test.ts", contents);
+    expect(markers).toEqual([
+      {
+        file: "tests/example.test.ts",
+        line: 2,
+        modifier: "skip",
+        source: `const hiddenOptions = { skip: true };`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 5,
+        modifier: "only",
+        source: `check("focused by options", { only: SHOULD_FOCUS }, () => {});`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 6,
+        modifier: "todo",
+        source: `const { todo: hiddenTodo } = check;`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 8,
+        modifier: "skip",
+        source: `const { test: { skip: hiddenTest } } = vitest;`,
+      },
+    ]);
+    expect(auditMarkers(markers).unexpected).toEqual(markers);
+  });
+
   it("ignores test-modifier text that cannot affect Vitest execution", () => {
     const contents = [
       `const documentation = 'it.skipIf(true)';`,
       `const request = { only: true, skip: true, todo: true };`,
+      `const result = { skip: "page", todo: "later", only: "this" };`,
+      `result.skip; result["todo"]; result.only;`,
       `it.each([{ only: true, skip: true, todo: true }])("runs case %#", () => {});`,
       `it("runs", { only: false, skip: false, todo: false }, () => {});`,
     ].join("\n");
