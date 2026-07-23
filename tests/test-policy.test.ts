@@ -9,6 +9,7 @@ const FORBIDDEN_MODIFIERS = ["only", "skip", "todo", "skipIf", "runIf"] as const
 const OPTION_MODIFIERS = new Set<ForbiddenModifier>(["only", "skip", "todo"]);
 const VITEST_CALLABLES = new Set(["bench", "describe", "it", "suite", "test"]);
 const VITEST_BUILDERS = new Set(["each", "extend", "for", "runIf", "scoped", "skipIf"]);
+const VITEST_SUITES = new Set(["describe", "suite"]);
 
 type ForbiddenModifier = (typeof FORBIDDEN_MODIFIERS)[number];
 
@@ -39,11 +40,21 @@ interface TestSource {
   readonly contents: string;
 }
 
+type CallableKind = "callable" | "suite";
 type ImportKindResolver = (
   importer: string,
   moduleSpecifier: string,
   importedName: string,
-) => "callable" | undefined;
+) => CallableKind | undefined;
+
+function vitestCallableKind(name: string): CallableKind | undefined {
+  if (!VITEST_CALLABLES.has(name)) return undefined;
+  return VITEST_SUITES.has(name) ? "suite" : "callable";
+}
+
+function isCallableKind(kind: string | undefined): kind is CallableKind {
+  return kind === "callable" || kind === "suite";
+}
 
 const ALLOWED_MARKERS: Readonly<Record<string, readonly AllowedMarker[]>> = {
   "tests/integration/sdk.integration.test.ts": [
@@ -146,7 +157,7 @@ function findMarkers(
   const markers: Marker[] = [];
   const markerPositions = new Set<number>();
   const lines = contents.split(/\r?\n/u);
-  type ExpressionKind = "callable" | "namespace" | undefined;
+  type ExpressionKind = CallableKind | "namespace" | undefined;
   const directKinds = new Map<ts.Symbol, Exclude<ExpressionKind, undefined>>();
   const declarations = new Map<ts.Symbol, ts.Expression[]>();
   const bindingAliases = new Map<ts.Symbol, BindingAlias>();
@@ -191,12 +202,10 @@ function findMarkers(
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const moduleSpecifier = node.moduleSpecifier.text;
       const defaultImport = node.importClause?.name;
-      if (
-        defaultImport !== undefined &&
-        resolveImportKind?.(file, moduleSpecifier, "default") === "callable"
-      ) {
+      const defaultKind = resolveImportKind?.(file, moduleSpecifier, "default");
+      if (defaultImport !== undefined && defaultKind !== undefined) {
         const symbol = checker.getSymbolAtLocation(defaultImport);
-        if (symbol !== undefined) directKinds.set(symbol, "callable");
+        if (symbol !== undefined) directKinds.set(symbol, defaultKind);
       }
 
       const bindings = node.importClause?.namedBindings;
@@ -210,11 +219,11 @@ function findMarkers(
           const importedName = element.propertyName?.text ?? element.name.text;
           const symbol = checker.getSymbolAtLocation(element.name);
           const kind =
-            moduleSpecifier === "vitest" && VITEST_CALLABLES.has(importedName)
-              ? "callable"
+            moduleSpecifier === "vitest"
+              ? vitestCallableKind(importedName)
               : resolveImportKind?.(file, moduleSpecifier, importedName);
-          if (symbol !== undefined && kind === "callable") {
-            directKinds.set(symbol, "callable");
+          if (symbol !== undefined && kind !== undefined) {
+            directKinds.set(symbol, kind);
           }
         }
       }
@@ -250,6 +259,18 @@ function findMarkers(
       }
       const binding = bindingAliases.get(symbol);
       if (binding !== undefined) return bindingAliasKind(binding, nextSeenSymbols);
+      for (const declaration of symbol.declarations ?? []) {
+        if (
+          ts.isParameter(declaration) &&
+          declaration.parent.parameters[0] === declaration &&
+          (ts.isArrowFunction(declaration.parent) || ts.isFunctionExpression(declaration.parent)) &&
+          ts.isCallExpression(declaration.parent.parent) &&
+          declaration.parent.parent.arguments.some((argument) => argument === declaration.parent) &&
+          expressionKind(declaration.parent.parent.expression, nextSeenSymbols) === "suite"
+        ) {
+          return "callable";
+        }
+      }
       return undefined;
     }
 
@@ -263,19 +284,16 @@ function findMarkers(
 
     if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
       const ownerKind = expressionKind(expression.expression, seenSymbols);
-      if (ownerKind === "callable") return "callable";
+      if (isCallableKind(ownerKind)) return ownerKind;
       const name = terminalProperty(expression);
-      return ownerKind === "namespace" && name !== undefined && VITEST_CALLABLES.has(name)
-        ? "callable"
-        : undefined;
+      return ownerKind === "namespace" && name !== undefined ? vitestCallableKind(name) : undefined;
     }
 
     if (ts.isCallExpression(expression)) {
       const name = terminalProperty(unwrapExpression(expression.expression));
-      return name !== undefined &&
-        VITEST_BUILDERS.has(name) &&
-        expressionKind(expression.expression, seenSymbols) === "callable"
-        ? "callable"
+      const ownerKind = expressionKind(expression.expression, seenSymbols);
+      return name !== undefined && VITEST_BUILDERS.has(name) && isCallableKind(ownerKind)
+        ? ownerKind
         : undefined;
     }
 
@@ -288,9 +306,10 @@ function findMarkers(
   ): ExpressionKind {
     let kind = expressionKind(binding.initializer, seenSymbols);
     for (const segment of binding.segments) {
-      if (kind === "callable") continue;
-      if (kind === "namespace" && VITEST_CALLABLES.has(segment.name)) {
-        kind = "callable";
+      if (isCallableKind(kind)) continue;
+      if (kind === "namespace") {
+        kind = vitestCallableKind(segment.name);
+        if (kind === undefined) return undefined;
       } else {
         return undefined;
       }
@@ -315,14 +334,15 @@ function findMarkers(
   for (const binding of bindingAliases.values()) {
     let kind = expressionKind(binding.initializer);
     for (const segment of binding.segments) {
-      if (kind === "callable") {
+      if (isCallableKind(kind)) {
         const modifier = FORBIDDEN_MODIFIERS.find((candidate) => candidate === segment.name);
         if (modifier !== undefined) {
           bindingModifiers.set(segment.node.getStart(sourceFile), modifier);
         }
-      } else if (kind === "namespace" && VITEST_CALLABLES.has(segment.name)) {
-        kind = "callable";
-        continue;
+      } else if (kind === "namespace") {
+        kind = vitestCallableKind(segment.name);
+        if (kind !== undefined) continue;
+        break;
       } else {
         break;
       }
@@ -387,7 +407,7 @@ function findMarkers(
       addMarker(node, bindingModifier);
     } else if (
       (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
-      expressionKind(node) === "callable"
+      isCallableKind(expressionKind(node))
     ) {
       const modifier = propertyModifier(node);
       if (modifier !== undefined) addMarker(node, modifier);
@@ -395,7 +415,7 @@ function findMarkers(
 
     if (
       ts.isCallExpression(node) &&
-      expressionKind(node.expression) === "callable" &&
+      isCallableKind(expressionKind(node.expression)) &&
       !VITEST_BUILDERS.has(terminalProperty(unwrapExpression(node.expression)) ?? "")
     ) {
       for (const argument of node.arguments.slice(1, 3)) {
@@ -435,71 +455,168 @@ function resolveLocalModule(
   return candidates.find((candidate) => sourceNames.has(candidate));
 }
 
-function callableExports(sources: readonly TestSource[]): ReadonlyMap<string, ReadonlySet<string>> {
+function callableExports(
+  sources: readonly TestSource[],
+): ReadonlyMap<string, ReadonlyMap<string, CallableKind>> {
   const sourceNames = new Set(sources.map(({ file }) => file));
   const parsedSources = sources.map(({ file, contents }) => ({
     file,
     sourceFile: ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true),
   }));
-  const exportsByFile = new Map<string, Set<string>>(
-    sources.map(({ file }) => [file, new Set<string>()]),
+  const exportsByFile = new Map<string, Map<string, CallableKind>>(
+    sources.map(({ file }) => [file, new Map<string, CallableKind>()]),
   );
 
-  function exportedCallables(moduleSpecifier: string, importer: string): ReadonlySet<string> {
-    if (moduleSpecifier === "vitest") return VITEST_CALLABLES;
+  function exportedCallables(
+    moduleSpecifier: string,
+    importer: string,
+  ): ReadonlyMap<string, CallableKind> {
+    if (moduleSpecifier === "vitest") {
+      return new Map(
+        [...VITEST_CALLABLES].map((name) => [name, vitestCallableKind(name)!] as const),
+      );
+    }
     const resolved = resolveLocalModule(importer, moduleSpecifier, sourceNames);
-    return resolved === undefined ? new Set() : (exportsByFile.get(resolved) ?? new Set());
+    return resolved === undefined
+      ? new Map()
+      : (exportsByFile.get(resolved) ?? new Map<string, CallableKind>());
   }
 
   let changed = true;
   while (changed) {
     changed = false;
     for (const { file, sourceFile } of parsedSources) {
-      const callableImports = new Set<string>();
+      const localKinds = new Map<string, CallableKind>();
+      const namespaces = new Set<string>();
+      const declarations = new Map<string, ts.Expression>();
+
       for (const statement of sourceFile.statements) {
         if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
           continue;
         }
+        const moduleSpecifier = statement.moduleSpecifier.text;
         const available = exportedCallables(statement.moduleSpecifier.text, file);
         const defaultImport = statement.importClause?.name;
-        if (defaultImport !== undefined && available.has("default")) {
-          callableImports.add(defaultImport.text);
+        const defaultKind = available.get("default");
+        if (defaultImport !== undefined && defaultKind !== undefined) {
+          localKinds.set(defaultImport.text, defaultKind);
         }
         const bindings = statement.importClause?.namedBindings;
-        if (bindings !== undefined && ts.isNamedImports(bindings)) {
+        if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
+          if (moduleSpecifier === "vitest") namespaces.add(bindings.name.text);
+        } else if (bindings !== undefined) {
           for (const element of bindings.elements) {
             const importedName = element.propertyName?.text ?? element.name.text;
-            if (available.has(importedName)) callableImports.add(element.name.text);
+            const kind = available.get(importedName);
+            if (kind !== undefined) localKinds.set(element.name.text, kind);
           }
         }
+      }
+
+      for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        for (const declaration of statement.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name) && declaration.initializer !== undefined) {
+            declarations.set(declaration.name.text, declaration.initializer);
+          }
+        }
+      }
+
+      function expressionKind(
+        node: ts.Expression,
+        seenNames: ReadonlySet<string> = new Set(),
+      ): CallableKind | "namespace" | undefined {
+        const expression = unwrapExpression(node);
+        if (ts.isIdentifier(expression)) {
+          const directKind = localKinds.get(expression.text);
+          if (directKind !== undefined) return directKind;
+          if (namespaces.has(expression.text)) return "namespace";
+          if (seenNames.has(expression.text)) return undefined;
+          const initializer = declarations.get(expression.text);
+          return initializer === undefined
+            ? undefined
+            : expressionKind(initializer, new Set(seenNames).add(expression.text));
+        }
+
+        if (ts.isConditionalExpression(expression)) {
+          const whenTrue = expressionKind(expression.whenTrue, seenNames);
+          return whenTrue !== undefined &&
+            whenTrue === expressionKind(expression.whenFalse, seenNames)
+            ? whenTrue
+            : undefined;
+        }
+
+        if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+          const ownerKind = expressionKind(expression.expression, seenNames);
+          if (isCallableKind(ownerKind)) return ownerKind;
+          const name = terminalProperty(expression);
+          return ownerKind === "namespace" && name !== undefined
+            ? vitestCallableKind(name)
+            : undefined;
+        }
+
+        if (ts.isCallExpression(expression)) {
+          const name = terminalProperty(unwrapExpression(expression.expression));
+          const ownerKind = expressionKind(expression.expression, seenNames);
+          return name !== undefined && VITEST_BUILDERS.has(name) && isCallableKind(ownerKind)
+            ? ownerKind
+            : undefined;
+        }
+
+        return undefined;
+      }
+
+      function addExport(name: string, kind: CallableKind): void {
+        const fileExports = exportsByFile.get(file);
+        if (fileExports === undefined || fileExports.get(name) === kind) return;
+        fileExports.set(name, kind);
+        changed = true;
       }
 
       const fileExports = exportsByFile.get(file);
       if (fileExports === undefined) continue;
       for (const statement of sourceFile.statements) {
-        if (!ts.isExportDeclaration(statement)) continue;
-        const moduleSpecifier =
-          statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier)
-            ? statement.moduleSpecifier.text
-            : undefined;
-        const available =
-          moduleSpecifier === undefined
-            ? callableImports
-            : exportedCallables(moduleSpecifier, file);
-
-        if (statement.exportClause === undefined) {
-          for (const name of available) {
-            if (!fileExports.has(name)) {
-              fileExports.add(name);
-              changed = true;
+        if (
+          ts.isVariableStatement(statement) &&
+          statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ===
+            true
+        ) {
+          for (const declaration of statement.declarationList.declarations) {
+            if (ts.isIdentifier(declaration.name) && declaration.initializer !== undefined) {
+              const kind = expressionKind(declaration.initializer);
+              if (kind !== undefined && kind !== "namespace") {
+                addExport(declaration.name.text, kind);
+              }
             }
           }
-        } else if (ts.isNamedExports(statement.exportClause)) {
-          for (const element of statement.exportClause.elements) {
-            const importedName = element.propertyName?.text ?? element.name.text;
-            if (available.has(importedName) && !fileExports.has(element.name.text)) {
-              fileExports.add(element.name.text);
-              changed = true;
+          continue;
+        }
+
+        if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+          const kind = expressionKind(statement.expression);
+          if (kind !== undefined && kind !== "namespace") addExport("default", kind);
+          continue;
+        }
+
+        if (ts.isExportDeclaration(statement)) {
+          const moduleSpecifier =
+            statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier)
+              ? statement.moduleSpecifier.text
+              : undefined;
+          const available =
+            moduleSpecifier === undefined ? undefined : exportedCallables(moduleSpecifier, file);
+
+          if (statement.exportClause === undefined) {
+            for (const [name, kind] of available ?? []) addExport(name, kind);
+          } else if (ts.isNamedExports(statement.exportClause)) {
+            for (const element of statement.exportClause.elements) {
+              const importedName = element.propertyName?.text ?? element.name.text;
+              const kind =
+                available?.get(importedName) ??
+                expressionKind(ts.factory.createIdentifier(importedName));
+              if (kind !== undefined && kind !== "namespace") {
+                addExport(element.name.text, kind);
+              }
             }
           }
         }
@@ -515,9 +632,7 @@ function findMarkersInSources(sources: readonly TestSource[]): Marker[] {
   const exportsByFile = callableExports(sources);
   const resolveImportKind: ImportKindResolver = (importer, moduleSpecifier, importedName) => {
     const resolved = resolveLocalModule(importer, moduleSpecifier, sourceNames);
-    return resolved !== undefined && exportsByFile.get(resolved)?.has(importedName)
-      ? "callable"
-      : undefined;
+    return resolved === undefined ? undefined : exportsByFile.get(resolved)?.get(importedName);
   };
   return sources.flatMap(({ file, contents }) => findMarkers(file, contents, resolveImportKind));
 }
@@ -784,6 +899,92 @@ describe("committed test policy", () => {
         line: 3,
         modifier: "todo",
         source: `check.todo("unfinished");`,
+      },
+    ]);
+    expect(() => enforcePolicy(auditMarkers(markers))).toThrowError(
+      "Committed test policy violations:",
+    );
+  });
+
+  it("rejects modifiers on the TestAPI passed to suite callbacks", () => {
+    const markers = findMarkersInSources([
+      {
+        file: "tests/helpers/vitest.ts",
+        contents: `export { describe as group, suite } from "vitest";`,
+      },
+      {
+        file: "tests/example.test.ts",
+        contents: [
+          `import { group, suite } from "./helpers/vitest.js";`,
+          `group("group", (check) => {`,
+          `  check.skip("hidden", () => {});`,
+          `});`,
+          `suite.each(["case"])("suite", (check) => {`,
+          `  check.todo("unfinished");`,
+          `});`,
+        ].join("\n"),
+      },
+    ]);
+    expect(markers).toEqual([
+      {
+        file: "tests/example.test.ts",
+        line: 3,
+        modifier: "skip",
+        source: `check.skip("hidden", () => {});`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 6,
+        modifier: "todo",
+        source: `check.todo("unfinished");`,
+      },
+    ]);
+    expect(() => enforcePolicy(auditMarkers(markers))).toThrowError(
+      "Committed test policy violations:",
+    );
+  });
+
+  it("rejects modifiers reached through exported custom test aliases", () => {
+    const markers = findMarkersInSources([
+      {
+        file: "tests/helpers/fixture.ts",
+        contents: [
+          `import { test as base } from "vitest";`,
+          `const extended = base.extend({});`,
+          `export const check = extended;`,
+          `export { extended as verify };`,
+          `export default base.extend({});`,
+        ].join("\n"),
+      },
+      {
+        file: "tests/example.test.ts",
+        contents: [
+          `import customCheck, { check, verify } from "./helpers/fixture.js";`,
+          `check.skip("hidden", () => {});`,
+          `verify.todo("unfinished");`,
+          `customCheck.skip("also hidden", () => {});`,
+        ].join("\n"),
+      },
+    ]);
+
+    expect(markers).toEqual([
+      {
+        file: "tests/example.test.ts",
+        line: 2,
+        modifier: "skip",
+        source: `check.skip("hidden", () => {});`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 3,
+        modifier: "todo",
+        source: `verify.todo("unfinished");`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 4,
+        modifier: "skip",
+        source: `customCheck.skip("also hidden", () => {});`,
       },
     ]);
     expect(() => enforcePolicy(auditMarkers(markers))).toThrowError(
