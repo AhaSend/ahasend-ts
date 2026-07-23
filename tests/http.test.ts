@@ -378,6 +378,21 @@ describe("HttpClient", () => {
 });
 
 describe("HttpClient cancellation and attempt timeouts", () => {
+  it("rejects an already-aborted consumer signal before fetch starts", async () => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl, { retry: { enabled: false } });
+    const controller = new AbortController();
+    controller.abort("consumer cancelled before dispatch");
+
+    await expect(
+      client.request({ method: "GET", path: "/x", signal: controller.signal }),
+    ).rejects.toMatchObject({
+      code: "abort_error",
+      cause: "consumer cancelled before dispatch",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("keeps the attempt timeout stopped in the pacing queue and lets caller abort win", async () => {
     vi.useFakeTimers();
     try {

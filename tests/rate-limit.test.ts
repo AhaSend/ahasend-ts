@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "../src/config.js";
 import { AhaSendAbortError } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
@@ -8,59 +8,6 @@ import {
   detectCategory,
   resolveRateLimitConfig,
 } from "../src/rate-limit.js";
-
-class FakeClock {
-  private current = 0;
-  private sleepers: Array<{
-    deadline: number;
-    resolve: () => void;
-    reject: (reason: unknown) => void;
-    signal?: AbortSignal;
-    onAbort?: () => void;
-  }> = [];
-
-  now = (): number => this.current;
-
-  sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
-    new Promise<void>((resolve, reject) => {
-      const sleeper: (typeof this.sleepers)[number] = {
-        deadline: this.current + ms,
-        resolve,
-        reject,
-      };
-      if (signal) {
-        sleeper.signal = signal;
-        sleeper.onAbort = () => {
-          this.remove(sleeper);
-          reject(signal.reason);
-        };
-        signal.addEventListener("abort", sleeper.onAbort, { once: true });
-      }
-      this.sleepers.push(sleeper);
-    });
-
-  pendingDelays(): number[] {
-    return this.sleepers.map(({ deadline }) => deadline - this.current);
-  }
-
-  async advance(ms: number): Promise<void> {
-    this.current += ms;
-    for (const sleeper of [...this.sleepers]) {
-      if (sleeper.deadline > this.current) continue;
-      this.remove(sleeper);
-      sleeper.resolve();
-    }
-    await Promise.resolve();
-  }
-
-  private remove(sleeper: (typeof this.sleepers)[number]): void {
-    const index = this.sleepers.indexOf(sleeper);
-    if (index >= 0) this.sleepers.splice(index, 1);
-    if (sleeper.signal && sleeper.onAbort) {
-      sleeper.signal.removeEventListener("abort", sleeper.onAbort);
-    }
-  }
-}
 
 describe("detectCategory", () => {
   it("uses the statistics tier only for statistics paths", () => {
@@ -89,25 +36,29 @@ describe("resolveRateLimitConfig", () => {
 });
 
 describe("RateLimiter", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("bypasses all buckets until pacing is explicitly enabled", async () => {
-    const clock = new FakeClock();
     const limiter = new RateLimiter(
       resolveRateLimitConfig({ standard: { requestsPerSecond: 1, burst: 1 } }),
-      clock,
     );
 
     await Promise.all(Array.from({ length: 20 }, () => limiter.acquire("GET", "/v2/ping")));
-    expect(clock.pendingDelays()).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("paces a deterministic FIFO queue and bounds tokens at the burst", async () => {
-    const clock = new FakeClock();
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
         standard: { requestsPerSecond: 1, burst: 1 },
       }),
-      clock,
     );
     const completed: number[] = [];
 
@@ -116,29 +67,27 @@ describe("RateLimiter", () => {
     );
     await Promise.resolve();
     expect(completed).toEqual([1]);
-    expect(clock.pendingDelays()).toEqual([1000]);
+    expect(vi.getTimerCount()).toBe(1);
     expect(limiter.available("standard")).toBe(0);
 
-    await clock.advance(1000);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(completed).toEqual([1, 2]);
-    expect(clock.pendingDelays()).toEqual([1000]);
+    expect(vi.getTimerCount()).toBe(1);
 
-    await clock.advance(1000);
+    await vi.advanceTimersByTimeAsync(1000);
     await Promise.all(acquisitions);
     expect(completed).toEqual([1, 2, 3]);
 
-    await clock.advance(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(limiter.available("standard")).toBe(1);
   });
 
   it("removes an aborted acquisition from the queue immediately", async () => {
-    const clock = new FakeClock();
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
         standard: { requestsPerSecond: 1, burst: 1 },
       }),
-      clock,
     );
     await limiter.acquire("GET", "/v2/ping");
 
@@ -148,44 +97,39 @@ describe("RateLimiter", () => {
     controller.abort("caller stopped waiting");
 
     await expect(cancelled).rejects.toBeInstanceOf(AhaSendAbortError);
-    expect(clock.pendingDelays()).toEqual([1000]);
+    expect(vi.getTimerCount()).toBe(1);
 
-    await clock.advance(1000);
+    await vi.advanceTimersByTimeAsync(1000);
     await next;
   });
 
   it("does not spend the per-attempt timeout while queued for pacing", async () => {
-    vi.useFakeTimers();
-    try {
-      const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(
-        async () =>
-          new Response(JSON.stringify({ ok: true }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }),
-      );
-      const client = new HttpClient(
-        resolveConfig({
-          apiKey: "test-key",
-          fetch,
-          timeoutMs: 100,
-          retry: { enabled: false },
-          rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
         }),
-      );
+    );
+    const client = new HttpClient(
+      resolveConfig({
+        apiKey: "test-key",
+        fetch,
+        timeoutMs: 100,
+        retry: { enabled: false },
+        rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+      }),
+    );
 
-      await client.request({ method: "GET", path: "/v2/ping" });
-      const queued = client.request({ method: "GET", path: "/v2/ping" });
+    await client.request({ method: "GET", path: "/v2/ping" });
+    const queued = client.request({ method: "GET", path: "/v2/ping" });
 
-      await vi.advanceTimersByTimeAsync(100);
-      expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetch).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(900);
-      await queued;
-      expect(fetch).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
+    await vi.advanceTimersByTimeAsync(900);
+    await queued;
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("preserves caller cancellation while a transport request waits for a token", async () => {
@@ -214,10 +158,8 @@ describe("RateLimiter", () => {
   });
 
   it("rejects an already-aborted acquisition without entering the queue", async () => {
-    const clock = new FakeClock();
     const limiter = new RateLimiter(
       resolveRateLimitConfig({ enabled: true, standard: { burst: 1 } }),
-      clock,
     );
     const controller = new AbortController();
     controller.abort();
@@ -225,41 +167,37 @@ describe("RateLimiter", () => {
     await expect(limiter.acquire("GET", "/v2/ping", controller.signal)).rejects.toBeInstanceOf(
       AhaSendAbortError,
     );
-    expect(clock.pendingDelays()).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("releases queued acquisitions when master pacing is disabled", async () => {
-    const clock = new FakeClock();
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
         standard: { requestsPerSecond: 1, burst: 1 },
       }),
-      clock,
     );
     await limiter.acquire("GET", "/v2/ping");
     const queued = [limiter.acquire("GET", "/v2/ping"), limiter.acquire("GET", "/v2/ping")];
-    expect(clock.pendingDelays()).toEqual([1000]);
+    expect(vi.getTimerCount()).toBe(1);
 
     limiter.setEnabled(false);
     await Promise.all(queued);
-    expect(clock.pendingDelays()).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
     await limiter.acquire("GET", "/v2/ping");
 
     limiter.setEnabled(true);
     await limiter.acquire("GET", "/v2/ping");
-    expect(clock.pendingDelays()).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("disables one category without releasing another category's queue", async () => {
-    const clock = new FakeClock();
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
         standard: { requestsPerSecond: 1, burst: 1 },
         statistics: { requestsPerSecond: 1, burst: 1 },
       }),
-      clock,
     );
     await Promise.all([
       limiter.acquire("GET", "/v2/ping"),
@@ -267,11 +205,11 @@ describe("RateLimiter", () => {
     ]);
     const standard = limiter.acquire("GET", "/v2/ping");
     const statistics = limiter.acquire("GET", "/v2/accounts/a/statistics/bounce");
-    expect(clock.pendingDelays()).toEqual([1000, 1000]);
+    expect(vi.getTimerCount()).toBe(2);
 
     limiter.setCategoryEnabled("standard", false);
     await standard;
-    expect(clock.pendingDelays()).toEqual([1000]);
+    expect(vi.getTimerCount()).toBe(1);
 
     let statisticsComplete = false;
     void statistics.then(() => {
@@ -279,26 +217,26 @@ describe("RateLimiter", () => {
     });
     await Promise.resolve();
     expect(statisticsComplete).toBe(false);
-    await clock.advance(1000);
+    await vi.advanceTimersByTimeAsync(1000);
     await statistics;
   });
 
   it("reschedules queued work when a category limit changes", async () => {
-    const clock = new FakeClock();
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
         standard: { requestsPerSecond: 1, burst: 1 },
       }),
-      clock,
     );
     await limiter.acquire("GET", "/v2/ping");
     const queued = limiter.acquire("GET", "/v2/ping");
-    expect(clock.pendingDelays()).toEqual([1000]);
+    expect(vi.getTimerCount()).toBe(1);
 
     limiter.setLimit("standard", 2, 1);
-    expect(clock.pendingDelays()).toEqual([500]);
-    await clock.advance(500);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
     await queued;
   });
 
@@ -327,14 +265,13 @@ describe("RateLimiter", () => {
   });
 
   it("propagates an unexpected clock failure to every queued acquisition", async () => {
-    const clock = new FakeClock();
     const sleep = vi.fn().mockRejectedValue(new Error("clock failed"));
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
         standard: { requestsPerSecond: 1, burst: 1 },
       }),
-      { now: clock.now, sleep },
+      { now: () => performance.now(), sleep },
     );
     await limiter.acquire("GET", "/v2/ping");
 
