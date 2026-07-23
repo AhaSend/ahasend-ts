@@ -360,7 +360,8 @@ path template exists in the spec — endpoint drift fails CI.
 The integration preflight computes and verifies the disposable tarball's
 SHA-256 checksum before installing it in a clean consumer. To test an existing
 tarball directly, set `SDK_TARBALL` and `SDK_TARBALL_SHA256` and run
-`npm run test:integration`.
+`npm run test:integration:tarball`. The default `npm run test:integration`
+command runs the complete disposable-tarball preflight.
 
 To exercise the examples without credentials, run a Prism mock from the
 local spec:

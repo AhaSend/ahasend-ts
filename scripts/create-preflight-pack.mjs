@@ -32,7 +32,7 @@ try {
 
     const tarball = join(temporaryDirectory, tarballs[0]);
     const checksum = createHash("sha256").update(readFileSync(tarball)).digest("hex");
-    const testStatus = runNpm(["run", "test:integration"], {
+    const testStatus = runNpm(["run", "test:integration:tarball"], {
       ...process.env,
       SDK_TARBALL: tarball,
       SDK_TARBALL_SHA256: checksum,
