@@ -13,7 +13,7 @@ The official Node.js TypeScript SDK for the [AhaSend](https://ahasend.com) trans
 
 ## Requirements
 
-- **Node.js 18 or later.** Browsers and edge runtimes (Cloudflare Workers,
+- **Node.js 22 or later.** Browsers and edge runtimes (Cloudflare Workers,
   Vercel Edge, Deno without Node compatibility) are not supported — the SDK
   uses `node:crypto` and `node:buffer`.
 - An [AhaSend account](https://dashboard.ahasend.com), an API key

@@ -44,4 +44,4 @@ Initial release.
 - Spec-conformance test suite validating every SDK method's verb +
   path against the repository's `openapi.yaml`.
 - Dual ESM + CJS build with full type declarations; zero runtime
-  dependencies; Node.js ≥ 18.
+  dependencies; Node.js ≥ 22.
