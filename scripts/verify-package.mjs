@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,7 +70,7 @@ function run(label, command, args, cwd) {
   }
 }
 
-function installTarball(directory) {
+function installTarball(directory, additionalPackages = []) {
   const npmExecutable = process.env.npm_execpath;
   const command = npmExecutable === undefined ? "npm" : process.execPath;
   const args =
@@ -81,7 +82,9 @@ function installTarball(directory) {
           "--no-fund",
           "--no-package-lock",
           "--no-save",
+          "--install-links",
           tarball,
+          ...additionalPackages,
         ]
       : [
           npmExecutable,
@@ -91,7 +94,9 @@ function installTarball(directory) {
           "--no-fund",
           "--no-package-lock",
           "--no-save",
+          "--install-links",
           tarball,
+          ...additionalPackages,
         ];
   run(`install ${basename(tarball)}`, command, args, directory);
 }
@@ -116,7 +121,7 @@ if (!timingSafeEqual(Buffer.from(actualChecksum, "hex"), Buffer.from(expectedChe
   fail(`SDK tarball checksum mismatch: expected ${expectedChecksum}, received ${actualChecksum}.`);
 }
 
-const temporaryRoot = mkdtempSync(resolve(repositoryRoot, ".package-verification-"));
+const temporaryRoot = mkdtempSync(join(tmpdir(), "ahasend-sdk-package-verification-"));
 
 try {
   const publint = packageExecutable("publint", "publint");
@@ -149,7 +154,10 @@ try {
 
   const typesDirectory = resolve(temporaryRoot, "types");
   cpSync(resolve(fixtureRoot, "types"), typesDirectory, { recursive: true });
-  installTarball(typesDirectory);
+  installTarball(typesDirectory, [
+    dirname(packageJsonPath("@types/node")),
+    dirname(packageJsonPath("undici-types")),
+  ]);
   for (const [compilerName, compiler] of compilers) {
     for (const resolution of ["node16", "nodenext", "bundler"]) {
       run(
