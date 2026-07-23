@@ -1,10 +1,13 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { extname, join, relative, sep } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const TESTS_ROOT = join(process.cwd(), "tests");
 const SOURCE_EXTENSIONS = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"]);
-const FORBIDDEN_MODIFIERS = ["only", "skip", "todo"] as const;
+const FORBIDDEN_MODIFIERS = ["only", "skip", "todo", "skipIf", "runIf"] as const;
+const OPTION_MODIFIERS = new Set<ForbiddenModifier>(["skip", "todo"]);
+const VITEST_CALLABLES = new Set(["bench", "describe", "it", "suite", "test"]);
 
 type ForbiddenModifier = (typeof FORBIDDEN_MODIFIERS)[number];
 
@@ -45,21 +48,77 @@ function repositoryPath(path: string): string {
   return relative(process.cwd(), path).split(sep).join("/");
 }
 
-function findMarkers(file: string, contents: string): Marker[] {
-  const pattern = new RegExp(`\\.(${FORBIDDEN_MODIFIERS.join("|")})\\b`, "g");
-  const markers: Marker[] = [];
+function propertyName(node: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
+    return node.text;
+  }
+  if (ts.isComputedPropertyName(node) && ts.isStringLiteral(node.expression)) {
+    return node.expression.text;
+  }
+  return undefined;
+}
 
-  for (const [index, source] of contents.split(/\r?\n/u).entries()) {
-    for (const match of source.matchAll(pattern)) {
-      markers.push({
-        file,
-        line: index + 1,
-        modifier: match[1] as ForbiddenModifier,
-        source: source.trim(),
-      });
-    }
+function callableRoot(node: ts.Expression): string | undefined {
+  if (ts.isIdentifier(node)) return node.text;
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    return callableRoot(node.expression);
+  }
+  if (ts.isCallExpression(node)) return callableRoot(node.expression);
+  return undefined;
+}
+
+function optionModifier(node: ts.Node): ForbiddenModifier | undefined {
+  if (
+    !ts.isPropertyAssignment(node) ||
+    node.initializer.kind !== ts.SyntaxKind.TrueKeyword ||
+    !ts.isObjectLiteralExpression(node.parent) ||
+    !ts.isCallExpression(node.parent.parent) ||
+    !node.parent.parent.arguments.includes(node.parent) ||
+    !VITEST_CALLABLES.has(callableRoot(node.parent.parent.expression) ?? "")
+  ) {
+    return undefined;
   }
 
+  const name = propertyName(node.name) as ForbiddenModifier | undefined;
+  return name !== undefined && OPTION_MODIFIERS.has(name) ? name : undefined;
+}
+
+function propertyModifier(node: ts.Node): ForbiddenModifier | undefined {
+  let name: string | undefined;
+  if (ts.isPropertyAccessExpression(node)) {
+    name = node.name.text;
+  } else if (
+    ts.isElementAccessExpression(node) &&
+    node.argumentExpression !== undefined &&
+    ts.isStringLiteral(node.argumentExpression)
+  ) {
+    name = node.argumentExpression.text;
+  }
+
+  return FORBIDDEN_MODIFIERS.find((modifier) => modifier === name);
+}
+
+function findMarkers(file: string, contents: string): Marker[] {
+  const sourceFile = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true);
+  const markers: Marker[] = [];
+  const lines = contents.split(/\r?\n/u);
+
+  function visit(node: ts.Node): void {
+    const modifier = propertyModifier(node) ?? optionModifier(node);
+    if (modifier !== undefined) {
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line;
+      markers.push({
+        file,
+        line: line + 1,
+        modifier,
+        source: (lines[line] ?? "").trim(),
+      });
+    }
+
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
   return markers;
 }
 
@@ -135,6 +194,31 @@ describe("committed test policy", () => {
       },
     ]);
     expect(auditMarkers(marker).unexpected).toEqual(marker);
+  });
+
+  it.each(["skip", "todo"] as const)("rejects a true %s test option", (modifier) => {
+    const source = `it("hidden", { ${modifier}: true }, () => {});`;
+    const marker = findMarkers("tests/example.test.ts", source);
+
+    expect(marker).toEqual([
+      {
+        file: "tests/example.test.ts",
+        line: 1,
+        modifier,
+        source,
+      },
+    ]);
+    expect(auditMarkers(marker).unexpected).toEqual(marker);
+  });
+
+  it("ignores test-modifier text that cannot affect Vitest execution", () => {
+    const contents = [
+      `const documentation = 'it.skipIf(true)';`,
+      `const request = { skip: true, todo: true };`,
+      `it("runs", { skip: false, todo: false }, () => {});`,
+    ].join("\n");
+
+    expect(findMarkers("tests/example.test.ts", contents)).toEqual([]);
   });
 
   it("contains no unexpected focused, skipped, or todo tests", () => {
