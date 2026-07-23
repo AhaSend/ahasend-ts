@@ -10,6 +10,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -169,6 +170,22 @@ function reportFiles(sourceFiles) {
     throw new TypeError(`Expected two reviewed API reports, received ${reports.size}.`);
   }
   return reports;
+}
+
+function createTarballApiExtractorConfig(configName, packageDirectory, temporaryDirectory) {
+  const sourceConfigPath = resolve(repositoryRoot, "config", configName);
+  const config = JSON.parse(readFileSync(sourceConfigPath, "utf8"));
+  const generatedConfigPath = resolve(packageDirectory, `.verification-${configName}`);
+
+  if (!config.mainEntryPointFilePath.startsWith("<projectFolder>/dist/")) {
+    throw new TypeError(`${configName} must resolve its declaration entry point from the package.`);
+  }
+  config.projectFolder = packageDirectory;
+  config.compiler.tsconfigFilePath = resolve(repositoryRoot, "tsconfig.json");
+  config.apiReport.reportFolder = resolve(repositoryRoot, "etc");
+  config.apiReport.reportTempFolder = resolve(temporaryDirectory, "api-reports");
+  writeFileSync(generatedConfigPath, `${JSON.stringify(config, null, 2)}\n`);
+  return generatedConfigPath;
 }
 
 function listArchiveEntries() {
@@ -636,11 +653,13 @@ try {
     }
   }
 
-  for (const config of ["api-extractor.json", "api-extractor.webhooks.json"]) {
+  const packageDirectory = resolve(temporaryRoot, "package");
+  for (const configName of ["api-extractor.json", "api-extractor.webhooks.json"]) {
+    const config = createTarballApiExtractorConfig(configName, packageDirectory, temporaryRoot);
     run(
-      `API Extractor / ${config}`,
+      `API Extractor / ${configName}`,
       process.execPath,
-      [apiExtractor, "run", "--config", resolve(repositoryRoot, "config", config)],
+      [apiExtractor, "run", "--config", config],
       repositoryRoot,
     );
   }
