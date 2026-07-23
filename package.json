@@ -55,10 +55,10 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "node scripts/build.mjs",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.tests.json",
     "test": "npm run test:policy && vitest run --exclude 'tests/test-policy.test.ts'",
