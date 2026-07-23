@@ -32,12 +32,20 @@ try {
 
     const tarball = join(temporaryDirectory, tarballs[0]);
     const checksum = createHash("sha256").update(readFileSync(tarball)).digest("hex");
-    const testStatus = runNpm(["run", "test:integration:tarball"], {
+    const verificationEnvironment = {
       ...process.env,
       SDK_TARBALL: tarball,
       SDK_TARBALL_SHA256: checksum,
-    });
-    if (testStatus !== 0) process.exitCode = testStatus;
+    };
+    const packageStatus = runNpm(["run", "test:package:tarball"], verificationEnvironment);
+    if (packageStatus !== 0) process.exitCode = packageStatus;
+    else {
+      const integrationStatus = runNpm(
+        ["run", "test:integration:tarball"],
+        verificationEnvironment,
+      );
+      if (integrationStatus !== 0) process.exitCode = integrationStatus;
+    }
   }
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });
