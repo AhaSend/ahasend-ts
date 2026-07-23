@@ -19,9 +19,31 @@ function fail(message) {
   process.exit(1);
 }
 
+function packageJsonPath(packageName) {
+  try {
+    return require.resolve(`${packageName}/package.json`);
+  } catch (packageJsonError) {
+    let directory = dirname(require.resolve(packageName));
+
+    while (true) {
+      const candidate = join(directory, "package.json");
+      try {
+        const packageJson = JSON.parse(readFileSync(candidate, "utf8"));
+        if (packageJson.name === packageName) return candidate;
+      } catch {
+        // Keep walking toward the package root.
+      }
+
+      const parent = dirname(directory);
+      if (parent === directory) throw packageJsonError;
+      directory = parent;
+    }
+  }
+}
+
 function packageExecutable(packageName, executableName) {
-  const packageJsonPath = require.resolve(`${packageName}/package.json`);
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  const manifestPath = packageJsonPath(packageName);
+  const packageJson = JSON.parse(readFileSync(manifestPath, "utf8"));
   const bin = packageJson.bin;
   const relativeExecutable =
     typeof bin === "string" ? bin : (bin?.[executableName] ?? bin?.[packageName]);
@@ -29,7 +51,7 @@ function packageExecutable(packageName, executableName) {
   if (typeof relativeExecutable !== "string") {
     throw new Error(`Package ${packageName} does not provide the ${executableName} executable.`);
   }
-  return resolve(dirname(packageJsonPath), relativeExecutable);
+  return resolve(dirname(manifestPath), relativeExecutable);
 }
 
 function run(label, command, args, cwd) {
