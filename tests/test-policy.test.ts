@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { extname, join, relative, sep } from "node:path";
+import { dirname, extname, join, normalize, relative, sep } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
@@ -33,6 +33,17 @@ interface BindingAlias {
   readonly initializer: ts.Expression;
   readonly segments: readonly BindingSegment[];
 }
+
+interface TestSource {
+  readonly file: string;
+  readonly contents: string;
+}
+
+type ImportKindResolver = (
+  importer: string,
+  moduleSpecifier: string,
+  importedName: string,
+) => "callable" | undefined;
 
 const ALLOWED_MARKERS: Readonly<Record<string, readonly AllowedMarker[]>> = {
   "tests/integration/sdk.integration.test.ts": [
@@ -113,7 +124,11 @@ function propertyModifier(node: ts.Node): ForbiddenModifier | undefined {
   return FORBIDDEN_MODIFIERS.find((modifier) => modifier === name);
 }
 
-function findMarkers(file: string, contents: string): Marker[] {
+function findMarkers(
+  file: string,
+  contents: string,
+  resolveImportKind?: ImportKindResolver,
+): Marker[] {
   const sourceFile = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true);
   const compilerOptions: ts.CompilerOptions = {
     module: ts.ModuleKind.ESNext,
@@ -173,20 +188,32 @@ function findMarkers(file: string, contents: string): Marker[] {
   }
 
   function collectDeclarations(node: ts.Node): void {
-    if (
-      ts.isImportDeclaration(node) &&
-      ts.isStringLiteral(node.moduleSpecifier) &&
-      node.moduleSpecifier.text === "vitest"
-    ) {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      const moduleSpecifier = node.moduleSpecifier.text;
+      const defaultImport = node.importClause?.name;
+      if (
+        defaultImport !== undefined &&
+        resolveImportKind?.(file, moduleSpecifier, "default") === "callable"
+      ) {
+        const symbol = checker.getSymbolAtLocation(defaultImport);
+        if (symbol !== undefined) directKinds.set(symbol, "callable");
+      }
+
       const bindings = node.importClause?.namedBindings;
       if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
-        const symbol = checker.getSymbolAtLocation(bindings.name);
-        if (symbol !== undefined) directKinds.set(symbol, "namespace");
+        if (moduleSpecifier === "vitest") {
+          const symbol = checker.getSymbolAtLocation(bindings.name);
+          if (symbol !== undefined) directKinds.set(symbol, "namespace");
+        }
       } else if (bindings !== undefined) {
         for (const element of bindings.elements) {
           const importedName = element.propertyName?.text ?? element.name.text;
           const symbol = checker.getSymbolAtLocation(element.name);
-          if (symbol !== undefined && VITEST_CALLABLES.has(importedName)) {
+          const kind =
+            moduleSpecifier === "vitest" && VITEST_CALLABLES.has(importedName)
+              ? "callable"
+              : resolveImportKind?.(file, moduleSpecifier, importedName);
+          if (symbol !== undefined && kind === "callable") {
             directKinds.set(symbol, "callable");
           }
         }
@@ -382,6 +409,119 @@ function findMarkers(file: string, contents: string): Marker[] {
   return markers;
 }
 
+function resolveLocalModule(
+  importer: string,
+  moduleSpecifier: string,
+  sourceNames: ReadonlySet<string>,
+): string | undefined {
+  if (!moduleSpecifier.startsWith(".")) return undefined;
+
+  const requested = normalize(join(dirname(importer), moduleSpecifier))
+    .split(sep)
+    .join("/");
+  const extension = extname(requested);
+  const withoutExtension = extension === "" ? requested : requested.slice(0, -extension.length);
+  const candidates =
+    extension === ""
+      ? [
+          requested,
+          ...[...SOURCE_EXTENSIONS].map((candidate) => `${requested}${candidate}`),
+          ...[...SOURCE_EXTENSIONS].map((candidate) => `${requested}/index${candidate}`),
+        ]
+      : [
+          requested,
+          ...[...SOURCE_EXTENSIONS].map((candidate) => `${withoutExtension}${candidate}`),
+        ];
+  return candidates.find((candidate) => sourceNames.has(candidate));
+}
+
+function callableExports(sources: readonly TestSource[]): ReadonlyMap<string, ReadonlySet<string>> {
+  const sourceNames = new Set(sources.map(({ file }) => file));
+  const parsedSources = sources.map(({ file, contents }) => ({
+    file,
+    sourceFile: ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true),
+  }));
+  const exportsByFile = new Map<string, Set<string>>(
+    sources.map(({ file }) => [file, new Set<string>()]),
+  );
+
+  function exportedCallables(moduleSpecifier: string, importer: string): ReadonlySet<string> {
+    if (moduleSpecifier === "vitest") return VITEST_CALLABLES;
+    const resolved = resolveLocalModule(importer, moduleSpecifier, sourceNames);
+    return resolved === undefined ? new Set() : (exportsByFile.get(resolved) ?? new Set());
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const { file, sourceFile } of parsedSources) {
+      const callableImports = new Set<string>();
+      for (const statement of sourceFile.statements) {
+        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+          continue;
+        }
+        const available = exportedCallables(statement.moduleSpecifier.text, file);
+        const defaultImport = statement.importClause?.name;
+        if (defaultImport !== undefined && available.has("default")) {
+          callableImports.add(defaultImport.text);
+        }
+        const bindings = statement.importClause?.namedBindings;
+        if (bindings !== undefined && ts.isNamedImports(bindings)) {
+          for (const element of bindings.elements) {
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (available.has(importedName)) callableImports.add(element.name.text);
+          }
+        }
+      }
+
+      const fileExports = exportsByFile.get(file);
+      if (fileExports === undefined) continue;
+      for (const statement of sourceFile.statements) {
+        if (!ts.isExportDeclaration(statement)) continue;
+        const moduleSpecifier =
+          statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier)
+            ? statement.moduleSpecifier.text
+            : undefined;
+        const available =
+          moduleSpecifier === undefined
+            ? callableImports
+            : exportedCallables(moduleSpecifier, file);
+
+        if (statement.exportClause === undefined) {
+          for (const name of available) {
+            if (!fileExports.has(name)) {
+              fileExports.add(name);
+              changed = true;
+            }
+          }
+        } else if (ts.isNamedExports(statement.exportClause)) {
+          for (const element of statement.exportClause.elements) {
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (available.has(importedName) && !fileExports.has(element.name.text)) {
+              fileExports.add(element.name.text);
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return exportsByFile;
+}
+
+function findMarkersInSources(sources: readonly TestSource[]): Marker[] {
+  const sourceNames = new Set(sources.map(({ file }) => file));
+  const exportsByFile = callableExports(sources);
+  const resolveImportKind: ImportKindResolver = (importer, moduleSpecifier, importedName) => {
+    const resolved = resolveLocalModule(importer, moduleSpecifier, sourceNames);
+    return resolved !== undefined && exportsByFile.get(resolved)?.has(importedName)
+      ? "callable"
+      : undefined;
+  };
+  return sources.flatMap(({ file, contents }) => findMarkers(file, contents, resolveImportKind));
+}
+
 function markerKey(marker: Pick<Marker, "modifier" | "source">): string {
   return `${marker.modifier}\0${marker.source}`;
 }
@@ -419,10 +559,11 @@ function formatMarker(marker: Marker): string {
 }
 
 function auditRepository(): ReturnType<typeof auditMarkers> {
-  const markers = sourceFiles(TESTS_ROOT).flatMap((path) =>
-    findMarkers(repositoryPath(path), readFileSync(path, "utf8")),
-  );
-  return auditMarkers(markers);
+  const sources = sourceFiles(TESTS_ROOT).map((path) => ({
+    file: repositoryPath(path),
+    contents: readFileSync(path, "utf8"),
+  }));
+  return auditMarkers(findMarkersInSources(sources));
 }
 
 function enforcePolicy(audit: ReturnType<typeof auditMarkers>): void {
@@ -609,6 +750,45 @@ describe("committed test policy", () => {
 
     expect(findMarkers("tests/example.test.ts", topLevelShadow)).toEqual([]);
     expect(findMarkers("tests/example.test.ts", nestedShadow)).toEqual([]);
+  });
+
+  it("rejects modifiers reached through local Vitest re-exports", () => {
+    const markers = findMarkersInSources([
+      {
+        file: "tests/helpers/vitest.ts",
+        contents: `export { test as check } from "vitest";`,
+      },
+      {
+        file: "tests/helpers/index.ts",
+        contents: `export * from "./vitest.js";`,
+      },
+      {
+        file: "tests/example.test.ts",
+        contents: [
+          `import { check } from "./helpers/index.js";`,
+          `check.skip("hidden", () => {});`,
+          `check.todo("unfinished");`,
+        ].join("\n"),
+      },
+    ]);
+
+    expect(markers).toEqual([
+      {
+        file: "tests/example.test.ts",
+        line: 2,
+        modifier: "skip",
+        source: `check.skip("hidden", () => {});`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 3,
+        modifier: "todo",
+        source: `check.todo("unfinished");`,
+      },
+    ]);
+    expect(() => enforcePolicy(auditMarkers(markers))).toThrowError(
+      "Committed test policy violations:",
+    );
   });
 
   it("contains no unexpected focused, skipped, or todo tests", () => {
