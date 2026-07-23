@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { digestJsonArtifact } from "../scripts/digest-artifact.mjs";
-import { parseOpenApi } from "../scripts/generate-contracts.mjs";
+import { collectOperations, parseOpenApi } from "../scripts/generate-contracts.mjs";
 import {
   AUTHORIZATION_REGISTRY,
   generateSdkArtifacts,
@@ -187,6 +187,19 @@ describe("SDK artifact generation", () => {
     brokenRegistry["createMessage"]!["bodyPath"] = "missing.field";
     expect(() => validateAuthorizationRegistry(document, brokenRegistry)).toThrow(
       /body field|properties containing/,
+    );
+
+    const brokenSecurityDocument = structuredClone(document);
+    const createMessage = collectOperations(brokenSecurityDocument).find(
+      ({ operationId }) => operationId === "createMessage",
+    );
+    expect(createMessage).toBeDefined();
+    createMessage!.operation.security = [
+      { BearerAuth: ["messages:send:all", "messages:send:{domain}"] },
+      { BearerAuth: [] },
+    ];
+    expect(() => validateAuthorizationRegistry(brokenSecurityDocument)).toThrow(
+      /singleton BearerAuth requirements/,
     );
   });
 });

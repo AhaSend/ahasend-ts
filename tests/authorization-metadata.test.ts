@@ -396,11 +396,12 @@ describe("authorization metadata conformance", () => {
 
     expect(pairOperationIds).toEqual(Object.keys(STANDARD_SECURITY_PAIRS).sort());
     for (const [operationId, expectedRoles] of Object.entries(STANDARD_SECURITY_PAIRS)) {
-      const actualRoles = OPERATION_DESCRIPTORS[
-        operationId as keyof typeof OPERATION_DESCRIPTORS
-      ].security
-        .flat()
-        .sort();
+      const securityAlternatives =
+        OPERATION_DESCRIPTORS[operationId as keyof typeof OPERATION_DESCRIPTORS].security;
+      for (const alternative of securityAlternatives) {
+        expect(alternative, operationId).toHaveLength(1);
+      }
+      const actualRoles = securityAlternatives.map(([role]) => role).sort();
       expect(actualRoles, operationId).toEqual([...expectedRoles].sort());
     }
   });

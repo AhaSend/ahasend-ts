@@ -577,15 +577,25 @@ export function validateAuthorizationRegistry(document, registry = AUTHORIZATION
         );
       }
     }
-    if (!Array.isArray(entry.operation.security) || entry.operation.security.length < 2) {
-      throw new TypeError(`${operationId} resource authorization requires security alternatives`);
+    if (!Array.isArray(entry.operation.security) || entry.operation.security.length !== 2) {
+      throw new TypeError(
+        `${operationId} resource authorization requires exactly two security alternatives`,
+      );
     }
-    const securityRoles = entry.operation.security.flatMap((requirement) => {
-      const bearerRoles = assertRecord(
-        requirement,
-        `${operationId} security requirement`,
-      ).BearerAuth;
-      return Array.isArray(bearerRoles) ? bearerRoles : [];
+    const securityRoles = entry.operation.security.map((requirementValue) => {
+      const requirement = assertRecord(requirementValue, `${operationId} security requirement`);
+      const bearerRoles = requirement.BearerAuth;
+      if (
+        Object.keys(requirement).length !== 1 ||
+        !Array.isArray(bearerRoles) ||
+        bearerRoles.length !== 1 ||
+        typeof bearerRoles[0] !== "string"
+      ) {
+        throw new TypeError(
+          `${operationId} security alternatives must be singleton BearerAuth requirements`,
+        );
+      }
+      return bearerRoles[0];
     });
     if (
       securityRoles.length !== 2 ||
