@@ -349,13 +349,18 @@ npm install
 npm run typecheck         # strict TS over src + tests
 npm test                  # unit tests, fully offline
 npm run test:coverage     # coverage with enforced thresholds
-RUN_INTEGRATION=1 npm run test:integration  # spawns a Prism mock from the local openapi.yaml
+npm run test:integration:preflight  # builds, packs, and tests a disposable tarball with Prism
 npm run build             # ESM + CJS + .d.ts/.d.cts
 ```
 
 The spec-conformance suite (`tests/spec-conformance.test.ts`) parses the
 repository's `openapi.yaml` and asserts every SDK method's HTTP verb and
 path template exists in the spec — endpoint drift fails CI.
+
+The integration preflight computes and verifies the disposable tarball's
+SHA-256 checksum before installing it in a clean consumer. To test an existing
+tarball directly, set `SDK_TARBALL` and `SDK_TARBALL_SHA256` and run
+`npm run test:integration`.
 
 To exercise the examples without credentials, run a Prism mock from the
 local spec:
