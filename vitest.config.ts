@@ -4,18 +4,14 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    allowOnly: false,
     testTimeout: 10_000,
     hookTimeout: 120_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],
       include: ["src/**/*.ts"],
-      exclude: [
-        "src/**/index.ts",
-        "src/**/*.d.ts",
-        "src/types/**",
-        "src/webhooks/events.ts",
-      ],
+      exclude: ["src/**/index.ts", "src/**/*.d.ts", "src/types/**", "src/webhooks/events.ts"],
       thresholds: {
         lines: 90,
         statements: 90,
