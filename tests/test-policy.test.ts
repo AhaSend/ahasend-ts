@@ -41,6 +41,11 @@ interface TestSource {
 }
 
 type CallableKind = "callable" | "suite";
+type FunctionWithBody =
+  | ts.ArrowFunction
+  | ts.FunctionDeclaration
+  | ts.FunctionExpression
+  | ts.MethodDeclaration;
 type ImportKindResolver = (
   importer: string,
   moduleSpecifier: string,
@@ -317,6 +322,40 @@ function findMarkers(
     return kind;
   }
 
+  function functionsForExpression(
+    node: ts.Expression,
+    seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+  ): FunctionWithBody[] {
+    const expression = unwrapExpression(node);
+    if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) {
+      return [expression];
+    }
+    if (ts.isConditionalExpression(expression)) {
+      return [
+        ...functionsForExpression(expression.whenTrue, seenSymbols),
+        ...functionsForExpression(expression.whenFalse, seenSymbols),
+      ];
+    }
+    if (!ts.isIdentifier(expression)) return [];
+
+    const symbol = checker.getSymbolAtLocation(expression);
+    if (symbol === undefined || seenSymbols.has(symbol)) return [];
+    const nextSeenSymbols = new Set(seenSymbols).add(symbol);
+    const functions: FunctionWithBody[] = [];
+    for (const declaration of symbol.declarations ?? []) {
+      if (
+        (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) &&
+        declaration.body !== undefined
+      ) {
+        functions.push(declaration);
+      }
+    }
+    for (const initializer of declarations.get(symbol) ?? []) {
+      functions.push(...functionsForExpression(initializer, nextSeenSymbols));
+    }
+    return functions;
+  }
+
   function addMarker(node: ts.Node, modifier: ForbiddenModifier): void {
     const position = node.getStart(sourceFile);
     if (markerPositions.has(position)) return;
@@ -363,14 +402,18 @@ function findMarkers(
     return name !== undefined && OPTION_MODIFIERS.has(name) ? name : undefined;
   }
 
-  function inspectOptionExpression(node: ts.Expression, seenAliases: ReadonlySet<ts.Symbol>): void {
+  function inspectOptionExpression(
+    node: ts.Expression,
+    seenAliases: ReadonlySet<ts.Symbol>,
+    seenFunctions: ReadonlySet<FunctionWithBody> = new Set(),
+  ): void {
     const expression = unwrapExpression(node);
     if (ts.isIdentifier(expression)) {
       const symbol = checker.getSymbolAtLocation(expression);
       if (symbol === undefined || seenAliases.has(symbol)) return;
       const nextSeenAliases = new Set(seenAliases).add(symbol);
       for (const initializer of declarations.get(symbol) ?? []) {
-        inspectOptionExpression(initializer, nextSeenAliases);
+        inspectOptionExpression(initializer, nextSeenAliases, seenFunctions);
       }
       return;
     }
@@ -378,7 +421,7 @@ function findMarkers(
     if (ts.isObjectLiteralExpression(expression)) {
       for (const property of expression.properties) {
         if (ts.isSpreadAssignment(property)) {
-          inspectOptionExpression(property.expression, seenAliases);
+          inspectOptionExpression(property.expression, seenAliases, seenFunctions);
           continue;
         }
         const modifier = optionPropertyModifier(property);
@@ -388,17 +431,125 @@ function findMarkers(
     }
 
     if (ts.isConditionalExpression(expression)) {
-      inspectOptionExpression(expression.whenTrue, seenAliases);
-      inspectOptionExpression(expression.whenFalse, seenAliases);
+      inspectOptionExpression(expression.whenTrue, seenAliases, seenFunctions);
+      inspectOptionExpression(expression.whenFalse, seenAliases, seenFunctions);
     } else if (
       ts.isBinaryExpression(expression) &&
       (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
         expression.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
         expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
     ) {
-      inspectOptionExpression(expression.left, seenAliases);
-      inspectOptionExpression(expression.right, seenAliases);
+      inspectOptionExpression(expression.left, seenAliases, seenFunctions);
+      inspectOptionExpression(expression.right, seenAliases, seenFunctions);
+    } else if (ts.isCallExpression(expression)) {
+      for (const factory of functionsForExpression(expression.expression)) {
+        if (seenFunctions.has(factory)) continue;
+        const nextSeenFunctions = new Set(seenFunctions).add(factory);
+        const body = factory.body;
+        if (body === undefined) continue;
+        if (ts.isBlock(body)) {
+          function inspectReturns(child: ts.Node): void {
+            if (child !== body && ts.isFunctionLike(child)) return;
+            if (ts.isReturnStatement(child) && child.expression !== undefined) {
+              inspectOptionExpression(child.expression, seenAliases, nextSeenFunctions);
+              return;
+            }
+            ts.forEachChild(child, inspectReturns);
+          }
+          inspectReturns(body);
+        } else {
+          inspectOptionExpression(body, seenAliases, nextSeenFunctions);
+        }
+      }
     }
+  }
+
+  function inspectTestContext(callback: FunctionWithBody, contextParameterIndex: number): void {
+    const parameter = callback.parameters[contextParameterIndex];
+    if (parameter === undefined) return;
+    const contextSymbols = new Set<ts.Symbol>();
+    const contextSkipSymbols = new Set<ts.Symbol>();
+
+    if (ts.isIdentifier(parameter.name)) {
+      const symbol = checker.getSymbolAtLocation(parameter.name);
+      if (symbol !== undefined) contextSymbols.add(symbol);
+    } else if (ts.isObjectBindingPattern(parameter.name)) {
+      for (const element of parameter.name.elements) {
+        const nameNode =
+          element.propertyName ?? (ts.isIdentifier(element.name) ? element.name : undefined);
+        if (
+          nameNode !== undefined &&
+          propertyName(nameNode) === "skip" &&
+          ts.isIdentifier(element.name)
+        ) {
+          const symbol = checker.getSymbolAtLocation(element.name);
+          if (symbol !== undefined) contextSkipSymbols.add(symbol);
+        }
+      }
+    }
+
+    function isContextExpression(
+      node: ts.Expression,
+      seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+    ): boolean {
+      const expression = unwrapExpression(node);
+      if (!ts.isIdentifier(expression)) return false;
+      const symbol = checker.getSymbolAtLocation(expression);
+      if (symbol === undefined) return false;
+      if (contextSymbols.has(symbol)) return true;
+      if (seenSymbols.has(symbol)) return false;
+      const nextSeenSymbols = new Set(seenSymbols).add(symbol);
+      return (declarations.get(symbol) ?? []).some((initializer) =>
+        isContextExpression(initializer, nextSeenSymbols),
+      );
+    }
+
+    function isContextSkipExpression(
+      node: ts.Expression,
+      seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+    ): boolean {
+      const expression = unwrapExpression(node);
+      if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+        return (
+          terminalProperty(expression) === "skip" && isContextExpression(expression.expression)
+        );
+      }
+      if (!ts.isIdentifier(expression)) return false;
+
+      const symbol = checker.getSymbolAtLocation(expression);
+      if (symbol === undefined) return false;
+      if (contextSkipSymbols.has(symbol)) return true;
+      if (seenSymbols.has(symbol)) return false;
+      const nextSeenSymbols = new Set(seenSymbols).add(symbol);
+      const binding = bindingAliases.get(symbol);
+      if (
+        binding !== undefined &&
+        binding.segments.at(-1)?.name === "skip" &&
+        isContextExpression(binding.initializer)
+      ) {
+        return true;
+      }
+      return (declarations.get(symbol) ?? []).some((initializer) =>
+        isContextSkipExpression(initializer, nextSeenSymbols),
+      );
+    }
+
+    function inspectContextCalls(node: ts.Node): void {
+      if (node !== callback && ts.isFunctionLike(node)) return;
+      if (ts.isCallExpression(node) && isContextSkipExpression(node.expression)) {
+        addMarker(node.expression, "skip");
+      }
+      ts.forEachChild(node, inspectContextCalls);
+    }
+
+    inspectContextCalls(callback);
+  }
+
+  function invokedBuilder(node: ts.Expression): string | undefined {
+    const expression = unwrapExpression(node);
+    return ts.isCallExpression(expression)
+      ? terminalProperty(unwrapExpression(expression.expression))
+      : undefined;
   }
 
   function visit(node: ts.Node): void {
@@ -420,6 +571,17 @@ function findMarkers(
     ) {
       for (const argument of node.arguments.slice(1, 3)) {
         inspectOptionExpression(argument, new Set());
+      }
+      if (
+        expressionKind(node.expression) === "callable" &&
+        invokedBuilder(node.expression) !== "each"
+      ) {
+        const contextParameterIndex = invokedBuilder(node.expression) === "for" ? 1 : 0;
+        for (const argument of node.arguments.slice(1, 3)) {
+          for (const callback of functionsForExpression(argument)) {
+            inspectTestContext(callback, contextParameterIndex);
+          }
+        }
       }
     }
     ts.forEachChild(node, visit);
@@ -793,6 +955,77 @@ describe("committed test policy", () => {
       },
     ]);
     expect(auditMarkers(markers).unexpected).toEqual(markers);
+  });
+
+  it("rejects forbidden options returned by local functions", () => {
+    const contents = [
+      `import { test } from "vitest";`,
+      `const skipOptions = () => ({ skip: SHOULD_SKIP });`,
+      `function todoOptions() {`,
+      `  return { todo: true };`,
+      `}`,
+      `const optionsAlias = skipOptions;`,
+      `test("skipped", optionsAlias(), () => {});`,
+      `test("unfinished", () => {}, todoOptions());`,
+    ].join("\n");
+
+    const markers = findMarkers("tests/example.test.ts", contents);
+    expect(markers).toEqual([
+      {
+        file: "tests/example.test.ts",
+        line: 2,
+        modifier: "skip",
+        source: `const skipOptions = () => ({ skip: SHOULD_SKIP });`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 4,
+        modifier: "todo",
+        source: `return { todo: true };`,
+      },
+    ]);
+    expect(() => enforcePolicy(auditMarkers(markers))).toThrowError(
+      "Committed test policy violations:",
+    );
+  });
+
+  it("rejects skip calls from Vitest test contexts", () => {
+    const contents = [
+      `import { test } from "vitest";`,
+      `function hidden(context) {`,
+      `  const alias = context;`,
+      `  alias.skip();`,
+      `}`,
+      `test("hidden", hidden);`,
+      `test("also hidden", ({ skip: omit }) => omit());`,
+      `test.for(["case"])("hidden case", (value, context) => context["skip"]());`,
+      `test.each(["case"])("visible case", (value) => value.skip());`,
+    ].join("\n");
+
+    const markers = findMarkers("tests/example.test.ts", contents);
+    expect(markers).toEqual([
+      {
+        file: "tests/example.test.ts",
+        line: 4,
+        modifier: "skip",
+        source: `alias.skip();`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 7,
+        modifier: "skip",
+        source: `test("also hidden", ({ skip: omit }) => omit());`,
+      },
+      {
+        file: "tests/example.test.ts",
+        line: 8,
+        modifier: "skip",
+        source: `test.for(["case"])("hidden case", (value, context) => context["skip"]());`,
+      },
+    ]);
+    expect(() => enforcePolicy(auditMarkers(markers))).toThrowError(
+      "Committed test policy violations:",
+    );
   });
 
   it("rejects namespace-import options and destructured Vitest modifiers", () => {
