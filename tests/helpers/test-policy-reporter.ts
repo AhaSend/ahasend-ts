@@ -1,31 +1,6 @@
 import { relative, sep } from "node:path";
 import type { Reporter } from "vitest/reporters";
 
-const INTEGRATION_FILE = "tests/integration/sdk.integration.test.ts";
-const INTEGRATION_SUITE = "Integration: SDK against Prism mock";
-const INTEGRATION_TESTS = new Set([
-  "ping returns a typed envelope",
-  "messages.send returns a typed SendMessageResponse",
-  "messages.list returns a paginated response",
-  "domains.list returns a paginated response",
-  "apiKeys.list returns a paginated response",
-  "suppressions.list returns a paginated response",
-  "routes.list returns a paginated response",
-  "accounts.get returns the account",
-  "smtpCredentials.list returns a paginated response",
-  "statistics.deliverability returns a list envelope",
-  "messages.iterate yields items via the async generator",
-  "messages.cancel hits DELETE /messages/{id}/cancel",
-  "webhooks.list reaches the account-scoped /webhooks endpoint",
-  "webhooks.create / get / update / delete round-trip",
-  "suppressions.delete sends email/domain query params (per spec)",
-  "suppressions.wipe DELETEs /suppressions/all",
-  "statistics.bounces hits /statistics/transactional/bounce (singular)",
-  "statistics.deliveryTimes hits /statistics/transactional/delivery-time (singular)",
-  "accounts.addMember + listMembers + removeMember lifecycle",
-  "routes.create no longer requires the (formerly-invented) `domain` field",
-]);
-
 type OnTestRunEnd = Exclude<Reporter["onTestRunEnd"], undefined>;
 type TestModule = Parameters<OnTestRunEnd>[0][number];
 type TestCase =
@@ -51,25 +26,6 @@ function taskLabel(task: PolicyTask): string {
   return `${taskLocation(task)} ${task.type} "${task.fullName}"`;
 }
 
-function isAllowedIntegrationSuite(task: TestSuite): boolean {
-  return (
-    process.env.RUN_INTEGRATION !== "1" &&
-    repositoryPath(task.module.moduleId) === INTEGRATION_FILE &&
-    task.name === INTEGRATION_SUITE &&
-    task.options.mode === "skip"
-  );
-}
-
-function isAllowedIntegrationTest(test: TestCase): boolean {
-  return (
-    process.env.RUN_INTEGRATION !== "1" &&
-    repositoryPath(test.module.moduleId) === INTEGRATION_FILE &&
-    test.parent.type === "suite" &&
-    isAllowedIntegrationSuite(test.parent) &&
-    INTEGRATION_TESTS.has(test.name)
-  );
-}
-
 function hasNonRunningParent(test: TestCase): boolean {
   let parent = test.parent;
   while (parent.type === "suite") {
@@ -84,13 +40,13 @@ export function findPolicyViolations(testModules: ReadonlyArray<TestModule>): st
 
   for (const testModule of testModules) {
     for (const suite of testModule.children.allSuites()) {
-      if (suite.options.mode !== "run" && !isAllowedIntegrationSuite(suite)) {
+      if (suite.options.mode !== "run") {
         violations.push(`${taskLabel(suite)} is marked ${suite.options.mode}`);
       }
     }
 
     for (const test of testModule.children.allTests()) {
-      if (test.options.mode !== "run" && !isAllowedIntegrationTest(test)) {
+      if (test.options.mode !== "run") {
         violations.push(`${taskLabel(test)} is marked ${test.options.mode}`);
       } else if (test.result().state === "skipped" && !hasNonRunningParent(test)) {
         violations.push(`${taskLabel(test)} skipped during execution`);

@@ -37,10 +37,8 @@ jobs:
           npm test
           npm run build
 
-      - name: Integration suite
-        run: npm run test:integration
-        env:
-          RUN_INTEGRATION: "1"
+      - name: Integration suite against disposable packed SDK
+        run: npm run test:integration:preflight
 
       - name: Publish to npm with provenance
         run: npm publish --provenance --access public
