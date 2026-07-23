@@ -60,6 +60,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "tsup --watch",
+    "verify:package": "node scripts/verify-package.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.tests.json",
     "test": "npm run test:policy && vitest run --exclude 'tests/test-policy.test.ts'",
     "test:watch": "vitest",
@@ -79,6 +80,8 @@
     "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@microsoft/api-extractor": "7.58.10",
     "@stoplight/prism-cli": "5.14.2",
     "@types/express": "5.0.6",
     "@types/js-yaml": "^4.0.9",
@@ -91,9 +94,11 @@
     "express": "5.2.1",
     "js-yaml": "4.1.1",
     "prettier": "3.8.3",
+    "publint": "0.3.21",
     "rimraf": "^6.0.0",
     "tsup": "^8.3.0",
-    "typescript": "^5.6.0",
+    "typescript": "5.6.3",
+    "typescript-current": "npm:typescript@5.9.3",
     "vitest": "^3.2.6"
   },
   "publishConfig": {
