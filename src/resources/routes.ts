@@ -79,8 +79,10 @@ export class RoutesClient {
   }
 
   /**
-   * Fetch one page of routes. A domain-scoped read key must provide its
-   * matching `domain` filter; the global read role may list without one.
+   * Fetch one page of routes.
+   *
+   * Authorization requires `routes:read:all`, or `routes:read:{domain}` with
+   * its matching `domain` query filter.
    */
   list(
     params: ListRoutesParams = {},
@@ -104,8 +106,10 @@ export class RoutesClient {
   }
 
   /**
-   * Create a route. Authorization uses the domain in `recipient`: the global
-   * write role or its matching domain-specific write role is sufficient.
+   * Create a route.
+   *
+   * Authorization requires `routes:write:all` or `routes:write:{domain}`
+   * matching the domain in `recipient`.
    *
    * The response is the only time the route signing `secret` is exposed.
    */
@@ -118,8 +122,10 @@ export class RoutesClient {
   }
 
   /**
-   * Fetch a route. Requires the global read role or a read role matching the
-   * route's existing recipient domain.
+   * Fetch a route.
+   *
+   * Authorization requires `routes:read:all` or `routes:read:{domain}` matching
+   * the route's `recipient` domain.
    */
   get(routeId: UUID, options: RequestOptions = {}): Promise<Route> {
     return this.#operations.execute<Route>(
@@ -130,9 +136,10 @@ export class RoutesClient {
   }
 
   /**
-   * Update a route. A domain-scoped key must authorize both the existing
-   * recipient domain and any replacement recipient domain; the global write
-   * role satisfies both checks.
+   * Update a route.
+   *
+   * Authorization requires `routes:write:all`, or `routes:write:{domain}` for
+   * both the existing and replacement `recipient` domains.
    */
   update(routeId: UUID, body: UpdateRouteRequest, options: RequestOptions = {}): Promise<Route> {
     return this.#operations.execute<Route>(
@@ -143,8 +150,10 @@ export class RoutesClient {
   }
 
   /**
-   * Delete a route. Requires the global delete role or a delete role matching
-   * the route's existing recipient domain.
+   * Delete a route.
+   *
+   * Authorization requires `routes:delete:all` or `routes:delete:{domain}`
+   * matching the route's `recipient` domain.
    */
   delete(routeId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
     return this.#operations.execute<SuccessResponse>(

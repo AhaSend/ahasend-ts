@@ -86,9 +86,9 @@ export class StatisticsClient {
 
   /**
    * Reception/delivery/bounce/open/click counts, bucketed by `group_by`.
-   * The global statistics role can query all sender domains. A domain-scoped
-   * key is limited to authorized domains and must authorize every comma-separated
-   * value supplied in `sender_domain`.
+   * Authorization requires `statistics-transactional:read:all` or
+   * `statistics-transactional:read:{domain}` for every comma-separated
+   * `sender_domain` value.
    */
   deliverability(
     params: StatisticsParams = {},
@@ -106,9 +106,9 @@ export class StatisticsClient {
 
   /**
    * Bounce counts broken down by bounce classification per time bucket.
-   * The global statistics role can query all sender domains. A domain-scoped
-   * key is limited to authorized domains and must authorize every comma-separated
-   * value supplied in `sender_domain`.
+   * Authorization requires `statistics-transactional:read:all` or
+   * `statistics-transactional:read:{domain}` for every comma-separated
+   * `sender_domain` value.
    */
   bounces(
     params: StatisticsParams = {},
@@ -126,9 +126,9 @@ export class StatisticsClient {
 
   /**
    * Average delivery latency per time bucket, with per-recipient-domain breakdown.
-   * The global statistics role can query all sender domains. A domain-scoped
-   * key is limited to authorized domains and must authorize every comma-separated
-   * value supplied in `sender_domain`.
+   * Authorization requires `statistics-transactional:read:all` or
+   * `statistics-transactional:read:{domain}` for every comma-separated
+   * `sender_domain` value.
    */
   deliveryTimes(
     params: StatisticsParams = {},

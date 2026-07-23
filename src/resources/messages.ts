@@ -258,8 +258,8 @@ export class MessagesClient {
    * `options.idempotencyKey`; retries (the SDK's and yours, if you reuse
    * the key) can never double-send.
    *
-   * Authorization uses the domain in `from.email`: requires
-   * `messages:send:all` or the matching domain-specific send role.
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain in `from.email`.
    */
   send(
     body: CreateMessageRequest,
@@ -277,8 +277,8 @@ export class MessagesClient {
    * (combined ≤ 50) — like a normal mail client, everyone sees the
    * recipient list. Use {@link send} for individualized fan-out.
    *
-   * Authorization uses the domain in `from.email`: requires
-   * `messages:send:all` or the matching domain-specific send role.
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain in `from.email`.
    */
   sendConversation(
     body: CreateConversationMessageRequest,
@@ -291,7 +291,12 @@ export class MessagesClient {
     );
   }
 
-  /** Fetch one page of messages. Filters combine with AND semantics. */
+  /**
+   * Fetch one page of messages. Filters combine with AND semantics.
+   *
+   * `messages:read:all` returns every message; `messages:read:{domain}` returns
+   * only messages whose `sender` domain is authorized.
+   */
   list(
     params: ListMessagesParams = {},
     options: RequestOptions = {},
@@ -321,6 +326,9 @@ export class MessagesClient {
    * Fetch a single message by its opaque message ID. Accepts the generated
    * Message-ID returned by {@link send} when non-null, or its bare UUID portion.
    * The ID is encoded as one path segment.
+   *
+   * Authorization requires `messages:read:all` or `messages:read:{domain}`
+   * matching the message's `sender` domain.
    */
   get(messageId: string, options: RequestOptions = {}): Promise<Message> {
     return this.#operations.execute<Message>(
@@ -335,7 +343,9 @@ export class MessagesClient {
    * first delivery attempt; already-sent messages cannot be recalled.
    * Accepts the generated Message-ID returned by {@link send} when non-null,
    * or its bare UUID portion.
-   * Requires scope `messages:cancel:all` or `messages:cancel:{domain}`.
+   *
+   * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
+   * matching the message's `sender` domain.
    */
   cancel(messageId: string, options: RequestOptions = {}): Promise<SuccessResponse> {
     return this.#operations.execute<SuccessResponse>(

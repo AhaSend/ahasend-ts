@@ -2,43 +2,76 @@
 
 export type RetryMode = "safe" | "idempotent" | "idempotency_key" | "never";
 
-export type ResourceAuthorizationRule =
-  | { readonly kind: "body_domain"; readonly bodyPath: "from.email" | "recipient" }
-  | { readonly kind: "query_domain_required_for_scoped"; readonly queryParameter: "domain" }
-  | {
-      readonly kind: "existing_and_replacement_domain";
-      readonly resource: "route";
-      readonly resourceIdParameter: "route_id";
-      readonly existingPath: "recipient";
-      readonly replacementBodyPath: "recipient";
-    }
-  | {
-      readonly kind: "all_body_domains";
-      readonly bodyPath: "domains";
-      readonly scopeBodyPath: "scope";
-      readonly globalValue: "global";
-    }
-  | {
-      readonly kind: "existing_and_new_domains";
-      readonly resource: "webhook";
-      readonly resourceIdParameter: "webhook_id";
-      readonly existingPath: "domains";
-      readonly newBodyPath: "domains";
-      readonly scopeBodyPath: "scope";
-      readonly globalValue: "global";
-    }
-  | { readonly kind: "comma_separated_query_domains"; readonly queryParameter: "sender_domain" }
-  | {
-      readonly kind: "authorized_domain_filter";
-      readonly resource: "message" | "webhook" | "smtp_credential";
-      readonly resourceDomainPath: "sender" | "domains";
-    }
-  | {
-      readonly kind: "existing_resource_domains";
-      readonly resource: "message" | "route" | "webhook" | "smtp_credential";
-      readonly resourceIdParameter: "message_id" | "route_id" | "webhook_id" | "smtp_credential_id";
-      readonly resourceDomainPath: "sender" | "recipient" | "domains";
-    };
+interface ResourceAuthorizationMetadata {
+  readonly roles: {
+    readonly global: string;
+    readonly domain: string;
+  };
+  readonly summary: string;
+}
+
+export type ResourceAuthorizationRule = ResourceAuthorizationMetadata &
+  (
+    | {
+        readonly kind: "body_domain";
+        readonly bodyPath: "from.email" | "recipient";
+        readonly quantifier: "one";
+      }
+    | {
+        readonly kind: "query_domain_required_for_scoped";
+        readonly queryParameter: "domain";
+        readonly condition: "scoped_role_requires_filter";
+      }
+    | {
+        readonly kind: "existing_and_replacement_domain";
+        readonly resource: "route";
+        readonly resourceIdParameter: "route_id";
+        readonly existingPath: "recipient";
+        readonly replacementBodyPath: "recipient";
+        readonly quantifier: "every";
+      }
+    | {
+        readonly kind: "all_body_domains";
+        readonly bodyPath: "domains";
+        readonly scopeBodyPath: "scope";
+        readonly globalValue: "global";
+        readonly quantifier: "every";
+        readonly condition: "global_scope_requires_global_role";
+      }
+    | {
+        readonly kind: "existing_and_new_domains";
+        readonly resource: "webhook";
+        readonly resourceIdParameter: "webhook_id";
+        readonly existingPath: "domains";
+        readonly newBodyPath: "domains";
+        readonly scopeBodyPath: "scope";
+        readonly globalValue: "global";
+        readonly quantifier: "every";
+        readonly transition: "global_scope_requires_global_role";
+      }
+    | {
+        readonly kind: "comma_separated_query_domains";
+        readonly queryParameter: "sender_domain";
+        readonly quantifier: "every";
+      }
+    | {
+        readonly kind: "authorized_domain_filter";
+        readonly resource: "message" | "webhook" | "smtp_credential";
+        readonly resourceDomainPath: "sender" | "domains";
+        readonly quantifier: "one" | "at_least_one";
+      }
+    | {
+        readonly kind: "existing_resource_domains";
+        readonly resource: "message" | "route" | "webhook" | "smtp_credential";
+        readonly resourceIdParameter:
+          | "message_id"
+          | "route_id"
+          | "webhook_id"
+          | "smtp_credential_id";
+        readonly resourceDomainPath: "sender" | "recipient" | "domains";
+        readonly quantifier: "one" | "at_least_one";
+      }
+  );
 
 export interface OperationDescriptor {
   readonly method: "GET" | "POST" | "PUT" | "DELETE";
@@ -56,18 +89,46 @@ export const RESOURCE_AUTHORIZATION = {
   createMessage: {
     kind: "body_domain",
     bodyPath: "from.email",
+    quantifier: "one",
+    roles: {
+      global: "messages:send:all",
+      domain: "messages:send:{domain}",
+    },
+    summary:
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
   },
   createConversationMessage: {
     kind: "body_domain",
     bodyPath: "from.email",
+    quantifier: "one",
+    roles: {
+      global: "messages:send:all",
+      domain: "messages:send:{domain}",
+    },
+    summary:
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
   },
   createRoute: {
     kind: "body_domain",
     bodyPath: "recipient",
+    quantifier: "one",
+    roles: {
+      global: "routes:write:all",
+      domain: "routes:write:{domain}",
+    },
+    summary:
+      "Authorization requires `routes:write:all` or `routes:write:{domain}` matching the domain in `recipient`.",
   },
   getRoutes: {
     kind: "query_domain_required_for_scoped",
     queryParameter: "domain",
+    condition: "scoped_role_requires_filter",
+    roles: {
+      global: "routes:read:all",
+      domain: "routes:read:{domain}",
+    },
+    summary:
+      "Authorization requires `routes:read:all`, or `routes:read:{domain}` with its matching `domain` query filter.",
   },
   updateRoute: {
     kind: "existing_and_replacement_domain",
@@ -75,18 +136,41 @@ export const RESOURCE_AUTHORIZATION = {
     resourceIdParameter: "route_id",
     existingPath: "recipient",
     replacementBodyPath: "recipient",
+    quantifier: "every",
+    roles: {
+      global: "routes:write:all",
+      domain: "routes:write:{domain}",
+    },
+    summary:
+      "Authorization requires `routes:write:all`, or `routes:write:{domain}` for both the existing and replacement `recipient` domains.",
   },
   createWebhook: {
     kind: "all_body_domains",
     bodyPath: "domains",
     scopeBodyPath: "scope",
     globalValue: "global",
+    quantifier: "every",
+    condition: "global_scope_requires_global_role",
+    roles: {
+      global: "webhooks:write:all",
+      domain: "webhooks:write:{domain}",
+    },
+    summary:
+      'A `scoped` webhook requires `webhooks:write:{domain}` for every `domains` entry; `scope: "global"` requires `webhooks:write:all`.',
   },
   createSMTPCredential: {
     kind: "all_body_domains",
     bodyPath: "domains",
     scopeBodyPath: "scope",
     globalValue: "global",
+    quantifier: "every",
+    condition: "global_scope_requires_global_role",
+    roles: {
+      global: "smtp-credentials:write:all",
+      domain: "smtp-credentials:write:{domain}",
+    },
+    summary:
+      'A `scoped` SMTP credential requires `smtp-credentials:write:{domain}` for every `domains` entry; `scope: "global"` requires `smtp-credentials:write:all`.',
   },
   updateWebhook: {
     kind: "existing_and_new_domains",
@@ -96,81 +180,187 @@ export const RESOURCE_AUTHORIZATION = {
     newBodyPath: "domains",
     scopeBodyPath: "scope",
     globalValue: "global",
+    quantifier: "every",
+    transition: "global_scope_requires_global_role",
+    roles: {
+      global: "webhooks:write:all",
+      domain: "webhooks:write:{domain}",
+    },
+    summary:
+      "Authorization requires `webhooks:write:{domain}` for the existing webhook and every new `domains` entry; changing `scope` to `global` requires `webhooks:write:all`.",
   },
   getDeliverabilityStatistics: {
     kind: "comma_separated_query_domains",
     queryParameter: "sender_domain",
+    quantifier: "every",
+    roles: {
+      global: "statistics-transactional:read:all",
+      domain: "statistics-transactional:read:{domain}",
+    },
+    summary:
+      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
   },
   getBounceStatistics: {
     kind: "comma_separated_query_domains",
     queryParameter: "sender_domain",
+    quantifier: "every",
+    roles: {
+      global: "statistics-transactional:read:all",
+      domain: "statistics-transactional:read:{domain}",
+    },
+    summary:
+      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
   },
   getDeliveryTimeStatistics: {
     kind: "comma_separated_query_domains",
     queryParameter: "sender_domain",
+    quantifier: "every",
+    roles: {
+      global: "statistics-transactional:read:all",
+      domain: "statistics-transactional:read:{domain}",
+    },
+    summary:
+      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
   },
   getMessages: {
     kind: "authorized_domain_filter",
     resource: "message",
     resourceDomainPath: "sender",
+    quantifier: "one",
+    roles: {
+      global: "messages:read:all",
+      domain: "messages:read:{domain}",
+    },
+    summary:
+      "`messages:read:all` returns every message; `messages:read:{domain}` returns only messages whose `sender` domain is authorized.",
   },
   getWebhooks: {
     kind: "authorized_domain_filter",
     resource: "webhook",
     resourceDomainPath: "domains",
+    quantifier: "at_least_one",
+    roles: {
+      global: "webhooks:read:all",
+      domain: "webhooks:read:{domain}",
+    },
+    summary:
+      "`webhooks:read:all` returns every webhook; `webhooks:read:{domain}` returns only webhooks with at least one authorized `domains` entry.",
   },
   getSMTPCredentials: {
     kind: "authorized_domain_filter",
     resource: "smtp_credential",
     resourceDomainPath: "domains",
+    quantifier: "at_least_one",
+    roles: {
+      global: "smtp-credentials:read:all",
+      domain: "smtp-credentials:read:{domain}",
+    },
+    summary:
+      "`smtp-credentials:read:all` returns every SMTP credential; `smtp-credentials:read:{domain}` returns only credentials with at least one authorized `domains` entry.",
   },
   getMessage: {
     kind: "existing_resource_domains",
     resource: "message",
     resourceIdParameter: "message_id",
     resourceDomainPath: "sender",
+    quantifier: "one",
+    roles: {
+      global: "messages:read:all",
+      domain: "messages:read:{domain}",
+    },
+    summary:
+      "Authorization requires `messages:read:all` or `messages:read:{domain}` matching the message's `sender` domain.",
   },
   cancelMessage: {
     kind: "existing_resource_domains",
     resource: "message",
     resourceIdParameter: "message_id",
     resourceDomainPath: "sender",
+    quantifier: "one",
+    roles: {
+      global: "messages:cancel:all",
+      domain: "messages:cancel:{domain}",
+    },
+    summary:
+      "Authorization requires `messages:cancel:all` or `messages:cancel:{domain}` matching the message's `sender` domain.",
   },
   getRoute: {
     kind: "existing_resource_domains",
     resource: "route",
     resourceIdParameter: "route_id",
     resourceDomainPath: "recipient",
+    quantifier: "one",
+    roles: {
+      global: "routes:read:all",
+      domain: "routes:read:{domain}",
+    },
+    summary:
+      "Authorization requires `routes:read:all` or `routes:read:{domain}` matching the route's `recipient` domain.",
   },
   deleteRoute: {
     kind: "existing_resource_domains",
     resource: "route",
     resourceIdParameter: "route_id",
     resourceDomainPath: "recipient",
+    quantifier: "one",
+    roles: {
+      global: "routes:delete:all",
+      domain: "routes:delete:{domain}",
+    },
+    summary:
+      "Authorization requires `routes:delete:all` or `routes:delete:{domain}` matching the route's `recipient` domain.",
   },
   getWebhook: {
     kind: "existing_resource_domains",
     resource: "webhook",
     resourceIdParameter: "webhook_id",
     resourceDomainPath: "domains",
+    quantifier: "at_least_one",
+    roles: {
+      global: "webhooks:read:all",
+      domain: "webhooks:read:{domain}",
+    },
+    summary:
+      "Authorization requires `webhooks:read:all` or `webhooks:read:{domain}` matching at least one webhook `domains` entry.",
   },
   deleteWebhook: {
     kind: "existing_resource_domains",
     resource: "webhook",
     resourceIdParameter: "webhook_id",
     resourceDomainPath: "domains",
+    quantifier: "at_least_one",
+    roles: {
+      global: "webhooks:delete:all",
+      domain: "webhooks:delete:{domain}",
+    },
+    summary:
+      "Authorization requires `webhooks:delete:all` or `webhooks:delete:{domain}` matching at least one webhook `domains` entry.",
   },
   getSMTPCredential: {
     kind: "existing_resource_domains",
     resource: "smtp_credential",
     resourceIdParameter: "smtp_credential_id",
     resourceDomainPath: "domains",
+    quantifier: "at_least_one",
+    roles: {
+      global: "smtp-credentials:read:all",
+      domain: "smtp-credentials:read:{domain}",
+    },
+    summary:
+      "Authorization requires `smtp-credentials:read:all` or `smtp-credentials:read:{domain}` matching at least one credential `domains` entry.",
   },
   deleteSMTPCredential: {
     kind: "existing_resource_domains",
     resource: "smtp_credential",
     resourceIdParameter: "smtp_credential_id",
     resourceDomainPath: "domains",
+    quantifier: "at_least_one",
+    roles: {
+      global: "smtp-credentials:delete:all",
+      domain: "smtp-credentials:delete:{domain}",
+    },
+    summary:
+      "Authorization requires `smtp-credentials:delete:all` or `smtp-credentials:delete:{domain}` matching at least one credential `domains` entry.",
   },
 } as const satisfies Readonly<
   Partial<Record<keyof typeof OPERATION_DESCRIPTORS, ResourceAuthorizationRule>>
@@ -474,6 +664,13 @@ export const OPERATION_DESCRIPTORS = {
       kind: "authorized_domain_filter",
       resource: "message",
       resourceDomainPath: "sender",
+      quantifier: "one",
+      roles: {
+        global: "messages:read:all",
+        domain: "messages:read:{domain}",
+      },
+      summary:
+        "`messages:read:all` returns every message; `messages:read:{domain}` returns only messages whose `sender` domain is authorized.",
     },
   },
   createMessage: {
@@ -496,6 +693,13 @@ export const OPERATION_DESCRIPTORS = {
     resourceAuthorization: {
       kind: "body_domain",
       bodyPath: "from.email",
+      quantifier: "one",
+      roles: {
+        global: "messages:send:all",
+        domain: "messages:send:{domain}",
+      },
+      summary:
+        "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
     },
   },
   createConversationMessage: {
@@ -518,6 +722,13 @@ export const OPERATION_DESCRIPTORS = {
     resourceAuthorization: {
       kind: "body_domain",
       bodyPath: "from.email",
+      quantifier: "one",
+      roles: {
+        global: "messages:send:all",
+        domain: "messages:send:{domain}",
+      },
+      summary:
+        "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
     },
   },
   getMessage: {
@@ -539,6 +750,13 @@ export const OPERATION_DESCRIPTORS = {
       resource: "message",
       resourceIdParameter: "message_id",
       resourceDomainPath: "sender",
+      quantifier: "one",
+      roles: {
+        global: "messages:read:all",
+        domain: "messages:read:{domain}",
+      },
+      summary:
+        "Authorization requires `messages:read:all` or `messages:read:{domain}` matching the message's `sender` domain.",
     },
   },
   cancelMessage: {
@@ -560,6 +778,13 @@ export const OPERATION_DESCRIPTORS = {
       resource: "message",
       resourceIdParameter: "message_id",
       resourceDomainPath: "sender",
+      quantifier: "one",
+      roles: {
+        global: "messages:cancel:all",
+        domain: "messages:cancel:{domain}",
+      },
+      summary:
+        "Authorization requires `messages:cancel:all` or `messages:cancel:{domain}` matching the message's `sender` domain.",
     },
   },
   getAccount: {
@@ -1041,6 +1266,13 @@ export const OPERATION_DESCRIPTORS = {
     resourceAuthorization: {
       kind: "query_domain_required_for_scoped",
       queryParameter: "domain",
+      condition: "scoped_role_requires_filter",
+      roles: {
+        global: "routes:read:all",
+        domain: "routes:read:{domain}",
+      },
+      summary:
+        "Authorization requires `routes:read:all`, or `routes:read:{domain}` with its matching `domain` query filter.",
     },
   },
   createRoute: {
@@ -1063,6 +1295,13 @@ export const OPERATION_DESCRIPTORS = {
     resourceAuthorization: {
       kind: "body_domain",
       bodyPath: "recipient",
+      quantifier: "one",
+      roles: {
+        global: "routes:write:all",
+        domain: "routes:write:{domain}",
+      },
+      summary:
+        "Authorization requires `routes:write:all` or `routes:write:{domain}` matching the domain in `recipient`.",
     },
   },
   getRoute: {
@@ -1084,6 +1323,13 @@ export const OPERATION_DESCRIPTORS = {
       resource: "route",
       resourceIdParameter: "route_id",
       resourceDomainPath: "recipient",
+      quantifier: "one",
+      roles: {
+        global: "routes:read:all",
+        domain: "routes:read:{domain}",
+      },
+      summary:
+        "Authorization requires `routes:read:all` or `routes:read:{domain}` matching the route's `recipient` domain.",
     },
   },
   updateRoute: {
@@ -1109,6 +1355,13 @@ export const OPERATION_DESCRIPTORS = {
       resourceIdParameter: "route_id",
       existingPath: "recipient",
       replacementBodyPath: "recipient",
+      quantifier: "every",
+      roles: {
+        global: "routes:write:all",
+        domain: "routes:write:{domain}",
+      },
+      summary:
+        "Authorization requires `routes:write:all`, or `routes:write:{domain}` for both the existing and replacement `recipient` domains.",
     },
   },
   deleteRoute: {
@@ -1130,6 +1383,13 @@ export const OPERATION_DESCRIPTORS = {
       resource: "route",
       resourceIdParameter: "route_id",
       resourceDomainPath: "recipient",
+      quantifier: "one",
+      roles: {
+        global: "routes:delete:all",
+        domain: "routes:delete:{domain}",
+      },
+      summary:
+        "Authorization requires `routes:delete:all` or `routes:delete:{domain}` matching the route's `recipient` domain.",
     },
   },
   getWebhooks: {
@@ -1207,6 +1467,13 @@ export const OPERATION_DESCRIPTORS = {
       kind: "authorized_domain_filter",
       resource: "webhook",
       resourceDomainPath: "domains",
+      quantifier: "at_least_one",
+      roles: {
+        global: "webhooks:read:all",
+        domain: "webhooks:read:{domain}",
+      },
+      summary:
+        "`webhooks:read:all` returns every webhook; `webhooks:read:{domain}` returns only webhooks with at least one authorized `domains` entry.",
     },
   },
   createWebhook: {
@@ -1231,6 +1498,14 @@ export const OPERATION_DESCRIPTORS = {
       bodyPath: "domains",
       scopeBodyPath: "scope",
       globalValue: "global",
+      quantifier: "every",
+      condition: "global_scope_requires_global_role",
+      roles: {
+        global: "webhooks:write:all",
+        domain: "webhooks:write:{domain}",
+      },
+      summary:
+        'A `scoped` webhook requires `webhooks:write:{domain}` for every `domains` entry; `scope: "global"` requires `webhooks:write:all`.',
     },
   },
   getWebhook: {
@@ -1252,6 +1527,13 @@ export const OPERATION_DESCRIPTORS = {
       resource: "webhook",
       resourceIdParameter: "webhook_id",
       resourceDomainPath: "domains",
+      quantifier: "at_least_one",
+      roles: {
+        global: "webhooks:read:all",
+        domain: "webhooks:read:{domain}",
+      },
+      summary:
+        "Authorization requires `webhooks:read:all` or `webhooks:read:{domain}` matching at least one webhook `domains` entry.",
     },
   },
   updateWebhook: {
@@ -1279,6 +1561,14 @@ export const OPERATION_DESCRIPTORS = {
       newBodyPath: "domains",
       scopeBodyPath: "scope",
       globalValue: "global",
+      quantifier: "every",
+      transition: "global_scope_requires_global_role",
+      roles: {
+        global: "webhooks:write:all",
+        domain: "webhooks:write:{domain}",
+      },
+      summary:
+        "Authorization requires `webhooks:write:{domain}` for the existing webhook and every new `domains` entry; changing `scope` to `global` requires `webhooks:write:all`.",
     },
   },
   deleteWebhook: {
@@ -1300,6 +1590,13 @@ export const OPERATION_DESCRIPTORS = {
       resource: "webhook",
       resourceIdParameter: "webhook_id",
       resourceDomainPath: "domains",
+      quantifier: "at_least_one",
+      roles: {
+        global: "webhooks:delete:all",
+        domain: "webhooks:delete:{domain}",
+      },
+      summary:
+        "Authorization requires `webhooks:delete:all` or `webhooks:delete:{domain}` matching at least one webhook `domains` entry.",
     },
   },
   getSMTPCredentials: {
@@ -1333,6 +1630,13 @@ export const OPERATION_DESCRIPTORS = {
       kind: "authorized_domain_filter",
       resource: "smtp_credential",
       resourceDomainPath: "domains",
+      quantifier: "at_least_one",
+      roles: {
+        global: "smtp-credentials:read:all",
+        domain: "smtp-credentials:read:{domain}",
+      },
+      summary:
+        "`smtp-credentials:read:all` returns every SMTP credential; `smtp-credentials:read:{domain}` returns only credentials with at least one authorized `domains` entry.",
     },
   },
   createSMTPCredential: {
@@ -1357,6 +1661,14 @@ export const OPERATION_DESCRIPTORS = {
       bodyPath: "domains",
       scopeBodyPath: "scope",
       globalValue: "global",
+      quantifier: "every",
+      condition: "global_scope_requires_global_role",
+      roles: {
+        global: "smtp-credentials:write:all",
+        domain: "smtp-credentials:write:{domain}",
+      },
+      summary:
+        'A `scoped` SMTP credential requires `smtp-credentials:write:{domain}` for every `domains` entry; `scope: "global"` requires `smtp-credentials:write:all`.',
     },
   },
   getSMTPCredential: {
@@ -1378,6 +1690,13 @@ export const OPERATION_DESCRIPTORS = {
       resource: "smtp_credential",
       resourceIdParameter: "smtp_credential_id",
       resourceDomainPath: "domains",
+      quantifier: "at_least_one",
+      roles: {
+        global: "smtp-credentials:read:all",
+        domain: "smtp-credentials:read:{domain}",
+      },
+      summary:
+        "Authorization requires `smtp-credentials:read:all` or `smtp-credentials:read:{domain}` matching at least one credential `domains` entry.",
     },
   },
   deleteSMTPCredential: {
@@ -1399,6 +1718,13 @@ export const OPERATION_DESCRIPTORS = {
       resource: "smtp_credential",
       resourceIdParameter: "smtp_credential_id",
       resourceDomainPath: "domains",
+      quantifier: "at_least_one",
+      roles: {
+        global: "smtp-credentials:delete:all",
+        domain: "smtp-credentials:delete:{domain}",
+      },
+      summary:
+        "Authorization requires `smtp-credentials:delete:all` or `smtp-credentials:delete:{domain}` matching at least one credential `domains` entry.",
     },
   },
   getDeliverabilityStatistics: {
@@ -1443,6 +1769,13 @@ export const OPERATION_DESCRIPTORS = {
     resourceAuthorization: {
       kind: "comma_separated_query_domains",
       queryParameter: "sender_domain",
+      quantifier: "every",
+      roles: {
+        global: "statistics-transactional:read:all",
+        domain: "statistics-transactional:read:{domain}",
+      },
+      summary:
+        "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
     },
   },
   getBounceStatistics: {
@@ -1487,6 +1820,13 @@ export const OPERATION_DESCRIPTORS = {
     resourceAuthorization: {
       kind: "comma_separated_query_domains",
       queryParameter: "sender_domain",
+      quantifier: "every",
+      roles: {
+        global: "statistics-transactional:read:all",
+        domain: "statistics-transactional:read:{domain}",
+      },
+      summary:
+        "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
     },
   },
   getDeliveryTimeStatistics: {
@@ -1531,6 +1871,13 @@ export const OPERATION_DESCRIPTORS = {
     resourceAuthorization: {
       kind: "comma_separated_query_domains",
       queryParameter: "sender_domain",
+      quantifier: "every",
+      roles: {
+        global: "statistics-transactional:read:all",
+        domain: "statistics-transactional:read:{domain}",
+      },
+      summary:
+        "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
     },
   },
 } as const satisfies Readonly<Record<string, OperationDescriptor>>;

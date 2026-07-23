@@ -64,9 +64,11 @@ export class SMTPCredentialsClient {
   }
 
   /**
-   * Fetch one page of SMTP credentials. The global read role sees all
-   * credentials; domain-scoped read roles see credentials associated with at
-   * least one authorized domain.
+   * Fetch one page of SMTP credentials.
+   *
+   * `smtp-credentials:read:all` returns every SMTP credential;
+   * `smtp-credentials:read:{domain}` returns only credentials with at least one
+   * authorized `domains` entry.
    */
   list(
     params: PaginationParams = {},
@@ -90,9 +92,11 @@ export class SMTPCredentialsClient {
   }
 
   /**
-   * Create an SMTP credential. Scoped credentials require at least one domain
-   * and write permission for every supplied domain. Global credentials require
-   * `smtp-credentials:write:all`; supplied domains are accepted but ignored.
+   * Create an SMTP credential.
+   *
+   * A `scoped` SMTP credential requires `smtp-credentials:write:{domain}` for
+   * every `domains` entry; `scope: "global"` requires
+   * `smtp-credentials:write:all`.
    *
    * The response is the only time the SMTP `password` is exposed. SMTP
    * credentials have no update operation.
@@ -109,8 +113,11 @@ export class SMTPCredentialsClient {
   }
 
   /**
-   * Fetch an SMTP credential. Requires the global read role or a read role
-   * matching at least one associated domain.
+   * Fetch an SMTP credential.
+   *
+   * Authorization requires `smtp-credentials:read:all` or
+   * `smtp-credentials:read:{domain}` matching at least one credential `domains`
+   * entry.
    */
   get(credentialId: UUID, options: RequestOptions = {}): Promise<SMTPCredential> {
     return this.#operations.execute<SMTPCredential>(
@@ -126,8 +133,11 @@ export class SMTPCredentialsClient {
   }
 
   /**
-   * Delete an SMTP credential. Requires the global delete role or a delete
-   * role matching at least one associated domain.
+   * Delete an SMTP credential.
+   *
+   * Authorization requires `smtp-credentials:delete:all` or
+   * `smtp-credentials:delete:{domain}` matching at least one credential
+   * `domains` entry.
    */
   delete(credentialId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
     return this.#operations.execute<SuccessResponse>(

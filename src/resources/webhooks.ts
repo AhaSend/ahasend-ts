@@ -123,9 +123,10 @@ export class WebhooksClient {
   }
 
   /**
-   * Fetch one page of configured webhooks. The global read role sees all
-   * webhooks; domain-scoped read roles see webhooks associated with at least
-   * one authorized domain.
+   * Fetch one page of configured webhooks.
+   *
+   * `webhooks:read:all` returns every webhook; `webhooks:read:{domain}` returns
+   * only webhooks with at least one authorized `domains` entry.
    */
   list(
     params: ListWebhooksParams = {},
@@ -149,9 +150,10 @@ export class WebhooksClient {
   }
 
   /**
-   * Create a configured webhook. Scoped webhooks require at least one domain
-   * and write permission for every supplied domain. Global webhooks require
-   * `webhooks:write:all`; supplied domains are accepted but ignored.
+   * Create a configured webhook.
+   *
+   * A `scoped` webhook requires `webhooks:write:{domain}` for every `domains`
+   * entry; `scope: "global"` requires `webhooks:write:all`.
    *
    * The response is the only time the signing `secret` is exposed.
    */
@@ -167,8 +169,10 @@ export class WebhooksClient {
   }
 
   /**
-   * Fetch a configured webhook. Requires the global read role or a read role
-   * matching at least one associated domain.
+   * Fetch a configured webhook.
+   *
+   * Authorization requires `webhooks:read:all` or `webhooks:read:{domain}`
+   * matching at least one webhook `domains` entry.
    */
   get(webhookId: UUID, options: RequestOptions = {}): Promise<Webhook> {
     return this.#operations.execute<Webhook>(
@@ -179,9 +183,11 @@ export class WebhooksClient {
   }
 
   /**
-   * Partially update a configured webhook. A domain-scoped key must be
-   * authorized for the existing webhook and every newly supplied domain;
-   * changing to global requires `webhooks:write:all`.
+   * Partially update a configured webhook.
+   *
+   * Authorization requires `webhooks:write:{domain}` for the existing webhook
+   * and every new `domains` entry; changing `scope` to `global` requires
+   * `webhooks:write:all`.
    */
   update(
     webhookId: UUID,
@@ -196,8 +202,10 @@ export class WebhooksClient {
   }
 
   /**
-   * Delete a configured webhook. Requires the global delete role or a delete
-   * role matching at least one associated domain.
+   * Delete a configured webhook.
+   *
+   * Authorization requires `webhooks:delete:all` or `webhooks:delete:{domain}`
+   * matching at least one webhook `domains` entry.
    */
   delete(webhookId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
     return this.#operations.execute<SuccessResponse>(

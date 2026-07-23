@@ -152,18 +152,26 @@ describe("SDK artifact generation", () => {
       ]),
     );
 
-    expect(OPERATION_DESCRIPTORS.createMessage.resourceAuthorization).toEqual({
+    expect(OPERATION_DESCRIPTORS.createMessage.resourceAuthorization).toMatchObject({
       kind: "body_domain",
       bodyPath: "from.email",
+      quantifier: "one",
+      roles: {
+        global: "messages:send:all",
+        domain: "messages:send:{domain}",
+      },
     });
     expect(OPERATION_DESCRIPTORS.updateWebhook.resourceAuthorization).toMatchObject({
       kind: "existing_and_new_domains",
       scopeBodyPath: "scope",
       globalValue: "global",
+      quantifier: "every",
+      transition: "global_scope_requires_global_role",
     });
-    expect(OPERATION_DESCRIPTORS.getBounceStatistics.resourceAuthorization).toEqual({
+    expect(OPERATION_DESCRIPTORS.getBounceStatistics.resourceAuthorization).toMatchObject({
       kind: "comma_separated_query_domains",
       queryParameter: "sender_domain",
+      quantifier: "every",
     });
   });
 
