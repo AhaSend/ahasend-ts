@@ -65,5 +65,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Integration suite against disposable packed SDK
-        run: npm run test:integration:preflight
+      - name: Integration suite against local openapi.yaml
+        run: npm run test:integration
+        env:
+          RUN_INTEGRATION: "1"

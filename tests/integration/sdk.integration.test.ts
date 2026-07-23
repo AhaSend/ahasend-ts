@@ -5,6 +5,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createRequire } from "node:module";
+import yaml from "js-yaml";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const ACCOUNT_ID = "00000000-0000-4000-8000-000000000001";
@@ -30,6 +31,21 @@ interface OperationCase {
   readonly target: readonly string[];
   readonly method: string;
   readonly args?: readonly unknown[];
+}
+
+interface OpenAPIDocument {
+  readonly paths: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+}
+
+interface SpecOperation {
+  readonly operationId: string;
+  readonly httpMethod: string;
+  readonly pathTemplate: string;
+}
+
+interface ObservedRequest {
+  readonly httpMethod: string;
+  readonly pathname: string;
 }
 
 const PAGINATION = { limit: 5 };
@@ -160,6 +176,8 @@ const OPERATION_CASES = [
   operation("getDeliveryTimeStatistics", ["statistics"], "deliveryTimes", [STATISTICS]),
 ] as const satisfies readonly OperationCase[];
 
+const SPEC_OPERATIONS = loadSpecOperations();
+
 let consumerDirectory: string | undefined;
 let prismProcess: ChildProcess | undefined;
 let prismOutput = "";
@@ -223,10 +241,7 @@ describe("enforcing Prism", () => {
 
 describe("packed SDK operation contract", () => {
   it("covers every operation declared by openapi.yaml exactly once", () => {
-    const source = readFileSync(resolve(repositoryRoot, "openapi.yaml"), "utf8");
-    const operationIds = [...source.matchAll(/^\s+operationId:\s+(\S+)\s*$/gm)].map(
-      (match) => match[1],
-    );
+    const operationIds = [...SPEC_OPERATIONS.keys()];
 
     expect(OPERATION_CASES).toHaveLength(56);
     expect(new Set(OPERATION_CASES.map(({ operationId }) => operationId)).size).toBe(56);
@@ -235,15 +250,32 @@ describe("packed SDK operation contract", () => {
     );
   });
 
-  it.each(OPERATION_CASES)("$operationId", async ({ target, method, args = [] }) => {
+  it.each(OPERATION_CASES)("$operationId", async ({ operationId, target, method, args = [] }) => {
+    const observedRequests: ObservedRequest[] = [];
+    const forwardingFetch: typeof fetch = async (input, init) => {
+      observedRequests.push(observeRequest(input, init));
+      return await globalThis.fetch(input, init);
+    };
     const client = new installedSdk.AhaSendClient({
       apiKey: API_KEY,
       accountId: ACCOUNT_ID,
       baseUrl,
+      fetch: forwardingFetch,
       retry: { enabled: false },
     });
 
     await expect(callMethod(client, target, method, args)).resolves.toBeDefined();
+    expect(observedRequests).toHaveLength(1);
+
+    const expectedOperation = SPEC_OPERATIONS.get(operationId);
+    const observedRequest = observedRequests[0];
+    if (expectedOperation === undefined || observedRequest === undefined) {
+      throw new Error(`Missing OpenAPI contract or observed request for ${operationId}.`);
+    }
+    expect(observedRequest.httpMethod).toBe(expectedOperation.httpMethod);
+    expect(pathMatchesTemplate(observedRequest.pathname, expectedOperation.pathTemplate)).toBe(
+      true,
+    );
   });
 });
 
@@ -292,6 +324,49 @@ function operation(
   return args === undefined
     ? { operationId, target, method }
     : { operationId, target, method, args };
+}
+
+function loadSpecOperations(): ReadonlyMap<string, SpecOperation> {
+  const source = readFileSync(resolve(repositoryRoot, "openapi.yaml"), "utf8");
+  const document = yaml.load(source) as OpenAPIDocument;
+  const operations = new Map<string, SpecOperation>();
+
+  for (const [pathTemplate, pathItem] of Object.entries(document.paths)) {
+    for (const [method, candidate] of Object.entries(pathItem)) {
+      if (!["get", "post", "put", "delete"].includes(method) || !isRecord(candidate)) continue;
+      const operationId = candidate["operationId"];
+      if (typeof operationId !== "string") continue;
+      operations.set(operationId, {
+        operationId,
+        httpMethod: method.toUpperCase(),
+        pathTemplate,
+      });
+    }
+  }
+
+  return operations;
+}
+
+function observeRequest(input: string | URL | Request, init?: RequestInit): ObservedRequest {
+  const request = input instanceof Request ? input : undefined;
+  const url = input instanceof Request ? new URL(input.url) : new URL(input);
+  return {
+    httpMethod: (init?.method ?? request?.method ?? "GET").toUpperCase(),
+    pathname: url.pathname,
+  };
+}
+
+function pathMatchesTemplate(pathname: string, pathTemplate: string): boolean {
+  const actualSegments = pathname.split("/");
+  const templateSegments = pathTemplate.split("/");
+  return (
+    actualSegments.length === templateSegments.length &&
+    templateSegments.every(
+      (segment, index) =>
+        (/^\{[^{}]+\}$/.test(segment) && actualSegments[index] !== "") ||
+        segment === actualSegments[index],
+    )
+  );
 }
 
 function requiredEnvironment(name: "SDK_TARBALL" | "SDK_TARBALL_SHA256"): string {
@@ -412,6 +487,10 @@ function record(value: unknown, label: string): UnknownRecord {
     throw new TypeError(`${label} is not an object.`);
   }
   return value as UnknownRecord;
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null;
 }
 
 function callMethod(
