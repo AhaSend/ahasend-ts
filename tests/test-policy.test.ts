@@ -99,6 +99,29 @@ function formatMarker(marker: Marker): string {
   return `${marker.file}:${marker.line} uses .${marker.modifier}: ${marker.source}`;
 }
 
+function auditRepository(): ReturnType<typeof auditMarkers> {
+  const markers = sourceFiles(TESTS_ROOT).flatMap((path) =>
+    findMarkers(repositoryPath(path), readFileSync(path, "utf8")),
+  );
+  return auditMarkers(markers);
+}
+
+function enforcePolicy(audit: ReturnType<typeof auditMarkers>): void {
+  const violations = [
+    ...audit.unexpected.map(formatMarker),
+    ...audit.missingAllowances.map((allowance) => `Stale test-modifier allowance: ${allowance}`),
+  ];
+
+  if (violations.length > 0) {
+    throw new Error(`Committed test policy violations:\n${violations.join("\n")}`);
+  }
+}
+
+// Enforce the repository policy while this module loads. Keeping the gate outside a test or suite
+// prevents a modifier on the policy tests themselves from disabling the repository scan.
+const repositoryAudit = auditRepository();
+enforcePolicy(repositoryAudit);
+
 describe("committed test policy", () => {
   it.each(FORBIDDEN_MODIFIERS)("rejects an unexpected %s modifier", (modifier) => {
     const marker = findMarkers("tests/example.test.ts", `it.${modifier}("hidden", () => {});`);
@@ -115,12 +138,6 @@ describe("committed test policy", () => {
   });
 
   it("contains no unexpected focused, skipped, or todo tests", () => {
-    const markers = sourceFiles(TESTS_ROOT).flatMap((path) =>
-      findMarkers(repositoryPath(path), readFileSync(path, "utf8")),
-    );
-    const audit = auditMarkers(markers);
-
-    expect(audit.unexpected.map(formatMarker), "Unexpected test modifiers").toEqual([]);
-    expect(audit.missingAllowances, "Stale test-modifier allowances").toEqual([]);
+    expect(repositoryAudit).toEqual({ unexpected: [], missingAllowances: [] });
   });
 });
