@@ -31,7 +31,6 @@ interface BindingSegment {
 
 interface BindingAlias {
   readonly initializer: ts.Expression;
-  readonly localName: string;
   readonly segments: readonly BindingSegment[];
 }
 
@@ -116,18 +115,33 @@ function propertyModifier(node: ts.Node): ForbiddenModifier | undefined {
 
 function findMarkers(file: string, contents: string): Marker[] {
   const sourceFile = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true);
+  const compilerOptions: ts.CompilerOptions = {
+    module: ts.ModuleKind.ESNext,
+    noLib: true,
+    noResolve: true,
+    target: ts.ScriptTarget.Latest,
+  };
+  const compilerHost = ts.createCompilerHost(compilerOptions, true);
+  compilerHost.fileExists = (fileName) => fileName === file;
+  compilerHost.getSourceFile = (fileName) => (fileName === file ? sourceFile : undefined);
+  compilerHost.readFile = (fileName) => (fileName === file ? contents : undefined);
+  const checker = ts
+    .createProgram({ rootNames: [file], options: compilerOptions, host: compilerHost })
+    .getTypeChecker();
   const markers: Marker[] = [];
   const markerPositions = new Set<number>();
   const lines = contents.split(/\r?\n/u);
-  const declarations = new Map<string, ts.Expression[]>();
-  const callableAliases = new Set(VITEST_CALLABLES);
-  const namespaceAliases = new Set<string>();
-  const bindingAliases: BindingAlias[] = [];
+  type ExpressionKind = "callable" | "namespace" | undefined;
+  const directKinds = new Map<ts.Symbol, Exclude<ExpressionKind, undefined>>();
+  const declarations = new Map<ts.Symbol, ts.Expression[]>();
+  const bindingAliases = new Map<ts.Symbol, BindingAlias>();
 
-  function addDeclaration(name: string, initializer: ts.Expression): void {
-    const existing = declarations.get(name);
+  function addDeclaration(name: ts.Identifier, initializer: ts.Expression): void {
+    const symbol = checker.getSymbolAtLocation(name);
+    if (symbol === undefined) return;
+    const existing = declarations.get(symbol);
     if (existing === undefined) {
-      declarations.set(name, [initializer]);
+      declarations.set(symbol, [initializer]);
     } else {
       existing.push(initializer);
     }
@@ -146,9 +160,10 @@ function findMarkers(file: string, contents: string): Marker[] {
       const nextSegments = [...segments, { name, node: element }];
 
       if (ts.isIdentifier(element.name)) {
-        bindingAliases.push({
+        const symbol = checker.getSymbolAtLocation(element.name);
+        if (symbol === undefined) continue;
+        bindingAliases.set(symbol, {
           initializer,
-          localName: element.name.text,
           segments: nextSegments,
         });
       } else if (ts.isObjectBindingPattern(element.name)) {
@@ -165,16 +180,20 @@ function findMarkers(file: string, contents: string): Marker[] {
     ) {
       const bindings = node.importClause?.namedBindings;
       if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
-        namespaceAliases.add(bindings.name.text);
+        const symbol = checker.getSymbolAtLocation(bindings.name);
+        if (symbol !== undefined) directKinds.set(symbol, "namespace");
       } else if (bindings !== undefined) {
         for (const element of bindings.elements) {
           const importedName = element.propertyName?.text ?? element.name.text;
-          if (VITEST_CALLABLES.has(importedName)) callableAliases.add(element.name.text);
+          const symbol = checker.getSymbolAtLocation(element.name);
+          if (symbol !== undefined && VITEST_CALLABLES.has(importedName)) {
+            directKinds.set(symbol, "callable");
+          }
         }
       }
     } else if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
       if (ts.isIdentifier(node.name)) {
-        addDeclaration(node.name.text, node.initializer);
+        addDeclaration(node.name, node.initializer);
       } else if (ts.isObjectBindingPattern(node.name)) {
         collectBindingAliases(node.name, node.initializer);
       }
@@ -185,25 +204,38 @@ function findMarkers(file: string, contents: string): Marker[] {
 
   collectDeclarations(sourceFile);
 
-  type ExpressionKind = "callable" | "namespace" | undefined;
-
-  function expressionKind(node: ts.Expression): ExpressionKind {
+  function expressionKind(
+    node: ts.Expression,
+    seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+  ): ExpressionKind {
     const expression = unwrapExpression(node);
     if (ts.isIdentifier(expression)) {
-      if (callableAliases.has(expression.text)) return "callable";
-      if (namespaceAliases.has(expression.text)) return "namespace";
+      const symbol = checker.getSymbolAtLocation(expression);
+      if (symbol === undefined) return undefined;
+      const directKind = directKinds.get(symbol);
+      if (directKind !== undefined) return directKind;
+      if (seenSymbols.has(symbol)) return undefined;
+
+      const nextSeenSymbols = new Set(seenSymbols).add(symbol);
+      for (const initializer of declarations.get(symbol) ?? []) {
+        const kind = expressionKind(initializer, nextSeenSymbols);
+        if (kind !== undefined) return kind;
+      }
+      const binding = bindingAliases.get(symbol);
+      if (binding !== undefined) return bindingAliasKind(binding, nextSeenSymbols);
       return undefined;
     }
 
     if (ts.isConditionalExpression(expression)) {
-      const whenTrue = expressionKind(expression.whenTrue);
-      return whenTrue !== undefined && whenTrue === expressionKind(expression.whenFalse)
+      const whenTrue = expressionKind(expression.whenTrue, seenSymbols);
+      return whenTrue !== undefined &&
+        whenTrue === expressionKind(expression.whenFalse, seenSymbols)
         ? whenTrue
         : undefined;
     }
 
     if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
-      const ownerKind = expressionKind(expression.expression);
+      const ownerKind = expressionKind(expression.expression, seenSymbols);
       if (ownerKind === "callable") return "callable";
       const name = terminalProperty(expression);
       return ownerKind === "namespace" && name !== undefined && VITEST_CALLABLES.has(name)
@@ -215,7 +247,7 @@ function findMarkers(file: string, contents: string): Marker[] {
       const name = terminalProperty(unwrapExpression(expression.expression));
       return name !== undefined &&
         VITEST_BUILDERS.has(name) &&
-        expressionKind(expression.expression) === "callable"
+        expressionKind(expression.expression, seenSymbols) === "callable"
         ? "callable"
         : undefined;
     }
@@ -223,8 +255,11 @@ function findMarkers(file: string, contents: string): Marker[] {
     return undefined;
   }
 
-  function bindingAliasKind(binding: BindingAlias): ExpressionKind {
-    let kind = expressionKind(binding.initializer);
+  function bindingAliasKind(
+    binding: BindingAlias,
+    seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
+  ): ExpressionKind {
+    let kind = expressionKind(binding.initializer, seenSymbols);
     for (const segment of binding.segments) {
       if (kind === "callable") continue;
       if (kind === "namespace" && VITEST_CALLABLES.has(segment.name)) {
@@ -235,36 +270,6 @@ function findMarkers(file: string, contents: string): Marker[] {
     }
     return kind;
   }
-
-  let aliasesAdded: boolean;
-  do {
-    aliasesAdded = false;
-    for (const [name, initializers] of declarations) {
-      if (
-        !namespaceAliases.has(name) &&
-        initializers.some((initializer) => expressionKind(initializer) === "namespace")
-      ) {
-        namespaceAliases.add(name);
-        aliasesAdded = true;
-      } else if (
-        !callableAliases.has(name) &&
-        initializers.some((initializer) => expressionKind(initializer) === "callable")
-      ) {
-        callableAliases.add(name);
-        aliasesAdded = true;
-      }
-    }
-    for (const binding of bindingAliases) {
-      const kind = bindingAliasKind(binding);
-      if (kind === "namespace" && !namespaceAliases.has(binding.localName)) {
-        namespaceAliases.add(binding.localName);
-        aliasesAdded = true;
-      } else if (kind === "callable" && !callableAliases.has(binding.localName)) {
-        callableAliases.add(binding.localName);
-        aliasesAdded = true;
-      }
-    }
-  } while (aliasesAdded);
 
   function addMarker(node: ts.Node, modifier: ForbiddenModifier): void {
     const position = node.getStart(sourceFile);
@@ -280,7 +285,7 @@ function findMarkers(file: string, contents: string): Marker[] {
   }
 
   const bindingModifiers = new Map<number, ForbiddenModifier>();
-  for (const binding of bindingAliases) {
+  for (const binding of bindingAliases.values()) {
     let kind = expressionKind(binding.initializer);
     for (const segment of binding.segments) {
       if (kind === "callable") {
@@ -311,12 +316,13 @@ function findMarkers(file: string, contents: string): Marker[] {
     return name !== undefined && OPTION_MODIFIERS.has(name) ? name : undefined;
   }
 
-  function inspectOptionExpression(node: ts.Expression, seenAliases: ReadonlySet<string>): void {
+  function inspectOptionExpression(node: ts.Expression, seenAliases: ReadonlySet<ts.Symbol>): void {
     const expression = unwrapExpression(node);
     if (ts.isIdentifier(expression)) {
-      if (seenAliases.has(expression.text)) return;
-      const nextSeenAliases = new Set(seenAliases).add(expression.text);
-      for (const initializer of declarations.get(expression.text) ?? []) {
+      const symbol = checker.getSymbolAtLocation(expression);
+      if (symbol === undefined || seenAliases.has(symbol)) return;
+      const nextSeenAliases = new Set(seenAliases).add(symbol);
+      for (const initializer of declarations.get(symbol) ?? []) {
         inspectOptionExpression(initializer, nextSeenAliases);
       }
       return;
@@ -437,27 +443,40 @@ enforcePolicy(repositoryAudit);
 
 describe("committed test policy", () => {
   it.each(FORBIDDEN_MODIFIERS)("rejects an unexpected %s modifier", (modifier) => {
-    const marker = findMarkers("tests/example.test.ts", `it.${modifier}("hidden", () => {});`);
+    const invocation = `it.${modifier}("hidden", () => {});`;
+    const marker = findMarkers(
+      "tests/example.test.ts",
+      [`import { it } from "vitest";`, invocation].join("\n"),
+    );
 
     expect(marker).toEqual([
       {
         file: "tests/example.test.ts",
-        line: 1,
+        line: 2,
         modifier,
-        source: `it.${modifier}("hidden", () => {});`,
+        source: invocation,
       },
     ]);
     expect(auditMarkers(marker).unexpected).toEqual(marker);
+    expect(() => enforcePolicy(auditMarkers(marker))).toThrowError(
+      [
+        "Committed test policy violations:",
+        `tests/example.test.ts:2 uses .${modifier}: ${invocation}`,
+      ].join("\n"),
+    );
   });
 
   it.each(["only", "skip", "todo"] as const)("rejects a true %s test option", (modifier) => {
     const source = `it("hidden", { ${modifier}: true }, () => {});`;
-    const marker = findMarkers("tests/example.test.ts", source);
+    const marker = findMarkers(
+      "tests/example.test.ts",
+      [`import { it } from "vitest";`, source].join("\n"),
+    );
 
     expect(marker).toEqual([
       {
         file: "tests/example.test.ts",
-        line: 1,
+        line: 2,
         modifier,
         source,
       },
@@ -496,6 +515,7 @@ describe("committed test policy", () => {
 
   it("rejects forbidden options reached through conditionals and object spreads", () => {
     const contents = [
+      `import { test } from "vitest";`,
       `const todo = { todo: true };`,
       `const options = SHOULD_SKIP ? { skip: true } : { ...todo };`,
       `test("hidden", options, () => {});`,
@@ -505,13 +525,13 @@ describe("committed test policy", () => {
     expect(markers).toEqual([
       {
         file: "tests/example.test.ts",
-        line: 2,
+        line: 3,
         modifier: "skip",
         source: `const options = SHOULD_SKIP ? { skip: true } : { ...todo };`,
       },
       {
         file: "tests/example.test.ts",
-        line: 1,
+        line: 2,
         modifier: "todo",
         source: `const todo = { todo: true };`,
       },
@@ -564,6 +584,7 @@ describe("committed test policy", () => {
 
   it("ignores test-modifier text that cannot affect Vitest execution", () => {
     const contents = [
+      `import { it } from "vitest";`,
       `const documentation = 'it.skipIf(true)';`,
       `const request = { only: true, skip: true, todo: true };`,
       `const result = { skip: "page", todo: "later", only: "this" };`,
@@ -573,6 +594,21 @@ describe("committed test policy", () => {
     ].join("\n");
 
     expect(findMarkers("tests/example.test.ts", contents)).toEqual([]);
+  });
+
+  it("ignores locally shadowed Vitest callable names", () => {
+    const topLevelShadow = [`const test = { skip: "cursor" };`, `test.skip;`].join("\n");
+    const nestedShadow = [
+      `import { test } from "vitest";`,
+      `function readCursor() {`,
+      `  const test = { skip: "cursor" };`,
+      `  return test.skip;`,
+      `}`,
+      `test("runs", () => {});`,
+    ].join("\n");
+
+    expect(findMarkers("tests/example.test.ts", topLevelShadow)).toEqual([]);
+    expect(findMarkers("tests/example.test.ts", nestedShadow)).toEqual([]);
   });
 
   it("contains no unexpected focused, skipped, or todo tests", () => {
