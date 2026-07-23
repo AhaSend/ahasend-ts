@@ -1,10 +1,12 @@
 import { defineConfig } from "vitest/config";
+import { CommittedTestPolicyReporter } from "./tests/helpers/test-policy-reporter.js";
 
 export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
     allowOnly: false,
+    reporters: ["default", new CommittedTestPolicyReporter()],
     testTimeout: 10_000,
     hookTimeout: 120_000,
     coverage: {
