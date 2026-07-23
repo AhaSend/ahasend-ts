@@ -165,11 +165,13 @@ describe("expressWebhookHandler", () => {
     stream.emit("data", Buffer.from("123"));
     stream.emit("data", Buffer.from("45"));
     await pending;
-    stream.emit("end");
 
     expect(res.statusCode).toBe(413);
     expect(res.body).toBeUndefined();
     expect(next).not.toHaveBeenCalled();
+    expect(stream.listenerCount("data")).toBe(0);
+    expect(stream.listenerCount("end")).toBe(0);
+    expect(stream.listenerCount("error")).toBe(0);
   });
 
   it("passes setup errors to next once and observes only stable non-sensitive context", async () => {
@@ -348,30 +350,42 @@ describe("fastifyWebhookHandler", () => {
     expect(reply.status).toBe(0);
   });
 
-  it("throws the original application failure after reply.sent", async () => {
-    const original = new Error("application failure");
-    const observer = vi.fn(() => Promise.reject(new Error("observer rejection")));
-    const route = fastifyWebhookHandler(
-      new WebhookVerifier(SECRET),
-      async (_event, _request, reply) => {
-        reply.send();
-        throw original;
+  it.each([
+    ["resolving", () => Promise.resolve()],
+    [
+      "throwing",
+      () => {
+        throw new Error("observer throw");
       },
-      { onError: observer },
-    );
-    const reply = new MockFastifyReply();
+    ],
+    ["rejecting", () => Promise.reject(new Error("observer rejection"))],
+  ])(
+    "throws the original application failure after reply.sent when observer is %s",
+    async (_name, onError) => {
+      const original = new Error("application failure");
+      const observer = vi.fn(onError);
+      const route = fastifyWebhookHandler(
+        new WebhookVerifier(SECRET),
+        async (_event, _request, reply) => {
+          reply.send();
+          throw original;
+        },
+        { onError: observer },
+      );
+      const reply = new MockFastifyReply();
 
-    await expect(
-      route({ headers: signEnvelope(eventBody), rawBody: eventBody }, reply),
-    ).rejects.toBe(original);
-    await Promise.resolve();
+      await expect(
+        route({ headers: signEnvelope(eventBody), rawBody: eventBody }, reply),
+      ).rejects.toBe(original);
+      await Promise.resolve();
 
-    expect(observer).toHaveBeenCalledWith(original, {
-      adapter: "fastify",
-      stage: "application",
-    });
-    expect(reply.sent).toBe(true);
-  });
+      expect(observer).toHaveBeenCalledWith(original, {
+        adapter: "fastify",
+        stage: "application",
+      });
+      expect(reply.sent).toBe(true);
+    },
+  );
 });
 
 describe("nextRouteHandler", () => {

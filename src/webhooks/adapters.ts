@@ -273,6 +273,7 @@ function readNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Promise<B
       byteLength += chunk.length;
       if (byteLength > maxBodyBytes) {
         settled = true;
+        cleanup();
         reject(new BodyTooLargeError());
         return;
       }
