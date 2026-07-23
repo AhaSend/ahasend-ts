@@ -290,11 +290,13 @@
   ],
   "apiKeySecrets": {
     "creationOperations": ["createAPIKey", "createSubAccountAPIKey"],
-    "retrievalOperations": [
+    "nonCreationOperations": [
       "getAPIKeys",
       "getAPIKey",
+      "updateAPIKey",
       "listSubAccountAPIKeys",
-      "getSubAccountAPIKey"
+      "getSubAccountAPIKey",
+      "updateSubAccountAPIKey"
     ],
     "responseCases": [
       {
@@ -329,6 +331,18 @@
       },
       {
         "operationId": "getSubAccountAPIKey",
+        "status": "200",
+        "payload": "apiKeyRead",
+        "valid": true
+      },
+      {
+        "operationId": "updateAPIKey",
+        "status": "200",
+        "payload": "apiKeyRead",
+        "valid": true
+      },
+      {
+        "operationId": "updateSubAccountAPIKey",
         "status": "200",
         "payload": "apiKeyRead",
         "valid": true

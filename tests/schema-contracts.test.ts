@@ -30,7 +30,7 @@ interface RestContractFixture {
   componentCases: ComponentCase[];
   apiKeySecrets: {
     creationOperations: string[];
-    retrievalOperations: string[];
+    nonCreationOperations: string[];
     responseCases: ResponseCase[];
   };
   authorizationAlternatives: Record<string, string[]>;
@@ -215,7 +215,8 @@ describe("REST schema golden contracts", () => {
       expect(declaresProperty(schema, "secret_key"), operationId).toBe(true);
       expect(requiresProperty(schema, "secret_key"), operationId).toBe(true);
     }
-    for (const operationId of fixture.apiKeySecrets.retrievalOperations) {
+    expect(fixture.apiKeySecrets.nonCreationOperations).toHaveLength(6);
+    for (const operationId of fixture.apiKeySecrets.nonCreationOperations) {
       expect(declaresProperty(responseSchema(operationId, "200"), "secret_key"), operationId).toBe(
         false,
       );
