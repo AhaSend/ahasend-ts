@@ -105,6 +105,7 @@ const subAccountAPIKeyOperationIds = Object.freeze([
   "updateSubAccountAPIKey",
   "deleteSubAccountAPIKey",
 ]);
+const disposableSubAccountIds = new WeakMap();
 const mutableAccountFields = Object.freeze([
   "name",
   "website",
@@ -806,11 +807,7 @@ export function createDomainScenarioRegistry({
   );
 }
 
-/**
- * Execute the domain lifecycle in dependency order and always drain registered
- * cleanup. Results can be passed directly to createLiveReport.
- */
-async function runLiveScenarios(registry, operationIds, iteratorOperationId, scenarioLabel) {
+function requireExecutableLiveScenarios(registry, operationIds, scenarioLabel) {
   const scenarios = new Map();
   for (const operationId of operationIds) {
     const scenario = registry.primary.get(operationId);
@@ -821,8 +818,17 @@ async function runLiveScenarios(registry, operationIds, iteratorOperationId, sce
     }
     scenarios.set(operationId, scenario);
   }
+  return scenarios;
+}
 
-  const cleanup = createCleanupRegistry();
+async function executeLiveScenarios(
+  registry,
+  operationIds,
+  iteratorOperationId,
+  scenarioLabel,
+  cleanup,
+) {
+  const scenarios = requireExecutableLiveScenarios(registry, operationIds, scenarioLabel);
   const operationResults = [];
   const iteratorResults = [];
   let failure = null;
@@ -851,18 +857,55 @@ async function runLiveScenarios(registry, operationIds, iteratorOperationId, sce
       break;
     }
   }
-
-  try {
-    await cleanup.run();
-  } catch {
-    if (failure === null) failure = Object.freeze({ phase: "cleanup" });
-  }
   return Object.freeze({
     operationResults: Object.freeze(operationResults),
     iteratorResults: Object.freeze(iteratorResults),
-    cleanupResults: cleanup.results,
     failure,
   });
+}
+
+async function drainLiveCleanup(cleanup, failure) {
+  let resolvedFailure = failure;
+  try {
+    await cleanup.run();
+  } catch {
+    if (resolvedFailure === null) resolvedFailure = Object.freeze({ phase: "cleanup" });
+  }
+  return resolvedFailure;
+}
+
+function createLiveRun(execution, cleanupResults, failure = execution.failure) {
+  return Object.freeze({
+    operationResults: execution.operationResults,
+    iteratorResults: execution.iteratorResults,
+    cleanupResults,
+    failure,
+  });
+}
+
+function mergeLiveExecutions(...executions) {
+  return Object.freeze({
+    operationResults: Object.freeze(executions.flatMap((execution) => execution.operationResults)),
+    iteratorResults: Object.freeze(executions.flatMap((execution) => execution.iteratorResults)),
+    failure: executions.find((execution) => execution.failure !== null)?.failure ?? null,
+  });
+}
+
+/**
+ * Execute a live lifecycle in dependency order and always drain registered
+ * cleanup. Results can be passed directly to createLiveReport.
+ */
+async function runLiveScenarios(registry, operationIds, iteratorOperationId, scenarioLabel) {
+  const cleanup = createCleanupRegistry();
+  const execution = await executeLiveScenarios(
+    registry,
+    operationIds,
+    iteratorOperationId,
+    scenarioLabel,
+    cleanup,
+  );
+  const failure = await drainLiveCleanup(cleanup, execution.failure);
+  return createLiveRun(execution, cleanup.results, failure);
 }
 
 export function runDomainLiveScenarios(registry) {
@@ -3584,10 +3627,12 @@ export function createSubAccountScenarioRegistry({
     ],
   ]);
 
-  return createScenarioRegistry(
+  const registry = createScenarioRegistry(
     profile,
     profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
   );
+  disposableSubAccountIds.set(registry, fixtureId);
+  return registry;
 }
 
 /** Execute the disposable child lifecycle and always drain registered cleanup. */
@@ -3650,25 +3695,48 @@ function requireChildAPIKeyUpdateRequest(value, createBody) {
       `Child API-key live update request must contain editable fields only; unexpected ${JSON.stringify(unexpected)}.`,
     );
   }
-  if (request.label !== undefined && request.label !== null) {
-    requireString(request.label, "Child API-key live update request label");
+  const body = {};
+  if (Object.hasOwn(request, "label")) {
+    body.label =
+      request.label === null
+        ? null
+        : requireString(request.label, "Child API-key live update request label");
   }
-  if (request.scopes !== undefined && request.scopes !== null) {
-    requireChildAPIKeyScopes(request.scopes, "Child API-key live update request scopes");
+  if (Object.hasOwn(request, "scopes")) {
+    body.scopes =
+      request.scopes === null
+        ? null
+        : requireChildAPIKeyScopes(request.scopes, "Child API-key live update request scopes");
   }
-  if (
-    request.ip_allow_list !== undefined &&
-    request.ip_allow_list !== null &&
-    !Array.isArray(request.ip_allow_list)
-  ) {
-    throw new TypeError(
-      "Child API-key live update request ip_allow_list must be an array or null.",
-    );
+  if (Object.hasOwn(request, "ip_allow_list")) {
+    if (request.ip_allow_list === null) {
+      body.ip_allow_list = null;
+    } else if (!Array.isArray(request.ip_allow_list)) {
+      throw new TypeError(
+        "Child API-key live update request ip_allow_list must be an array or null.",
+      );
+    } else {
+      body.ip_allow_list = Object.freeze(
+        request.ip_allow_list.map((entry, index) =>
+          requireString(entry, `Child API-key live update request ip_allow_list ${index}`),
+        ),
+      );
+    }
   }
-  if (fields.every((field) => request[field] === createBody[field])) {
+  const sameValue = (left, right) =>
+    Array.isArray(left) && Array.isArray(right)
+      ? left.length === right.length && left.every((entry, index) => entry === right[index])
+      : left === right;
+  const changedFields = fields.filter(
+    (field) => body[field] !== null && !sameValue(body[field], createBody[field]),
+  );
+  if (changedFields.length === 0) {
     throw new TypeError("Child API-key live update request must change the created API key.");
   }
-  return Object.freeze({ ...request });
+  return Object.freeze({
+    body: Object.freeze(body),
+    changedFields: Object.freeze(changedFields),
+  });
 }
 
 function requireChildAPIKeyResult(value, subAccountId, label, expectedId) {
@@ -3682,7 +3750,7 @@ function requireChildAPIKeyResult(value, subAccountId, label, expectedId) {
     throw new TypeError(`${label} returned the wrong child API key.`);
   }
   requireString(result.label, `${label} label`);
-  requireChildAPIKeyScopes(
+  const scopes = requireChildAPIKeyScopes(
     result.scopes.map((scope, index) => {
       const record = requireObject(scope, `${label} scope ${index}`);
       return record.scope;
@@ -3692,7 +3760,12 @@ function requireChildAPIKeyResult(value, subAccountId, label, expectedId) {
   if (!Array.isArray(result.ip_allow_list)) {
     throw new TypeError(`${label} ip_allow_list must be an array.`);
   }
-  return Object.freeze({ id, result });
+  const ipAllowList = Object.freeze(
+    result.ip_allow_list.map((entry, index) =>
+      requireString(entry, `${label} ip_allow_list ${index}`),
+    ),
+  );
+  return Object.freeze({ id, ipAllowList, result, scopes });
 }
 
 function requireChildAPIKeyReadResult(value, subAccountId, label, expectedId) {
@@ -3747,7 +3820,7 @@ export function createSubAccountAPIKeyScenarioRegistry({
     delete: mappedOperation("deleteSubAccountAPIKey"),
   });
   const createBody = requireChildAPIKeyCreateRequest(createRequest);
-  const updateBody = requireChildAPIKeyUpdateRequest(updateRequest, createBody);
+  const update = requireChildAPIKeyUpdateRequest(updateRequest, createBody);
   const pageParams = requireLivePagination(pagination, "Child API-key");
   let keyId;
   const fixtureId = () => requireString(keyId, "Disposable child API-key fixture id");
@@ -3854,21 +3927,35 @@ export function createSubAccountAPIKeyScenarioRegistry({
         async run() {
           const id = fixtureId();
           const updated = requireChildAPIKeyReadResult(
-            await methods.update(childId, id, updateBody),
+            await methods.update(childId, id, update.body),
             childId,
             "Child API-key update scenario response",
             id,
           );
-          for (const [field, expected] of Object.entries(updateBody)) {
-            if (field === "scopes" || field === "ip_allow_list") continue;
-            if (updated.result[field] !== expected) {
+          for (const field of update.changedFields) {
+            const expected = update.body[field];
+            const actual =
+              field === "scopes"
+                ? updated.scopes
+                : field === "ip_allow_list"
+                  ? updated.ipAllowList
+                  : updated.result[field];
+            if (
+              Array.isArray(expected)
+                ? !(
+                    Array.isArray(actual) &&
+                    expected.length === actual.length &&
+                    expected.every((entry, index) => entry === actual[index])
+                  )
+                : actual !== expected
+            ) {
               throw new TypeError(`Child API-key update scenario did not preserve ${field}.`);
             }
           }
           return Object.freeze({
             evidence: Object.freeze({
               parentManaged: true,
-              updatedFields: Object.keys(updateBody).length,
+              updatedFields: update.changedFields.length,
             }),
           });
         },
@@ -3909,6 +3996,87 @@ export function runSubAccountAPIKeyLiveScenarios(registry) {
     "listSubAccountAPIKeys",
     "Child API-key",
   );
+}
+
+/**
+ * Reuse the disposable sub-account from the parent lifecycle for child API-key
+ * scenarios. Both lifecycles share one cleanup registry, and the parent delete
+ * runs only after the nested key lifecycle has finished.
+ */
+export async function runSubAccountAndAPIKeyLiveScenarios(
+  subAccountRegistry,
+  createAPIKeyRegistry,
+) {
+  if (typeof createAPIKeyRegistry !== "function") {
+    throw new TypeError("Child API-key scenario registry factory must be a function.");
+  }
+  const fixtureId = disposableSubAccountIds.get(subAccountRegistry);
+  if (fixtureId === undefined) {
+    throw new TypeError(
+      "Combined child API-key scenarios require a disposable sub-account scenario registry.",
+    );
+  }
+
+  const cleanup = createCleanupRegistry();
+  const parentLifecycleIds = subAccountOperationIds.slice(0, -1);
+  const parentLifecycle = await executeLiveScenarios(
+    subAccountRegistry,
+    parentLifecycleIds,
+    "listSubAccounts",
+    "Sub-account",
+    cleanup,
+  );
+  let childLifecycle = null;
+  let parentDelete = null;
+  let setupError;
+  if (parentLifecycle.failure === null) {
+    let childRegistry;
+    try {
+      childRegistry = createAPIKeyRegistry(fixtureId());
+    } catch (error) {
+      setupError = error;
+    }
+    if (setupError === undefined) {
+      childLifecycle = await executeLiveScenarios(
+        childRegistry,
+        subAccountAPIKeyOperationIds,
+        "listSubAccountAPIKeys",
+        "Child API-key",
+        cleanup,
+      );
+      if (childLifecycle.failure === null) {
+        parentDelete = await executeLiveScenarios(
+          subAccountRegistry,
+          ["deleteSubAccount"],
+          null,
+          "Sub-account",
+          cleanup,
+        );
+      }
+    }
+  }
+
+  const parentExecution = mergeLiveExecutions(
+    parentLifecycle,
+    ...(parentDelete === null ? [] : [parentDelete]),
+  );
+  const operationFailure =
+    parentExecution.failure !== null
+      ? Object.freeze({ ...parentExecution.failure, suite: "subAccounts" })
+      : childLifecycle?.failure !== null && childLifecycle?.failure !== undefined
+        ? Object.freeze({ ...childLifecycle.failure, suite: "subAccounts.apiKeys" })
+        : null;
+  const failure = await drainLiveCleanup(cleanup, operationFailure);
+  if (setupError !== undefined) throw setupError;
+
+  const cleanupResults = cleanup.results;
+  return Object.freeze({
+    subAccounts: createLiveRun(parentExecution, cleanupResults),
+    subAccountAPIKeys:
+      childLifecycle === null ? null : createLiveRun(childLifecycle, cleanupResults),
+    cleanupResults,
+    failure,
+  });
 }
 
 export function createCleanupRegistry() {

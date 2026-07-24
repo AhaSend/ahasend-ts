@@ -32,6 +32,7 @@ import {
   runRouteLiveScenarios,
   runSMTPCredentialLiveScenarios,
   runStatisticsLiveScenarios,
+  runSubAccountAndAPIKeyLiveScenarios,
   runSubAccountAPIKeyLiveScenarios,
   runSubAccountLiveScenarios,
   runSuppressionLiveScenarios,
@@ -1160,8 +1161,14 @@ function subAccountClientFixture(
   };
 }
 
-function subAccountAPIKeyClientFixture(options: { malformedSecret?: boolean } = {}) {
-  const subAccountId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+function subAccountAPIKeyClientFixture(
+  options: {
+    ignoredUpdateField?: "ip_allow_list" | "scopes";
+    malformedSecret?: boolean;
+    subAccountId?: string;
+  } = {},
+) {
+  const subAccountId = options.subAccountId ?? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const keyId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
   const existingKeyId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
   const secret = "child-bootstrap-secret-material";
@@ -1240,14 +1247,29 @@ function subAccountAPIKeyClientFixture(options: { malformedSecret?: boolean } = 
     async (
       receivedSubAccountId: string,
       receivedKeyId: string,
-      request: { label?: string | null; scopes?: readonly string[] | null },
+      request: {
+        label?: string | null;
+        scopes?: readonly string[] | null;
+        ip_allow_list?: readonly string[] | null;
+      },
     ) => {
       calls.push({ method: "update", args: [receivedSubAccountId, receivedKeyId, request] });
       const entry = records.get(receivedKeyId);
       if (entry === undefined) throw notFound();
       if (request.label !== undefined && request.label !== null) entry.label = request.label;
-      if (request.scopes !== undefined && request.scopes !== null) {
+      if (
+        request.scopes !== undefined &&
+        request.scopes !== null &&
+        options.ignoredUpdateField !== "scopes"
+      ) {
         entry.scopes = scopeRecords(receivedKeyId, request.scopes);
+      }
+      if (
+        request.ip_allow_list !== undefined &&
+        request.ip_allow_list !== null &&
+        options.ignoredUpdateField !== "ip_allow_list"
+      ) {
+        entry.ip_allow_list = [...request.ip_allow_list];
       }
       return { ...entry };
     },
@@ -3520,6 +3542,89 @@ describe("live scenario inventory", () => {
     expect(source).toContain('"transitionVerified":true');
   });
 
+  it("reuses the dependency lifecycle subaccount and its cleanup for child keys", async () => {
+    const profile = inspectFixture().profile;
+    const parent = subAccountClientFixture();
+    let child: ReturnType<typeof subAccountAPIKeyClientFixture> | undefined;
+    let parentWasActive = false;
+    const result = await runSubAccountAndAPIKeyLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile,
+        client: parent.client,
+        createRequest: parent.createRequest,
+        updateRequest: parent.updateRequest,
+        suspendRequest: parent.suspendRequest,
+      }),
+      (subAccountId) => {
+        parentWasActive = parent.records.has(subAccountId);
+        child = subAccountAPIKeyClientFixture({ subAccountId });
+        return createSubAccountAPIKeyScenarioRegistry({
+          profile,
+          client: child.client,
+          subAccountId,
+          createChildClient: child.createChildClient,
+          createRequest: child.createRequest,
+          updateRequest: child.updateRequest,
+        });
+      },
+    );
+
+    expect(parentWasActive).toBe(true);
+    expect(child?.subAccountId).toBe(parent.childId);
+    expect(result.failure).toBeNull();
+    expect(result.subAccounts.operationResults).toHaveLength(8);
+    expect(result.subAccountAPIKeys?.operationResults).toHaveLength(5);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable child API-key fixture", status: "passed" },
+      { label: "delete and verify disposable sub-account fixture", status: "passed" },
+    ]);
+    expect(parent.records.has(parent.childId)).toBe(false);
+    expect(child?.records.has(child.keyId)).toBe(false);
+  });
+
+  it("cleans up the reused subaccount when its child-key lifecycle fails", async () => {
+    const profile = inspectFixture().profile;
+    const parent = subAccountClientFixture();
+    let child: ReturnType<typeof subAccountAPIKeyClientFixture> | undefined;
+    const result = await runSubAccountAndAPIKeyLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile,
+        client: parent.client,
+        createRequest: parent.createRequest,
+        updateRequest: parent.updateRequest,
+        suspendRequest: parent.suspendRequest,
+      }),
+      (subAccountId) => {
+        child = subAccountAPIKeyClientFixture({ malformedSecret: true, subAccountId });
+        return createSubAccountAPIKeyScenarioRegistry({
+          profile,
+          client: child.client,
+          subAccountId,
+          createChildClient: child.createChildClient,
+          createRequest: child.createRequest,
+          updateRequest: child.updateRequest,
+        });
+      },
+    );
+
+    expect(result.failure).toEqual({
+      phase: "operation",
+      operationId: "createSubAccountAPIKey",
+      suite: "subAccounts.apiKeys",
+    });
+    expect(result.subAccounts.operationResults).toHaveLength(7);
+    expect(result.subAccountAPIKeys?.failure).toEqual({
+      phase: "operation",
+      operationId: "createSubAccountAPIKey",
+    });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable child API-key fixture", status: "passed" },
+      { label: "delete and verify disposable sub-account fixture", status: "passed" },
+    ]);
+    expect(parent.records.has(parent.childId)).toBe(false);
+    expect(child?.records.has(child.keyId)).toBe(false);
+  });
+
   it("registers exactly one executable scenario for every packaged child API-key primary", () => {
     const fixture = subAccountAPIKeyClientFixture();
     const registry = createSubAccountAPIKeyScenarioRegistry({
@@ -3660,6 +3765,71 @@ describe("live scenario inventory", () => {
           updateRequest: fixture.updateRequest,
         }),
       ).toThrow("cannot grant child credentials sub-account management authority");
+    }
+  });
+
+  it("rejects null and content-identical child-key updates", () => {
+    const fixture = subAccountAPIKeyClientFixture();
+    const options = {
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      subAccountId: fixture.subAccountId,
+      createChildClient: fixture.createChildClient,
+      createRequest: fixture.createRequest,
+    };
+
+    for (const updateRequest of [
+      { label: null, scopes: null, ip_allow_list: null },
+      { scopes: [...fixture.createRequest.scopes] },
+      { ip_allow_list: [] },
+    ]) {
+      expect(() => createSubAccountAPIKeyScenarioRegistry({ ...options, updateRequest })).toThrow(
+        "must change the created API key",
+      );
+    }
+  });
+
+  it("verifies returned child-key scope and IP allow-list updates", async () => {
+    const updateRequest = {
+      scopes: ["messages:send:example.test"],
+      ip_allow_list: ["203.0.113.7/32"],
+    };
+    const successful = subAccountAPIKeyClientFixture();
+    const successfulResult = await runSubAccountAPIKeyLiveScenarios(
+      createSubAccountAPIKeyScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: successful.client,
+        subAccountId: successful.subAccountId,
+        createChildClient: successful.createChildClient,
+        createRequest: successful.createRequest,
+        updateRequest,
+      }),
+    );
+
+    expect(successfulResult.failure).toBeNull();
+    expect(
+      successfulResult.operationResults.find(
+        ({ operationId }) => operationId === "updateSubAccountAPIKey",
+      ),
+    ).toMatchObject({ status: "passed", evidence: { updatedFields: 2 } });
+
+    for (const ignoredUpdateField of ["scopes", "ip_allow_list"] as const) {
+      const ignored = subAccountAPIKeyClientFixture({ ignoredUpdateField });
+      const ignoredResult = await runSubAccountAPIKeyLiveScenarios(
+        createSubAccountAPIKeyScenarioRegistry({
+          profile: inspectFixture().profile,
+          client: ignored.client,
+          subAccountId: ignored.subAccountId,
+          createChildClient: ignored.createChildClient,
+          createRequest: ignored.createRequest,
+          updateRequest,
+        }),
+      );
+
+      expect(ignoredResult.failure).toEqual({
+        phase: "operation",
+        operationId: "updateSubAccountAPIKey",
+      });
     }
   });
 

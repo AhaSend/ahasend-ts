@@ -787,6 +787,22 @@ export function runSubAccountAPIKeyLiveScenarios(
   registry: ScenarioRegistry,
 ): Promise<SubAccountAPIKeyLiveRun>;
 
+export interface SubAccountAndAPIKeyLiveFailure extends DomainLiveFailure {
+  readonly suite?: "subAccounts" | "subAccounts.apiKeys";
+}
+
+export interface SubAccountAndAPIKeyLiveRun {
+  readonly subAccounts: SubAccountLiveRun;
+  readonly subAccountAPIKeys: SubAccountAPIKeyLiveRun | null;
+  readonly cleanupResults: readonly CleanupResult[];
+  readonly failure: SubAccountAndAPIKeyLiveFailure | null;
+}
+
+export function runSubAccountAndAPIKeyLiveScenarios(
+  subAccountRegistry: ScenarioRegistry,
+  createAPIKeyRegistry: (subAccountId: string) => ScenarioRegistry,
+): Promise<SubAccountAndAPIKeyLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";
