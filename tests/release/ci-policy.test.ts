@@ -82,12 +82,16 @@ describe("CI policy", () => {
     expect(packageJson.scripts["ci"]?.split(" && ")).toEqual([
       "npm run typecheck",
       "npm run lint",
+      "npm run docs:check",
       "npm test",
       "npm run verify:audit",
       "npm run test:package:preflight",
     ]);
     expect(commands).toContain("npm run ci");
     expect(packageJson.scripts["verify:audit"]).toBe("node scripts/verify-audit.mjs");
+    expect(packageJson.scripts["docs:check"]).toBe(
+      "node scripts/generate-docs.mjs --check && node scripts/verify-docs.mjs",
+    );
     expect(packageJson.scripts["test:package:preflight"]).toBe(
       "npm run build && node scripts/create-preflight-pack.mjs",
     );

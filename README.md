@@ -25,11 +25,25 @@ The official Node.js TypeScript SDK for the [AhaSend](https://ahasend.com) trans
 npm install @ahasend/sdk
 ```
 
-Until the package is published to npm, install from the repository:
+The package exposes the same runtime API to JavaScript and TypeScript. TypeScript declarations are
+included; there is no separate typings package.
 
-```bash
-npm install github:AhaSend/ahasend-ts
+ES modules:
+
+```js
+import { AhaSendClient } from "@ahasend/sdk";
 ```
+
+CommonJS:
+
+```js
+const { AhaSendClient } = require("@ahasend/sdk");
+```
+
+The export map supports TypeScript's `Bundler`, `Node16`, and `NodeNext` module-resolution modes
+for both the package root and `@ahasend/sdk/webhooks`. Use these public entry points rather than
+deep-importing `dist` files. Legacy `moduleResolution: "node"` and runtimes that ignore package
+export maps are not supported.
 
 ## Quick start
 
@@ -58,29 +72,29 @@ Every option, with its default:
 
 ```ts
 const client = new AhaSendClient({
-  apiKey: "aha-sk-…",                 // required
-  accountId: "uuid",                  // required — one client per account
+  apiKey: "aha-sk-…", // required
+  accountId: "uuid", // required — one client per account
   baseUrl: "https://api.ahasend.com", // HTTPS enforced (localhost exempt)
-  timeoutMs: 30_000,                  // per-request timeout in MILLISECONDS
+  timeoutMs: 30_000, // per-request timeout in MILLISECONDS
   userAgent: "ahasend-node/x.y.z",
-  debug: false,                       // true = log every request to stderr
-  fetch: globalThis.fetch,            // inject your own fetch if needed
+  debug: false, // true = log every request to stderr
+  fetch: globalThis.fetch, // inject your own fetch if needed
   defaultHeaders: {},
   idempotency: { autoGenerate: true, prefix: "" },
   retry: {
     enabled: true,
-    maxRetries: 3,                    // 3 retries = up to 4 total attempts
+    maxRetries: 3, // 3 retries = up to 4 total attempts
     baseDelayMs: 1000,
     maxDelayMs: 30_000,
-    strategy: "exponential",          // "exponential" | "linear" | "constant"
+    strategy: "exponential", // "exponential" | "linear" | "constant"
     jitter: true,
   },
   rateLimit: {
-    enabled: false,                    // opt in to local request pacing
-    standard:    { requestsPerSecond: 100, burst: 200 },
-    statistics:  { requestsPerSecond: 1,   burst: 1   },
+    enabled: false, // opt in to local request pacing
+    standard: { requestsPerSecond: 100, burst: 200 },
+    statistics: { requestsPerSecond: 1, burst: 1 },
   },
-  hooks: {},                          // telemetry — see below
+  hooks: {}, // telemetry — see below
 });
 ```
 
@@ -89,17 +103,17 @@ const client = new AhaSendClient({
 `AhaSendClient.fromEnv()` builds a client from the same variables the
 official Go SDK reads:
 
-| Variable | Meaning |
-| --- | --- |
-| `AHASEND_API_KEY` / `AHASEND_TOKEN` | API key (either name works) |
-| `AHASEND_ACCOUNT_ID` | Account UUID |
-| `AHASEND_BASE_URL` (or `AHASEND_SCHEME` + `AHASEND_HOST`) | API endpoint |
-| `AHASEND_TIMEOUT` | Request timeout in **seconds** (note: the constructor option `timeoutMs` is in **milliseconds**) |
-| `AHASEND_MAX_RETRIES` | Retry attempts |
-| `AHASEND_ENABLE_RATE_LIMIT` | Master rate-limit switch |
-| `AHASEND_IDEMPOTENCY_AUTO_GENERATE` / `AHASEND_IDEMPOTENCY_PREFIX` | Idempotency behaviour |
-| `AHASEND_DEBUG` | Console diagnostics |
-| `AHASEND_USER_AGENT` | Override the User-Agent header |
+| Variable                                                           | Meaning                                                                                          |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `AHASEND_API_KEY` / `AHASEND_TOKEN`                                | API key (either name works)                                                                      |
+| `AHASEND_ACCOUNT_ID`                                               | Account UUID                                                                                     |
+| `AHASEND_BASE_URL` (or `AHASEND_SCHEME` + `AHASEND_HOST`)          | API endpoint                                                                                     |
+| `AHASEND_TIMEOUT`                                                  | Request timeout in **seconds** (note: the constructor option `timeoutMs` is in **milliseconds**) |
+| `AHASEND_MAX_RETRIES`                                              | Retry attempts                                                                                   |
+| `AHASEND_ENABLE_RATE_LIMIT`                                        | Master rate-limit switch                                                                         |
+| `AHASEND_IDEMPOTENCY_AUTO_GENERATE` / `AHASEND_IDEMPOTENCY_PREFIX` | Idempotency behaviour                                                                            |
+| `AHASEND_DEBUG`                                                    | Console diagnostics                                                                              |
+| `AHASEND_USER_AGENT`                                               | Override the User-Agent header                                                                   |
 
 ```ts
 const client = AhaSendClient.fromEnv();
@@ -110,21 +124,24 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 
 ## Resources
 
-| Resource | Methods |
-| --- | --- |
-| `client.messages` | `send`, `sendConversation`, `list`, `iterate`, `get`, `cancel` |
-| `client.domains` | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns` |
-| `client.apiKeys` | `list`, `iterate`, `create`, `get`, `update`, `delete` |
-| `client.webhooks` | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`) |
-| `client.statistics` | `deliverability`, `bounces`, `deliveryTimes` |
-| `client.suppressions` | `list`, `iterate`, `create`, `delete`, `wipe` |
-| `client.routes` | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing) |
-| `client.accounts` | `get`, `update`, `listMembers`, `addMember`, `removeMember` |
-| `client.smtpCredentials` | `list`, `iterate`, `create`, `get`, `delete` |
-| `client.ping()` | Health check (`GET /v2/ping`) |
+| Resource                 | Methods                                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `client.messages`        | `send`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                  |
+| `client.domains`         | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                              |
+| `client.apiKeys`         | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                          |
+| `client.webhooks`        | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`) |
+| `client.statistics`      | `deliverability`, `bounces`, `deliveryTimes`                                                                    |
+| `client.suppressions`    | `list`, `iterate`, `create`, `delete`, `wipe`                                                                   |
+| `client.routes`          | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                        |
+| `client.accounts`        | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                     |
+| `client.smtpCredentials` | `list`, `iterate`, `create`, `get`, `delete`                                                                    |
+| `client.subAccounts`     | `list`, `iterate`, `create`, `usage`, `get`, `update`, `delete`, `suspend`, `unsuspend`, plus nested `apiKeys`  |
+| `client.ping()`          | Health check (`GET /v2/ping`)                                                                                   |
 
 Every method carries JSDoc — hover in your editor for parameter
 constraints, required scopes, and behavioural notes.
+The generated [API reference](docs/api-reference.md) lists every signature, scope, pagination
+contract, and resource-aware authorization rule.
 
 ## Request options
 
@@ -132,16 +149,16 @@ Every method accepts a trailing options object:
 
 ```ts
 await client.messages.send(body, {
-  signal: AbortSignal.timeout(5_000),   // cancel/abort the request
-  headers: { "x-trace-id": traceId },   // extra headers for this call
+  signal: AbortSignal.timeout(5_000), // cancel/abort the request
+  headers: { "x-trace-id": traceId }, // extra headers for this call
   idempotencyKey: `receipt-${orderId}`, // create operations only
 });
 ```
 
-| Field | Applies to | Effect |
-| --- | --- | --- |
-| `signal` | all methods | `AbortSignal` — cancels the request (and any retry sleep) |
-| `headers` | all methods | Additional request headers |
+| Field            | Applies to        | Effect                                                    |
+| ---------------- | ----------------- | --------------------------------------------------------- |
+| `signal`         | all methods       | `AbortSignal` — cancels the request (and any retry sleep) |
+| `headers`        | all methods       | Additional request headers                                |
 | `idempotencyKey` | create operations | Explicit idempotency key; otherwise one is auto-generated |
 
 ## Cross-cutting behaviour
@@ -158,35 +175,42 @@ own stable identifier — see `examples/idempotency.mjs`.
 `generateIdempotencyKey(prefix?)` and `IdempotencyKeyBuilder` are
 exported for advanced key management. Note the prefix is prepended
 literally — include your own separator (`"myapp-"`, not `"myapp"`).
+See [Retries and idempotency](docs/retries-and-idempotency.md) for retention windows, replay
+classification, and recovery after an uncertain result.
 
 ### Retries
 
 Automatic on `408`, `429`, `5xx`, network failures, timeouts, and eligible
 keyed `409` responses while an idempotent operation is still in progress —
-never on other 4xx. A valid server `Retry-After` (seconds or HTTP-date) is
-authoritative for that retry and capped at the configured `maxDelayMs` (30
-seconds by default). Configure via the `retry` option; `maxRetries: 3` means
-up to 4 total attempts.
+never on other 4xx. A valid server `Retry-After` on 429 (seconds or HTTP-date)
+or an eligible keyed 409 (positive integer seconds) is authoritative and
+capped at the configured `maxDelayMs` (30 seconds by default). Configure via
+the `retry` option; `maxRetries: 3` means up to 4 total attempts.
+
+Caller aborts are terminal. Read [Cancellation and timeouts](docs/cancellation.md) before
+combining local pacing, retries, and end-to-end deadlines.
 
 ### Rate limiting
 
 An opt-in two-bucket token limiter (standard / statistics) paces requests
 to the API's documented limits. Statistics calls are paced to 1 req/s, so
-fan-out dashboards queue rather than 429. A request's `timeoutMs` includes
-time spent waiting for a local token, and each configured burst must be at
-least one token. Local bucket state does not rely on undocumented remaining
-headers returned by the server.
+fan-out dashboards queue rather than 429. Waiting for a local token is
+cancellable but happens before the per-network-attempt `timeoutMs` budget;
+use a caller signal to impose an end-to-end deadline. Each configured burst
+must be at least one token. Local bucket state does not rely on undocumented
+remaining headers returned by the server. See [Local rate pacing](docs/rate-pacing.md).
 
 ### Telemetry
 
 ```ts
 const client = new AhaSendClient({
-  apiKey, accountId,
+  apiKey,
+  accountId,
   hooks: {
-    onRequest:  (e) => log.debug(`→ ${e.method} ${e.routeTemplate}`),
+    onRequest: (e) => log.debug(`→ ${e.method} ${e.routeTemplate}`),
     onResponse: (e) => metrics.timing("ahasend.request", e.durationMs, { status: e.status }),
-    onRetry:    (e) => log.warn(`retrying ${e.routeTemplate} in ${e.delayMs}ms`),
-    onError:    (e) => sentry.captureException(e.error),
+    onRetry: (e) => log.warn(`retrying ${e.routeTemplate} in ${e.delayMs}ms`),
+    onError: (e) => sentry.captureException(e.error),
   },
 });
 ```
@@ -198,6 +222,10 @@ parameters, so query strings and caller identifiers are not exposed by default.
 Hooks run asynchronously without delaying the request; synchronous throws and
 returned-promise rejections are swallowed. `debug: true` adds a console hookset
 on top of yours.
+
+Telemetry does not include expanded URLs, headers, or request bodies, but error
+objects can contain server bodies and headers. Follow [Safe logging and
+diagnostics](docs/safe-logging.md) instead of serializing errors wholesale.
 
 ### Pagination
 
@@ -229,7 +257,7 @@ sent. If a JSON body parser runs first, signature verification is
 impossible (the adapters detect this and return 400 instead of hanging).
 
 ```ts
-// Express — mount express.raw() on the webhook route
+// Express 5.x — mount express.raw() on the webhook route
 import express from "express";
 import { WebhookVerifier, expressWebhookHandler, isKnownWebhookEvent } from "@ahasend/sdk/webhooks";
 
@@ -255,7 +283,10 @@ app.post(
 ```ts
 // Fastify (route must have rawBody enabled, e.g. fastify-raw-body)
 import { fastifyWebhookHandler } from "@ahasend/sdk/webhooks";
-fastify.post("/webhooks/ahasend", fastifyWebhookHandler(verifier, async (event) => {}));
+fastify.post(
+  "/webhooks/ahasend",
+  fastifyWebhookHandler(verifier, async (event) => {}),
+);
 
 // Next.js (app router)
 import { nextRouteHandler } from "@ahasend/sdk/webhooks";
@@ -268,13 +299,28 @@ Using the verifier directly (any framework):
 
 ```ts
 const event = verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);
-// throws AhaSendWebhookVerificationError on bad signature / replay / malformed payload
+// throws AhaSendWebhookVerificationError on bad signature / stale timestamp / malformed payload
 ```
 
 `parse()` returns `AnyWebhookEvent`: the strict `WebhookEvent` union for
 known types, plus an `UnknownWebhookEvent` branch so a new event type
 added by the server doesn't crash your exhaustive `switch`. Narrow with
 `isKnownWebhookEvent(event)`.
+
+Timestamp checking does not deduplicate a valid delivery replayed inside the
+accepted window. Your application must atomically record and deduplicate each
+`webhook-id` before running side effects. The [security and webhooks
+guide](docs/security-and-webhooks.md) includes an Express 5.x integration
+pattern, body limits, adapter failure behavior, and safe replay handling.
+
+## Operational guides
+
+- [Retries and idempotency](docs/retries-and-idempotency.md)
+- [Cancellation and timeouts](docs/cancellation.md)
+- [Local rate pacing](docs/rate-pacing.md)
+- [Safe logging and diagnostics](docs/safe-logging.md)
+- [Security and webhooks](docs/security-and-webhooks.md)
+- [Subaccounts and child API keys](docs/subaccounts.md)
 
 ## Error handling
 
@@ -383,6 +429,18 @@ npm run test:watch        # vitest watch
 npm run lint              # eslint over src
 npm run format            # prettier
 ```
+
+## Support and security
+
+Node.js 22 and 24 are blocking CI targets. Newer Node releases may be tested on
+a best-effort basis before they become a blocking support target. Browsers,
+service workers, edge runtimes, and alternative JavaScript runtimes are not
+supported.
+
+Use [GitHub issues](https://github.com/AhaSend/ahasend-ts/issues) for reproducible
+SDK bugs and questions that do not contain secrets. Report vulnerabilities
+privately according to [SECURITY.md](SECURITY.md); do not include credentials,
+message content, or webhook payloads in a public issue.
 
 ## License
 

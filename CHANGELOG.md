@@ -14,7 +14,8 @@ Initial release.
   send, list, get, cancel), Domains (CRUD + DNS check), API Keys,
   Webhooks, Statistics (deliverability / bounce / delivery-time),
   Suppressions, Routes, Accounts (incl. members), SMTP Credentials,
-  and ping.
+  parent-managed Subaccounts (lifecycle, pooled usage, and child API
+  keys), and ping.
 - Automatic idempotency: UUID `Idempotency-Key` on every create
   operation, reused across retries; explicit `idempotencyKey` option;
   `IdempotencyKeyBuilder` for related operations.
@@ -35,7 +36,9 @@ Initial release.
   verifier (raw-string secrets, byte-compatible with the Go SDK),
   typed events for all 11 event types with a forward-compatible
   `UnknownWebhookEvent` branch, and adapters for Express, Fastify,
-  and Next.js.
+  and Next.js. Adapters enforce a 1 MiB default body limit, opaque
+  400/413 outcomes, observation-only error hooks, and Express 5 native
+  error propagation.
 - Typed error hierarchy mapping every HTTP status the API uses,
   including idempotency-specific 409/422 variants and a
   transport-level `AhaSendResponseParseError` for non-JSON 2xx bodies.
@@ -45,3 +48,7 @@ Initial release.
   path against the repository's `openapi.yaml`.
 - Dual ESM + CJS build with full type declarations; zero runtime
   dependencies; Node.js ≥ 22.
+- Generated API reference plus operational guides for retries,
+  idempotency, cancellation, local rate pacing, safe logging,
+  subaccounts, IP allow lists, webhook replay deduplication, and
+  supported runtime/package boundaries.

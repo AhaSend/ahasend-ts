@@ -59,7 +59,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "ci": "npm run typecheck && npm run lint && npm test && npm run verify:audit && npm run test:package:preflight",
+    "ci": "npm run typecheck && npm run lint && npm run docs:check && npm test && npm run verify:audit && npm run test:package:preflight",
     "dev": "tsup --watch",
     "verify:audit": "node scripts/verify-audit.mjs",
     "verify:package": "node scripts/verify-package.mjs",
@@ -79,11 +79,11 @@
     "sdk:generate": "node scripts/generate-sdk.mjs",
     "sdk:check": "node scripts/generate-sdk.mjs --check",
     "docs:generate": "node scripts/generate-docs.mjs",
-    "docs:check": "node scripts/generate-docs.mjs --check",
+    "docs:check": "node scripts/generate-docs.mjs --check && node scripts/verify-docs.mjs",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run verify:audit && npm run typecheck && npm run test && npm run build"
+    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
