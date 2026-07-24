@@ -78,6 +78,8 @@
     "contracts:check": "node scripts/generate-contracts.mjs --check",
     "sdk:generate": "node scripts/generate-sdk.mjs",
     "sdk:check": "node scripts/generate-sdk.mjs --check",
+    "docs:generate": "node scripts/generate-docs.mjs",
+    "docs:check": "node scripts/generate-docs.mjs --check",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "clean": "rimraf dist",
