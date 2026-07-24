@@ -1,0 +1,63 @@
+{
+  "cases": [
+    {
+      "name": "accepts a complete source report",
+      "mutation": "none",
+      "expectedError": null
+    },
+    {
+      "name": "rejects a wrong commit",
+      "mutation": "wrongCommit",
+      "expectedError": "stale commit"
+    },
+    {
+      "name": "rejects a failed audit",
+      "mutation": "failedAudit",
+      "expectedError": "audit did not pass"
+    },
+    {
+      "name": "rejects an altered report sidecar",
+      "mutation": "alteredSidecar",
+      "expectedError": "sidecar mismatch"
+    },
+    {
+      "name": "rejects a noncanonical report",
+      "mutation": "noncanonicalReport",
+      "expectedError": "canonical JSON bytes"
+    },
+    {
+      "name": "rejects a stale operation profile",
+      "mutation": "staleProfile",
+      "expectedError": "stale operation profile"
+    },
+    {
+      "name": "rejects an embedded report self-digest",
+      "mutation": "reportSelfDigest",
+      "expectedError": "unexpected [\"reportSha256\"]"
+    },
+    {
+      "name": "rejects a generic embedded self-digest",
+      "mutation": "genericSelfDigest",
+      "expectedError": "forbidden self-digest field"
+    },
+    {
+      "name": "rejects a duplicate required gate",
+      "mutation": "duplicateGate",
+      "expectedError": "duplicate result"
+    }
+  ],
+  "missingGateCases": [
+    "generation",
+    "typecheck",
+    "typed-lint",
+    "unit-tests",
+    "state-tests",
+    "webhook-tests",
+    "framework-tests",
+    "coverage",
+    "format",
+    "test-policy",
+    "repository-secret-scan",
+    "audit"
+  ]
+}

@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ahasend.com/schemas/source-gate-report.schema.json",
+  "title": "AhaSend SDK source gate report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "commit",
+    "contractSha256",
+    "profileSha256",
+    "captureSha256",
+    "keysSha256",
+    "lockfileSha256",
+    "auditPolicySha256",
+    "results"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "contractSha256": {
+      "$ref": "#/definitions/contracts"
+    },
+    "profileSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "captureSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "keysSha256": {
+      "$ref": "#/definitions/keys"
+    },
+    "lockfileSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "auditPolicySha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "results": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/definitions/gateResult"
+      },
+      "allOf": [
+        { "contains": { "$ref": "#/definitions/generation" } },
+        { "contains": { "$ref": "#/definitions/typecheck" } },
+        { "contains": { "$ref": "#/definitions/typed-lint" } },
+        { "contains": { "$ref": "#/definitions/unit-tests" } },
+        { "contains": { "$ref": "#/definitions/state-tests" } },
+        { "contains": { "$ref": "#/definitions/webhook-tests" } },
+        { "contains": { "$ref": "#/definitions/framework-tests" } },
+        { "contains": { "$ref": "#/definitions/coverage" } },
+        { "contains": { "$ref": "#/definitions/format" } },
+        { "contains": { "$ref": "#/definitions/test-policy" } },
+        { "contains": { "$ref": "#/definitions/repository-secret-scan" } },
+        { "contains": { "$ref": "#/definitions/audit" } }
+      ]
+    }
+  },
+  "definitions": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contracts.lock.json", "openapi.yaml", "webhooks.yaml"],
+      "properties": {
+        "contracts.lock.json": { "$ref": "#/definitions/sha256" },
+        "openapi.yaml": { "$ref": "#/definitions/sha256" },
+        "webhooks.yaml": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "keys": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contracts/webhooks/captured/keys/configured-webhook.key",
+        "contracts/webhooks/captured/keys/route.key"
+      ],
+      "properties": {
+        "contracts/webhooks/captured/keys/configured-webhook.key": {
+          "$ref": "#/definitions/sha256"
+        },
+        "contracts/webhooks/captured/keys/route.key": {
+          "$ref": "#/definitions/sha256"
+        }
+      }
+    },
+    "gateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "passed"],
+      "properties": {
+        "name": {
+          "enum": [
+            "generation",
+            "typecheck",
+            "typed-lint",
+            "unit-tests",
+            "state-tests",
+            "webhook-tests",
+            "framework-tests",
+            "coverage",
+            "format",
+            "test-policy",
+            "repository-secret-scan",
+            "audit"
+          ]
+        },
+        "passed": {
+          "const": true
+        }
+      }
+    },
+    "generation": {
+      "properties": { "name": { "const": "generation" } },
+      "required": ["name"]
+    },
+    "typecheck": {
+      "properties": { "name": { "const": "typecheck" } },
+      "required": ["name"]
+    },
+    "typed-lint": {
+      "properties": { "name": { "const": "typed-lint" } },
+      "required": ["name"]
+    },
+    "unit-tests": {
+      "properties": { "name": { "const": "unit-tests" } },
+      "required": ["name"]
+    },
+    "state-tests": {
+      "properties": { "name": { "const": "state-tests" } },
+      "required": ["name"]
+    },
+    "webhook-tests": {
+      "properties": { "name": { "const": "webhook-tests" } },
+      "required": ["name"]
+    },
+    "framework-tests": {
+      "properties": { "name": { "const": "framework-tests" } },
+      "required": ["name"]
+    },
+    "coverage": {
+      "properties": { "name": { "const": "coverage" } },
+      "required": ["name"]
+    },
+    "format": {
+      "properties": { "name": { "const": "format" } },
+      "required": ["name"]
+    },
+    "test-policy": {
+      "properties": { "name": { "const": "test-policy" } },
+      "required": ["name"]
+    },
+    "repository-secret-scan": {
+      "properties": { "name": { "const": "repository-secret-scan" } },
+      "required": ["name"]
+    },
+    "audit": {
+      "properties": { "name": { "const": "audit" } },
+      "required": ["name"]
+    }
+  }
+}
