@@ -100,7 +100,7 @@ describe("single-run release workflow", () => {
     expect(afterCandidate).not.toMatch(/create-candidate\.mjs/u);
     expect(afterCandidate).not.toMatch(/from ["'][./]*src\//u);
     expect(commands(jobs["registry-smoke"], "registry smoke")).toContain("verify-provenance.mjs");
-    expect(commands(jobs["latest-promotion"], "latest promotion")).toContain("npm dist-tag add");
+    expect(commands(jobs["latest-promotion"], "latest promotion")).toContain("promote-latest.mjs");
     expect(commands(jobs["github-release"], "GitHub release")).toContain("gh release create");
   });
 
@@ -167,7 +167,7 @@ describe("single-run release workflow", () => {
     const compensationCommands = commands(compensation, "compensation");
 
     expect(promotionCommands).toContain("promotion-state.json");
-    expect(promotionCommands).toContain("npm dist-tag add");
+    expect(promotionCommands).toContain("promote-latest.mjs");
     expect(releaseCommands).toContain("--draft");
     expect(releaseCommands).toContain("gh release edit");
     expect(releaseCommands.indexOf("--draft")).toBeLessThan(
@@ -182,8 +182,32 @@ describe("single-run release workflow", () => {
     expect(compensationCommands).toContain("/tmp/release-tools/scripts/restore-latest.mjs");
     expect(restoreLatestSource).toContain('"dist-tag", "add"');
     expect(restoreLatestSource).toContain('"dist-tag", "rm"');
-    expect(restoreLatestSource).toContain("Latest rollback verification failed");
+    expect(restoreLatestSource).toContain('verification: "rollback"');
     expect(compensationCommands).toContain("gh release delete");
+  });
+
+  it("re-promotes and verifies latest before every GitHub Release attempt", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const release = record(jobs["github-release"], "GitHub release");
+    const releaseCommands = commands(release, "GitHub release");
+    const promotionDownloads = jobSteps(jobs["latest-promotion"], "latest promotion")
+      .filter((step) => String(step["uses"] ?? "").startsWith("actions/download-artifact@"))
+      .map((step) => record(step["with"], "download inputs")["name"]);
+    const releaseDownloads = jobSteps(release, "GitHub release")
+      .filter((step) => String(step["uses"] ?? "").startsWith("actions/download-artifact@"))
+      .map((step) => record(step["with"], "download inputs")["name"]);
+
+    expect(release["environment"]).toBe("npm-latest");
+    expect(commands(jobs["source-gate"], "source gate")).toContain(
+      "cp scripts/promote-latest.mjs /tmp/release-tools/scripts/",
+    );
+    expect(promotionDownloads).toContain("release-tools");
+    expect(releaseDownloads).toContain("release-tools");
+    expect(releaseCommands).toContain("promote-latest.mjs");
+    expect(releaseCommands.indexOf("promote-latest.mjs")).toBeLessThan(
+      releaseCommands.indexOf("gh release create"),
+    );
+    expect(restoreLatestSource).toContain('verification: "promotion"');
   });
 
   it("pins actions and limits publish authority to terminal mutations and compensation", () => {

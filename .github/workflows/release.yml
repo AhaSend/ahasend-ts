@@ -135,6 +135,7 @@ jobs:
         run: |
           mkdir -p /tmp/release-tools/scripts
           cp scripts/digest-artifact.mjs /tmp/release-tools/scripts/
+          cp scripts/promote-latest.mjs /tmp/release-tools/scripts/
           cp scripts/report-validation.mjs /tmp/release-tools/scripts/
           cp scripts/restore-latest.mjs /tmp/release-tools/scripts/
           cp scripts/verify-provenance.mjs /tmp/release-tools/scripts/
@@ -514,6 +515,11 @@ jobs:
           name: gate-report
           path: /tmp/gate-report
 
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-tools
+          path: /tmp/release-tools
+
       - name: Capture the prior latest tag
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -541,19 +547,26 @@ jobs:
           export SDK_TARBALL="$TARBALL"
           export SDK_TARBALL_SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
           PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
-          PACKAGE="$(node -e "const p=JSON.parse(process.argv[1]); process.stdout.write(p.name+'@'+p.version)" "$PACKAGE_JSON")"
           test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/gate-report/gate-report.json)" = "$(tr -d '\n' < /tmp/gate-report/gate-report.sha256)"
           test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/gate-report/gate-report.json')).tarballSha256")" = "$SDK_TARBALL_SHA256"
           test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SDK_TARBALL_SHA256"
-          npm dist-tag add "$PACKAGE" latest
+          node /tmp/release-tools/scripts/promote-latest.mjs \
+            "$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")" \
+            "$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$PACKAGE_JSON")"
 
   github-release:
     name: Publish GitHub Release
     needs: latest-promotion
     runs-on: ubuntu-latest
+    environment: npm-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: source-report
@@ -573,6 +586,25 @@ jobs:
         with:
           name: gate-report
           path: /tmp/gate-report
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-tools
+          path: /tmp/release-tools
+
+      - name: Re-establish and verify latest before release
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          SDK_TARBALL_SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
+          PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" "$TARBALL")" = "$SDK_TARBALL_SHA256"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/gate-report/gate-report.json')).tarballSha256")" = "$SDK_TARBALL_SHA256"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SDK_TARBALL_SHA256"
+          node /tmp/release-tools/scripts/promote-latest.mjs \
+            "$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")" \
+            "$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$PACKAGE_JSON")"
 
       - name: Stage and publish the complete release
         env:

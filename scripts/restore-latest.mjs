@@ -28,7 +28,14 @@ async function runWithRetries({ args, attempts, delay, runNpm }) {
   return { output: null, failure };
 }
 
-async function verifyLatest({ attempts, delay, expectedLatest, packageName, runNpm }) {
+async function verifyLatest({
+  attempts,
+  delay,
+  expectedLatest,
+  packageName,
+  runNpm,
+  verification,
+}) {
   let failure;
   let observedLatest;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -41,19 +48,20 @@ async function verifyLatest({ attempts, delay, expectedLatest, packageName, runN
     if (attempt < attempts) await delay();
   }
   if (observedLatest === undefined) {
-    throw new Error(`Could not verify the restored latest tag for ${packageName}.`, {
+    throw new Error(`Could not verify the ${verification} latest tag for ${packageName}.`, {
       cause: failure,
     });
   }
   throw new Error(
-    `Latest rollback verification failed for ${packageName}: expected ${JSON.stringify(expectedLatest)}, received ${JSON.stringify(observedLatest)}.`,
+    `Latest ${verification} verification failed for ${packageName}: expected ${JSON.stringify(expectedLatest)}, received ${JSON.stringify(observedLatest)}.`,
     { cause: failure },
   );
 }
 
-export async function restoreLatest({
+async function updateLatest({
   packageName,
-  previousLatest,
+  targetLatest,
+  verification,
   attempts = 5,
   delay = defaultDelay,
   runNpm = defaultRunNpm,
@@ -61,18 +69,18 @@ export async function restoreLatest({
   if (typeof packageName !== "string" || packageName.trim() === "") {
     throw new TypeError("Package name must be a non-empty string.");
   }
-  if (previousLatest !== null && typeof previousLatest !== "string") {
-    throw new TypeError("Previous latest must be a string or null.");
+  if (targetLatest !== null && (typeof targetLatest !== "string" || targetLatest.trim() === "")) {
+    throw new TypeError("Target latest must be a non-empty string or null.");
   }
   if (!Number.isSafeInteger(attempts) || attempts < 1) {
-    throw new TypeError("Rollback attempts must be a positive safe integer.");
+    throw new TypeError("Latest-tag attempts must be a positive safe integer.");
   }
 
-  const expectedLatest = previousLatest ?? "";
+  const expectedLatest = targetLatest ?? "";
   const mutationArgs =
-    previousLatest === null
+    targetLatest === null
       ? ["dist-tag", "rm", packageName, "latest"]
-      : ["dist-tag", "add", `${packageName}@${previousLatest}`, "latest"];
+      : ["dist-tag", "add", `${packageName}@${targetLatest}`, "latest"];
 
   // A registry response can be lost after the mutation commits. Always verify
   // the resulting tag instead of treating the command's exit status as truth.
@@ -84,6 +92,7 @@ export async function restoreLatest({
       expectedLatest,
       packageName,
       runNpm,
+      verification,
     });
   } catch (error) {
     if (mutation.failure === null || !(error instanceof Error) || error.cause !== undefined) {
@@ -91,6 +100,46 @@ export async function restoreLatest({
     }
     throw new Error(error.message, { cause: mutation.failure });
   }
+}
+
+export async function promoteLatest({
+  packageName,
+  version,
+  attempts = 5,
+  delay = defaultDelay,
+  runNpm = defaultRunNpm,
+}) {
+  if (typeof version !== "string" || version.trim() === "") {
+    throw new TypeError("Promotion version must be a non-empty string.");
+  }
+  await updateLatest({
+    packageName,
+    targetLatest: version,
+    verification: "promotion",
+    attempts,
+    delay,
+    runNpm,
+  });
+}
+
+export async function restoreLatest({
+  packageName,
+  previousLatest,
+  attempts = 5,
+  delay = defaultDelay,
+  runNpm = defaultRunNpm,
+}) {
+  if (previousLatest !== null && typeof previousLatest !== "string") {
+    throw new TypeError("Previous latest must be a string or null.");
+  }
+  await updateLatest({
+    packageName,
+    targetLatest: previousLatest,
+    verification: "rollback",
+    attempts,
+    delay,
+    runNpm,
+  });
 }
 
 async function main() {
