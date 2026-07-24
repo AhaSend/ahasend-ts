@@ -210,6 +210,35 @@ describe("single-run release workflow", () => {
     expect(restoreLatestSource).toContain('verification: "promotion"');
   });
 
+  it("reuses immutable promotion state when latest promotion is retried", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const steps = jobSteps(jobs["latest-promotion"], "latest promotion");
+    const reuseIndex = steps.findIndex((step) => step["name"] === "Reuse retained promotion state");
+    const captureIndex = steps.findIndex((step) => step["name"] === "Capture the prior latest tag");
+    const uploadIndex = steps.findIndex((step) =>
+      String(step["uses"] ?? "").startsWith("actions/upload-artifact@"),
+    );
+    const promoteIndex = steps.findIndex(
+      (step) => step["name"] === "Promote only the verified version",
+    );
+    const reuse = record(steps[reuseIndex], "promotion-state reuse");
+    const capture = record(steps[captureIndex], "promotion-state capture");
+    const upload = record(steps[uploadIndex], "promotion-state upload");
+
+    expect(reuse["id"]).toBe("retained_promotion_state");
+    expect(reuse["continue-on-error"]).toBe(true);
+    expect(record(reuse["with"], "promotion-state download inputs")["name"]).toBe(
+      "promotion-state",
+    );
+    expect(capture["if"]).toBe("${{ steps.retained_promotion_state.outcome == 'failure' }}");
+    expect(upload["if"]).toBe("${{ steps.retained_promotion_state.outcome == 'failure' }}");
+    expect(record(upload["with"], "promotion-state upload inputs")["name"]).toBe("promotion-state");
+    expect(record(upload["with"], "promotion-state upload inputs")["overwrite"]).toBeUndefined();
+    expect(reuseIndex).toBeLessThan(captureIndex);
+    expect(captureIndex).toBeLessThan(uploadIndex);
+    expect(uploadIndex).toBeLessThan(promoteIndex);
+  });
+
   it("pins actions and limits publish authority to terminal mutations and compensation", () => {
     const root = record(workflow, "workflow");
     const jobs = record(root["jobs"], "jobs");

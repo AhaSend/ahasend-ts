@@ -78,10 +78,18 @@ function fixture() {
         attestations: metadata.dist.attestations,
         attestationBundles: [
           {
-            dsseEnvelope: {
-              payload: Buffer.from(JSON.stringify(statement), "utf8").toString("base64"),
-              payloadType: "application/vnd.in-toto+json",
-              signatures: [{ keyid: "", sig: "verified-by-npm" }],
+            predicateType,
+            bundle: {
+              mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+              verificationMaterial: {
+                certificate: { rawBytes: "verified-by-npm" },
+                tlogEntries: [],
+              },
+              dsseEnvelope: {
+                payload: Buffer.from(JSON.stringify(statement), "utf8").toString("base64"),
+                payloadType: "application/vnd.in-toto+json",
+                signatures: [{ keyid: "", sig: "verified-by-npm" }],
+              },
             },
           },
         ],
@@ -112,7 +120,7 @@ function verify(value: ReturnType<typeof fixture>, registryTarballSource: Buffer
 }
 
 describe("registry provenance verification", () => {
-  it("binds registry integrity, exact content, and verified provenance to one candidate", () => {
+  it("binds npm's wrapped Sigstore provenance to the exact registry candidate", () => {
     const value = fixture();
 
     expect(verify(value)).toEqual({
@@ -144,7 +152,7 @@ describe("registry provenance verification", () => {
     const value = fixture();
     value.statement.predicate.buildDefinition.resolvedDependencies[0]!.digest.gitCommit =
       "f".repeat(40);
-    value.audit.verified[0]!.attestationBundles[0]!.dsseEnvelope.payload = Buffer.from(
+    value.audit.verified[0]!.attestationBundles[0]!.bundle.dsseEnvelope.payload = Buffer.from(
       JSON.stringify(value.statement),
       "utf8",
     ).toString("base64");
@@ -152,5 +160,13 @@ describe("registry provenance verification", () => {
     expect(() => verify(value)).toThrow(
       "Verified npm provenance commit does not match the candidate commit",
     );
+  });
+
+  it("rejects an npm bundle descriptor that does not match its signed statement", () => {
+    const value = fixture();
+    value.audit.verified[0]!.attestationBundles[0]!.predicateType =
+      "https://slsa.dev/provenance/v0.2";
+
+    expect(() => verify(value)).toThrow("predicateType does not match its statement");
   });
 });

@@ -175,8 +175,17 @@ function parseAuditReport(source, identity, predicateType) {
 }
 
 function decodeStatement(bundle, index) {
+  const descriptor = requireObject(bundle, `Verified attestation bundle ${index}`);
+  const descriptorPredicateType = requireString(
+    descriptor.predicateType,
+    `Verified attestation bundle ${index} predicateType`,
+  );
+  const sigstoreBundle = requireObject(
+    descriptor.bundle,
+    `Verified attestation bundle ${index} Sigstore bundle`,
+  );
   const envelope = requireObject(
-    requireObject(bundle, `Verified attestation bundle ${index}`).dsseEnvelope,
+    sigstoreBundle.dsseEnvelope,
     `Verified attestation bundle ${index} DSSE envelope`,
   );
   const payload = requireString(
@@ -195,7 +204,13 @@ function decodeStatement(bundle, index) {
       { cause: error },
     );
   }
-  return parseJson(source, `Verified attestation statement ${index}`);
+  const statement = parseJson(source, `Verified attestation statement ${index}`);
+  if (statement.predicateType !== descriptorPredicateType) {
+    throw new TypeError(
+      `Verified attestation bundle ${index} predicateType does not match its statement.`,
+    );
+  }
+  return statement;
 }
 
 function statementCommits(statement) {

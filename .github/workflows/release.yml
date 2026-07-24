@@ -520,7 +520,16 @@ jobs:
           name: release-tools
           path: /tmp/release-tools
 
+      - name: Reuse retained promotion state
+        id: retained_promotion_state
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: promotion-state
+          path: /tmp/promotion-state
+
       - name: Capture the prior latest tag
+        if: ${{ steps.retained_promotion_state.outcome == 'failure' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -533,6 +542,7 @@ jobs:
             "$PACKAGE_NAME" "$PREVIOUS_LATEST"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ steps.retained_promotion_state.outcome == 'failure' }}
         with:
           name: promotion-state
           path: /tmp/promotion-state
