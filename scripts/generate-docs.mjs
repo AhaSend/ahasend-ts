@@ -6,7 +6,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { format, resolveConfig } from "prettier";
 import ts from "typescript";
 import { collectOperations, parseOpenApi } from "./generate-contracts.mjs";
-import { AUTHORIZATION_REGISTRY, validateAuthorizationRegistry } from "./generate-sdk.mjs";
+import {
+  AUTHORIZATION_REGISTRY,
+  validateAuthorizationRegistry,
+  validateOperationProfile,
+} from "./generate-sdk.mjs";
 
 const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
@@ -299,35 +303,9 @@ function renderAuthorization(rule) {
 }
 
 function validateProfile(document, profile, operationById) {
-  if (profile.version !== 1) throw new TypeError("Unsupported operation profile version");
-  const operations = array(profile.operations, "Profile operations");
-  const iterators = array(profile.iterators, "Profile iterators");
-  if (
-    operations.length !== EXPECTED_OPERATION_COUNT ||
-    iterators.length !== EXPECTED_ITERATOR_COUNT
-  ) {
-    throw new TypeError(
-      `Expected ${EXPECTED_OPERATION_COUNT} methods and ${EXPECTED_ITERATOR_COUNT} iterators; ` +
-        `received ${operations.length} and ${iterators.length}`,
-    );
-  }
-
-  const ids = operations.map((mapping) => record(mapping, "operation mapping").operationId);
-  const missing = [...operationById.keys()].filter((operationId) => !ids.includes(operationId));
-  const orphaned = ids.filter((operationId) => !operationById.has(operationId));
-  const duplicates = ids.filter((operationId, index) => ids.indexOf(operationId) !== index);
-  if (missing.length > 0 || orphaned.length > 0 || duplicates.length > 0) {
-    throw new TypeError(
-      `Operation profile parity failure: missing=${missing.join(",")}; ` +
-        `orphaned=${orphaned.join(",")}; duplicates=${[...new Set(duplicates)].join(",")}`,
-    );
-  }
-
-  const iteratorIds = iterators.map((mapping) => record(mapping, "iterator mapping").operationId);
-  if (new Set(iteratorIds).size !== EXPECTED_ITERATOR_COUNT) {
-    throw new TypeError("Iterator profile contains duplicate operations");
-  }
-  for (const operationId of iteratorIds) {
+  validateOperationProfile(document, profile);
+  for (const mappingValue of profile.iterators) {
+    const operationId = record(mappingValue, "iterator mapping").operationId;
     const entry = operationById.get(operationId);
     if (entry === undefined || paginationFacts(document, entry) === null) {
       throw new TypeError(`Iterator ${operationId} does not map to a paginated operation`);

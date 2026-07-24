@@ -172,6 +172,20 @@ describe("generated API reference", () => {
         openApiSource,
         profileSource: JSON.stringify(missingIterator),
       }),
-    ).rejects.toThrow(/Expected 56 methods and 9 iterators/);
+    ).rejects.toThrow(/must contain 9 iterator mappings/);
+
+    const duplicateAlias = structuredClone(OPERATION_PROFILE) as {
+      version: 1;
+      operations: Array<{ operationId: string; facade: string; method: string }>;
+      iterators: Array<{ operationId: string; facade: string; method: string }>;
+    };
+    duplicateAlias.operations[1]!.facade = duplicateAlias.operations[0]!.facade;
+    duplicateAlias.operations[1]!.method = duplicateAlias.operations[0]!.method;
+    await expect(
+      generateApiReference({
+        openApiSource,
+        profileSource: JSON.stringify(duplicateAlias),
+      }),
+    ).rejects.toThrow(/Duplicate facade mappings/);
   });
 });
