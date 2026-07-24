@@ -564,6 +564,64 @@ describe("live cleanup and reporting", () => {
       }),
     ).toThrow("manifest does not match its authenticated manifestSha256");
 
+    const substitutedProfileSha256 = "e".repeat(64);
+    const inconsistentProfileCandidate = {
+      ...candidate,
+      profile: {
+        ...candidate.profile,
+        profileSha256: substitutedProfileSha256,
+      },
+    } satisfies LiveCandidate;
+    const inconsistentProfileReport = createLiveReport({
+      candidate: inconsistentProfileCandidate,
+    });
+    const inconsistentProfileSource = canonicalizeJson(inconsistentProfileReport);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: inconsistentProfileSource,
+        reportSidecar: `${sha256Hex(inconsistentProfileSource)}\n`,
+        candidate: inconsistentProfileCandidate,
+      }),
+    ).toThrow("profileSha256 does not match the authenticated candidate manifest");
+
+    const inconsistentProfileMappings = {
+      ...candidate,
+      profile: {
+        ...candidate.profile,
+        operations: candidate.profile.operations.map((operation, index) =>
+          index === 0 ? { ...operation, facade: "substituted" } : operation,
+        ),
+      },
+    } satisfies LiveCandidate;
+    const inconsistentMappingsReport = createLiveReport({
+      candidate: inconsistentProfileMappings,
+    });
+    const inconsistentMappingsSource = canonicalizeJson(inconsistentMappingsReport);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: inconsistentMappingsSource,
+        reportSidecar: `${sha256Hex(inconsistentMappingsSource)}\n`,
+        candidate: inconsistentProfileMappings,
+      }),
+    ).toThrow("profile does not match the authenticated candidate manifest");
+
+    const substitutedTarballSha256 = "f".repeat(64);
+    const inconsistentTarballCandidate = {
+      ...candidate,
+      tarballSha256: substitutedTarballSha256,
+    } satisfies LiveCandidate;
+    const inconsistentTarballReport = createLiveReport({
+      candidate: inconsistentTarballCandidate,
+    });
+    const inconsistentTarballSource = canonicalizeJson(inconsistentTarballReport);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: inconsistentTarballSource,
+        reportSidecar: `${sha256Hex(inconsistentTarballSource)}\n`,
+        candidate: inconsistentTarballCandidate,
+      }),
+    ).toThrow("tarballSha256 does not match the authenticated candidate manifest");
+
     const staleCandidate = structuredClone(report) as {
       candidate: { manifestSha256: string };
     };

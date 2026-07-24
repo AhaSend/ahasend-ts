@@ -747,6 +747,42 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
       "Verified live candidate manifest does not match its authenticated manifestSha256.",
     );
   }
+  const manifestProfileSha256 = requireHash(
+    expectedManifest.profileSha256,
+    "Verified live candidate manifest profileSha256",
+  );
+  const candidateProfileSha256 = requireHash(
+    expectedProfile.profileSha256,
+    "Verified live candidate profileSha256",
+  );
+  if (candidateProfileSha256 !== manifestProfileSha256) {
+    throw new TypeError(
+      "Verified live candidate profileSha256 does not match the authenticated candidate manifest.",
+    );
+  }
+  const candidateProfileDigest = digestJsonArtifact({
+    version: expectedProfile.version,
+    operations: expectedProfile.operations,
+    iterators: expectedProfile.iterators,
+  });
+  if (candidateProfileDigest !== manifestProfileSha256) {
+    throw new TypeError(
+      "Verified live candidate profile does not match the authenticated candidate manifest.",
+    );
+  }
+  const manifestTarballSha256 = requireHash(
+    expectedManifest.tarballSha256,
+    "Verified live candidate manifest tarballSha256",
+  );
+  const candidateTarballSha256 = requireHash(
+    expectedCandidate.tarballSha256,
+    "Verified live candidate tarballSha256",
+  );
+  if (candidateTarballSha256 !== manifestTarballSha256) {
+    throw new TypeError(
+      "Verified live candidate tarballSha256 does not match the authenticated candidate manifest.",
+    );
+  }
   requireSameReportValue(candidateCommit, expectedManifest.commit, "Live report candidate commit");
   requireSameReportValue(
     candidateManifestSha256,
@@ -758,7 +794,7 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
     expectedManifest.contractSha256,
     "Live report contractSha256",
   );
-  requireSameReportValue(profileSha256, expectedProfile.profileSha256, "Live report profileSha256");
+  requireSameReportValue(profileSha256, manifestProfileSha256, "Live report profileSha256");
   requireSameReportValue(
     captureSha256,
     expectedManifest.captureSha256,
@@ -766,11 +802,7 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
   );
   requireSameReportValue(keysSha256, expectedManifest.keysSha256, "Live report keysSha256");
   requireSameReportValue(identity, expectedCandidate.package, "Live report package");
-  requireSameReportValue(
-    tarballSha256,
-    expectedCandidate.tarballSha256,
-    "Live report tarballSha256",
-  );
+  requireSameReportValue(tarballSha256, manifestTarballSha256, "Live report tarballSha256");
   validateResultInventory(
     report.operations,
     expectedProfile.operations,
