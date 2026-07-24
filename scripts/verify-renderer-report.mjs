@@ -3,87 +3,18 @@
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { canonicalizeJson, sha256Hex } from "./digest-artifact.mjs";
+import { sha256Hex } from "./digest-artifact.mjs";
+import {
+  parseCanonicalJson,
+  parseSha256Sidecar,
+  requireExactKeys,
+  requireHash,
+  requireObject,
+  requireString,
+} from "./report-validation.mjs";
 
 const EXPECTED_OPERATION_COUNT = 56;
-const HEX_SHA256 = /^[0-9a-f]{64}$/u;
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
-
-function requireObject(value, label) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError(`${label} must be an object.`);
-  }
-  return value;
-}
-
-function requireExactKeys(value, expected, label) {
-  const actual = Object.keys(value);
-  const missing = expected.filter((key) => !Object.hasOwn(value, key));
-  const unexpected = actual.filter((key) => !expected.includes(key));
-  if (missing.length > 0 || unexpected.length > 0) {
-    throw new TypeError(
-      `${label} fields must be canonical: missing ${JSON.stringify(missing)}, unexpected ${JSON.stringify(unexpected)}.`,
-    );
-  }
-}
-
-function requireString(value, label) {
-  if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
-    throw new TypeError(`${label} must be a non-empty canonical string.`);
-  }
-  return value;
-}
-
-function requireHash(value, label) {
-  if (typeof value !== "string" || !HEX_SHA256.test(value)) {
-    throw new TypeError(`${label} must be a lowercase hexadecimal SHA-256 value.`);
-  }
-  return value;
-}
-
-function sourceBytes(value, label) {
-  if (typeof value === "string") return Buffer.from(value, "utf8");
-  if (value instanceof Uint8Array) return Buffer.from(value);
-  throw new TypeError(`${label} must be UTF-8 JSON bytes.`);
-}
-
-function parseCanonicalJson(source, label) {
-  const bytes = sourceBytes(source, label);
-  let value;
-  try {
-    value = JSON.parse(utf8Decoder.decode(bytes));
-  } catch (error) {
-    throw new TypeError(`${label} must be valid UTF-8 JSON.`, { cause: error });
-  }
-
-  let canonical;
-  try {
-    canonical = canonicalizeJson(value);
-  } catch (error) {
-    throw new TypeError(`${label} is not a canonical JSON payload.`, { cause: error });
-  }
-  if (!bytes.equals(canonical)) {
-    throw new TypeError(`${label} must use RFC 8785 canonical JSON bytes.`);
-  }
-  return { value: requireObject(value, label), bytes };
-}
-
-function parseSidecar(source) {
-  const bytes = sourceBytes(source, "Renderer handoff sidecar");
-  let value;
-  try {
-    value = utf8Decoder.decode(bytes);
-  } catch (error) {
-    throw new TypeError("Renderer handoff sidecar must be UTF-8.", { cause: error });
-  }
-  if (!/^[0-9a-f]{64}\n$/u.test(value)) {
-    throw new TypeError(
-      "Renderer handoff sidecar must contain one lowercase SHA-256 value and a newline.",
-    );
-  }
-  return value.slice(0, -1);
-}
 
 function parseSample(value, label) {
   const sample = requireObject(value, label);
@@ -186,7 +117,7 @@ function parseReport(value) {
 export function validateRendererReport({ handoffSource, handoffSidecar, reportSource }) {
   const handoffPayload = parseCanonicalJson(handoffSource, "Renderer handoff");
   const reportPayload = parseCanonicalJson(reportSource, "Renderer report");
-  const sidecarDigest = parseSidecar(handoffSidecar);
+  const sidecarDigest = parseSha256Sidecar(handoffSidecar, "Renderer handoff sidecar");
   const actualHandoffDigest = sha256Hex(handoffPayload.bytes);
   if (sidecarDigest !== actualHandoffDigest) {
     throw new TypeError(

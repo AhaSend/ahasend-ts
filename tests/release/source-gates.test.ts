@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import Ajv from "ajv";
 import { afterAll, describe, expect, it } from "vitest";
 import { canonicalizeJson, sha256Hex } from "../../scripts/digest-artifact.mjs";
@@ -35,6 +35,7 @@ interface SourceGateReport {
 const repositoryRoot = process.cwd();
 const temporaryDirectories: string[] = [];
 const zeroHash = "0".repeat(64);
+const validateSourceGateSchema = new Ajv({ allErrors: true }).compile(sourceGateReportSchema);
 
 function validReport(bindings: SourceBindings): SourceGateReport {
   return {
@@ -119,9 +120,10 @@ describe("source gate report validation", () => {
   it("keeps the schema aligned with the importable validator", async () => {
     const bindings = await readRepositorySourceBindings();
     const report = validReport(bindings);
-    const validateSchema = new Ajv({ allErrors: true }).compile(sourceGateReportSchema);
 
-    expect(validateSchema(report), JSON.stringify(validateSchema.errors)).toBe(true);
+    expect(validateSourceGateSchema(report), JSON.stringify(validateSourceGateSchema.errors)).toBe(
+      true,
+    );
     expect(report).not.toHaveProperty("reportSha256");
     expect(REQUIRED_SOURCE_GATES).toEqual(sourceGateReports.missingGateCases);
   });
@@ -148,7 +150,7 @@ describe("source gate report validation", () => {
     });
   }
 
-  for (const missingGate of sourceGateReports.missingGateCases) {
+  for (const [gateIndex, missingGate] of sourceGateReports.missingGateCases.entries()) {
     it(`rejects a missing ${missingGate} gate`, async () => {
       const bindings = await readRepositorySourceBindings();
       const report = validReport(bindings);
@@ -162,6 +164,13 @@ describe("source gate report validation", () => {
           expectedBindings: bindings,
         }),
       ).toThrow(`missing required gates: ${missingGate}`);
+      expect(validateSourceGateSchema(report)).toBe(false);
+      expect(validateSourceGateSchema.errors).toContainEqual(
+        expect.objectContaining({
+          keyword: "contains",
+          schemaPath: `#/properties/results/allOf/${gateIndex}/contains`,
+        }),
+      );
     });
   }
 
@@ -251,17 +260,5 @@ describe("source gate report validation", () => {
     expect(result.stdout).toContain(
       `Source gate report passed: ${REQUIRED_SOURCE_GATES.length} gates for ${bindings.commit}`,
     );
-  });
-
-  it("ships the requested report fixture and schema paths", () => {
-    expect(
-      readFileSync(
-        resolve(repositoryRoot, "tests/fixtures/release/source-gate-reports.json"),
-        "utf8",
-      ),
-    ).toContain('"missingGateCases"');
-    expect(
-      readFileSync(resolve(repositoryRoot, "scripts/source-gate-report.schema.json"), "utf8"),
-    ).toContain('"repository-secret-scan"');
   });
 });

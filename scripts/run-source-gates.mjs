@@ -4,12 +4,16 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { digestJsonArtifact, digestYamlArtifact, sha256Hex } from "./digest-artifact.mjs";
 import {
-  canonicalizeJson,
-  digestJsonArtifact,
-  digestYamlArtifact,
-  sha256Hex,
-} from "./digest-artifact.mjs";
+  decodeUtf8,
+  parseCanonicalJson,
+  parseSha256Sidecar,
+  requireExactKeys,
+  requireHash,
+  requireObject,
+  sourceBytes,
+} from "./report-validation.mjs";
 
 export const REQUIRED_SOURCE_GATES = Object.freeze([
   "generation",
@@ -26,10 +30,8 @@ export const REQUIRED_SOURCE_GATES = Object.freeze([
   "audit",
 ]);
 
-const HEX_SHA256 = /^[0-9a-f]{64}$/u;
 const GIT_COMMIT = /^[0-9a-f]{40}$/u;
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 const CONTRACT_PATHS = Object.freeze(["contracts.lock.json", "openapi.yaml", "webhooks.yaml"]);
 const KEY_PATHS = Object.freeze([
@@ -37,80 +39,11 @@ const KEY_PATHS = Object.freeze([
   "contracts/webhooks/captured/keys/route.key",
 ]);
 
-function requireObject(value, label) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError(`${label} must be an object.`);
-  }
-  return value;
-}
-
-function requireExactKeys(value, expected, label) {
-  const actual = Object.keys(value);
-  const missing = expected.filter((key) => !Object.hasOwn(value, key));
-  const unexpected = actual.filter((key) => !expected.includes(key));
-  if (missing.length > 0 || unexpected.length > 0) {
-    throw new TypeError(
-      `${label} fields must be canonical: missing ${JSON.stringify(missing)}, unexpected ${JSON.stringify(unexpected)}.`,
-    );
-  }
-}
-
-function requireHash(value, label) {
-  if (typeof value !== "string" || !HEX_SHA256.test(value)) {
-    throw new TypeError(`${label} must be a lowercase hexadecimal SHA-256 value.`);
-  }
-  return value;
-}
-
 function requireCommit(value, label) {
   if (typeof value !== "string" || !GIT_COMMIT.test(value)) {
     throw new TypeError(`${label} must be a full lowercase Git commit.`);
   }
   return value;
-}
-
-function sourceBytes(value, label) {
-  if (typeof value === "string") return Buffer.from(value, "utf8");
-  if (value instanceof Uint8Array) return Buffer.from(value);
-  throw new TypeError(`${label} must be bytes or a UTF-8 string.`);
-}
-
-function parseSidecar(source, label) {
-  const bytes = sourceBytes(source, label);
-  let value;
-  try {
-    value = utf8Decoder.decode(bytes);
-  } catch (error) {
-    throw new TypeError(`${label} must be UTF-8.`, { cause: error });
-  }
-  if (!/^[0-9a-f]{64}\n$/u.test(value)) {
-    throw new TypeError(`${label} must contain one lowercase SHA-256 value and a newline.`);
-  }
-  return value.slice(0, -1);
-}
-
-function parseCanonicalReport(source) {
-  const bytes = sourceBytes(source, "Source gate report");
-  let value;
-  try {
-    value = JSON.parse(utf8Decoder.decode(bytes));
-  } catch (error) {
-    throw new TypeError("Source gate report must be valid UTF-8 JSON.", { cause: error });
-  }
-
-  let canonical;
-  try {
-    canonical = canonicalizeJson(value);
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("forbidden self-digest")) {
-      throw error;
-    }
-    throw new TypeError("Source gate report is not a canonical JSON payload.", { cause: error });
-  }
-  if (!bytes.equals(canonical)) {
-    throw new TypeError("Source gate report must use RFC 8785 canonical JSON bytes.");
-  }
-  return requireObject(value, "Source gate report");
 }
 
 function parseHashMap(value, paths, label) {
@@ -246,7 +179,7 @@ function compareBindings(report, expected) {
 
 export function validateSourceGateReport({ reportSource, reportSidecar, expectedBindings }) {
   const reportBytes = sourceBytes(reportSource, "Source gate report");
-  const sidecarDigest = parseSidecar(reportSidecar, "Source gate report sidecar");
+  const sidecarDigest = parseSha256Sidecar(reportSidecar, "Source gate report sidecar");
   const reportDigest = sha256Hex(reportBytes);
   if (sidecarDigest !== reportDigest) {
     throw new TypeError(
@@ -255,7 +188,7 @@ export function validateSourceGateReport({ reportSource, reportSidecar, expected
   }
 
   // The detached digest deliberately authenticates the bytes before they are parsed.
-  const report = parseReport(parseCanonicalReport(reportBytes));
+  const report = parseReport(parseCanonicalJson(reportBytes, "Source gate report").value);
   const expected = parseExpectedBindings(expectedBindings);
   compareBindings(report, expected);
 
@@ -270,13 +203,13 @@ async function readJsonDigest(path, label, sidecarPath) {
   const source = await readFile(resolve(repositoryRoot, path));
   let value;
   try {
-    value = JSON.parse(utf8Decoder.decode(source));
+    value = JSON.parse(decodeUtf8(source, label));
   } catch (error) {
     throw new TypeError(`${label} must be valid UTF-8 JSON.`, { cause: error });
   }
   const digest = digestJsonArtifact(value);
   if (sidecarPath !== undefined) {
-    const detached = parseSidecar(
+    const detached = parseSha256Sidecar(
       await readFile(resolve(repositoryRoot, sidecarPath)),
       `${label} sidecar`,
     );
