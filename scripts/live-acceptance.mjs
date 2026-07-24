@@ -553,7 +553,8 @@ export function redactLiveValue(value, secrets = []) {
       const output = {};
       for (const [key, entry] of Object.entries(current)) {
         const normalizedKey = key.replace(/[-_]/gu, "").toLowerCase();
-        output[key] = sensitiveFieldNames.has(normalizedKey)
+        const redactedKey = redactedString(key, normalizedSecrets);
+        output[redactedKey] = sensitiveFieldNames.has(normalizedKey)
           ? "[REDACTED]"
           : visit(entry, ancestors);
       }

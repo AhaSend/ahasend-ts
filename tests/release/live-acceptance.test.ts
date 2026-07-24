@@ -399,6 +399,7 @@ describe("live cleanup and reporting", () => {
             secret_key: oneTimeSecretKey,
             dkim_private_key: dkimPrivateKey,
             overlappingValue: overlappingSecret,
+            [`credential-${secret}`]: true,
             bufferedValue: Buffer.from(bufferedCredential, "utf8"),
             typedArrayValue: Uint8Array.from(Buffer.from(typedArrayCredential, "utf8")),
           },
@@ -434,6 +435,7 @@ describe("live cleanup and reporting", () => {
     expect(reportSource.toString("utf8")).not.toContain("-secret-value");
     expect(parsed.operations[0]?.evidence).toMatchObject({
       overlappingValue: "[REDACTED]",
+      "credential-[REDACTED]": true,
       bufferedValue: "[REDACTED]",
       typedArrayValue: "[REDACTED]",
     });
