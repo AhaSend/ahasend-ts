@@ -4293,7 +4293,200 @@ function validateReportIteratorLinks(operations, iterators) {
         `Iterator inventory result ${iterator.operationId} must attach to its corresponding primary list-operation result.`,
       );
     }
+    const primaryEvidence = requireObject(
+      primary.evidence,
+      `Primary list-operation result ${primary.operationId} evidence`,
+    );
+    const iteratorEvidence = requireObject(
+      iterator.evidence,
+      `Iterator inventory result ${iterator.operationId} evidence`,
+    );
+    const primaryLimit = primaryEvidence.limit;
+    const iteratorLimit = iteratorEvidence.limit;
+    if (
+      !Number.isInteger(primaryLimit) ||
+      primaryLimit <= 0 ||
+      iteratorLimit !== primaryLimit ||
+      !Number.isInteger(iteratorEvidence.items) ||
+      iteratorEvidence.items < 0 ||
+      !["backward", "forward"].includes(primaryEvidence.direction) ||
+      iteratorEvidence.direction !== primaryEvidence.direction
+    ) {
+      throw new TypeError(
+        `Iterator inventory result ${iterator.operationId} must record one linked positive-limit list subcase.`,
+      );
+    }
   }
+}
+
+function requirePassedResults(results, label) {
+  const unexpected = results
+    .filter(({ status }) => status !== "passed")
+    .map(({ operationId, status }) => ({ operationId, status }));
+  if (unexpected.length > 0) {
+    throw new TypeError(
+      `${label} requires every result to pass; unexpected outcomes ${JSON.stringify(unexpected)}.`,
+    );
+  }
+}
+
+function resultEvidenceByOperationId(operations, operationId) {
+  const result = operations.find((entry) => entry.operationId === operationId);
+  if (result === undefined) {
+    throw new TypeError(`Required live outcome ${operationId} is missing.`);
+  }
+  return requireObject(result.evidence, `Live outcome ${operationId} evidence`);
+}
+
+const positiveIntegerOutcome = Symbol("positive integer live outcome");
+
+function requireOutcomePath(evidence, path, label) {
+  const segments = path.split(".");
+  let current = evidence;
+  for (const [index, segment] of segments.entries()) {
+    if (index === segments.length - 1) return current[segment];
+    current = requireObject(current[segment], `${label} ${segments.slice(0, index + 1).join(".")}`);
+  }
+}
+
+function requireOperationOutcomes(operations, operationId, expectations) {
+  const evidence = resultEvidenceByOperationId(operations, operationId);
+  for (const [path, expected] of expectations) {
+    const label = `Live outcome ${operationId} ${path}`;
+    const actual = requireOutcomePath(evidence, path, label);
+    if (expected === positiveIntegerOutcome) {
+      if (!Number.isInteger(actual) || actual <= 0) {
+        throw new TypeError(`${label} must be a positive integer.`);
+      }
+    } else if (
+      Array.isArray(expected)
+        ? !Array.isArray(actual) ||
+          actual.length !== expected.length ||
+          actual.some((entry, index) => entry !== expected[index])
+        : actual !== expected
+    ) {
+      throw new TypeError(`${label} must be ${JSON.stringify(expected)}.`);
+    }
+  }
+}
+
+function requireSandboxOutcomes(operations) {
+  requireOperationOutcomes(operations, "createMessage", [
+    ["senderAuthorization.source", "body.from.email"],
+    ["sandbox.verified.accepted", true],
+    ["sandbox.verified.results", positiveIntegerOutcome],
+    ["sandbox.neverRegistered.rejected", true],
+    ["sandbox.neverRegistered.status", 400],
+    ["sandbox.neverRegistered.reason", "domain_not_registered"],
+    ["sandbox.dnsless.rejected", true],
+    ["sandbox.dnsless.status", 400],
+    ["sandbox.dnsless.reason", "dns_not_verified"],
+  ]);
+}
+
+const requiredAuthorizationOutcomes = Object.freeze([
+  ["createConversationMessage", [["senderAuthorization.source", "body.from.email"]]],
+  [
+    "getRoutes",
+    [
+      ["scopedAuthorization.domainFilterSupplied", true],
+      ["scopedAuthorization.source", "query.domain"],
+    ],
+  ],
+  [
+    "createRoute",
+    [
+      ["recipientAuthorization.controlled", true],
+      ["recipientAuthorization.quantifier", "one"],
+      ["recipientAuthorization.source", "body.recipient"],
+    ],
+  ],
+  [
+    "updateRoute",
+    [
+      ["recipientAuthorization.existingControlled", true],
+      ["recipientAuthorization.replacementControlled", true],
+      ["recipientAuthorization.quantifier", "every"],
+      ["recipientAuthorization.sources", ["existing.recipient", "body.recipient"]],
+    ],
+  ],
+  [
+    "createWebhook",
+    [
+      ["scopedAuthorization.controlled", true],
+      ["scopedAuthorization.domainsVerified", positiveIntegerOutcome],
+      ["scopedAuthorization.quantifier", "every"],
+      ["scopedAuthorization.source", "body.domains"],
+    ],
+  ],
+  [
+    "updateWebhook",
+    [
+      ["domainAuthorization.existingAssociationsVerified", positiveIntegerOutcome],
+      ["domainAuthorization.newDomainsVerified", positiveIntegerOutcome],
+      ["domainAuthorization.quantifier", "every"],
+      ["domainAuthorization.globalRoleRequired", true],
+      ["domainAuthorization.existingSource", "existing.domains"],
+      ["domainAuthorization.newSource", "body.domains"],
+      ["domainAuthorization.scopeSource", "body.scope"],
+      ["globalTransitionVerified", true],
+      ["scopedClearingVerified", true],
+    ],
+  ],
+  [
+    "createSMTPCredential",
+    [
+      ["scopedAuthorization.controlled", true],
+      ["scopedAuthorization.domainsVerified", positiveIntegerOutcome],
+      ["scopedAuthorization.quantifier", "every"],
+      ["scopedAuthorization.source", "body.domains"],
+      ["globalAuthorization.globalRoleRequired", true],
+      ["globalAuthorization.domainsSupplied", positiveIntegerOutcome],
+      ["globalAuthorization.scopeSource", "body.scope"],
+      ["globalAuthorization.suppliedDomainsIgnored", true],
+    ],
+  ],
+]);
+
+function requireAuthorizationOutcomes(operations) {
+  for (const [operationId, expectations] of requiredAuthorizationOutcomes) {
+    requireOperationOutcomes(operations, operationId, expectations);
+  }
+  for (const operationId of statisticsOperationIds) {
+    requireOperationOutcomes(operations, operationId, [
+      ["senderAuthorization.source", "query.sender_domain"],
+      ["senderAuthorization.quantifier", "every"],
+      ["senderAuthorization.singleDomain.authorized", true],
+      ["senderAuthorization.singleDomain.domainCount", 1],
+      ["senderAuthorization.unauthorizedDomain.authorized", false],
+      ["senderAuthorization.unauthorizedDomain.domainCount", 1],
+      ["senderAuthorization.unauthorizedDomain.status", 403],
+      ["senderAuthorization.multiDomain.authorized", false],
+      ["senderAuthorization.multiDomain.domainCount", 2],
+      ["senderAuthorization.multiDomain.status", 403],
+    ]);
+  }
+}
+
+function countLeakedSecrets(value, source) {
+  let leaks = SECRET_PATTERNS.filter((pattern) => pattern.test(source)).length;
+  if (/\bBearer\s+(?!\[REDACTED\])\S+/u.test(source)) leaks += 1;
+  function visit(current) {
+    if (current === null || typeof current !== "object") return;
+    if (Array.isArray(current)) {
+      for (const entry of current) visit(entry);
+      return;
+    }
+    for (const [key, entry] of Object.entries(current)) {
+      const normalizedKey = key.replace(/[-_]/gu, "").toLowerCase();
+      if (sensitiveFieldNames.has(normalizedKey) && entry !== "[REDACTED]") {
+        leaks += 1;
+      }
+      visit(entry);
+    }
+  }
+  visit(value);
+  return leaks;
 }
 
 function requireSameReportValue(actual, expected, label) {
@@ -4450,9 +4643,14 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
     "iterate",
   );
   validateReportIteratorLinks(report.operations, report.iterators);
+  requirePassedResults(report.operations, "Primary operation inventory");
+  requirePassedResults(report.iterators, "Iterator inventory");
+  requireSandboxOutcomes(report.operations);
+  requireAuthorizationOutcomes(report.operations);
   if (!Array.isArray(report.cleanup)) {
     throw new TypeError("Live acceptance report cleanup must be an array.");
   }
+  let cleanupFailures = 0;
   for (const [index, entry] of report.cleanup.entries()) {
     const result = requireObject(entry, `Live acceptance report cleanup result ${index}`);
     requireExactKeys(result, ["label", "status"], `Live acceptance report cleanup result ${index}`);
@@ -4460,6 +4658,18 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
     if (!["failed", "passed"].includes(result.status)) {
       throw new TypeError(`Live acceptance report cleanup result ${index} has an invalid status.`);
     }
+    if (result.status === "failed") cleanupFailures += 1;
+  }
+  if (cleanupFailures > 0) {
+    throw new TypeError(
+      `Live acceptance report requires zero cleanup failures; received ${cleanupFailures}.`,
+    );
+  }
+  const leakedSecrets = countLeakedSecrets(report, source.toString("utf8"));
+  if (leakedSecrets > 0) {
+    throw new TypeError(
+      `Live acceptance report requires zero leaked secrets; detected ${leakedSecrets}.`,
+    );
   }
   return Object.freeze({
     report,
@@ -4467,6 +4677,11 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
     package: identity,
     operations: report.operations.length,
     iterators: report.iterators.length,
+    authorizationOutcomes: 11,
+    sandboxOutcomes: 3,
+    unexpectedFailures: 0,
+    cleanupFailures: 0,
+    leakedSecrets: 0,
   });
 }
 

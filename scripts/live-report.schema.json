@@ -108,9 +108,7 @@
         "operationId": { "type": "string", "minLength": 1 },
         "facade": { "type": "string", "minLength": 1 },
         "method": { "type": "string", "minLength": 1 },
-        "status": {
-          "enum": ["failed", "passed", "pending", "skipped"]
-        }
+        "status": { "const": "passed" }
       }
     },
     "cleanupResult": {
@@ -119,7 +117,7 @@
       "required": ["label", "status"],
       "properties": {
         "label": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["failed", "passed"] }
+        "status": { "const": "passed" }
       }
     }
   }

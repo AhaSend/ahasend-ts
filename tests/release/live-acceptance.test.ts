@@ -132,6 +132,112 @@ function inspectFixture(): LiveCandidate {
   });
 }
 
+function completeLiveResults(candidate: LiveCandidate) {
+  const operations = candidate.profile.operations.map(({ operationId }) => ({
+    operationId,
+    status: "passed" as const,
+    evidence: {} as Record<string, unknown>,
+  }));
+  const byId = new Map(operations.map((result) => [result.operationId, result]));
+  for (const { operationId } of candidate.profile.iterators) {
+    byId.get(operationId)!.evidence = {
+      direction: "forward",
+      limit: 1,
+      pageItems: 0,
+    };
+  }
+  byId.get("createMessage")!.evidence = {
+    senderAuthorization: { source: "body.from.email" },
+    sandbox: {
+      verified: { accepted: true, results: 1 },
+      neverRegistered: {
+        reason: "domain_not_registered",
+        rejected: true,
+        status: 400,
+      },
+      dnsless: { reason: "dns_not_verified", rejected: true, status: 400 },
+    },
+  };
+  byId.get("createConversationMessage")!.evidence = {
+    senderAuthorization: { source: "body.from.email" },
+  };
+  for (const operationId of [
+    "getDeliverabilityStatistics",
+    "getBounceStatistics",
+    "getDeliveryTimeStatistics",
+  ]) {
+    byId.get(operationId)!.evidence = {
+      senderAuthorization: {
+        source: "query.sender_domain",
+        quantifier: "every",
+        singleDomain: { authorized: true, domainCount: 1, resultBuckets: 0 },
+        unauthorizedDomain: { authorized: false, domainCount: 1, status: 403 },
+        multiDomain: { authorized: false, domainCount: 2, status: 403 },
+      },
+    };
+  }
+  byId.get("getRoutes")!.evidence = {
+    ...byId.get("getRoutes")!.evidence,
+    scopedAuthorization: { domainFilterSupplied: true, source: "query.domain" },
+  };
+  byId.get("createRoute")!.evidence = {
+    recipientAuthorization: {
+      controlled: true,
+      quantifier: "one",
+      source: "body.recipient",
+    },
+  };
+  byId.get("updateRoute")!.evidence = {
+    recipientAuthorization: {
+      existingControlled: true,
+      quantifier: "every",
+      replacementControlled: true,
+      sources: ["existing.recipient", "body.recipient"],
+    },
+  };
+  byId.get("createWebhook")!.evidence = {
+    scopedAuthorization: {
+      controlled: true,
+      domainsVerified: 1,
+      quantifier: "every",
+      source: "body.domains",
+    },
+  };
+  byId.get("updateWebhook")!.evidence = {
+    domainAuthorization: {
+      existingAssociationsVerified: 1,
+      existingSource: "existing.domains",
+      globalRoleRequired: true,
+      newDomainsVerified: 1,
+      newSource: "body.domains",
+      quantifier: "every",
+      scopeSource: "body.scope",
+    },
+    globalTransitionVerified: true,
+    scopedClearingVerified: true,
+  };
+  byId.get("createSMTPCredential")!.evidence = {
+    globalAuthorization: {
+      domainsSupplied: 1,
+      globalRoleRequired: true,
+      scopeSource: "body.scope",
+      suppliedDomainsIgnored: true,
+    },
+    scopedAuthorization: {
+      controlled: true,
+      domainsVerified: 1,
+      quantifier: "every",
+      source: "body.domains",
+    },
+  };
+  const iterators = candidate.profile.iterators.map(({ operationId }) => ({
+    operationId,
+    status: "passed" as const,
+    evidence: { direction: "forward", items: 0, limit: 1 },
+  }));
+  return { operations, iterators };
+}
+
 function domainClientFixture(options: { failGet?: boolean } = {}) {
   const calls: string[] = [];
   let exists = false;
@@ -4193,6 +4299,7 @@ describe("live cleanup and reporting", () => {
 
   it("writes a redacted canonical report and linked detached digest", async () => {
     const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
     const secret = "live-api-key-value";
     const oneTimeSecretKey = "one-time-secret-key-value";
     const dkimPrivateKey = "private-key-material";
@@ -4206,30 +4313,26 @@ describe("live cleanup and reporting", () => {
     const standaloneApiKey = `aha-sk-${"A".repeat(64)}`;
     const pemPrivateKey =
       "-----BEGIN PRIVATE KEY-----\nfixture-private-key\n-----END PRIVATE KEY-----";
+    complete.operations[0]!.evidence = {
+      apiKey: secret,
+      request: `Authorization: Bearer ${secret}`,
+      response: `safe prefix ${secret}`,
+      secret_key: oneTimeSecretKey,
+      dkim_private_key: dkimPrivateKey,
+      overlappingValue: overlappingSecret,
+      [`credential-${secret}`]: true,
+      bufferedValue: Buffer.from(bufferedCredential, "utf8"),
+      typedArrayValue: Uint8Array.from(Buffer.from(typedArrayCredential, "utf8")),
+      AHASEND_API_KEY: environmentApiKey,
+      AHASEND_TOKEN: environmentToken,
+      AHASEND_WEBHOOK_SECRET: environmentWebhookSecret,
+      neutralApiOutput: standaloneApiKey,
+      neutralPemOutput: pemPrivateKey,
+    };
     const report = createLiveReport({
       candidate,
-      operationResults: [
-        {
-          operationId: candidate.profile.operations[0]!.operationId,
-          status: "passed",
-          evidence: {
-            apiKey: secret,
-            request: `Authorization: Bearer ${secret}`,
-            response: `safe prefix ${secret}`,
-            secret_key: oneTimeSecretKey,
-            dkim_private_key: dkimPrivateKey,
-            overlappingValue: overlappingSecret,
-            [`credential-${secret}`]: true,
-            bufferedValue: Buffer.from(bufferedCredential, "utf8"),
-            typedArrayValue: Uint8Array.from(Buffer.from(typedArrayCredential, "utf8")),
-            AHASEND_API_KEY: environmentApiKey,
-            AHASEND_TOKEN: environmentToken,
-            AHASEND_WEBHOOK_SECRET: environmentWebhookSecret,
-            neutralApiOutput: standaloneApiKey,
-            neutralPemOutput: pemPrivateKey,
-          },
-        },
-      ],
+      operationResults: complete.operations,
+      iteratorResults: complete.iterators,
       cleanupResults: [{ label: "delete fixture", status: "passed" }],
       secrets: [secret, overlappingSecretPrefix, overlappingSecret],
     });
@@ -4294,7 +4397,121 @@ describe("live cleanup and reporting", () => {
       reportSha256: written.reportSha256,
       operations: 56,
       iterators: 9,
+      authorizationOutcomes: 11,
+      sandboxOutcomes: 3,
+      unexpectedFailures: 0,
+      cleanupFailures: 0,
+      leakedSecrets: 0,
     });
+  });
+
+  it("rejects incomplete, failed, skipped, and unlinked terminal scenario outcomes", () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const report = createLiveReport({
+      candidate,
+      operationResults: complete.operations,
+      iteratorResults: complete.iterators,
+    }) as {
+      operations: Array<Record<string, unknown>>;
+      iterators: Array<Record<string, unknown>>;
+    };
+    const validate = (value: unknown) => {
+      const source = canonicalizeJson(value);
+      return validateLiveReportArtifacts({
+        reportSource: source,
+        reportSidecar: `${sha256Hex(source)}\n`,
+        candidate,
+      });
+    };
+
+    const failed = structuredClone(report);
+    failed.operations[0]!.status = "failed";
+    expect(() => validate(failed)).toThrow("requires every result to pass");
+
+    const skipped = structuredClone(report);
+    skipped.operations[0]!.status = "skipped";
+    expect(() => validate(skipped)).toThrow("requires every result to pass");
+
+    const pendingIterator = structuredClone(report);
+    pendingIterator.iterators[0]!.status = "pending";
+    expect(() => validate(pendingIterator)).toThrow("requires every result to pass");
+
+    const duplicateIterator = structuredClone(report);
+    duplicateIterator.iterators[1]!.operationId = duplicateIterator.iterators[0]!.operationId;
+    duplicateIterator.iterators[1]!.facade = duplicateIterator.iterators[0]!.facade;
+    expect(() => validate(duplicateIterator)).toThrow("duplicate operationId");
+
+    const unlinkedIterator = structuredClone(report);
+    (unlinkedIterator.iterators[0]!.evidence as Record<string, unknown>).limit = 2;
+    expect(() => validate(unlinkedIterator)).toThrow("linked positive-limit list subcase");
+
+    const missing = structuredClone(report);
+    missing.operations.pop();
+    expect(() => validate(missing)).toThrow("must contain exactly 56 results");
+
+    const missingIterator = structuredClone(report);
+    missingIterator.iterators.pop();
+    expect(() => validate(missingIterator)).toThrow("must contain exactly 9 results");
+
+    const orphan = structuredClone(report);
+    orphan.operations[0]!.operationId = "orphanedOperation";
+    expect(() => validate(orphan)).toThrow("is not present in the packaged profile");
+
+    const orphanIterator = structuredClone(report);
+    orphanIterator.iterators[0]!.operationId = "orphanedIterator";
+    expect(() => validate(orphanIterator)).toThrow("is not present in the packaged profile");
+  });
+
+  it("rejects cleanup failures, leaked secrets, and missing required live outcomes", () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const baseReport = createLiveReport({
+      candidate,
+      operationResults: complete.operations,
+      iteratorResults: complete.iterators,
+      cleanupResults: [{ label: "delete fixture", status: "passed" }],
+    }) as {
+      cleanup: Array<Record<string, unknown>>;
+      operations: Array<Record<string, unknown>>;
+    };
+    const validate = (value: unknown) => {
+      const source = canonicalizeJson(value);
+      return validateLiveReportArtifacts({
+        reportSource: source,
+        reportSidecar: `${sha256Hex(source)}\n`,
+        candidate,
+      });
+    };
+
+    const cleanupFailure = structuredClone(baseReport);
+    cleanupFailure.cleanup[0]!.status = "failed";
+    expect(() => validate(cleanupFailure)).toThrow("requires zero cleanup failures");
+
+    const leakedPattern = structuredClone(baseReport);
+    leakedPattern.operations[0]!.evidence = {
+      output: `aha-sk-${"A".repeat(64)}`,
+    };
+    expect(() => validate(leakedPattern)).toThrow("requires zero leaked secrets");
+
+    const leakedSensitiveField = structuredClone(baseReport);
+    leakedSensitiveField.operations[0]!.evidence = { secret: "plain-text-credential" };
+    expect(() => validate(leakedSensitiveField)).toThrow("requires zero leaked secrets");
+
+    const missingSandbox = structuredClone(baseReport);
+    const message = missingSandbox.operations.find(
+      ({ operationId }) => operationId === "createMessage",
+    )!;
+    delete (message.evidence as Record<string, unknown>).sandbox;
+    expect(() => validate(missingSandbox)).toThrow("createMessage sandbox");
+
+    const missingMultiDomain = structuredClone(baseReport);
+    const statistics = missingMultiDomain.operations.find(
+      ({ operationId }) => operationId === "getDeliverabilityStatistics",
+    )!;
+    delete (statistics.evidence as { senderAuthorization: Record<string, unknown> })
+      .senderAuthorization.multiDomain;
+    expect(() => validate(missingMultiDomain)).toThrow("senderAuthorization.multiDomain");
   });
 
   it("rejects altered sidecars, duplicate IDs, detached iterators, and extra package fields", () => {

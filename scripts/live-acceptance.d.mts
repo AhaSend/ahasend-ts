@@ -840,6 +840,11 @@ export interface LiveReportSummary {
   readonly package: { readonly name: "@ahasend/sdk"; readonly version: string };
   readonly operations: number;
   readonly iterators: number;
+  readonly authorizationOutcomes: 11;
+  readonly sandboxOutcomes: 3;
+  readonly unexpectedFailures: 0;
+  readonly cleanupFailures: 0;
+  readonly leakedSecrets: 0;
 }
 
 export function validateLiveReportArtifacts(options: LiveReportArtifactOptions): LiveReportSummary;
