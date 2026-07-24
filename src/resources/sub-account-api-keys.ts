@@ -38,7 +38,7 @@ export class SubAccountAPIKeysClient {
       "listSubAccountAPIKeys",
       {
         path: { account_id: this.#accountId, sub_account_id: subAccountId },
-        query: params as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );

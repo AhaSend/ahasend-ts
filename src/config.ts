@@ -371,7 +371,7 @@ function assertRetryConfig(config: unknown): void {
     );
   }
 
-  const resolved = resolveRetryConfig(config as RetryConfig);
+  const resolved = resolveRetryConfig(config);
   if (resolved.maxDelayMs < resolved.baseDelayMs) {
     throw new AhaSendConfigurationError(
       "AhaSend: `retry.maxDelayMs` must be greater than or equal to `retry.baseDelayMs`.",

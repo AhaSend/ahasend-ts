@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import type { ReadableStreamReadResult } from "node:stream/web";
 import { AhaSendWebhookVerificationError } from "../errors.js";
 import { MAX_WEBHOOK_BODY_BYTES, WebhookVerifier } from "./verifier.js";
 import type { AnyWebhookEvent } from "./events.js";
@@ -221,8 +222,10 @@ interface NormalizedAdapterOptions {
 
 class BodyTooLargeError extends Error {}
 
-class NodeStreamError {
-  constructor(readonly cause: unknown) {}
+class NodeStreamError extends Error {
+  constructor(readonly originalCause: unknown) {
+    super("Webhook request stream failed", { cause: originalCause });
+  }
 }
 
 function normalizeOptions(options: WebhookAdapterOptions): NormalizedAdapterOptions {
@@ -325,7 +328,7 @@ async function readWebRawBody(request: Request, maxBodyBytes: number): Promise<B
   let byteLength = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = (await reader.read()) as ReadableStreamReadResult<Uint8Array>;
       if (done) return Buffer.concat(chunks, byteLength);
       const chunk = Buffer.from(value);
       byteLength += chunk.length;
@@ -355,7 +358,7 @@ function stageForNodeReadError(error: unknown): WebhookAdapterErrorStage {
 }
 
 function unwrapNodeReadError(error: unknown): unknown {
-  return error instanceof NodeStreamError ? error.cause : error;
+  return error instanceof NodeStreamError ? error.originalCause : error;
 }
 
 function completeExpress(

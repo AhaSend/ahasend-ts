@@ -52,10 +52,10 @@ export function resolveTelemetryHooks(hooks?: TelemetryHooks): ResolvedTelemetry
   // Snapshot the callback references once. Re-reading a caller-owned hook
   // container during a request would let later mutation (including a throwing
   // property accessor) escape the telemetry isolation boundary.
-  const onRequest = hooks?.onRequest;
-  const onResponse = hooks?.onResponse;
-  const onRetry = hooks?.onRetry;
-  const onError = hooks?.onError;
+  const onRequest = hooks?.onRequest?.bind(undefined);
+  const onResponse = hooks?.onResponse?.bind(undefined);
+  const onRetry = hooks?.onRetry?.bind(undefined);
+  const onError = hooks?.onError?.bind(undefined);
 
   return {
     onRequest: (event) => deferCall(onRequest, event),
@@ -73,10 +73,10 @@ export function resolveTelemetryHooks(hooks?: TelemetryHooks): ResolvedTelemetry
 export function composeHooks(...hookSets: Array<TelemetryHooks | undefined>): TelemetryHooks {
   const sets = hookSets.filter((h): h is TelemetryHooks => h !== undefined);
   if (sets.length === 0) return {};
-  const onRequestHooks = sets.map((set) => set.onRequest);
-  const onResponseHooks = sets.map((set) => set.onResponse);
-  const onRetryHooks = sets.map((set) => set.onRetry);
-  const onErrorHooks = sets.map((set) => set.onError);
+  const onRequestHooks = sets.map((set) => set.onRequest?.bind(undefined));
+  const onResponseHooks = sets.map((set) => set.onResponse?.bind(undefined));
+  const onRetryHooks = sets.map((set) => set.onRetry?.bind(undefined));
+  const onErrorHooks = sets.map((set) => set.onError?.bind(undefined));
 
   return {
     onRequest: (event) => {
@@ -104,7 +104,7 @@ function safeCall<T>(fn: ((event: T) => void) | undefined, event: T): void {
   try {
     // A callback typed as returning void may still return a Promise in TypeScript.
     // Observe that promise solely to prevent a rejected hook from becoming unhandled.
-    const result = (fn as (value: T) => unknown)(event);
+    const result: unknown = fn(event);
     if (result) void Promise.resolve(result).catch(NOOP);
   } catch {
     // hooks must never throw into the request pipeline

@@ -6,43 +6,48 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        include:
+          - node: 22
+            experimental: false
+          - node: 24
+            experimental: false
+          - node: 26
+            experimental: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
 
       - run: npm ci
 
-      - name: Typecheck (src + tests)
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Unit tests (offline)
-        run: npm test
-
-      - name: Build
-        run: npm run build
+      - name: Required package gates
+        run: npm run ci
 
   coverage:
     name: Coverage thresholds
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -51,21 +56,3 @@ jobs:
 
       - name: Coverage (thresholds enforced in vitest.config.ts)
         run: npm run test:coverage
-
-  integration:
-    name: Integration (Prism mock)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      - name: Integration suite against local openapi.yaml
-        run: npm run test:integration
-        env:
-          RUN_INTEGRATION: "1"

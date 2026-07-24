@@ -717,7 +717,7 @@ function matchesSchema(value: unknown, schema: ValidationSchema): boolean {
   if (schema.enum !== undefined && !schema.enum.some((item) => Object.is(item, value)))
     return false;
   if (schema.type === undefined) return true;
-  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  const types = typeof schema.type === "string" ? [schema.type] : schema.type;
   return types.some((type) => matchesType(value, type, schema));
 }
 

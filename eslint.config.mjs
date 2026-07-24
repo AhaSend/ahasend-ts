@@ -6,11 +6,16 @@ export default [
     files: ["src/**/*.ts"],
     languageOptions: {
       parser: tsParser,
-      parserOptions: { sourceType: "module", ecmaVersion: 2022 },
+      parserOptions: {
+        project: "./tsconfig.eslint.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+      sourceType: "module",
+      ecmaVersion: 2022,
     },
     plugins: { "@typescript-eslint": tsPlugin },
     rules: {
-      ...tsPlugin.configs.recommended.rules,
+      ...tsPlugin.configs["recommended-type-checked"].rules,
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },

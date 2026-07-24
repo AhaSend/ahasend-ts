@@ -17,16 +17,19 @@ export function createFrozenFacade<T extends object>(resource: T): Readonly<T> {
     for (const key of Reflect.ownKeys(prototype)) {
       if (key === "constructor") continue;
       const descriptor = Object.getOwnPropertyDescriptor(prototype, key);
-      if (typeof descriptor?.value === "function") {
+      const descriptorValue: unknown = descriptor?.value;
+      const boundGetter = descriptor?.get?.bind(resource);
+      if (typeof descriptorValue === "function") {
+        const method = descriptorValue as (...args: unknown[]) => unknown;
         Object.defineProperty(facade, key, {
-          value: descriptor.value.bind(resource),
+          value: method.bind(resource),
           writable: false,
           enumerable: false,
           configurable: false,
         });
-      } else if (typeof descriptor?.get === "function") {
+      } else if (boundGetter !== undefined) {
         Object.defineProperty(facade, key, {
-          get: descriptor.get.bind(resource),
+          get: boundGetter,
           enumerable: false,
           configurable: false,
         });

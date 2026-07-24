@@ -84,7 +84,7 @@ export class DomainsClient {
       "getDomains",
       {
         path: { account_id: this.#accountId },
-        query: params as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );

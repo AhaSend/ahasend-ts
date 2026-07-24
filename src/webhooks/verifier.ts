@@ -58,7 +58,7 @@ export class WebhookVerifier {
 
     this.#key = Buffer.from(secret, "utf-8");
     this.#toleranceSeconds = options.toleranceSeconds ?? DEFAULT_TOLERANCE_SECONDS;
-    this.#nowMs = options.nowMs ?? Date.now;
+    this.#nowMs = options.nowMs ?? (() => Date.now());
   }
 
   verify(headers: HeadersInput, rawBody: RawBody): void {
@@ -121,9 +121,9 @@ export class WebhookVerifier {
         );
       }
       if (type === "route.message") {
-        return { ...parsed, type: "message.routing" } as AnyWebhookEvent;
+        return { ...parsed, type: "message.routing" };
       }
-      return parsed as AnyWebhookEvent;
+      return parsed;
     }
 
     if (!validateUnknownWebhookEvent(parsed)) {

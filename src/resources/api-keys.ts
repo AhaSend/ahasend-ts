@@ -95,7 +95,7 @@ export class APIKeysClient {
       "getAPIKeys",
       {
         path: { account_id: this.#accountId },
-        query: params as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );
