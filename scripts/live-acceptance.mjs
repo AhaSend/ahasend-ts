@@ -48,6 +48,16 @@ const statisticsOperationIds = Object.freeze([
   "getBounceStatistics",
   "getDeliveryTimeStatistics",
 ]);
+const apiKeyOperationIds = Object.freeze([
+  "getAPIKeys",
+  "createAPIKey",
+  "getAPIKey",
+  "updateAPIKey",
+  "deleteAPIKey",
+]);
+const restrictedApiKeyAddress = "192.0.2.7";
+const canonicalRestrictedApiKeyAddress = `${restrictedApiKeyAddress}/32`;
+const selfLockoutAddress = "192.0.2.1/32";
 const sensitiveFieldNames = new Set([
   "ahasendapikey",
   "ahasendtoken",
@@ -1333,6 +1343,352 @@ export function createStatisticsScenarioRegistry({
 /** Execute the three statistics scenarios in packaged operation order. */
 export function runStatisticsLiveScenarios(registry) {
   return runLiveScenarios(registry, statisticsOperationIds, null, "Statistics");
+}
+
+function assertAPIKeyMappings(profile) {
+  const expected = new Set(apiKeyOperationIds);
+  const actual = profile.operations.filter(({ facade }) => facade === "apiKeys");
+  const actualIds = new Set(actual.map(({ operationId }) => operationId));
+  const missing = apiKeyOperationIds.filter((operationId) => !actualIds.has(operationId));
+  const orphaned = actual
+    .map(({ operationId }) => operationId)
+    .filter((operationId) => !expected.has(operationId));
+  if (actual.length !== apiKeyOperationIds.length || missing.length > 0 || orphaned.length > 0) {
+    throw new TypeError(
+      `Packaged API-key operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}.`,
+    );
+  }
+
+  const list = actual.find(({ operationId }) => operationId === "getAPIKeys");
+  const iterator = profile.iterators.filter(({ facade }) => facade === "apiKeys");
+  if (
+    list?.method !== "list" ||
+    iterator.length !== 1 ||
+    iterator[0]?.operationId !== "getAPIKeys" ||
+    iterator[0]?.method !== "iterate"
+  ) {
+    throw new TypeError(
+      "Packaged API-key iterator must link getAPIKeys iterate to its primary list operation.",
+    );
+  }
+  return Object.freeze({
+    operations: new Map(actual.map((mapping) => [mapping.operationId, mapping])),
+    iterator: iterator[0],
+  });
+}
+
+function requireAPIKeyCreateRequest(value, label) {
+  const request = requireObject(value, label);
+  const keyLabel = requireString(request.label, `${label} label`);
+  if (!Array.isArray(request.scopes) || request.scopes.length === 0) {
+    throw new TypeError(`${label} scopes must contain at least one scope.`);
+  }
+  const scopes = request.scopes.map((scope, index) =>
+    requireString(scope, `${label} scope ${index}`),
+  );
+  if (
+    request.ip_allow_list !== undefined &&
+    (!Array.isArray(request.ip_allow_list) || request.ip_allow_list.length !== 0)
+  ) {
+    throw new TypeError(`${label} ip_allow_list must be empty or omitted.`);
+  }
+  return Object.freeze({ label: keyLabel, scopes: Object.freeze(scopes), ip_allow_list: [] });
+}
+
+function requireAPIKeyId(value, label) {
+  const result = requireObject(value, label);
+  return Object.freeze({
+    result,
+    id: requireString(result.id, `${label} id`),
+  });
+}
+
+function requireAPIKeyIPAllowList(value, expected, label) {
+  const { result, id } = requireAPIKeyId(value, label);
+  if (
+    !Array.isArray(result.ip_allow_list) ||
+    result.ip_allow_list.length !== expected.length ||
+    result.ip_allow_list.some((entry, index) => entry !== expected[index])
+  ) {
+    throw new TypeError(`${label} returned an unexpected IP allow list.`);
+  }
+  return Object.freeze({ result, id });
+}
+
+async function requireAPIKeyAbsent(getAPIKey, keyId, label) {
+  try {
+    await getAPIKey(keyId);
+  } catch (error) {
+    if (isNotFoundError(error)) return;
+    throw error;
+  }
+  throw new TypeError(`${label} found the API key.`);
+}
+
+function isConflictError(error) {
+  return typeof error === "object" && error !== null && error.status === 409;
+}
+
+/**
+ * Build the five parent API-key scenarios. The create scenario provisions both
+ * the lifecycle fixture and a disposable secondary credential. Only the
+ * secondary credential attempts a self-locking update; parent authentication
+ * remains unrestricted and owns every cleanup action.
+ */
+export function createAPIKeyScenarioRegistry({
+  profile,
+  client,
+  createSecondaryClient,
+  createRequest,
+  secondaryCreateRequest,
+  pagination = { limit: 1 },
+}) {
+  if (typeof createSecondaryClient !== "function") {
+    throw new TypeError("Secondary API-key client factory must be a function.");
+  }
+  const mappings = assertAPIKeyMappings(profile);
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `API-key ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("getAPIKeys"),
+    iterate: requireMappedClientMethod(client, mappings.iterator, "API-key iterator scenario"),
+    create: mappedOperation("createAPIKey"),
+    get: mappedOperation("getAPIKey"),
+    update: mappedOperation("updateAPIKey"),
+    delete: mappedOperation("deleteAPIKey"),
+  });
+  const primaryBody = requireAPIKeyCreateRequest(
+    createRequest,
+    "Primary API-key live create request",
+  );
+  const secondaryBody = requireAPIKeyCreateRequest(
+    secondaryCreateRequest,
+    "Secondary API-key live create request",
+  );
+  const pageParams = requireLivePagination(pagination, "API-key");
+  const omittedTransitionLabel = `${primaryBody.label} updated`;
+  const nullTransitionLabel = `${primaryBody.label} null-preserved`;
+  if (omittedTransitionLabel.length > 255 || nullTransitionLabel.length > 255) {
+    throw new TypeError("Primary API-key live create request label is too long for transitions.");
+  }
+
+  let primaryKeyId;
+  let secondaryKeyId;
+  let secondaryClient;
+  const requireFixtureId = (value, label) => requireString(value, label);
+  const scenarios = new Map([
+    [
+      "getAPIKeys",
+      {
+        operationId: "getAPIKeys",
+        async run() {
+          const page = requireObject(
+            await methods.list(pageParams),
+            "API-key list scenario response",
+          );
+          if (!Array.isArray(page.data)) {
+            throw new TypeError("API-key list scenario response data must be an array.");
+          }
+          requireObject(page.pagination, "API-key list scenario pagination");
+
+          let itemCount = 0;
+          for await (const _entry of methods.iterate(pageParams)) {
+            itemCount += 1;
+            if (itemCount >= pageParams.limit) break;
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              direction: pageParams.before === undefined ? "forward" : "backward",
+              limit: pageParams.limit,
+              pageItems: page.data.length,
+            }),
+            iteratorEvidence: Object.freeze({
+              direction: pageParams.before === undefined ? "forward" : "backward",
+              items: itemCount,
+              limit: pageParams.limit,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "createAPIKey",
+      {
+        operationId: "createAPIKey",
+        async run({ cleanup }) {
+          const primary = requireAPIKeyId(
+            await methods.create(primaryBody),
+            "Primary API-key create scenario response",
+          );
+          primaryKeyId = primary.id;
+          cleanup.register("delete and verify primary API-key fixture", async () => {
+            try {
+              await methods.delete(primary.id);
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
+            }
+            await requireAPIKeyAbsent(
+              methods.get,
+              primary.id,
+              "Primary API-key cleanup verification",
+            );
+          });
+          requireAPIKeyIPAllowList(primary.result, [], "Primary API-key create scenario response");
+          requireString(
+            primary.result.secret_key,
+            "Primary API-key create scenario response secret",
+          );
+
+          const secondary = requireAPIKeyId(
+            await methods.create(secondaryBody),
+            "Secondary API-key create scenario response",
+          );
+          secondaryKeyId = secondary.id;
+          cleanup.register("delete and verify secondary API-key fixture", async () => {
+            try {
+              await methods.delete(secondary.id);
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
+            }
+            await requireAPIKeyAbsent(
+              methods.get,
+              secondary.id,
+              "Secondary API-key cleanup verification",
+            );
+          });
+          requireAPIKeyIPAllowList(
+            secondary.result,
+            [],
+            "Secondary API-key create scenario response",
+          );
+          const secret = requireString(
+            secondary.result.secret_key,
+            "Secondary API-key create scenario response secret",
+          );
+          secondaryClient = createSecondaryClient(secret);
+          requireMappedClientMethod(
+            secondaryClient,
+            mappings.operations.get("updateAPIKey"),
+            "Secondary API-key self-lockout scenario",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              cleanupRegistered: 2,
+              created: 2,
+              secretsReported: false,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getAPIKey",
+      {
+        operationId: "getAPIKey",
+        async run() {
+          const keyId = requireFixtureId(primaryKeyId, "Primary API-key fixture id");
+          const result = requireAPIKeyIPAllowList(
+            await methods.get(keyId),
+            [],
+            "API-key get scenario response",
+          );
+          if (result.id !== keyId) {
+            throw new TypeError("API-key get scenario returned the wrong key.");
+          }
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "updateAPIKey",
+      {
+        operationId: "updateAPIKey",
+        async run() {
+          const keyId = requireFixtureId(primaryKeyId, "Primary API-key fixture id");
+          requireAPIKeyIPAllowList(
+            await methods.update(keyId, { label: omittedTransitionLabel }),
+            [],
+            "API-key omitted IP-list transition",
+          );
+          requireAPIKeyIPAllowList(
+            await methods.update(keyId, {
+              ip_allow_list: [restrictedApiKeyAddress, canonicalRestrictedApiKeyAddress],
+            }),
+            [canonicalRestrictedApiKeyAddress],
+            "API-key restricted IP-list transition",
+          );
+          requireAPIKeyIPAllowList(
+            await methods.update(keyId, {
+              label: nullTransitionLabel,
+              ip_allow_list: null,
+            }),
+            [canonicalRestrictedApiKeyAddress],
+            "API-key null IP-list transition",
+          );
+          requireAPIKeyIPAllowList(
+            await methods.update(keyId, { ip_allow_list: [] }),
+            [],
+            "API-key clear IP-list transition",
+          );
+
+          const disposableKeyId = requireFixtureId(secondaryKeyId, "Secondary API-key fixture id");
+          const selfUpdate = requireMappedClientMethod(
+            secondaryClient,
+            mappings.operations.get("updateAPIKey"),
+            "Secondary API-key self-lockout scenario",
+          );
+          try {
+            await selfUpdate(disposableKeyId, { ip_allow_list: [selfLockoutAddress] });
+          } catch (error) {
+            if (!isConflictError(error)) throw error;
+            requireAPIKeyIPAllowList(
+              await methods.get(disposableKeyId),
+              [],
+              "Secondary API-key self-lockout persistence check",
+            );
+            return Object.freeze({
+              evidence: Object.freeze({
+                ipAllowList: Object.freeze({
+                  cleared: true,
+                  nullPreserved: true,
+                  omittedPreserved: true,
+                  restrictedCanonicalized: true,
+                }),
+                selfLockout: Object.freeze({ persisted: false, status: 409 }),
+              }),
+            });
+          }
+          throw new TypeError("Secondary API-key self-lockout update unexpectedly succeeded.");
+        },
+      },
+    ],
+    [
+      "deleteAPIKey",
+      {
+        operationId: "deleteAPIKey",
+        async run() {
+          const keyId = requireFixtureId(primaryKeyId, "Primary API-key fixture id");
+          await methods.delete(keyId);
+          await requireAPIKeyAbsent(methods.get, keyId, "API-key delete scenario verification");
+          return Object.freeze({ evidence: Object.freeze({ deleted: true }) });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute parent API-key scenarios in lifecycle order and always drain cleanup. */
+export function runAPIKeyLiveScenarios(registry) {
+  return runLiveScenarios(registry, apiKeyOperationIds, "getAPIKeys", "API-key");
 }
 
 export function createCleanupRegistry() {

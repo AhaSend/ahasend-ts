@@ -8,6 +8,7 @@ import { canonicalizeJson, digestJsonArtifact, sha256Hex } from "../../scripts/d
 import type { AhaSendClient } from "../../src/client.js";
 import { RESOURCE_AUTHORIZATION } from "../../src/generated/operations.js";
 import {
+  createAPIKeyScenarioRegistry,
   createCleanupRegistry,
   createDomainScenarioRegistry,
   createLiveReport,
@@ -18,12 +19,14 @@ import {
   installLiveCandidate,
   loadLiveCandidate,
   runDomainLiveScenarios,
+  runAPIKeyLiveScenarios,
   runMessageLiveScenarios,
   runStatisticsLiveScenarios,
   runWithCleanup,
   validateLiveReportArtifacts,
   validatePackagedLiveProfile,
   writeLiveReport,
+  type APIKeyLiveClient,
   type DomainLiveClient,
   type LiveCandidate,
   type LiveCandidateManifest,
@@ -322,6 +325,98 @@ function statisticsClientFixture(options: { checkEveryDomain?: boolean } = {}) {
       authorized: firstDomain,
       unauthorized: secondDomain,
     },
+  };
+}
+
+function apiKeyClientFixture(options: { malformedSecondarySecret?: boolean } = {}) {
+  const primaryId = "11111111-1111-4111-8111-111111111111";
+  const secondaryId = "22222222-2222-4222-8222-222222222222";
+  const primarySecret = `aha-sk-${"P".repeat(64)}`;
+  const secondarySecret = `aha-sk-${"S".repeat(64)}`;
+  const records = new Map<
+    string,
+    { id: string; label: string; scopes: string[]; ip_allow_list: string[] }
+  >();
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  let createCount = 0;
+  const list = vi.fn(async (params: { limit: number; after?: string; before?: string }) => ({
+    object: "list" as const,
+    data: [...records.values()],
+    pagination: { has_more: false, next_cursor: null, prev_cursor: null },
+    params,
+  }));
+  const iterate = vi.fn(async function* (params: {
+    limit: number;
+    after?: string;
+    before?: string;
+  }) {
+    for (const record of records.values()) yield { ...record, params };
+  });
+  const create = vi.fn(
+    async (request: { label: string; scopes: readonly string[]; ip_allow_list: readonly [] }) => {
+      createCount += 1;
+      const id = createCount === 1 ? primaryId : secondaryId;
+      const record = {
+        id,
+        label: request.label,
+        scopes: [...request.scopes],
+        ip_allow_list: [],
+      };
+      records.set(id, record);
+      if (createCount === 2 && options.malformedSecondarySecret === true) return { ...record };
+      return {
+        ...record,
+        secret_key: createCount === 1 ? primarySecret : secondarySecret,
+      };
+    },
+  );
+  const get = vi.fn(async (id: string) => {
+    const record = records.get(id);
+    if (record === undefined) throw notFound();
+    return { ...record, ip_allow_list: [...record.ip_allow_list] };
+  });
+  const update = vi.fn(
+    async (id: string, request: { label?: string; ip_allow_list?: readonly string[] | null }) => {
+      const record = records.get(id);
+      if (record === undefined) throw notFound();
+      if (request.label !== undefined) record.label = request.label;
+      if (Array.isArray(request.ip_allow_list)) {
+        record.ip_allow_list = [
+          ...new Set(
+            request.ip_allow_list.map((entry) => (entry.includes("/") ? entry : `${entry}/32`)),
+          ),
+        ];
+      }
+      return { ...record, ip_allow_list: [...record.ip_allow_list] };
+    },
+  );
+  const deleteKey = vi.fn(async (id: string) => {
+    if (!records.delete(id)) throw notFound();
+    return { message: "deleted" };
+  });
+  const client: APIKeyLiveClient = {
+    apiKeys: { list, iterate, create, get, update, delete: deleteKey },
+  };
+  const selfUpdate = vi.fn(async (_id: string, _request: { ip_allow_list: readonly string[] }) => {
+    throw Object.assign(new Error("self-lockout prevented"), { status: 409 });
+  });
+  const createSecondaryClient = vi.fn(
+    (_secret: string): APIKeyLiveClient => ({
+      apiKeys: {
+        ...client.apiKeys,
+        update: selfUpdate,
+      },
+    }),
+  );
+  return {
+    client,
+    createSecondaryClient,
+    primaryId,
+    primarySecret,
+    records,
+    secondaryId,
+    secondarySecret,
+    selfUpdate,
   };
 }
 
@@ -1021,6 +1116,220 @@ describe("live scenario inventory", () => {
     expect(source).not.toContain(fixture.messageId);
     expect(source).not.toContain("sandbox sender rejected");
     expect(source).toContain('"source":"body.from.email"');
+  });
+
+  it("registers exactly one executable scenario for every packaged parent API-key primary", () => {
+    const fixture = apiKeyClientFixture();
+    const registry = createAPIKeyScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createSecondaryClient: fixture.createSecondaryClient,
+      createRequest: { label: "live-primary", scopes: ["api-keys:read"] },
+      secondaryCreateRequest: {
+        label: "live-self-lockout",
+        scopes: ["api-keys:read", "api-keys:write"],
+      },
+    });
+    const apiKeyEntries = [...registry.primary.values()].filter(
+      ({ facade }) => facade === "apiKeys",
+    );
+
+    expect(apiKeyEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      ["createAPIKey", "deleteAPIKey", "getAPIKey", "getAPIKeys", "updateAPIKey"].sort(),
+    );
+    expect(apiKeyEntries).toHaveLength(5);
+    expect(apiKeyEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, APIKeyLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("records the parent API-key iterator once with positive single-direction pagination", async () => {
+    const fixture = apiKeyClientFixture();
+    const registry = createAPIKeyScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createSecondaryClient: fixture.createSecondaryClient,
+      createRequest: { label: "live-primary", scopes: ["api-keys:read"] },
+      secondaryCreateRequest: {
+        label: "live-self-lockout",
+        scopes: ["api-keys:read", "api-keys:write"],
+      },
+      pagination: { limit: 2, after: "next-page" },
+    });
+
+    const result = await runAPIKeyLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(
+      result.operationResults.filter(({ operationId }) => operationId === "getAPIKeys"),
+    ).toHaveLength(1);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getAPIKeys",
+        status: "passed",
+        evidence: { direction: "forward", items: 0, limit: 2 },
+      },
+    ]);
+    expect(fixture.client.apiKeys.list).toHaveBeenCalledWith({
+      limit: 2,
+      after: "next-page",
+    });
+    expect(fixture.client.apiKeys.iterate).toHaveBeenCalledWith({
+      limit: 2,
+      after: "next-page",
+    });
+    expect(fixture.client.apiKeys.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ before: expect.anything() }),
+    );
+    expect(registry.primary.get("getAPIKeys")?.iterator).toMatchObject({
+      operationId: "getAPIKeys",
+      method: "iterate",
+    });
+  });
+
+  it("covers omitted, restricted, null, and cleared parent API-key IP-list transitions", async () => {
+    const fixture = apiKeyClientFixture();
+    const registry = createAPIKeyScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createSecondaryClient: fixture.createSecondaryClient,
+      createRequest: { label: "live-primary", scopes: ["api-keys:read"] },
+      secondaryCreateRequest: {
+        label: "live-self-lockout",
+        scopes: ["api-keys:read", "api-keys:write"],
+      },
+    });
+
+    const result = await runAPIKeyLiveScenarios(registry);
+    const updateResult = result.operationResults.find(
+      ({ operationId }) => operationId === "updateAPIKey",
+    );
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.apiKeys.update).toHaveBeenNthCalledWith(1, fixture.primaryId, {
+      label: "live-primary updated",
+    });
+    expect(fixture.client.apiKeys.update).toHaveBeenNthCalledWith(2, fixture.primaryId, {
+      ip_allow_list: ["192.0.2.7", "192.0.2.7/32"],
+    });
+    expect(fixture.client.apiKeys.update).toHaveBeenNthCalledWith(3, fixture.primaryId, {
+      label: "live-primary null-preserved",
+      ip_allow_list: null,
+    });
+    expect(fixture.client.apiKeys.update).toHaveBeenNthCalledWith(4, fixture.primaryId, {
+      ip_allow_list: [],
+    });
+    expect(updateResult).toMatchObject({
+      status: "passed",
+      evidence: {
+        ipAllowList: {
+          cleared: true,
+          nullPreserved: true,
+          omittedPreserved: true,
+          restrictedCanonicalized: true,
+        },
+      },
+    });
+  });
+
+  it("uses only the disposable secondary key for self-lockout and parent auth for cleanup", async () => {
+    const fixture = apiKeyClientFixture();
+    const registry = createAPIKeyScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createSecondaryClient: fixture.createSecondaryClient,
+      createRequest: { label: "live-primary", scopes: ["api-keys:read"] },
+      secondaryCreateRequest: {
+        label: "live-self-lockout",
+        scopes: ["api-keys:read", "api-keys:write"],
+      },
+    });
+
+    const result = await runAPIKeyLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(fixture.createSecondaryClient).toHaveBeenCalledOnce();
+    expect(fixture.createSecondaryClient).toHaveBeenCalledWith(fixture.secondarySecret);
+    expect(fixture.selfUpdate).toHaveBeenCalledWith(fixture.secondaryId, {
+      ip_allow_list: ["192.0.2.1/32"],
+    });
+    expect(fixture.client.apiKeys.update).not.toHaveBeenCalledWith(
+      fixture.secondaryId,
+      expect.anything(),
+    );
+    expect(fixture.client.apiKeys.delete).toHaveBeenCalledWith(fixture.secondaryId);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify secondary API-key fixture", status: "passed" },
+      { label: "delete and verify primary API-key fixture", status: "passed" },
+    ]);
+    expect(fixture.records.size).toBe(0);
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "updateAPIKey"),
+    ).toMatchObject({
+      evidence: { selfLockout: { persisted: false, status: 409 } },
+    });
+  });
+
+  it("retains immediate cleanup when a one-time secondary secret is malformed", async () => {
+    const fixture = apiKeyClientFixture({ malformedSecondarySecret: true });
+    const registry = createAPIKeyScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createSecondaryClient: fixture.createSecondaryClient,
+      createRequest: { label: "live-primary", scopes: ["api-keys:read"] },
+      secondaryCreateRequest: {
+        label: "live-self-lockout",
+        scopes: ["api-keys:read", "api-keys:write"],
+      },
+    });
+
+    const result = await runAPIKeyLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createAPIKey" });
+    expect(result.operationResults).toEqual([
+      {
+        operationId: "getAPIKeys",
+        status: "passed",
+        evidence: { direction: "forward", limit: 1, pageItems: 0 },
+      },
+      { operationId: "createAPIKey", status: "failed" },
+    ]);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify secondary API-key fixture", status: "passed" },
+      { label: "delete and verify primary API-key fixture", status: "passed" },
+    ]);
+    expect(fixture.createSecondaryClient).not.toHaveBeenCalled();
+    expect(fixture.records.size).toBe(0);
+  });
+
+  it("keeps parent API-key one-time secrets out of canonical live reports", async () => {
+    const candidate = inspectFixture();
+    const fixture = apiKeyClientFixture();
+    const registry = createAPIKeyScenarioRegistry({
+      profile: candidate.profile,
+      client: fixture.client,
+      createSecondaryClient: fixture.createSecondaryClient,
+      createRequest: { label: "live-primary", scopes: ["api-keys:read"] },
+      secondaryCreateRequest: {
+        label: "live-self-lockout",
+        scopes: ["api-keys:read", "api-keys:write"],
+      },
+    });
+    const result = await runAPIKeyLiveScenarios(registry);
+    const report = createLiveReport({
+      candidate,
+      operationResults: result.operationResults,
+      iteratorResults: result.iteratorResults,
+      cleanupResults: result.cleanupResults,
+    });
+    const source = canonicalizeJson(report).toString("utf8");
+
+    expect(source).not.toContain(fixture.primarySecret);
+    expect(source).not.toContain(fixture.secondarySecret);
+    expect(source).not.toContain("secret_key");
+    expect(source).not.toContain("self-lockout prevented");
+    expect(source).toContain('"secretsReported":false');
+    expect(source).toContain('"selfLockout":{"persisted":false,"status":409}');
   });
 
   it("registers exactly one executable scenario for every packaged statistics primary", () => {

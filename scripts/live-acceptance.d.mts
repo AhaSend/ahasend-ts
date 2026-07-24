@@ -292,6 +292,42 @@ export type StatisticsLiveRun = DomainLiveRun;
 
 export function runStatisticsLiveScenarios(registry: ScenarioRegistry): Promise<StatisticsLiveRun>;
 
+export interface APIKeyLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly update: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+}
+
+export interface APIKeyLiveClient {
+  readonly apiKeys: APIKeyLiveFacade;
+}
+
+export interface APIKeyLiveCreateRequest {
+  readonly label: string;
+  readonly scopes: readonly [string, ...string[]];
+  readonly ip_allow_list?: readonly [];
+}
+
+export interface CreateAPIKeyScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: APIKeyLiveClient;
+  readonly createSecondaryClient: (secretKey: string) => APIKeyLiveClient;
+  readonly createRequest: APIKeyLiveCreateRequest;
+  readonly secondaryCreateRequest: APIKeyLiveCreateRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createAPIKeyScenarioRegistry(
+  options: CreateAPIKeyScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type APIKeyLiveRun = DomainLiveRun;
+
+export function runAPIKeyLiveScenarios(registry: ScenarioRegistry): Promise<APIKeyLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";
