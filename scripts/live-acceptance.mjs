@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseCandidateManifest } from "./create-candidate.mjs";
 import { canonicalizeJson, digestJsonArtifact, sha256Hex } from "./digest-artifact.mjs";
 import {
   parseCanonicalJson,
@@ -45,53 +46,6 @@ function parseJson(source, label) {
   } catch (error) {
     throw new TypeError(`${label} must be valid UTF-8 JSON.`, { cause: error });
   }
-}
-
-function parseCandidateManifest(source) {
-  const parsed = parseCanonicalJson(source, "Live candidate manifest");
-  requireExactKeys(
-    parsed.value,
-    [
-      "captureSha256",
-      "commit",
-      "contractSha256",
-      "keysSha256",
-      "profileSha256",
-      "rendererReportSha256",
-      "sourceReportSha256",
-      "tarballSha256",
-      "version",
-    ],
-    "Live candidate manifest",
-  );
-  if (parsed.value.version !== 1) {
-    throw new TypeError("Live candidate manifest version must be 1.");
-  }
-  return {
-    version: 1,
-    commit: requireSourceCommit(parsed.value.commit, "Live candidate manifest commit"),
-    sourceReportSha256: requireHash(
-      parsed.value.sourceReportSha256,
-      "Live candidate manifest sourceReportSha256",
-    ),
-    contractSha256: parseSourceHashMap(
-      parsed.value.contractSha256,
-      SOURCE_CONTRACT_PATHS,
-      "Live candidate manifest contractSha256",
-    ),
-    captureSha256: requireHash(parsed.value.captureSha256, "Live candidate manifest captureSha256"),
-    keysSha256: parseSourceHashMap(
-      parsed.value.keysSha256,
-      SOURCE_KEY_PATHS,
-      "Live candidate manifest keysSha256",
-    ),
-    rendererReportSha256: requireHash(
-      parsed.value.rendererReportSha256,
-      "Live candidate manifest rendererReportSha256",
-    ),
-    profileSha256: requireHash(parsed.value.profileSha256, "Live candidate manifest profileSha256"),
-    tarballSha256: requireHash(parsed.value.tarballSha256, "Live candidate manifest tarballSha256"),
-  };
 }
 
 function parseMapping(value, label, expectedMethod) {
@@ -214,7 +168,10 @@ function validateCandidateEnvelope({ manifestSource, manifestSidecar, tarballSou
     throw new TypeError("Live candidate manifest does not match its detached sidecar.");
   }
 
-  const manifest = parseCandidateManifest(manifestBytes);
+  const manifest = parseCandidateManifest(
+    parseCanonicalJson(manifestBytes, "Live candidate manifest").value,
+    "Live candidate manifest",
+  );
   const tarballBytes = sourceBytes(tarballSource, "Live candidate tarball");
   const tarballDigest = sha256Hex(tarballBytes);
   if (tarballDigest !== manifest.tarballSha256) {
@@ -388,6 +345,38 @@ function requireScenarioData(value, label) {
   return { operationId, scenario };
 }
 
+function readonlyMap(source) {
+  let view;
+  view = Object.freeze({
+    get size() {
+      return source.size;
+    },
+    get(key) {
+      return source.get(key);
+    },
+    has(key) {
+      return source.has(key);
+    },
+    entries() {
+      return source.entries();
+    },
+    keys() {
+      return source.keys();
+    },
+    values() {
+      return source.values();
+    },
+    forEach(callback, thisArgument) {
+      source.forEach((value, key) => callback.call(thisArgument, value, key, view));
+    },
+    [Symbol.iterator]() {
+      return source[Symbol.iterator]();
+    },
+    [Symbol.toStringTag]: "Map",
+  });
+  return view;
+}
+
 export function createScenarioRegistry(
   profile,
   scenarioData = profile.operations.map(({ operationId }) => ({ operationId })),
@@ -446,7 +435,7 @@ export function createScenarioRegistry(
       primary: primary.get(iterator.operationId),
     }),
   );
-  return Object.freeze({ primary, iterators: Object.freeze(iterators) });
+  return Object.freeze({ primary: readonlyMap(primary), iterators: Object.freeze(iterators) });
 }
 
 export function createCleanupRegistry() {
@@ -626,15 +615,19 @@ export function createLiveReport({
   return redactLiveValue(report, secrets);
 }
 
-function validateResultInventory(value, expectedCount, label, expectedMethod) {
+function validateResultInventory(value, mappings, expectedCount, label, expectedMethod) {
   if (!Array.isArray(value) || value.length !== expectedCount) {
     throw new TypeError(`${label} must contain exactly ${expectedCount} results.`);
   }
+  if (!Array.isArray(mappings) || mappings.length !== expectedCount) {
+    throw new TypeError(`Expected ${label.toLowerCase()} must contain ${expectedCount} mappings.`);
+  }
+  const mappingsById = new Map(mappings.map((mapping) => [mapping.operationId, mapping]));
   const operationIds = new Set();
   for (const [index, entry] of value.entries()) {
     const result = requireObject(entry, `${label} result ${index}`);
     const operationId = requireString(result.operationId, `${label} result ${index} operationId`);
-    requireString(result.facade, `${label} result ${index} facade`);
+    const facade = requireString(result.facade, `${label} result ${index} facade`);
     const method = requireString(result.method, `${label} result ${index} method`);
     if (expectedMethod !== undefined && method !== expectedMethod) {
       throw new TypeError(`${label} result ${operationId} method must be ${expectedMethod}.`);
@@ -644,6 +637,15 @@ function validateResultInventory(value, expectedCount, label, expectedMethod) {
     }
     if (operationIds.has(operationId)) {
       throw new TypeError(`${label} contains duplicate operationId ${operationId}.`);
+    }
+    const mapping = mappingsById.get(operationId);
+    if (mapping === undefined) {
+      throw new TypeError(`${label} result ${operationId} is not present in the packaged profile.`);
+    }
+    if (facade !== mapping.facade || method !== mapping.method) {
+      throw new TypeError(
+        `${label} result ${operationId} does not match its packaged facade and method mapping.`,
+      );
     }
     operationIds.add(operationId);
   }
@@ -661,7 +663,21 @@ function validateReportIteratorLinks(operations, iterators) {
   }
 }
 
-export function validateLiveReportArtifacts({ reportSource, reportSidecar }) {
+function requireSameReportValue(actual, expected, label) {
+  let actualSource;
+  let expectedSource;
+  try {
+    actualSource = canonicalizeJson(actual);
+    expectedSource = canonicalizeJson(expected);
+  } catch (error) {
+    throw new TypeError(`${label} must be JSON-compatible.`, { cause: error });
+  }
+  if (!actualSource.equals(expectedSource)) {
+    throw new TypeError(`${label} does not match the verified live candidate.`);
+  }
+}
+
+export function validateLiveReportArtifacts({ reportSource, reportSidecar, candidate: expected }) {
   const source = sourceBytes(reportSource, "Live acceptance report");
   const expectedDigest = parseSha256Sidecar(reportSidecar, "Live acceptance report sidecar");
   const actualDigest = sha256Hex(source);
@@ -689,27 +705,72 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar }) {
   if (report.version !== 1) throw new TypeError("Live acceptance report version must be 1.");
   const candidate = requireObject(report.candidate, "Live acceptance report candidate");
   requireExactKeys(candidate, ["commit", "manifestSha256"], "Live acceptance report candidate");
-  requireSourceCommit(candidate.commit, "Live acceptance report candidate commit");
-  requireHash(candidate.manifestSha256, "Live acceptance report candidate manifestSha256");
-  parseSourceHashMap(
+  const candidateCommit = requireSourceCommit(
+    candidate.commit,
+    "Live acceptance report candidate commit",
+  );
+  const candidateManifestSha256 = requireHash(
+    candidate.manifestSha256,
+    "Live acceptance report candidate manifestSha256",
+  );
+  const contractSha256 = parseSourceHashMap(
     report.contractSha256,
     SOURCE_CONTRACT_PATHS,
     "Live acceptance report contractSha256",
   );
-  requireHash(report.profileSha256, "Live acceptance report profileSha256");
-  requireHash(report.captureSha256, "Live acceptance report captureSha256");
-  parseSourceHashMap(report.keysSha256, SOURCE_KEY_PATHS, "Live acceptance report keysSha256");
+  const profileSha256 = requireHash(report.profileSha256, "Live acceptance report profileSha256");
+  const captureSha256 = requireHash(report.captureSha256, "Live acceptance report captureSha256");
+  const keysSha256 = parseSourceHashMap(
+    report.keysSha256,
+    SOURCE_KEY_PATHS,
+    "Live acceptance report keysSha256",
+  );
   const reportPackage = requireObject(report.package, "Live acceptance report package");
   requireExactKeys(reportPackage, ["name", "version"], "Live acceptance report package");
   const identity = parsePackageIdentity(canonicalizeJson(reportPackage));
-  requireHash(report.tarballSha256, "Live acceptance report tarballSha256");
+  const tarballSha256 = requireHash(report.tarballSha256, "Live acceptance report tarballSha256");
+  const expectedCandidate = requireObject(expected, "Verified live candidate");
+  const expectedManifest = requireObject(
+    expectedCandidate.manifest,
+    "Verified live candidate manifest",
+  );
+  const expectedProfile = requireObject(
+    expectedCandidate.profile,
+    "Verified live candidate profile",
+  );
+  requireSameReportValue(candidateCommit, expectedManifest.commit, "Live report candidate commit");
+  requireSameReportValue(
+    candidateManifestSha256,
+    expectedCandidate.manifestSha256,
+    "Live report candidate manifestSha256",
+  );
+  requireSameReportValue(
+    contractSha256,
+    expectedManifest.contractSha256,
+    "Live report contractSha256",
+  );
+  requireSameReportValue(profileSha256, expectedProfile.profileSha256, "Live report profileSha256");
+  requireSameReportValue(
+    captureSha256,
+    expectedManifest.captureSha256,
+    "Live report captureSha256",
+  );
+  requireSameReportValue(keysSha256, expectedManifest.keysSha256, "Live report keysSha256");
+  requireSameReportValue(identity, expectedCandidate.package, "Live report package");
+  requireSameReportValue(
+    tarballSha256,
+    expectedCandidate.tarballSha256,
+    "Live report tarballSha256",
+  );
   validateResultInventory(
     report.operations,
+    expectedProfile.operations,
     EXPECTED_LIVE_OPERATION_COUNT,
     "Primary operation inventory",
   );
   validateResultInventory(
     report.iterators,
+    expectedProfile.iterators,
     EXPECTED_LIVE_ITERATOR_COUNT,
     "Iterator inventory",
     "iterate",
@@ -735,7 +796,13 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar }) {
   });
 }
 
-export async function writeLiveReport({ report, reportPath, reportSidecarPath, secrets = [] }) {
+export async function writeLiveReport({
+  report,
+  candidate,
+  reportPath,
+  reportSidecarPath,
+  secrets = [],
+}) {
   const destination = resolve(reportPath);
   const sidecarDestination =
     reportSidecarPath === undefined
@@ -746,7 +813,7 @@ export async function writeLiveReport({ report, reportPath, reportSidecarPath, s
   const source = canonicalizeJson(redactLiveValue(report, secrets));
   const reportSha256 = sha256Hex(source);
   const sidecar = Buffer.from(`${reportSha256}\n`, "utf8");
-  validateLiveReportArtifacts({ reportSource: source, reportSidecar: sidecar });
+  validateLiveReportArtifacts({ reportSource: source, reportSidecar: sidecar, candidate });
   await mkdir(dirname(destination), { recursive: true });
   await Promise.all([
     writeFile(destination, source, { flag: "wx" }),

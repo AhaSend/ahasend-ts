@@ -38,7 +38,7 @@ const EXPECTED_ITERATOR_COUNT = 9;
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const harnessDirectories = [".betterborg-task/", ".orchestry/", ".betterborg-analysis/"];
 
-function parseCandidateManifest(value) {
+export function parseCandidateManifest(value, label = "Candidate manifest") {
   requireExactKeys(
     value,
     [
@@ -52,33 +52,23 @@ function parseCandidateManifest(value) {
       "tarballSha256",
       "version",
     ],
-    "Candidate manifest",
+    label,
   );
-  if (value.version !== 1) throw new TypeError("Candidate manifest version must be 1.");
+  if (value.version !== 1) throw new TypeError(`${label} version must be 1.`);
   return {
     version: 1,
-    commit: requireSourceCommit(value.commit, "Candidate manifest commit"),
-    sourceReportSha256: requireHash(
-      value.sourceReportSha256,
-      "Candidate manifest sourceReportSha256",
-    ),
+    commit: requireSourceCommit(value.commit, `${label} commit`),
+    sourceReportSha256: requireHash(value.sourceReportSha256, `${label} sourceReportSha256`),
     contractSha256: parseSourceHashMap(
       value.contractSha256,
       SOURCE_CONTRACT_PATHS,
-      "Candidate manifest contractSha256",
+      `${label} contractSha256`,
     ),
-    captureSha256: requireHash(value.captureSha256, "Candidate manifest captureSha256"),
-    keysSha256: parseSourceHashMap(
-      value.keysSha256,
-      SOURCE_KEY_PATHS,
-      "Candidate manifest keysSha256",
-    ),
-    rendererReportSha256: requireHash(
-      value.rendererReportSha256,
-      "Candidate manifest rendererReportSha256",
-    ),
-    profileSha256: requireHash(value.profileSha256, "Candidate manifest profileSha256"),
-    tarballSha256: requireHash(value.tarballSha256, "Candidate manifest tarballSha256"),
+    captureSha256: requireHash(value.captureSha256, `${label} captureSha256`),
+    keysSha256: parseSourceHashMap(value.keysSha256, SOURCE_KEY_PATHS, `${label} keysSha256`),
+    rendererReportSha256: requireHash(value.rendererReportSha256, `${label} rendererReportSha256`),
+    profileSha256: requireHash(value.profileSha256, `${label} profileSha256`),
+    tarballSha256: requireHash(value.tarballSha256, `${label} tarballSha256`),
   };
 }
 

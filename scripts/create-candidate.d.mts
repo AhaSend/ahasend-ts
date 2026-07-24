@@ -11,6 +11,12 @@ export interface CandidateBindings {
   readonly tarballSha256: string;
 }
 
+export interface CandidateManifest extends CandidateBindings {
+  readonly version: 1;
+}
+
+export function parseCandidateManifest(value: unknown, label?: string): CandidateManifest;
+
 export interface ValidateCandidateManifestOptions {
   readonly manifestSource: string | Uint8Array;
   readonly manifestSidecar: string | Uint8Array;

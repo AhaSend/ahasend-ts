@@ -166,6 +166,7 @@ export function createLiveReport(options: CreateLiveReportOptions): Record<strin
 export interface LiveReportArtifactOptions {
   readonly reportSource: string | Uint8Array;
   readonly reportSidecar: string | Uint8Array;
+  readonly candidate: LiveCandidate;
 }
 
 export interface LiveReportSummary {
@@ -180,6 +181,7 @@ export function validateLiveReportArtifacts(options: LiveReportArtifactOptions):
 
 export interface WriteLiveReportOptions {
   readonly report: unknown;
+  readonly candidate: LiveCandidate;
   readonly reportPath: string;
   readonly reportSidecarPath?: string;
   readonly secrets?: readonly string[];

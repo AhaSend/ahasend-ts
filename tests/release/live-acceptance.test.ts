@@ -114,7 +114,7 @@ describe("live candidate foundation", () => {
     });
     expect(candidate.profile.operations).toHaveLength(56);
     expect(candidate.profile.iterators).toHaveLength(9);
-    expect(candidate.registry.primary).toHaveLength(56);
+    expect(candidate.registry.primary.size).toBe(56);
     expect(candidate.registry.iterators).toHaveLength(9);
   });
 
@@ -274,7 +274,7 @@ describe("live scenario inventory", () => {
       })),
     );
 
-    expect(registry.primary).toHaveLength(56);
+    expect(registry.primary.size).toBe(56);
     expect(registry.iterators).toHaveLength(9);
     expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(9);
     for (const iterator of registry.iterators) {
@@ -286,6 +286,12 @@ describe("live scenario inventory", () => {
         method: "iterate",
       });
     }
+
+    const mutablePrimary = registry.primary as unknown as Map<string, unknown>;
+    expect(Object.isFrozen(registry.primary)).toBe(true);
+    expect(() => mutablePrimary.delete(profile.operations[0]!.operationId)).toThrow();
+    expect(() => mutablePrimary.set("orphan", {})).toThrow();
+    expect(registry.primary.size).toBe(56);
   });
 
   it("rejects missing, orphaned, duplicate, and mapping-redefining scenarios", () => {
@@ -411,7 +417,7 @@ describe("live cleanup and reporting", () => {
     const directory = mkdtempSync(join(tmpdir(), "ahasend-live-report-"));
     temporaryDirectories.push(directory);
     const reportPath = join(directory, "live-report.json");
-    const written = await writeLiveReport({ report, reportPath });
+    const written = await writeLiveReport({ report, candidate, reportPath });
     const reportSource = readFileSync(reportPath);
     const sidecar = readFileSync(written.reportSidecarPath);
     const parsed = JSON.parse(reportSource.toString("utf8")) as {
@@ -453,7 +459,9 @@ describe("live cleanup and reporting", () => {
     });
     expect(parsed.operations).toHaveLength(56);
     expect(parsed.iterators).toHaveLength(9);
-    expect(validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar })).toMatchObject({
+    expect(
+      validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
+    ).toMatchObject({
       reportSha256: written.reportSha256,
       operations: 56,
       iterators: 9,
@@ -466,7 +474,11 @@ describe("live cleanup and reporting", () => {
     const source = canonicalizeJson(report);
 
     expect(() =>
-      validateLiveReportArtifacts({ reportSource: source, reportSidecar: `${zeroHash}\n` }),
+      validateLiveReportArtifacts({
+        reportSource: source,
+        reportSidecar: `${zeroHash}\n`,
+        candidate,
+      }),
     ).toThrow("report does not match its detached sidecar");
 
     const duplicate = structuredClone(report) as {
@@ -478,6 +490,7 @@ describe("live cleanup and reporting", () => {
       validateLiveReportArtifacts({
         reportSource: duplicateSource,
         reportSidecar: `${sha256Hex(duplicateSource)}\n`,
+        candidate,
       }),
     ).toThrow("duplicate operationId");
 
@@ -493,8 +506,9 @@ describe("live cleanup and reporting", () => {
       validateLiveReportArtifacts({
         reportSource: detachedIteratorSource,
         reportSidecar: `${sha256Hex(detachedIteratorSource)}\n`,
+        candidate,
       }),
-    ).toThrow("must attach to its corresponding primary list-operation result");
+    ).toThrow("is not present in the packaged profile");
 
     const extraPackageField = structuredClone(report) as {
       package: Record<string, unknown>;
@@ -505,7 +519,87 @@ describe("live cleanup and reporting", () => {
       validateLiveReportArtifacts({
         reportSource: extraPackageFieldSource,
         reportSidecar: `${sha256Hex(extraPackageFieldSource)}\n`,
+        candidate,
       }),
     ).toThrow("Live acceptance report package fields must be canonical");
+  });
+
+  it("rejects substituted candidate identities and invented packaged operation inventories", () => {
+    const candidate = inspectFixture();
+    const report = createLiveReport({ candidate });
+    const staleCandidate = structuredClone(report) as {
+      candidate: { manifestSha256: string };
+    };
+    staleCandidate.candidate.manifestSha256 = "a".repeat(64);
+    const staleCandidateSource = canonicalizeJson(staleCandidate);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: staleCandidateSource,
+        reportSidecar: `${sha256Hex(staleCandidateSource)}\n`,
+        candidate,
+      }),
+    ).toThrow("candidate manifestSha256 does not match the verified live candidate");
+
+    const staleProfile = structuredClone(report) as {
+      profileSha256: string;
+    };
+    staleProfile.profileSha256 = "b".repeat(64);
+    const staleProfileSource = canonicalizeJson(staleProfile);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: staleProfileSource,
+        reportSidecar: `${sha256Hex(staleProfileSource)}\n`,
+        candidate,
+      }),
+    ).toThrow("profileSha256 does not match the verified live candidate");
+
+    const stalePackage = structuredClone(report) as {
+      package: { version: string };
+    };
+    stalePackage.package.version = "0.1.0-substituted";
+    const stalePackageSource = canonicalizeJson(stalePackage);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: stalePackageSource,
+        reportSidecar: `${sha256Hex(stalePackageSource)}\n`,
+        candidate,
+      }),
+    ).toThrow("package does not match the verified live candidate");
+
+    const substitutedMapping = structuredClone(report) as {
+      operations: Array<Record<string, unknown>>;
+    };
+    substitutedMapping.operations[0]!.facade = "invented";
+    const substitutedMappingSource = canonicalizeJson(substitutedMapping);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: substitutedMappingSource,
+        reportSidecar: `${sha256Hex(substitutedMappingSource)}\n`,
+        candidate,
+      }),
+    ).toThrow("does not match its packaged facade and method mapping");
+
+    const inventedInventory = structuredClone(report) as {
+      operations: Array<Record<string, unknown>>;
+      iterators: Array<Record<string, unknown>>;
+    };
+    for (const [index, operation] of inventedInventory.operations.entries()) {
+      operation.operationId = `invented-operation-${index}`;
+      operation.facade = "invented";
+      operation.method = index < 9 ? "list" : "create";
+    }
+    for (const [index, iterator] of inventedInventory.iterators.entries()) {
+      iterator.operationId = `invented-operation-${index}`;
+      iterator.facade = "invented";
+      iterator.method = "iterate";
+    }
+    const inventedInventorySource = canonicalizeJson(inventedInventory);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: inventedInventorySource,
+        reportSidecar: `${sha256Hex(inventedInventorySource)}\n`,
+        candidate,
+      }),
+    ).toThrow("is not present in the packaged profile");
   });
 });
