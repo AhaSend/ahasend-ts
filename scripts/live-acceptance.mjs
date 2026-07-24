@@ -21,12 +21,16 @@ import {
   SOURCE_CONTRACT_PATHS,
   SOURCE_KEY_PATHS,
 } from "./run-source-gates.mjs";
+import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
 export const EXPECTED_LIVE_OPERATION_COUNT = 56;
 export const EXPECTED_LIVE_ITERATOR_COUNT = 9;
 
 const packageName = "@ahasend/sdk";
 const sensitiveFieldNames = new Set([
+  "ahasendapikey",
+  "ahasendtoken",
+  "ahasendwebhooksecret",
   "apikey",
   "authorization",
   "dkimprivatekey",
@@ -508,6 +512,7 @@ export async function runWithCleanup(callback) {
 }
 
 function redactedString(value, secrets) {
+  if (SECRET_PATTERNS.some((pattern) => pattern.test(value))) return "[REDACTED]";
   let redacted = value.replace(/\bBearer\s+\S+/giu, "Bearer [REDACTED]");
   for (const secret of secrets) {
     if (secret !== "") redacted = redacted.split(secret).join("[REDACTED]");

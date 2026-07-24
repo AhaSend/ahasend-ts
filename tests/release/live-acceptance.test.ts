@@ -405,6 +405,12 @@ describe("live cleanup and reporting", () => {
     const overlappingSecret = "aha-live-secret-value";
     const bufferedCredential = "buffered-credential-value";
     const typedArrayCredential = "typed-array-credential-value";
+    const environmentApiKey = "environment-api-key-value";
+    const environmentToken = "environment-token-value";
+    const environmentWebhookSecret = "environment-webhook-secret-value";
+    const standaloneApiKey = `aha-sk-${"A".repeat(64)}`;
+    const pemPrivateKey =
+      "-----BEGIN PRIVATE KEY-----\nfixture-private-key\n-----END PRIVATE KEY-----";
     const report = createLiveReport({
       candidate,
       operationResults: [
@@ -421,6 +427,11 @@ describe("live cleanup and reporting", () => {
             [`credential-${secret}`]: true,
             bufferedValue: Buffer.from(bufferedCredential, "utf8"),
             typedArrayValue: Uint8Array.from(Buffer.from(typedArrayCredential, "utf8")),
+            AHASEND_API_KEY: environmentApiKey,
+            AHASEND_TOKEN: environmentToken,
+            AHASEND_WEBHOOK_SECRET: environmentWebhookSecret,
+            neutralApiOutput: standaloneApiKey,
+            neutralPemOutput: pemPrivateKey,
           },
         },
       ],
@@ -450,6 +461,11 @@ describe("live cleanup and reporting", () => {
     expect(reportSource.toString("utf8")).not.toContain(secret);
     expect(reportSource.toString("utf8")).not.toContain(oneTimeSecretKey);
     expect(reportSource.toString("utf8")).not.toContain(dkimPrivateKey);
+    expect(reportSource.toString("utf8")).not.toContain(environmentApiKey);
+    expect(reportSource.toString("utf8")).not.toContain(environmentToken);
+    expect(reportSource.toString("utf8")).not.toContain(environmentWebhookSecret);
+    expect(reportSource.toString("utf8")).not.toContain(standaloneApiKey);
+    expect(reportSource.toString("utf8")).not.toContain(pemPrivateKey);
     expect(reportSource.toString("utf8")).not.toContain(overlappingSecret);
     expect(reportSource.toString("utf8")).not.toContain("-secret-value");
     expect(parsed.operations[0]?.evidence).toMatchObject({
@@ -457,6 +473,11 @@ describe("live cleanup and reporting", () => {
       "credential-[REDACTED]": true,
       bufferedValue: "[REDACTED]",
       typedArrayValue: "[REDACTED]",
+      AHASEND_API_KEY: "[REDACTED]",
+      AHASEND_TOKEN: "[REDACTED]",
+      AHASEND_WEBHOOK_SECRET: "[REDACTED]",
+      neutralApiOutput: "[REDACTED]",
+      neutralPemOutput: "[REDACTED]",
     });
     expect(reportSource.toString("utf8")).toContain("[REDACTED]");
     expect(sidecar.toString("utf8")).toBe(`${sha256Hex(reportSource)}\n`);
