@@ -8,6 +8,7 @@ import { canonicalizeJson, digestJsonArtifact, sha256Hex } from "../../scripts/d
 import type { AhaSendClient } from "../../src/client.js";
 import { RESOURCE_AUTHORIZATION } from "../../src/generated/operations.js";
 import {
+  createAccountScenarioRegistry,
   createAPIKeyScenarioRegistry,
   createCleanupRegistry,
   createDomainScenarioRegistry,
@@ -21,6 +22,7 @@ import {
   inspectLiveCandidate,
   installLiveCandidate,
   loadLiveCandidate,
+  runAccountLiveScenarios,
   runDomainLiveScenarios,
   runAPIKeyLiveScenarios,
   runMessageLiveScenarios,
@@ -33,6 +35,7 @@ import {
   validatePackagedLiveProfile,
   writeLiveReport,
   type APIKeyLiveClient,
+  type AccountLiveClient,
   type DomainLiveClient,
   type LiveCandidate,
   type LiveCandidateManifest,
@@ -757,6 +760,126 @@ function smtpCredentialClientFixture(
       domains: controlledDomains,
     },
     scopedPassword,
+  };
+}
+
+function accountClientFixture(
+  options: {
+    failMutation?: boolean;
+    failRestoration?: boolean;
+    failMemberCleanup?: boolean;
+    malformedMemberResult?: boolean;
+  } = {},
+) {
+  const accountId = "77777777-7777-4777-8777-777777777777";
+  const memberId = "88888888-8888-4888-8888-888888888888";
+  const disposableMailbox = "sdk-live-disposable@example.test";
+  const priorState = {
+    name: "Disposable live account",
+    website: "https://prior.example.test",
+    about: "Prior disposable account state",
+    track_opens: true,
+    track_clicks: false,
+    reject_bad_recipients: true,
+    reject_mistyped_recipients: false,
+    message_metadata_retention: 14,
+    message_data_retention: 7,
+  };
+  const account = {
+    object: "account" as const,
+    id: accountId,
+    parent_account_id: null,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    owner_id: "99999999-9999-4999-8999-999999999999",
+    ...priorState,
+  };
+  const calls: string[] = [];
+  const updateRequests: Array<Record<string, unknown>> = [];
+  const members = new Map<
+    string,
+    {
+      created_at: string;
+      updated_at: string;
+      user_id: string;
+      account_id: string;
+      role: "Developer" | "Analyst";
+    }
+  >();
+  let updateCalls = 0;
+  let removeCalls = 0;
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const get = vi.fn(async () => {
+    calls.push("get");
+    return { ...account };
+  });
+  const update = vi.fn(async (request: Record<string, unknown>) => {
+    calls.push("update");
+    updateCalls += 1;
+    updateRequests.push({ ...request });
+    if (options.failMutation === true && updateCalls === 1) {
+      throw Object.assign(new Error("mutation failed"), { status: 500 });
+    }
+    if (options.failRestoration === true && updateCalls === 2) {
+      throw Object.assign(new Error("restoration failed"), { status: 500 });
+    }
+    Object.assign(account, request);
+    return { ...account };
+  });
+  const listMembers = vi.fn(async () => {
+    calls.push("listMembers");
+    return {
+      object: "list" as const,
+      data: [...members.values()].map((member) => ({ ...member })),
+    };
+  });
+  const addMember = vi.fn(
+    async (request: { email: string; name?: string; role: "Developer" | "Analyst" }) => {
+      calls.push("addMember");
+      if (request.email !== disposableMailbox) throw new Error("unexpected mailbox");
+      const relationship = {
+        created_at: "2026-01-02T00:00:00.000Z",
+        updated_at: "2026-01-02T00:00:00.000Z",
+        user_id: memberId,
+        account_id: accountId,
+        role: request.role,
+      };
+      members.set(memberId, relationship);
+      return {
+        ...relationship,
+        ...(options.malformedMemberResult === true ? { role: "Analyst" as const } : {}),
+      };
+    },
+  );
+  const removeMember = vi.fn(async (userId: string) => {
+    calls.push("removeMember");
+    removeCalls += 1;
+    if (options.failMemberCleanup === true && removeCalls === 2) {
+      throw Object.assign(new Error("member cleanup failed"), { status: 500 });
+    }
+    if (!members.delete(userId)) throw notFound();
+    return { message: "removed" };
+  });
+  const client: AccountLiveClient = {
+    accountId,
+    accounts: { get, update, listMembers, addMember, removeMember },
+  };
+  return {
+    account,
+    accountId,
+    calls,
+    client,
+    disposableMailbox,
+    memberId,
+    memberRequest: {
+      email: disposableMailbox,
+      name: "Disposable SDK invite",
+      role: "Developer" as const,
+    },
+    members,
+    priorState,
+    updateRequest: { track_opens: false, track_clicks: true },
+    updateRequests,
   };
 }
 
@@ -2367,6 +2490,205 @@ describe("live scenario inventory", () => {
     expect(source).not.toContain('"password"');
     expect(source).toContain('"secretsReported":false');
     expect(source).toContain('"suppliedDomainsIgnored":true');
+  });
+
+  it("registers exactly one executable scenario for every packaged account primary", () => {
+    const fixture = accountClientFixture();
+    const registry = createAccountScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      disposableAccountId: fixture.accountId,
+      disposableMailbox: fixture.disposableMailbox,
+      updateRequest: fixture.updateRequest,
+      memberRequest: fixture.memberRequest,
+    });
+    const accountEntries = [...registry.primary.values()].filter(
+      ({ facade }) => facade === "accounts",
+    );
+
+    expect(accountEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      [
+        "getAccount",
+        "updateAccount",
+        "getAccountMembers",
+        "addAccountMember",
+        "removeAccountMember",
+      ].sort(),
+    );
+    expect(accountEntries).toHaveLength(5);
+    expect(accountEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.iterators.filter(({ facade }) => facade === "accounts")).toHaveLength(0);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, AccountLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("captures all mutable account state and restores and verifies it after the lifecycle", async () => {
+    const fixture = accountClientFixture();
+    const result = await runAccountLiveScenarios(
+      createAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        disposableAccountId: fixture.accountId,
+        disposableMailbox: fixture.disposableMailbox,
+        updateRequest: fixture.updateRequest,
+        memberRequest: fixture.memberRequest,
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(result.operationResults).toHaveLength(5);
+    expect(result.iteratorResults).toEqual([]);
+    expect(fixture.updateRequests).toEqual([
+      fixture.updateRequest,
+      {
+        track_opens: fixture.priorState.track_opens,
+        track_clicks: fixture.priorState.track_clicks,
+      },
+    ]);
+    expect(fixture.account).toMatchObject(fixture.priorState);
+    expect(result.cleanupResults).toEqual([
+      { label: "remove and verify disposable account member", status: "passed" },
+      { label: "restore and verify disposable parent account", status: "passed" },
+    ]);
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "updateAccount"),
+    ).toMatchObject({
+      evidence: {
+        priorStateCaptured: 9,
+        restorationRegistered: true,
+        updatedFields: 2,
+      },
+    });
+    expect(fixture.calls.slice(-2)).toEqual(["update", "get"]);
+  });
+
+  it("registers account restoration before applying a mutation that can fail", async () => {
+    const fixture = accountClientFixture({ failMutation: true });
+    const result = await runAccountLiveScenarios(
+      createAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        disposableAccountId: fixture.accountId,
+        disposableMailbox: fixture.disposableMailbox,
+        updateRequest: fixture.updateRequest,
+        memberRequest: fixture.memberRequest,
+      }),
+    );
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "updateAccount" });
+    expect(fixture.updateRequests).toEqual([
+      fixture.updateRequest,
+      {
+        track_opens: fixture.priorState.track_opens,
+        track_clicks: fixture.priorState.track_clicks,
+      },
+    ]);
+    expect(result.cleanupResults).toEqual([
+      { label: "restore and verify disposable parent account", status: "passed" },
+    ]);
+    expect(fixture.account).toMatchObject(fixture.priorState);
+  });
+
+  it("uses only the dedicated disposable account and mailbox for member mutation", async () => {
+    const fixture = accountClientFixture({ malformedMemberResult: true });
+    const options = {
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      disposableAccountId: fixture.accountId,
+      disposableMailbox: fixture.disposableMailbox,
+      updateRequest: fixture.updateRequest,
+      memberRequest: fixture.memberRequest,
+    };
+
+    expect(() =>
+      createAccountScenarioRegistry({
+        ...options,
+        disposableAccountId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      }),
+    ).toThrow("disposable parent account");
+    expect(() =>
+      createAccountScenarioRegistry({
+        ...options,
+        memberRequest: { ...fixture.memberRequest, email: "someone-else@example.test" },
+      }),
+    ).toThrow("disposable member mailbox");
+
+    const result = await runAccountLiveScenarios(createAccountScenarioRegistry(options));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "addAccountMember" });
+    expect(fixture.client.accounts.addMember).toHaveBeenCalledWith(fixture.memberRequest);
+    expect(fixture.client.accounts.removeMember).toHaveBeenCalledWith(fixture.memberId);
+    expect(fixture.members.size).toBe(0);
+    expect(result.cleanupResults).toEqual([
+      { label: "remove and verify disposable account member", status: "passed" },
+      { label: "restore and verify disposable parent account", status: "passed" },
+    ]);
+  });
+
+  it("records restoration and member-removal failures as release-blocking cleanup failures", async () => {
+    const restorationFixture = accountClientFixture({ failRestoration: true });
+    const restorationResult = await runAccountLiveScenarios(
+      createAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: restorationFixture.client,
+        disposableAccountId: restorationFixture.accountId,
+        disposableMailbox: restorationFixture.disposableMailbox,
+        updateRequest: restorationFixture.updateRequest,
+        memberRequest: restorationFixture.memberRequest,
+      }),
+    );
+    expect(restorationResult.failure).toEqual({ phase: "cleanup" });
+    expect(restorationResult.cleanupResults).toContainEqual({
+      label: "restore and verify disposable parent account",
+      status: "failed",
+    });
+
+    const memberFixture = accountClientFixture({ failMemberCleanup: true });
+    const memberResult = await runAccountLiveScenarios(
+      createAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: memberFixture.client,
+        disposableAccountId: memberFixture.accountId,
+        disposableMailbox: memberFixture.disposableMailbox,
+        updateRequest: memberFixture.updateRequest,
+        memberRequest: memberFixture.memberRequest,
+      }),
+    );
+    expect(memberResult.failure).toEqual({ phase: "cleanup" });
+    expect(memberResult.cleanupResults).toContainEqual({
+      label: "remove and verify disposable account member",
+      status: "failed",
+    });
+  });
+
+  it("keeps account mutation and invitation data out of canonical live reports", async () => {
+    const candidate = inspectFixture();
+    const fixture = accountClientFixture();
+    const result = await runAccountLiveScenarios(
+      createAccountScenarioRegistry({
+        profile: candidate.profile,
+        client: fixture.client,
+        disposableAccountId: fixture.accountId,
+        disposableMailbox: fixture.disposableMailbox,
+        updateRequest: fixture.updateRequest,
+        memberRequest: fixture.memberRequest,
+      }),
+    );
+    const source = canonicalizeJson(
+      createLiveReport({
+        candidate,
+        operationResults: result.operationResults,
+        cleanupResults: result.cleanupResults,
+      }),
+    ).toString("utf8");
+
+    expect(source).not.toContain(fixture.disposableMailbox);
+    expect(source).not.toContain(fixture.memberRequest.name);
+    expect(source).not.toContain(fixture.memberId);
+    expect(source).not.toContain(fixture.priorState.about);
+    expect(source).not.toContain(fixture.priorState.website);
+    expect(source).toContain('"disposableMailboxUsed":true');
+    expect(source).toContain('"invitationDataReported":false');
   });
 
   it("registers exactly one executable scenario for every packaged statistics primary", () => {

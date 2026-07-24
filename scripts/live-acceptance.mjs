@@ -75,6 +75,24 @@ const smtpCredentialOperationIds = Object.freeze([
   "getSMTPCredential",
   "deleteSMTPCredential",
 ]);
+const accountOperationIds = Object.freeze([
+  "getAccount",
+  "updateAccount",
+  "getAccountMembers",
+  "addAccountMember",
+  "removeAccountMember",
+]);
+const mutableAccountFields = Object.freeze([
+  "name",
+  "website",
+  "about",
+  "track_opens",
+  "track_clicks",
+  "reject_bad_recipients",
+  "reject_mistyped_recipients",
+  "message_metadata_retention",
+  "message_data_retention",
+]);
 const restrictedApiKeyAddress = "192.0.2.7";
 const canonicalRestrictedApiKeyAddress = `${restrictedApiKeyAddress}/32`;
 const selfLockoutAddress = "192.0.2.1/32";
@@ -2594,6 +2612,318 @@ export function runSMTPCredentialLiveScenarios(registry) {
     "getSMTPCredentials",
     "SMTP credential",
   );
+}
+
+function assertAccountMappings(profile) {
+  const expected = new Set(accountOperationIds);
+  const actual = profile.operations.filter(({ facade }) => facade === "accounts");
+  const actualIds = new Set(actual.map(({ operationId }) => operationId));
+  const missing = accountOperationIds.filter((operationId) => !actualIds.has(operationId));
+  const orphaned = actual
+    .map(({ operationId }) => operationId)
+    .filter((operationId) => !expected.has(operationId));
+  const iterators = profile.iterators.filter(({ facade }) => facade === "accounts");
+  if (
+    actual.length !== accountOperationIds.length ||
+    missing.length > 0 ||
+    orphaned.length > 0 ||
+    iterators.length > 0
+  ) {
+    throw new TypeError(
+      `Packaged account operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}, iterators ${iterators.length}.`,
+    );
+  }
+  return Object.freeze({
+    operations: new Map(actual.map((mapping) => [mapping.operationId, mapping])),
+  });
+}
+
+function requireDisposableAccountId(client, disposableAccountId) {
+  const liveClient = requireObject(client, "Live client");
+  const expected = requireString(disposableAccountId, "Disposable parent account id");
+  if (requireString(liveClient.accountId, "Live client accountId") !== expected) {
+    throw new TypeError("Live client must be bound to the disposable parent account.");
+  }
+  return expected;
+}
+
+function requireMemberRequest(value, disposableMailbox) {
+  const request = requireObject(value, "Account-member live add request");
+  const email = requireString(request.email, "Account-member live add request email");
+  const mailbox = requireString(disposableMailbox, "Disposable member mailbox");
+  if (email.toLowerCase() !== mailbox.toLowerCase() || !email.includes("@")) {
+    throw new TypeError("Account-member live add request must use the disposable member mailbox.");
+  }
+  if (!["Administrator", "Developer", "Analyst", "Billing Manager"].includes(request.role)) {
+    throw new TypeError("Account-member live add request role is invalid.");
+  }
+  if (request.name !== undefined) {
+    requireString(request.name, "Account-member live add request name");
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireAccountMutation(value) {
+  const request = requireObject(value, "Account live update request");
+  const suppliedFields = Object.keys(request);
+  const unexpected = suppliedFields.filter((field) => !mutableAccountFields.includes(field));
+  if (suppliedFields.length === 0 || unexpected.length > 0) {
+    throw new TypeError(
+      `Account live update request must contain mutable account fields only; unexpected ${JSON.stringify(unexpected)}.`,
+    );
+  }
+  for (const field of suppliedFields) {
+    if (request[field] === undefined || request[field] === null) {
+      throw new TypeError(`Account live update request ${field} must be restorable.`);
+    }
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireMutableAccountState(value, expectedAccountId, label) {
+  const account = requireObject(value, label);
+  if (requireString(account.id, `${label} id`) !== expectedAccountId) {
+    throw new TypeError(`${label} returned the wrong account.`);
+  }
+  const state = {};
+  for (const field of mutableAccountFields) {
+    const fieldValue = account[field];
+    if (
+      !(
+        fieldValue === undefined ||
+        fieldValue === null ||
+        typeof fieldValue === "string" ||
+        typeof fieldValue === "boolean" ||
+        (typeof fieldValue === "number" && Number.isInteger(fieldValue))
+      )
+    ) {
+      throw new TypeError(`${label} ${field} must be present and restorable.`);
+    }
+    state[field] = fieldValue;
+  }
+  return Object.freeze(state);
+}
+
+function requireAccountFields(value, expectedAccountId, expected, label) {
+  const account = requireObject(value, label);
+  if (requireString(account.id, `${label} id`) !== expectedAccountId) {
+    throw new TypeError(`${label} returned the wrong account.`);
+  }
+  for (const [field, expectedValue] of Object.entries(expected)) {
+    if (account[field] !== expectedValue) {
+      throw new TypeError(`${label} did not preserve ${field}.`);
+    }
+  }
+  return account;
+}
+
+function requireAccountMembers(value, expectedAccountId, label) {
+  const response = requireObject(value, label);
+  if (response.object !== "list" || !Array.isArray(response.data)) {
+    throw new TypeError(`${label} must contain account-member data.`);
+  }
+  for (const [index, entry] of response.data.entries()) {
+    const member = requireObject(entry, `${label} member ${index}`);
+    if (
+      requireString(member.account_id, `${label} member ${index} account_id`) !== expectedAccountId
+    ) {
+      throw new TypeError(`${label} returned a member from another account.`);
+    }
+    requireString(member.user_id, `${label} member ${index} user_id`);
+  }
+  return response;
+}
+
+/**
+ * Build account and member scenarios for one explicitly identified disposable
+ * parent account. Restoration and member removal are registered before any
+ * later validation that could fail.
+ */
+export function createAccountScenarioRegistry({
+  profile,
+  client,
+  disposableAccountId,
+  disposableMailbox,
+  updateRequest,
+  memberRequest,
+}) {
+  const mappings = assertAccountMappings(profile);
+  const accountId = requireDisposableAccountId(client, disposableAccountId);
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Account ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    get: mappedOperation("getAccount"),
+    update: mappedOperation("updateAccount"),
+    listMembers: mappedOperation("getAccountMembers"),
+    addMember: mappedOperation("addAccountMember"),
+    removeMember: mappedOperation("removeAccountMember"),
+  });
+  const updateBody = requireAccountMutation(updateRequest);
+  const addBody = requireMemberRequest(memberRequest, disposableMailbox);
+  let memberId;
+
+  const scenarios = new Map([
+    [
+      "getAccount",
+      {
+        operationId: "getAccount",
+        async run() {
+          requireMutableAccountState(
+            await methods.get(),
+            accountId,
+            "Account get scenario response",
+          );
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "updateAccount",
+      {
+        operationId: "updateAccount",
+        async run({ cleanup }) {
+          const priorState = requireMutableAccountState(
+            await methods.get(),
+            accountId,
+            "Account prior-state capture",
+          );
+          const restorationBody = Object.freeze(
+            Object.fromEntries(
+              Object.keys(updateBody).map((field) => {
+                const priorValue = priorState[field];
+                if (priorValue === undefined || priorValue === null) {
+                  throw new TypeError(
+                    `Account prior-state capture ${field} cannot be restored by the update operation.`,
+                  );
+                }
+                return [field, priorValue];
+              }),
+            ),
+          );
+          if (
+            Object.entries(updateBody).every(
+              ([field, updatedValue]) => priorState[field] === updatedValue,
+            )
+          ) {
+            throw new TypeError("Account live update request must change the prior account state.");
+          }
+          cleanup.register("restore and verify disposable parent account", async () => {
+            await methods.update(restorationBody);
+            requireAccountFields(
+              await methods.get(),
+              accountId,
+              priorState,
+              "Account restoration verification",
+            );
+          });
+          requireAccountFields(
+            await methods.update(updateBody),
+            accountId,
+            updateBody,
+            "Account update scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              priorStateCaptured: mutableAccountFields.length,
+              restorationRegistered: true,
+              updatedFields: Object.keys(updateBody).length,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getAccountMembers",
+      {
+        operationId: "getAccountMembers",
+        async run() {
+          const response = requireAccountMembers(
+            await methods.listMembers(),
+            accountId,
+            "Account-member list scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ membersObserved: response.data.length }),
+          });
+        },
+      },
+    ],
+    [
+      "addAccountMember",
+      {
+        operationId: "addAccountMember",
+        async run({ cleanup }) {
+          const result = requireObject(
+            await methods.addMember(addBody),
+            "Account-member add scenario response",
+          );
+          const createdMemberId = requireString(
+            result.user_id,
+            "Account-member add scenario response user_id",
+          );
+          memberId = createdMemberId;
+          cleanup.register("remove and verify disposable account member", async () => {
+            try {
+              await methods.removeMember(createdMemberId);
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
+            }
+            const members = requireAccountMembers(
+              await methods.listMembers(),
+              accountId,
+              "Account-member cleanup verification",
+            );
+            if (members.data.some(({ user_id: userId }) => userId === createdMemberId)) {
+              throw new TypeError("Account-member cleanup verification found the member.");
+            }
+          });
+          if (result.account_id !== accountId || result.role !== addBody.role) {
+            throw new TypeError("Account-member add scenario returned the wrong relationship.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              cleanupRegistered: true,
+              disposableMailboxUsed: true,
+              invitationDataReported: false,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "removeAccountMember",
+      {
+        operationId: "removeAccountMember",
+        async run() {
+          const id = requireString(memberId, "Disposable account-member fixture id");
+          await methods.removeMember(id);
+          const members = requireAccountMembers(
+            await methods.listMembers(),
+            accountId,
+            "Account-member removal verification",
+          );
+          if (members.data.some(({ user_id: userId }) => userId === id)) {
+            throw new TypeError("Account-member removal verification found the member.");
+          }
+          return Object.freeze({ evidence: Object.freeze({ removed: true }) });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute account and member scenarios in dependency order and always drain cleanup. */
+export function runAccountLiveScenarios(registry) {
+  return runLiveScenarios(registry, accountOperationIds, null, "Account");
 }
 
 export function createCleanupRegistry() {

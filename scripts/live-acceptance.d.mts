@@ -599,6 +599,54 @@ export function runSMTPCredentialLiveScenarios(
   registry: ScenarioRegistry,
 ): Promise<SMTPCredentialLiveRun>;
 
+export interface AccountLiveFacade {
+  readonly get: (...args: never[]) => unknown;
+  readonly update: (...args: never[]) => unknown;
+  readonly listMembers: (...args: never[]) => unknown;
+  readonly addMember: (...args: never[]) => unknown;
+  readonly removeMember: (...args: never[]) => unknown;
+}
+
+export interface AccountLiveClient {
+  readonly accountId: string;
+  readonly accounts: AccountLiveFacade;
+}
+
+export interface AccountLiveUpdateRequest {
+  readonly name?: string;
+  readonly website?: string;
+  readonly about?: string;
+  readonly track_opens?: boolean;
+  readonly track_clicks?: boolean;
+  readonly reject_bad_recipients?: boolean;
+  readonly reject_mistyped_recipients?: boolean;
+  readonly message_metadata_retention?: number;
+  readonly message_data_retention?: number;
+}
+
+export interface AccountMemberLiveRequest {
+  readonly email: string;
+  readonly name?: string;
+  readonly role: "Administrator" | "Developer" | "Analyst" | "Billing Manager";
+}
+
+export interface CreateAccountScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: AccountLiveClient;
+  readonly disposableAccountId: string;
+  readonly disposableMailbox: string;
+  readonly updateRequest: AccountLiveUpdateRequest;
+  readonly memberRequest: AccountMemberLiveRequest;
+}
+
+export function createAccountScenarioRegistry(
+  options: CreateAccountScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type AccountLiveRun = DomainLiveRun;
+
+export function runAccountLiveScenarios(registry: ScenarioRegistry): Promise<AccountLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";
