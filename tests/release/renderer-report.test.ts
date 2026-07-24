@@ -1,124 +1,23 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { canonicalizeJson, sha256Hex } from "../../scripts/digest-artifact.mjs";
 import { generateRendererHandoff } from "../../scripts/generate-docs.mjs";
 import { NODE_CODE_SAMPLES } from "../../scripts/node-code-samples.mjs";
 import { validateRendererReport } from "../../scripts/verify-renderer-report.mjs";
 import rendererAttestations from "../fixtures/release/renderer-attestations.json";
-
-interface Sample {
-  label: string;
-  language: string;
-  sourceHash: string;
-}
-
-interface HandoffOperation {
-  operationId: string;
-  samples: Sample[];
-}
-
-interface RendererHandoff {
-  version: number;
-  restDigest: string;
-  operations: HandoffOperation[];
-}
-
-interface ReportOperation {
-  operationId: string;
-  tabs: Sample[];
-}
-
-interface RendererReport {
-  version: number;
-  handoffDigest: string;
-  restDigest: string;
-  operations: ReportOperation[];
-}
+import {
+  rendererHandoff as handoff,
+  rendererHandoffSidecar as handoffSidecar,
+  rendererHandoffSource as handoffSource,
+  rendererReportFixture,
+  validRendererReport,
+} from "./renderer-report-fixtures.js";
 
 const repositoryRoot = process.cwd();
-const handoffPath = resolve(repositoryRoot, "docs/renderer-handoff.json");
-const sidecarPath = resolve(repositoryRoot, "docs/renderer-handoff.sha256");
-const handoffSource = readFileSync(handoffPath);
-const handoffSidecar = readFileSync(sidecarPath);
-const handoff = JSON.parse(handoffSource.toString("utf8")) as RendererHandoff;
 const temporaryDirectories: string[] = [];
-
-function validReport(): RendererReport {
-  return {
-    version: 1,
-    handoffDigest: sha256Hex(handoffSource),
-    restDigest: handoff.restDigest,
-    operations: handoff.operations.map(({ operationId, samples }) => ({
-      operationId,
-      tabs: structuredClone(samples),
-    })),
-  };
-}
-
-function requireOperation(report: RendererReport, index: number): ReportOperation {
-  const operation = report.operations[index];
-  if (operation === undefined) throw new TypeError(`Missing fixture operation ${index}`);
-  return operation;
-}
-
-function requireTab(operation: ReportOperation, index: number): Sample {
-  const tab = operation.tabs[index];
-  if (tab === undefined) throw new TypeError(`Missing fixture tab ${index}`);
-  return tab;
-}
-
-function mutateFixture(mutation: string): {
-  reportSource: Buffer;
-  handoffSidecar: Buffer | string;
-} {
-  const report = validReport();
-  let sidecar: Buffer | string = handoffSidecar;
-
-  switch (mutation) {
-    case "none":
-      break;
-    case "staleHandoffDigest":
-      report.handoffDigest = "0".repeat(64);
-      break;
-    case "staleRestDigest":
-      report.restDigest = "0".repeat(64);
-      break;
-    case "missingOperation":
-      report.operations.pop();
-      break;
-    case "duplicateOperation":
-      report.operations[report.operations.length - 1] = structuredClone(
-        requireOperation(report, 0),
-      );
-      break;
-    case "missingTab":
-      requireOperation(report, 0).tabs.pop();
-      break;
-    case "duplicateTab": {
-      const operation = requireOperation(report, 0);
-      operation.tabs.push(structuredClone(requireTab(operation, 0)));
-      break;
-    }
-    case "sourceHashMismatch":
-      requireTab(requireOperation(report, 0), 0).sourceHash = "0".repeat(64);
-      break;
-    case "noncanonicalPayload":
-      return {
-        reportSource: Buffer.from(JSON.stringify(report, null, 2), "utf8"),
-        handoffSidecar: sidecar,
-      };
-    case "sidecarMismatch":
-      sidecar = `${"0".repeat(64)}\n`;
-      break;
-    default:
-      throw new TypeError(`Unknown renderer fixture mutation ${mutation}`);
-  }
-
-  return { reportSource: canonicalizeJson(report), handoffSidecar: sidecar };
-}
 
 afterAll(() => {
   for (const directory of temporaryDirectories) {
@@ -153,7 +52,7 @@ describe("renderer report validation", () => {
 
   for (const testCase of rendererAttestations.cases) {
     it(testCase.name, () => {
-      const fixture = mutateFixture(testCase.mutation);
+      const fixture = rendererReportFixture(testCase.mutation);
       const validate = () =>
         validateRendererReport({
           handoffSource,
@@ -177,7 +76,7 @@ describe("renderer report validation", () => {
     const directory = mkdtempSync(join(tmpdir(), "ahasend-renderer-report-"));
     temporaryDirectories.push(directory);
     const reportPath = join(directory, "renderer-report.json");
-    writeFileSync(reportPath, canonicalizeJson(validReport()));
+    writeFileSync(reportPath, canonicalizeJson(validRendererReport()));
 
     const result = spawnSync(process.execPath, ["scripts/verify-renderer-report.mjs", reportPath], {
       cwd: repositoryRoot,
