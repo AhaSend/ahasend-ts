@@ -3625,6 +3625,32 @@ describe("live scenario inventory", () => {
     expect(child?.records.has(child.keyId)).toBe(false);
   });
 
+  it("cleans up the reused subaccount when child-key registry validation throws", async () => {
+    const profile = inspectFixture().profile;
+    const parent = subAccountClientFixture();
+    let reusedSubAccountId: string | undefined;
+    const run = runSubAccountAndAPIKeyLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile,
+        client: parent.client,
+        createRequest: parent.createRequest,
+        updateRequest: parent.updateRequest,
+        suspendRequest: parent.suspendRequest,
+      }),
+      (subAccountId) => {
+        reusedSubAccountId = subAccountId;
+        return createScenarioRegistry(profile);
+      },
+    );
+
+    await expect(run).rejects.toThrow(
+      "Child API-key scenario registry is missing executable listSubAccountAPIKeys",
+    );
+    expect(reusedSubAccountId).toBe(parent.childId);
+    expect(parent.client.subAccounts.delete).toHaveBeenCalledWith(parent.childId);
+    expect(parent.records.has(parent.childId)).toBe(false);
+  });
+
   it("registers exactly one executable scenario for every packaged child API-key primary", () => {
     const fixture = subAccountAPIKeyClientFixture();
     const registry = createSubAccountAPIKeyScenarioRegistry({
@@ -3871,16 +3897,23 @@ describe("live scenario inventory", () => {
         updateRequest: fixture.updateRequest,
       }),
     );
+    const scenarioSource = canonicalizeJson({
+      operationResults: result.operationResults,
+      iteratorResults: result.iteratorResults,
+      cleanupResults: result.cleanupResults,
+    }).toString("utf8");
     const source = canonicalizeJson(
       createLiveReport({
         candidate,
         operationResults: result.operationResults,
         iteratorResults: result.iteratorResults,
         cleanupResults: result.cleanupResults,
-        secrets: [fixture.secret, fixture.subAccountId, fixture.keyId],
       }),
     ).toString("utf8");
 
+    expect(scenarioSource).not.toContain(fixture.secret);
+    expect(scenarioSource).not.toContain(fixture.subAccountId);
+    expect(scenarioSource).not.toContain(fixture.keyId);
     expect(source).not.toContain(fixture.secret);
     expect(source).not.toContain(fixture.subAccountId);
     expect(source).not.toContain(fixture.keyId);

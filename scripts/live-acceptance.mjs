@@ -4020,15 +4020,11 @@ export async function runSubAccountAndAPIKeyLiveScenarios(
   );
   let childLifecycle = null;
   let parentDelete = null;
-  let setupError;
+  let lifecycleError;
+  let lifecycleFailed = false;
   if (parentLifecycle.failure === null) {
-    let childRegistry;
     try {
-      childRegistry = createAPIKeyRegistry(fixtureId());
-    } catch (error) {
-      setupError = error;
-    }
-    if (setupError === undefined) {
+      const childRegistry = createAPIKeyRegistry(fixtureId());
       childLifecycle = await executeLiveScenarios(
         childRegistry,
         subAccountAPIKeyOperationIds,
@@ -4045,6 +4041,9 @@ export async function runSubAccountAndAPIKeyLiveScenarios(
           cleanup,
         );
       }
+    } catch (error) {
+      lifecycleFailed = true;
+      lifecycleError = error;
     }
   }
 
@@ -4059,7 +4058,7 @@ export async function runSubAccountAndAPIKeyLiveScenarios(
         ? Object.freeze({ ...childLifecycle.failure, suite: "subAccounts.apiKeys" })
         : null;
   const failure = await drainLiveCleanup(cleanup, operationFailure);
-  if (setupError !== undefined) throw setupError;
+  if (lifecycleFailed) throw lifecycleError;
 
   const cleanupResults = cleanup.results;
   return Object.freeze({
