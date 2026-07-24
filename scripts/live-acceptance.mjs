@@ -69,6 +69,12 @@ const webhookOperationIds = Object.freeze([
   "updateWebhook",
   "deleteWebhook",
 ]);
+const smtpCredentialOperationIds = Object.freeze([
+  "getSMTPCredentials",
+  "createSMTPCredential",
+  "getSMTPCredential",
+  "deleteSMTPCredential",
+]);
 const restrictedApiKeyAddress = "192.0.2.7";
 const canonicalRestrictedApiKeyAddress = `${restrictedApiKeyAddress}/32`;
 const selfLockoutAddress = "192.0.2.1/32";
@@ -1960,7 +1966,7 @@ export function runRouteLiveScenarios(registry) {
   return runLiveScenarios(registry, routeOperationIds, "getRoutes", "Route");
 }
 
-function requireWebhookAuthorizationRule(value, operationId) {
+function requireAllBodyDomainsAuthorizationRule(value, operationId, resourceLabel) {
   const label = `Packaged ${operationId} authorization metadata`;
   const rule = requireObject(value, label);
   const roles = requireObject(rule.roles, `${label} roles`);
@@ -1970,23 +1976,37 @@ function requireWebhookAuthorizationRule(value, operationId) {
     throw new TypeError(`${label} domain role must contain the {domain} placeholder.`);
   }
 
+  if (
+    rule.kind !== "all_body_domains" ||
+    rule.bodyPath !== "domains" ||
+    rule.scopeBodyPath !== "scope" ||
+    rule.globalValue !== "global" ||
+    rule.quantifier !== "every" ||
+    rule.condition !== "global_scope_requires_global_role"
+  ) {
+    throw new TypeError(
+      `${label} must authorize every scoped ${resourceLabel} domain and require the global role for global scope.`,
+    );
+  }
+  return Object.freeze({
+    globalRoleRequired: true,
+    quantifier: rule.quantifier,
+    scopeSource: `body.${rule.scopeBodyPath}`,
+    source: `body.${rule.bodyPath}`,
+  });
+}
+
+function requireWebhookAuthorizationRule(value, operationId) {
   if (operationId === "createWebhook") {
-    if (
-      rule.kind !== "all_body_domains" ||
-      rule.bodyPath !== "domains" ||
-      rule.scopeBodyPath !== "scope" ||
-      rule.globalValue !== "global" ||
-      rule.quantifier !== "every" ||
-      rule.condition !== "global_scope_requires_global_role"
-    ) {
-      throw new TypeError(
-        `${label} must authorize every scoped domain and require the global role for global scope.`,
-      );
-    }
-    return Object.freeze({
-      quantifier: rule.quantifier,
-      source: `body.${rule.bodyPath}`,
-    });
+    return requireAllBodyDomainsAuthorizationRule(value, operationId, "configured-webhook");
+  }
+  const label = `Packaged ${operationId} authorization metadata`;
+  const rule = requireObject(value, label);
+  const roles = requireObject(rule.roles, `${label} roles`);
+  requireString(roles.global, `${label} global role`);
+  const domainRole = requireString(roles.domain, `${label} domain role`);
+  if (!domainRole.includes("{domain}")) {
+    throw new TypeError(`${label} domain role must contain the {domain} placeholder.`);
   }
   if (
     rule.kind !== "existing_and_new_domains" ||
@@ -2030,28 +2050,32 @@ function assertWebhookMappings(profile, authorization) {
   });
 }
 
+function requireControlledDomainList(value, label) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new TypeError(`${label} must contain at least one domain.`);
+  }
+  const normalized = value.map((domain, index) =>
+    requireString(domain, `${label} entry ${index}`).toLowerCase(),
+  );
+  if (
+    normalized.some(
+      (domain) =>
+        domain.trim() !== domain || domain === "" || domain.includes("@") || domain.includes(","),
+    ) ||
+    new Set(normalized).size !== normalized.length
+  ) {
+    throw new TypeError(`${label} must contain distinct domain names.`);
+  }
+  return Object.freeze(normalized);
+}
+
 function requireControlledWebhookDomains(value) {
   const controlledDomains = requireObject(value, "Controlled configured-webhook domains");
-  const normalize = (domains, label) => {
-    if (!Array.isArray(domains) || domains.length === 0) {
-      throw new TypeError(`${label} must contain at least one domain.`);
-    }
-    const normalized = domains.map((domain, index) =>
-      requireString(domain, `${label} entry ${index}`).toLowerCase(),
-    );
-    if (
-      normalized.some(
-        (domain) =>
-          domain.trim() !== domain || domain === "" || domain.includes("@") || domain.includes(","),
-      ) ||
-      new Set(normalized).size !== normalized.length
-    ) {
-      throw new TypeError(`${label} must contain distinct domain names.`);
-    }
-    return Object.freeze(normalized);
-  };
-  const existing = normalize(controlledDomains.existing, "Existing controlled webhook domains");
-  const newlySupplied = normalize(
+  const existing = requireControlledDomainList(
+    controlledDomains.existing,
+    "Existing controlled webhook domains",
+  );
+  const newlySupplied = requireControlledDomainList(
     controlledDomains.newlySupplied,
     "Newly supplied controlled webhook domains",
   );
@@ -2067,11 +2091,11 @@ function requireWebhookRequest(value, label, expectedDomains, requiredKeys) {
   if (request.scope !== "scoped") {
     throw new TypeError(`${label} scope must be scoped.`);
   }
-  requireWebhookDomains(request.domains, expectedDomains, `${label} domains`);
+  requireExactDomains(request.domains, expectedDomains, `${label} domains`);
   return Object.freeze({ ...request, domains: Object.freeze([...expectedDomains]) });
 }
 
-function requireWebhookDomains(value, expectedDomains, label) {
+function requireExactDomains(value, expectedDomains, label) {
   if (!Array.isArray(value) || value.length !== expectedDomains.length) {
     throw new TypeError(`${label} must contain every controlled domain.`);
   }
@@ -2095,7 +2119,7 @@ function requireWebhookResult(value, webhookId, scope, expectedDomains, label) {
   if (result.scope !== scope) {
     throw new TypeError(`${label} returned the wrong configured-webhook scope.`);
   }
-  requireWebhookDomains(result.domains, expectedDomains, `${label} domains`);
+  requireExactDomains(result.domains, expectedDomains, `${label} domains`);
   return result;
 }
 
@@ -2315,6 +2339,261 @@ export function createWebhookScenarioRegistry({
 /** Execute configured-webhook scenarios in lifecycle order and always drain cleanup. */
 export function runWebhookLiveScenarios(registry) {
   return runLiveScenarios(registry, webhookOperationIds, "getWebhooks", "Configured-webhook");
+}
+
+function assertSMTPCredentialMappings(profile, authorization) {
+  const mappings = requireLifecycleMappings(
+    profile,
+    smtpCredentialOperationIds,
+    "smtpCredentials",
+    "getSMTPCredentials",
+    "SMTP credential",
+  );
+  const authorizationRegistry = requireObject(authorization, "Packaged authorization registry");
+  return Object.freeze({
+    ...mappings,
+    authorization: requireAllBodyDomainsAuthorizationRule(
+      authorizationRegistry.createSMTPCredential,
+      "createSMTPCredential",
+      "SMTP credential",
+    ),
+  });
+}
+
+function requireScopedSMTPCredentialRequest(value, expectedDomains) {
+  const label = "Scoped SMTP-credential live create request";
+  const request = requireObject(value, label);
+  requireString(request.name, `${label} name`);
+  if (request.scope !== "scoped") {
+    throw new TypeError(`${label} scope must be scoped.`);
+  }
+  requireExactDomains(request.domains, expectedDomains, `${label} domains`);
+  return Object.freeze({ ...request, domains: Object.freeze([...expectedDomains]) });
+}
+
+function requireGlobalSMTPCredentialRequest(value, expectedDomains) {
+  const label = "Global SMTP-credential live create request";
+  const request = requireObject(value, label);
+  requireString(request.name, `${label} name`);
+  if (request.scope !== "global") {
+    throw new TypeError(`${label} scope must be global.`);
+  }
+  requireExactDomains(request.domains, expectedDomains, `${label} domains`);
+  return Object.freeze({ ...request, domains: Object.freeze([...expectedDomains]) });
+}
+
+function requireSMTPCredentialResult(value, credentialId, scope, expectedDomains, label) {
+  const result = requireObject(value, label);
+  if (requireString(result.id, `${label} id`) !== credentialId) {
+    throw new TypeError(`${label} returned the wrong SMTP credential.`);
+  }
+  if (result.scope !== scope) {
+    throw new TypeError(`${label} returned the wrong SMTP-credential scope.`);
+  }
+  requireExactDomains(result.domains, expectedDomains, `${label} domains`);
+  return result;
+}
+
+/**
+ * Build the four SMTP-credential lifecycle scenarios. The create primary
+ * verifies scoped authorization and the API's accepted-but-ignored global
+ * domains behavior without retaining either one-time password.
+ */
+export function createSMTPCredentialScenarioRegistry({
+  profile,
+  client,
+  authorization,
+  controlledDomains,
+  scopedCreateRequest,
+  globalCreateRequest,
+  pagination = { limit: 1 },
+}) {
+  const mappings = assertSMTPCredentialMappings(profile, authorization);
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `SMTP credential ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("getSMTPCredentials"),
+    iterate: requireMappedClientMethod(
+      client,
+      mappings.iterator,
+      "SMTP credential iterator scenario",
+    ),
+    create: mappedOperation("createSMTPCredential"),
+    get: mappedOperation("getSMTPCredential"),
+    delete: mappedOperation("deleteSMTPCredential"),
+  });
+  const domains = requireControlledDomainList(
+    controlledDomains,
+    "Controlled SMTP-credential domains",
+  );
+  const scopedCreateBody = requireScopedSMTPCredentialRequest(scopedCreateRequest, domains);
+  const globalCreateBody = requireGlobalSMTPCredentialRequest(globalCreateRequest, domains);
+  const pageParams = requireLivePagination(pagination, "SMTP credential");
+
+  let scopedCredentialId;
+  const fixtureId = () => requireString(scopedCredentialId, "Scoped SMTP-credential fixture id");
+  const registerCleanup = (cleanup, credentialId, label) => {
+    cleanup.register(label, async () => {
+      try {
+        await methods.delete(credentialId);
+      } catch (error) {
+        if (!isNotFoundError(error)) throw error;
+      }
+      await requireResourceAbsent(
+        methods.get,
+        credentialId,
+        "SMTP-credential cleanup verification",
+        "SMTP credential",
+      );
+    });
+  };
+  const scenarios = new Map([
+    [
+      "getSMTPCredentials",
+      {
+        operationId: "getSMTPCredentials",
+        async run() {
+          return runListIteratorScenario(
+            methods.list,
+            methods.iterate,
+            pageParams,
+            "SMTP credential",
+          );
+        },
+      },
+    ],
+    [
+      "createSMTPCredential",
+      {
+        operationId: "createSMTPCredential",
+        async run({ cleanup }) {
+          const scopedResult = requireObject(
+            await methods.create(scopedCreateBody),
+            "Scoped SMTP-credential create scenario response",
+          );
+          const createdScopedId = requireString(
+            scopedResult.id,
+            "Scoped SMTP-credential create scenario response id",
+          );
+          scopedCredentialId = createdScopedId;
+          registerCleanup(
+            cleanup,
+            createdScopedId,
+            "delete and verify scoped SMTP-credential fixture",
+          );
+          requireSMTPCredentialResult(
+            scopedResult,
+            createdScopedId,
+            "scoped",
+            domains,
+            "Scoped SMTP-credential create scenario response",
+          );
+          requireString(
+            scopedResult.password,
+            "Scoped SMTP-credential create scenario response password",
+          );
+
+          const globalResult = requireObject(
+            await methods.create(globalCreateBody),
+            "Global SMTP-credential create scenario response",
+          );
+          const createdGlobalId = requireString(
+            globalResult.id,
+            "Global SMTP-credential create scenario response id",
+          );
+          registerCleanup(
+            cleanup,
+            createdGlobalId,
+            "delete and verify global SMTP-credential fixture",
+          );
+          requireSMTPCredentialResult(
+            globalResult,
+            createdGlobalId,
+            "global",
+            [],
+            "Global SMTP-credential create scenario response",
+          );
+          requireString(
+            globalResult.password,
+            "Global SMTP-credential create scenario response password",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              cleanupRegistered: 2,
+              globalAuthorization: Object.freeze({
+                domainsSupplied: domains.length,
+                globalRoleRequired: mappings.authorization.globalRoleRequired,
+                scopeSource: mappings.authorization.scopeSource,
+                suppliedDomainsIgnored: true,
+              }),
+              scopedAuthorization: Object.freeze({
+                controlled: true,
+                domainsVerified: domains.length,
+                quantifier: mappings.authorization.quantifier,
+                source: mappings.authorization.source,
+              }),
+              secretsReported: false,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getSMTPCredential",
+      {
+        operationId: "getSMTPCredential",
+        async run() {
+          const id = fixtureId();
+          requireSMTPCredentialResult(
+            await methods.get(id),
+            id,
+            "scoped",
+            domains,
+            "SMTP-credential get scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ scopedDomainsVerified: domains.length }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteSMTPCredential",
+      {
+        operationId: "deleteSMTPCredential",
+        async run() {
+          const id = fixtureId();
+          await methods.delete(id);
+          await requireResourceAbsent(
+            methods.get,
+            id,
+            "SMTP-credential delete scenario verification",
+            "SMTP credential",
+          );
+          return Object.freeze({ evidence: Object.freeze({ deleted: true }) });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute SMTP-credential scenarios in lifecycle order and always drain cleanup. */
+export function runSMTPCredentialLiveScenarios(registry) {
+  return runLiveScenarios(
+    registry,
+    smtpCredentialOperationIds,
+    "getSMTPCredentials",
+    "SMTP credential",
+  );
 }
 
 export function createCleanupRegistry() {

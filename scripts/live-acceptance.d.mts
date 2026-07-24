@@ -534,6 +534,71 @@ export type WebhookLiveRun = DomainLiveRun;
 
 export function runWebhookLiveScenarios(registry: ScenarioRegistry): Promise<WebhookLiveRun>;
 
+export interface SMTPCredentialLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+}
+
+export interface SMTPCredentialLiveClient {
+  readonly smtpCredentials: SMTPCredentialLiveFacade;
+}
+
+export interface ScopedSMTPCredentialLiveCreateRequest {
+  readonly name: string;
+  readonly sandbox?: boolean;
+  readonly scope: "scoped";
+  readonly domains: readonly [string, ...string[]];
+}
+
+export interface GlobalSMTPCredentialLiveCreateRequest {
+  readonly name: string;
+  readonly sandbox?: boolean;
+  readonly scope: "global";
+  readonly domains: readonly [string, ...string[]];
+}
+
+export interface SMTPCredentialCreateAuthorizationRule {
+  readonly kind: "all_body_domains";
+  readonly bodyPath: "domains";
+  readonly scopeBodyPath: "scope";
+  readonly globalValue: "global";
+  readonly quantifier: "every";
+  readonly condition: "global_scope_requires_global_role";
+  readonly roles: {
+    readonly global: string;
+    readonly domain: string;
+  };
+  readonly summary?: string;
+}
+
+export interface SMTPCredentialAuthorizationRegistry {
+  readonly createSMTPCredential: SMTPCredentialCreateAuthorizationRule;
+  readonly [operationId: string]: unknown;
+}
+
+export interface CreateSMTPCredentialScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: SMTPCredentialLiveClient;
+  readonly authorization: SMTPCredentialAuthorizationRegistry;
+  readonly controlledDomains: readonly [string, ...string[]];
+  readonly scopedCreateRequest: ScopedSMTPCredentialLiveCreateRequest;
+  readonly globalCreateRequest: GlobalSMTPCredentialLiveCreateRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createSMTPCredentialScenarioRegistry(
+  options: CreateSMTPCredentialScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type SMTPCredentialLiveRun = DomainLiveRun;
+
+export function runSMTPCredentialLiveScenarios(
+  registry: ScenarioRegistry,
+): Promise<SMTPCredentialLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";

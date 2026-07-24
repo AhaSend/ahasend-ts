@@ -15,6 +15,7 @@ import {
   createMessageScenarioRegistry,
   createRouteScenarioRegistry,
   createScenarioRegistry,
+  createSMTPCredentialScenarioRegistry,
   createStatisticsScenarioRegistry,
   createWebhookScenarioRegistry,
   inspectLiveCandidate,
@@ -24,6 +25,7 @@ import {
   runAPIKeyLiveScenarios,
   runMessageLiveScenarios,
   runRouteLiveScenarios,
+  runSMTPCredentialLiveScenarios,
   runStatisticsLiveScenarios,
   runWebhookLiveScenarios,
   runWithCleanup,
@@ -37,6 +39,7 @@ import {
   type LiveProfile,
   type MessageLiveClient,
   type RouteLiveClient,
+  type SMTPCredentialLiveClient,
   type StatisticsLiveClient,
   type WebhookLiveClient,
 } from "../../scripts/live-acceptance.mjs";
@@ -643,6 +646,117 @@ function webhookClientFixture(options: { malformedSecret?: boolean } = {}) {
     },
     webhookId,
     webhookSecret,
+  };
+}
+
+function smtpCredentialClientFixture(
+  options: {
+    malformedPasswordScope?: "global" | "scoped";
+    preserveGlobalDomains?: boolean;
+  } = {},
+) {
+  const controlledDomains = ["smtp-one.example", "smtp-two.example"] as const;
+  const scopedCredentialId = "55555555-5555-4555-8555-555555555555";
+  const globalCredentialId = "66666666-6666-4666-8666-666666666666";
+  const scopedPassword = `aha-smtp-${"S".repeat(64)}`;
+  const globalPassword = `aha-smtp-${"G".repeat(64)}`;
+  const authorizationChecks: string[] = [];
+  const records = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      sandbox: boolean;
+      scope: "global" | "scoped";
+      domains: string[];
+    }
+  >();
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const list = vi.fn(async (_params: { limit: number; after?: string; before?: string }) => ({
+    object: "list" as const,
+    data: [...records.values()].map((record) => ({ ...record, domains: [...record.domains] })),
+    pagination: { has_more: false, next_cursor: null, prev_cursor: null },
+  }));
+  const iterate = vi.fn(async function* (_params: {
+    limit: number;
+    after?: string;
+    before?: string;
+  }) {
+    for (const record of records.values()) {
+      yield { ...record, domains: [...record.domains] };
+    }
+  });
+  const create = vi.fn(
+    async (request: {
+      name: string;
+      sandbox?: boolean;
+      scope: "global" | "scoped";
+      domains: readonly string[];
+    }) => {
+      if (request.scope === "scoped") {
+        for (const domain of request.domains) {
+          if (!controlledDomains.includes(domain as (typeof controlledDomains)[number])) {
+            throw Object.assign(new Error("SMTP domain is not authorized"), { status: 403 });
+          }
+          authorizationChecks.push(`create:body.domains:${domain}`);
+        }
+      } else {
+        authorizationChecks.push("create:global-role");
+      }
+      const id = request.scope === "scoped" ? scopedCredentialId : globalCredentialId;
+      const domains =
+        request.scope === "scoped" || options.preserveGlobalDomains === true
+          ? [...request.domains]
+          : [];
+      const record = {
+        id,
+        name: request.name,
+        sandbox: request.sandbox ?? false,
+        scope: request.scope,
+        domains,
+      };
+      records.set(id, record);
+      const password = request.scope === "scoped" ? scopedPassword : globalPassword;
+      return {
+        ...record,
+        ...(options.malformedPasswordScope === request.scope ? {} : { password }),
+      };
+    },
+  );
+  const get = vi.fn(async (id: string) => {
+    const record = records.get(id);
+    if (record === undefined) throw notFound();
+    return { ...record, domains: [...record.domains] };
+  });
+  const deleteCredential = vi.fn(async (id: string) => {
+    if (!records.delete(id)) throw notFound();
+    return { message: "deleted" };
+  });
+  const client: SMTPCredentialLiveClient = {
+    smtpCredentials: { list, iterate, create, get, delete: deleteCredential },
+  };
+  return {
+    authorizationChecks,
+    client,
+    controlledDomains,
+    getCredential: get,
+    globalCredentialId,
+    globalCreateRequest: {
+      name: "Live global SMTP credential",
+      sandbox: true,
+      scope: "global" as const,
+      domains: controlledDomains,
+    },
+    globalPassword,
+    records,
+    scopedCredentialId,
+    scopedCreateRequest: {
+      name: "Live scoped SMTP credential",
+      sandbox: true,
+      scope: "scoped" as const,
+      domains: controlledDomains,
+    },
+    scopedPassword,
   };
 }
 
@@ -2045,6 +2159,214 @@ describe("live scenario inventory", () => {
     expect(source).not.toContain('"secret"');
     expect(source).toContain('"secretsReported":false');
     expect(source).toContain('"globalRoleRequired":true');
+  });
+
+  it("registers each packaged SMTP-credential primary once and has no update scenario", () => {
+    const fixture = smtpCredentialClientFixture();
+    const registry = createSMTPCredentialScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: fixture.controlledDomains,
+      scopedCreateRequest: fixture.scopedCreateRequest,
+      globalCreateRequest: fixture.globalCreateRequest,
+    });
+    const smtpEntries = [...registry.primary.values()].filter(
+      ({ facade }) => facade === "smtpCredentials",
+    );
+
+    expect(smtpEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      [
+        "createSMTPCredential",
+        "deleteSMTPCredential",
+        "getSMTPCredential",
+        "getSMTPCredentials",
+      ].sort(),
+    );
+    expect(smtpEntries).toHaveLength(4);
+    expect(smtpEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(
+      smtpEntries.some(
+        ({ operationId, method }) => operationId.includes("update") || method === "update",
+      ),
+    ).toBe(false);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, SMTPCredentialLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("records the SMTP iterator once with positive single-direction pagination", async () => {
+    const fixture = smtpCredentialClientFixture();
+    const registry = createSMTPCredentialScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: fixture.controlledDomains,
+      scopedCreateRequest: fixture.scopedCreateRequest,
+      globalCreateRequest: fixture.globalCreateRequest,
+      pagination: { limit: 2, before: "previous-page" },
+    });
+
+    const result = await runSMTPCredentialLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(
+      result.operationResults.filter(({ operationId }) => operationId === "getSMTPCredentials"),
+    ).toHaveLength(1);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getSMTPCredentials",
+        status: "passed",
+        evidence: { direction: "backward", items: 0, limit: 2 },
+      },
+    ]);
+    const expectedParams = { limit: 2, before: "previous-page" };
+    expect(fixture.client.smtpCredentials.list).toHaveBeenCalledWith(expectedParams);
+    expect(fixture.client.smtpCredentials.iterate).toHaveBeenCalledWith(expectedParams);
+    expect(fixture.client.smtpCredentials.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ after: expect.anything() }),
+    );
+    expect(registry.primary.get("getSMTPCredentials")?.iterator).toMatchObject({
+      operationId: "getSMTPCredentials",
+      method: "iterate",
+    });
+  });
+
+  it("verifies every scoped SMTP domain and accepted global-domain behavior", async () => {
+    const fixture = smtpCredentialClientFixture();
+    const options = {
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: fixture.controlledDomains,
+      scopedCreateRequest: fixture.scopedCreateRequest,
+      globalCreateRequest: fixture.globalCreateRequest,
+    };
+
+    expect(() =>
+      createSMTPCredentialScenarioRegistry({
+        ...options,
+        scopedCreateRequest: {
+          ...fixture.scopedCreateRequest,
+          domains: [fixture.controlledDomains[0], "uncontrolled.example"],
+        },
+      }),
+    ).toThrow("domains must contain every controlled domain");
+
+    const result = await runSMTPCredentialLiveScenarios(
+      createSMTPCredentialScenarioRegistry(options),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.smtpCredentials.create).toHaveBeenNthCalledWith(
+      1,
+      fixture.scopedCreateRequest,
+    );
+    expect(fixture.client.smtpCredentials.create).toHaveBeenNthCalledWith(
+      2,
+      fixture.globalCreateRequest,
+    );
+    expect(fixture.authorizationChecks).toEqual([
+      ...fixture.controlledDomains.map((domain) => `create:body.domains:${domain}`),
+      "create:global-role",
+    ]);
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "createSMTPCredential"),
+    ).toMatchObject({
+      evidence: {
+        cleanupRegistered: 2,
+        globalAuthorization: {
+          domainsSupplied: 2,
+          globalRoleRequired: true,
+          scopeSource: "body.scope",
+          suppliedDomainsIgnored: true,
+        },
+        scopedAuthorization: {
+          controlled: true,
+          domainsVerified: 2,
+          quantifier: "every",
+          source: "body.domains",
+        },
+      },
+    });
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "getSMTPCredential"),
+    ).toMatchObject({
+      evidence: { scopedDomainsVerified: 2 },
+    });
+
+    const invalidGlobalFixture = smtpCredentialClientFixture({
+      preserveGlobalDomains: true,
+    });
+    const invalidGlobalResult = await runSMTPCredentialLiveScenarios(
+      createSMTPCredentialScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: invalidGlobalFixture.client,
+        authorization: RESOURCE_AUTHORIZATION,
+        controlledDomains: invalidGlobalFixture.controlledDomains,
+        scopedCreateRequest: invalidGlobalFixture.scopedCreateRequest,
+        globalCreateRequest: invalidGlobalFixture.globalCreateRequest,
+      }),
+    );
+    expect(invalidGlobalResult.failure).toEqual({
+      phase: "operation",
+      operationId: "createSMTPCredential",
+    });
+  });
+
+  it("registers SMTP cleanup before validating each one-time password", async () => {
+    const fixture = smtpCredentialClientFixture({ malformedPasswordScope: "global" });
+    const registry = createSMTPCredentialScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: fixture.controlledDomains,
+      scopedCreateRequest: fixture.scopedCreateRequest,
+      globalCreateRequest: fixture.globalCreateRequest,
+    });
+
+    const result = await runSMTPCredentialLiveScenarios(registry);
+
+    expect(result.failure).toEqual({
+      phase: "operation",
+      operationId: "createSMTPCredential",
+    });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify global SMTP-credential fixture", status: "passed" },
+      { label: "delete and verify scoped SMTP-credential fixture", status: "passed" },
+    ]);
+    expect(fixture.client.smtpCredentials.delete).toHaveBeenCalledWith(fixture.globalCredentialId);
+    expect(fixture.client.smtpCredentials.delete).toHaveBeenCalledWith(fixture.scopedCredentialId);
+    expect(fixture.records.size).toBe(0);
+  });
+
+  it("keeps SMTP passwords and controlled domains out of canonical live reports", async () => {
+    const candidate = inspectFixture();
+    const fixture = smtpCredentialClientFixture();
+    const registry = createSMTPCredentialScenarioRegistry({
+      profile: candidate.profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: fixture.controlledDomains,
+      scopedCreateRequest: fixture.scopedCreateRequest,
+      globalCreateRequest: fixture.globalCreateRequest,
+    });
+    const result = await runSMTPCredentialLiveScenarios(registry);
+    const report = createLiveReport({
+      candidate,
+      operationResults: result.operationResults,
+      iteratorResults: result.iteratorResults,
+      cleanupResults: result.cleanupResults,
+    });
+    const source = canonicalizeJson(report).toString("utf8");
+
+    expect(source).not.toContain(fixture.scopedPassword);
+    expect(source).not.toContain(fixture.globalPassword);
+    for (const domain of fixture.controlledDomains) {
+      expect(source).not.toContain(domain);
+    }
+    expect(source).not.toContain('"password"');
+    expect(source).toContain('"secretsReported":false');
+    expect(source).toContain('"suppliedDomainsIgnored":true');
   });
 
   it("registers exactly one executable scenario for every packaged statistics primary", () => {
