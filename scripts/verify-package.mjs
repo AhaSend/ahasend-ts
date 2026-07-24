@@ -61,6 +61,7 @@ const runtimeFiles = [
 const secretPatterns = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /(?:^|[\s:])_authToken\s*=/,
+  /(?<![A-Za-z0-9_-])aha-sk-[A-Za-z0-9_-]{64}(?![A-Za-z0-9_-])/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
@@ -543,6 +544,21 @@ function verifyNegativeCases(packageFiles, sourceFiles, rules) {
     "negative fixture-key case",
     () => verifyNoClassifiedSecrets(withFixtureKey, rules, "Package"),
     /contains fixture key/,
+  );
+
+  const withAhaSendApiKey = new Map(packageFiles);
+  const ahaSendApiKey = ["aha", "-sk-", "A".repeat(64)].join("");
+  withAhaSendApiKey.set(
+    "README.md",
+    Buffer.concat([
+      requirePackageFile(packageFiles, "README.md"),
+      Buffer.from(`\n${ahaSendApiKey}\n`),
+    ]),
+  );
+  expectValidationFailure(
+    "negative AhaSend API-key case",
+    () => verifyNoClassifiedSecrets(withAhaSendApiKey, rules, "Package"),
+    /unclassified secret signature/,
   );
 
   const withRegistryToken = new Map(packageFiles);
