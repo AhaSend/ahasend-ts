@@ -1,9 +1,18 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import Ajv from "ajv";
 import { afterAll, describe, expect, it } from "vitest";
+import {
+  createCandidate,
+  validateCandidateManifest,
+  validateCleanCommit,
+  validatePackagedOperationProfile,
+  type CandidateBindings,
+  type CandidateCommandRunner,
+} from "../../scripts/create-candidate.mjs";
+import candidateManifestSchema from "../../scripts/candidate-manifest.schema.json";
 import { canonicalizeJson, sha256Hex } from "../../scripts/digest-artifact.mjs";
 import {
   readRepositorySourceBindings,
@@ -32,10 +41,25 @@ interface SourceGateReport {
   reportSha256?: string;
 }
 
+interface RendererHandoff {
+  version: number;
+  restDigest: string;
+  operations: Array<{
+    operationId: string;
+    samples: Array<{ label: string; language: string; sourceHash: string }>;
+  }>;
+}
+
 const repositoryRoot = process.cwd();
 const temporaryDirectories: string[] = [];
 const zeroHash = "0".repeat(64);
 const validateSourceGateSchema = new Ajv({ allErrors: true }).compile(sourceGateReportSchema);
+const validateCandidateSchema = new Ajv({ allErrors: true }).compile(candidateManifestSchema);
+const sourceProfile = readFileSync(resolve(repositoryRoot, "src/generated/operation-profile.json"));
+const sourceProfileSidecar = readFileSync(
+  resolve(repositoryRoot, "src/generated/operation-profile.sha256"),
+);
+const openApiSource = readFileSync(resolve(repositoryRoot, "openapi.yaml"));
 
 function validReport(bindings: SourceBindings): SourceGateReport {
   return {
@@ -53,6 +77,23 @@ function requireGate(report: SourceGateReport, name: string): GateResult {
 
 function reportBytes(report: SourceGateReport): Buffer {
   return canonicalizeJson(report);
+}
+
+function candidateBindings(bindings: SourceBindings): CandidateBindings {
+  return {
+    commit: bindings.commit,
+    sourceReportSha256: "1".repeat(64),
+    contractSha256: structuredClone(bindings.contractSha256),
+    captureSha256: bindings.captureSha256,
+    keysSha256: structuredClone(bindings.keysSha256),
+    rendererReportSha256: "2".repeat(64),
+    profileSha256: bindings.profileSha256,
+    tarballSha256: "3".repeat(64),
+  };
+}
+
+function candidateBytes(bindings: CandidateBindings): Buffer {
+  return canonicalizeJson({ version: 1, ...bindings });
 }
 
 function mutateFixture(
@@ -260,5 +301,221 @@ describe("source gate report validation", () => {
     expect(result.stdout).toContain(
       `Source gate report passed: ${REQUIRED_SOURCE_GATES.length} gates for ${bindings.commit}`,
     );
+  });
+});
+
+describe("release candidate validation", () => {
+  it("binds the canonical candidate manifest to its detached sidecar", async () => {
+    const sourceBindings = await readRepositorySourceBindings();
+    const bindings = candidateBindings(sourceBindings);
+    const source = candidateBytes(bindings);
+    const sidecar = `${sha256Hex(source)}\n`;
+
+    expect(validateCandidateSchema({ version: 1, ...bindings })).toBe(true);
+    expect(JSON.parse(source.toString("utf8"))).not.toHaveProperty("manifestSha256");
+    expect(
+      validateCandidateManifest({
+        manifestSource: source,
+        manifestSidecar: sidecar,
+        expectedBindings: bindings,
+      }),
+    ).toEqual({
+      commit: bindings.commit,
+      manifestDigest: sha256Hex(source),
+      tarballDigest: bindings.tarballSha256,
+    });
+  });
+
+  it("rejects stale candidate linkage, altered sidecars, and embedded self-digests", async () => {
+    const sourceBindings = await readRepositorySourceBindings();
+    const bindings = candidateBindings(sourceBindings);
+    const source = candidateBytes(bindings);
+    const sidecar = `${sha256Hex(source)}\n`;
+    const staleProfile = { ...bindings, profileSha256: zeroHash };
+    const staleSource = candidateBytes(staleProfile);
+    const withSelfDigest = canonicalizeJson({
+      version: 1,
+      ...bindings,
+      manifestSha256: zeroHash,
+    });
+
+    expect(() =>
+      validateCandidateManifest({
+        manifestSource: staleSource,
+        manifestSidecar: `${sha256Hex(staleSource)}\n`,
+        expectedBindings: bindings,
+      }),
+    ).toThrow("stale operation profile");
+    expect(() =>
+      validateCandidateManifest({
+        manifestSource: source,
+        manifestSidecar: `${zeroHash}\n`,
+        expectedBindings: bindings,
+      }),
+    ).toThrow("sidecar mismatch");
+    expect(() =>
+      validateCandidateManifest({
+        manifestSource: withSelfDigest,
+        manifestSidecar: `${sha256Hex(withSelfDigest)}\n`,
+        expectedBindings: bindings,
+      }),
+    ).toThrow('unexpected ["manifestSha256"]');
+    expect(sidecar).toHaveLength(65);
+  });
+
+  it("requires packaged operation metadata to match source and retain all governed facts", () => {
+    expect(
+      validatePackagedOperationProfile({
+        packagedProfileSource: sourceProfile,
+        packagedProfileSidecar: sourceProfileSidecar,
+        sourceProfileSource: sourceProfile,
+        sourceProfileSidecar,
+        openApiSource,
+      }),
+    ).toEqual({
+      profileDigest: sourceProfileSidecar.toString("utf8").trim(),
+      operations: 56,
+      iterators: 9,
+      resourceAuthorizationRules: 22,
+    });
+
+    const transformed = Buffer.from(
+      JSON.stringify(JSON.parse(sourceProfile.toString("utf8"))),
+      "utf8",
+    );
+    expect(() =>
+      validatePackagedOperationProfile({
+        packagedProfileSource: transformed,
+        packagedProfileSidecar: sourceProfileSidecar,
+        sourceProfileSource: sourceProfile,
+        sourceProfileSidecar,
+        openApiSource,
+      }),
+    ).toThrow("match generated source bytes exactly");
+
+    const invalidProfile = JSON.parse(sourceProfile.toString("utf8")) as {
+      operations: unknown[];
+    };
+    invalidProfile.operations.pop();
+    const invalidProfileSource = Buffer.from(`${JSON.stringify(invalidProfile, null, 2)}\n`);
+    const invalidProfileSidecar = `${sha256Hex(canonicalizeJson(invalidProfile))}\n`;
+    expect(() =>
+      validatePackagedOperationProfile({
+        packagedProfileSource: invalidProfileSource,
+        packagedProfileSidecar: invalidProfileSidecar,
+        sourceProfileSource: invalidProfileSource,
+        sourceProfileSidecar: invalidProfileSidecar,
+        openApiSource,
+      }),
+    ).toThrow("56 primary mappings");
+
+    const invalidSecurity = Buffer.from(
+      openApiSource.toString("utf8").replace("scheme: bearer", "scheme: basic"),
+    );
+    expect(() =>
+      validatePackagedOperationProfile({
+        packagedProfileSource: sourceProfile,
+        packagedProfileSidecar: sourceProfileSidecar,
+        sourceProfileSource: sourceProfile,
+        sourceProfileSidecar,
+        openApiSource: invalidSecurity,
+      }),
+    ).toThrow("standard HTTP bearer security");
+  });
+
+  it("rejects dirty or mismatched commits", async () => {
+    const bindings = await readRepositorySourceBindings();
+
+    expect(
+      validateCleanCommit({
+        commit: `${bindings.commit}\n`,
+        expectedCommit: bindings.commit,
+        status: "?? .betterborg-task/task.md\n",
+      }),
+    ).toBe(bindings.commit);
+    expect(() =>
+      validateCleanCommit({
+        commit: `${bindings.commit}\n`,
+        expectedCommit: "0".repeat(40),
+        status: "",
+      }),
+    ).toThrow("does not match source report commit");
+    expect(() =>
+      validateCleanCommit({
+        commit: `${bindings.commit}\n`,
+        expectedCommit: bindings.commit,
+        status: " M src/index.ts\n",
+      }),
+    ).toThrow("requires a clean commit");
+  });
+
+  it("constructs a linked candidate with exactly one build and one npm pack", async () => {
+    const sourceBindings = await readRepositorySourceBindings();
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-candidate-test-"));
+    temporaryDirectories.push(directory);
+    const outputDirectory = join(directory, "candidate");
+    const sourceReportPath = join(directory, "source-report.json");
+    const sourceSidecarPath = join(directory, "source-report.sha256");
+    const rendererReportPath = join(directory, "renderer-report.json");
+    const sourceReport = reportBytes(validReport(sourceBindings));
+    const handoffSource = readFileSync(resolve(repositoryRoot, "docs/renderer-handoff.json"));
+    const handoff = JSON.parse(handoffSource.toString("utf8")) as RendererHandoff;
+    const rendererReport = canonicalizeJson({
+      version: 1,
+      handoffDigest: sha256Hex(handoffSource),
+      restDigest: handoff.restDigest,
+      operations: handoff.operations.map(({ operationId, samples }) => ({
+        operationId,
+        tabs: samples,
+      })),
+    });
+    writeFileSync(sourceReportPath, sourceReport);
+    writeFileSync(sourceSidecarPath, `${sha256Hex(sourceReport)}\n`);
+    writeFileSync(rendererReportPath, rendererReport);
+
+    const npmCalls: string[][] = [];
+    const fakeTarball = Buffer.from("one candidate tarball", "utf8");
+    const runner: CandidateCommandRunner = (command, args) => {
+      if (command === "git" && args[0] === "rev-parse") return `${sourceBindings.commit}\n`;
+      if (command === "git" && args[0] === "status") return "?? .betterborg-task/task.md\n";
+      if (args.includes("build")) {
+        npmCalls.push([...args]);
+        return "";
+      }
+      if (args.includes("pack")) {
+        npmCalls.push([...args]);
+        const destination = args[args.indexOf("--pack-destination") + 1];
+        if (destination === undefined) throw new TypeError("Missing pack destination");
+        writeFileSync(join(destination, "ahasend-sdk-0.1.0.tgz"), fakeTarball);
+        return JSON.stringify([{ filename: "ahasend-sdk-0.1.0.tgz" }]);
+      }
+      if (command === "tar" && args.at(-1)?.endsWith("operation-profile.json")) {
+        return sourceProfile;
+      }
+      if (command === "tar" && args.at(-1)?.endsWith("operation-profile.sha256")) {
+        return sourceProfileSidecar;
+      }
+      throw new TypeError(`Unexpected command: ${command} ${args.join(" ")}`);
+    };
+
+    const result = await createCandidate({
+      sourceReportPath,
+      sourceReportSidecarPath: sourceSidecarPath,
+      rendererReportPath,
+      outputDirectory,
+      runCommand: runner,
+    });
+
+    expect(npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
+    expect(npmCalls.filter((args) => args.includes("pack"))).toHaveLength(1);
+    expect(readFileSync(result.tarballPath)).toEqual(fakeTarball);
+    const manifestSource = readFileSync(result.manifestPath);
+    const manifestSidecar = readFileSync(result.manifestSidecarPath);
+    const manifest = JSON.parse(manifestSource.toString("utf8")) as CandidateBindings;
+    expect(manifest).not.toHaveProperty("manifestSha256");
+    expect(manifest.sourceReportSha256).toBe(sha256Hex(sourceReport));
+    expect(manifest.rendererReportSha256).toBe(sha256Hex(rendererReport));
+    expect(manifest.tarballSha256).toBe(sha256Hex(fakeTarball));
+    expect(manifestSidecar.toString("utf8")).toBe(`${sha256Hex(manifestSource)}\n`);
   });
 });
