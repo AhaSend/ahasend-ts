@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { digestJsonArtifact } from "./digest-artifact.mjs";
+import { validateSecretScanAllowlist } from "./generate-contracts.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixtureRoot = resolve(repositoryRoot, "tests/package");
@@ -325,7 +326,19 @@ function verifySourceMaps(packageFiles, sourceFiles) {
   }
 }
 
+function normalizeExportTargetPath(value) {
+  const pathEnd = value.search(/[?#]/);
+  const pathValue = pathEnd === -1 ? value : value.slice(0, pathEnd);
+  try {
+    return posix.normalize(decodeURIComponent(pathValue));
+  } catch {
+    return posix.normalize(pathValue);
+  }
+}
+
 function exportTargetMatchesPath(target, path) {
+  target = normalizeExportTargetPath(target);
+  path = normalizeExportTargetPath(path);
   const parts = target.split("*");
   if (parts.length === 1) return target === path;
 
@@ -383,58 +396,13 @@ function verifyMetadata(packageFiles) {
   }
 }
 
-function keyBytesFromFile(bytes, location) {
-  const source = utf8Decoder.decode(bytes);
-  if (!source.endsWith("\n") || source.slice(0, -1).includes("\n")) {
-    throw new TypeError(`${location} must contain one signing key followed by one LF.`);
-  }
-  const key = source.slice(0, -1);
-  if (key.length === 0 || key.trim() !== key) {
-    throw new TypeError(`${location} contains an invalid signing key.`);
-  }
-  return Buffer.from(key, "utf8");
-}
-
-function loadSecretRules(sourceFiles) {
+async function loadSecretRules(sourceFiles) {
   const policyPath = "security/secret-scan-allowlist.json";
   const policy = parseJson(requirePackageFile(sourceFiles, policyPath), policyPath);
-  if (policy === null || typeof policy !== "object" || policy.version !== 1) {
-    throw new TypeError("Secret scan allowlist must use version 1.");
-  }
-  if (!Array.isArray(policy.rules) || policy.rules.length === 0) {
-    throw new TypeError("Secret scan allowlist must classify fixture keys.");
-  }
-
-  const allowedPaths = new Set();
-  return policy.rules.map((rule, index) => {
-    const location = `secret scan rule ${index}`;
-    if (
-      rule === null ||
-      typeof rule !== "object" ||
-      typeof rule.id !== "string" ||
-      typeof rule.classification !== "string" ||
-      rule.detector !== "literal-sha256" ||
-      typeof rule.allowedPath !== "string" ||
-      !/^contracts\/webhooks\/(?:captured|synthetic)\/keys\/[^/]+\.key$/.test(rule.allowedPath) ||
-      typeof rule.secretSha256 !== "string" ||
-      !/^[0-9a-f]{64}$/.test(rule.secretSha256) ||
-      rule.expectedOccurrences !== 1
-    ) {
-      throw new TypeError(`Invalid ${location}.`);
-    }
-    if (allowedPaths.has(rule.allowedPath)) {
-      throw new TypeError(`Duplicate secret allowlist path: ${rule.allowedPath}`);
-    }
-    allowedPaths.add(rule.allowedPath);
-    const secret = keyBytesFromFile(
-      requirePackageFile(sourceFiles, rule.allowedPath),
-      rule.allowedPath,
-    );
-    const actualDigest = createHash("sha256").update(secret).digest("hex");
-    if (actualDigest !== rule.secretSha256) {
-      throw new TypeError(`${rule.id} allowlisted fixture-key digest mismatch.`);
-    }
-    return { ...rule, secret };
+  const rules = await validateSecretScanAllowlist(policy, repositoryRoot);
+  return rules.map((rule) => {
+    const keyFile = requirePackageFile(sourceFiles, rule.allowedPath);
+    return { ...rule, secret: keyFile.subarray(0, -1) };
   });
 }
 
@@ -554,6 +522,18 @@ function verifyNegativeCases(packageFiles, sourceFiles, rules) {
     /must remain unexported/,
   );
 
+  const withNormalizedExport = new Map(packageFiles);
+  const normalizedManifest = structuredClone(
+    parseJson(requirePackageFile(packageFiles, "package.json"), "package.json"),
+  );
+  normalizedManifest.exports["./metadata"] = "./dist//_metadata/operation-profile.json";
+  withNormalizedExport.set("package.json", Buffer.from(JSON.stringify(normalizedManifest)));
+  expectValidationFailure(
+    "negative normalized metadata export case",
+    () => verifyMetadata(withNormalizedExport),
+    /must remain unexported/,
+  );
+
   const withFixtureKey = new Map(packageFiles);
   withFixtureKey.set(
     "README.md",
@@ -653,7 +633,7 @@ try {
     throw new TypeError("Extracted package files do not match the archive listing.");
   }
   const sourceFiles = trackedSourceFiles();
-  const rules = loadSecretRules(sourceFiles);
+  const rules = await loadSecretRules(sourceFiles);
   verifyPackageContents(packageFiles);
   verifySourceMaps(packageFiles, sourceFiles);
   verifyMetadata(packageFiles);
