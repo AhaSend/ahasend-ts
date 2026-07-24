@@ -382,6 +382,10 @@ describe("live cleanup and reporting", () => {
     const secret = "live-api-key-value";
     const oneTimeSecretKey = "one-time-secret-key-value";
     const dkimPrivateKey = "private-key-material";
+    const overlappingSecretPrefix = "aha-live";
+    const overlappingSecret = "aha-live-secret-value";
+    const bufferedCredential = "buffered-credential-value";
+    const typedArrayCredential = "typed-array-credential-value";
     const report = createLiveReport({
       candidate,
       operationResults: [
@@ -394,11 +398,14 @@ describe("live cleanup and reporting", () => {
             response: `safe prefix ${secret}`,
             secret_key: oneTimeSecretKey,
             dkim_private_key: dkimPrivateKey,
+            overlappingValue: overlappingSecret,
+            bufferedValue: Buffer.from(bufferedCredential, "utf8"),
+            typedArrayValue: Uint8Array.from(Buffer.from(typedArrayCredential, "utf8")),
           },
         },
       ],
       cleanupResults: [{ label: "delete fixture", status: "passed" }],
-      secrets: [secret],
+      secrets: [secret, overlappingSecretPrefix, overlappingSecret],
     });
     const directory = mkdtempSync(join(tmpdir(), "ahasend-live-report-"));
     temporaryDirectories.push(directory);
@@ -414,7 +421,7 @@ describe("live cleanup and reporting", () => {
       keysSha256: Record<string, string>;
       package: { name: string; version: string };
       tarballSha256: string;
-      operations: unknown[];
+      operations: Array<{ evidence?: Record<string, unknown> }>;
       iterators: unknown[];
     };
     const validateSchema = new Ajv({ allErrors: true }).compile(liveReportSchema);
@@ -423,6 +430,13 @@ describe("live cleanup and reporting", () => {
     expect(reportSource.toString("utf8")).not.toContain(secret);
     expect(reportSource.toString("utf8")).not.toContain(oneTimeSecretKey);
     expect(reportSource.toString("utf8")).not.toContain(dkimPrivateKey);
+    expect(reportSource.toString("utf8")).not.toContain(overlappingSecret);
+    expect(reportSource.toString("utf8")).not.toContain("-secret-value");
+    expect(parsed.operations[0]?.evidence).toMatchObject({
+      overlappingValue: "[REDACTED]",
+      bufferedValue: "[REDACTED]",
+      typedArrayValue: "[REDACTED]",
+    });
     expect(reportSource.toString("utf8")).toContain("[REDACTED]");
     expect(sidecar.toString("utf8")).toBe(`${sha256Hex(reportSource)}\n`);
     expect(validateSchema(parsed), JSON.stringify(validateSchema.errors)).toBe(true);

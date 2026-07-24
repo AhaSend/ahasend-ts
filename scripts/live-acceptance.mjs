@@ -527,9 +527,10 @@ function redactedString(value, secrets) {
 }
 
 export function redactLiveValue(value, secrets = []) {
-  const normalizedSecrets = secrets.map((secret, index) =>
-    requireString(secret, `Redaction secret ${index}`),
-  );
+  const normalizedSecrets = secrets
+    .map((secret, index) => requireString(secret, `Redaction secret ${index}`))
+    .filter((secret) => secret !== "")
+    .sort((left, right) => right.length - left.length);
   function visit(current, ancestors) {
     if (typeof current === "string") return redactedString(current, normalizedSecrets);
     if (current === null || typeof current === "boolean") return current;
@@ -539,6 +540,9 @@ export function redactLiveValue(value, secrets = []) {
     }
     if (typeof current !== "object") {
       throw new TypeError(`Live report cannot contain ${typeof current} values.`);
+    }
+    if (ArrayBuffer.isView(current) || current instanceof ArrayBuffer) {
+      return "[REDACTED]";
     }
     if (ancestors.has(current)) throw new TypeError("Live report cannot contain cyclic values.");
     ancestors.add(current);
