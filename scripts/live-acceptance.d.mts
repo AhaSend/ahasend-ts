@@ -735,14 +735,7 @@ export type SubAccountLiveRun = DomainLiveRun;
 
 export function runSubAccountLiveScenarios(registry: ScenarioRegistry): Promise<SubAccountLiveRun>;
 
-export interface SubAccountAPIKeyLiveFacade {
-  readonly list: (...args: never[]) => unknown;
-  readonly iterate: (...args: never[]) => unknown;
-  readonly create: (...args: never[]) => unknown;
-  readonly get: (...args: never[]) => unknown;
-  readonly update: (...args: never[]) => unknown;
-  readonly delete: (...args: never[]) => unknown;
-}
+export type SubAccountAPIKeyLiveFacade = APIKeyLiveFacade;
 
 export interface SubAccountAPIKeyLiveClient {
   readonly subAccounts: {
@@ -755,11 +748,7 @@ export interface ChildBootstrapLiveClient {
   readonly ping: (...args: never[]) => unknown;
 }
 
-export interface SubAccountAPIKeyLiveCreateRequest {
-  readonly label: string;
-  readonly scopes: readonly [string, ...string[]];
-  readonly ip_allow_list?: readonly [];
-}
+export type SubAccountAPIKeyLiveCreateRequest = APIKeyLiveCreateRequest;
 
 export interface SubAccountAPIKeyLiveUpdateRequest {
   readonly label?: string | null;

@@ -3644,44 +3644,36 @@ function isUnsupportedChildAPIKeyScope(scope) {
   return scope.startsWith("sub-accounts:") || scope.startsWith("sub-account-api-keys:");
 }
 
-function requireChildAPIKeyScopes(value, label) {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new TypeError(`${label} must contain at least one scope.`);
-  }
-  const scopes = value.map((scope, index) => requireString(scope, `${label} ${index}`));
+function assertSupportedChildAPIKeyScopes(scopes, label) {
   const unsupported = scopes.filter(isUnsupportedChildAPIKeyScope);
   if (unsupported.length > 0) {
     throw new TypeError(
       `${label} cannot grant child credentials sub-account management authority.`,
     );
   }
+}
+
+function requireChildAPIKeyScopes(value, label) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new TypeError(`${label} must contain at least one scope.`);
+  }
+  const scopes = value.map((scope, index) => requireString(scope, `${label} ${index}`));
+  assertSupportedChildAPIKeyScopes(scopes, label);
   return Object.freeze(scopes);
 }
 
 function requireChildAPIKeyCreateRequest(value) {
-  const request = requireObject(value, "Child API-key live create request");
+  const label = "Child API-key live create request";
+  const request = requireObject(value, label);
   const unexpected = Object.keys(request).filter(
     (field) => !["ip_allow_list", "label", "scopes"].includes(field),
   );
   if (unexpected.length > 0) {
-    throw new TypeError(
-      `Child API-key live create request contains unexpected fields ${JSON.stringify(unexpected)}.`,
-    );
+    throw new TypeError(`${label} contains unexpected fields ${JSON.stringify(unexpected)}.`);
   }
-  const label = requireString(request.label, "Child API-key live create request label");
-  const scopes = requireChildAPIKeyScopes(
-    request.scopes,
-    "Child API-key live create request scopes",
-  );
-  if (
-    request.ip_allow_list !== undefined &&
-    (!Array.isArray(request.ip_allow_list) || request.ip_allow_list.length !== 0)
-  ) {
-    throw new TypeError(
-      "Child API-key live create request ip_allow_list must be empty or omitted.",
-    );
-  }
-  return Object.freeze({ label, scopes, ip_allow_list: Object.freeze([]) });
+  const body = requireAPIKeyCreateRequest(request, label);
+  assertSupportedChildAPIKeyScopes(body.scopes, `${label} scopes`);
+  return body;
 }
 
 function requireChildAPIKeyUpdateRequest(value, createBody) {
