@@ -21,34 +21,22 @@ import {
   requireObject,
   sourceBytes,
 } from "./report-validation.mjs";
-import { readRepositorySourceBindings, validateSourceGateReport } from "./run-source-gates.mjs";
+import {
+  compareSourceArtifactBindings,
+  parseSourceHashMap,
+  readRepositorySourceBindings,
+  requireSourceBinding,
+  requireSourceCommit,
+  SOURCE_CONTRACT_PATHS,
+  SOURCE_KEY_PATHS,
+  validateSourceGateReport,
+} from "./run-source-gates.mjs";
 import { validateRendererReport } from "./verify-renderer-report.mjs";
 
-const GIT_COMMIT = /^[0-9a-f]{40}$/u;
-const CONTRACT_PATHS = Object.freeze(["contracts.lock.json", "openapi.yaml", "webhooks.yaml"]);
-const KEY_PATHS = Object.freeze([
-  "contracts/webhooks/captured/keys/configured-webhook.key",
-  "contracts/webhooks/captured/keys/route.key",
-]);
 const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const harnessDirectories = [".betterborg-task/", ".orchestry/", ".betterborg-analysis/"];
-
-function requireCommit(value, label) {
-  if (typeof value !== "string" || !GIT_COMMIT.test(value)) {
-    throw new TypeError(`${label} must be a full lowercase Git commit.`);
-  }
-  return value;
-}
-
-function parseHashMap(value, paths, label) {
-  const map = requireObject(value, label);
-  requireExactKeys(map, paths, label);
-  return Object.fromEntries(
-    paths.map((path) => [path, requireHash(map[path], `${label}[${JSON.stringify(path)}]`)]),
-  );
-}
 
 function parseCandidateManifest(value) {
   requireExactKeys(
@@ -69,18 +57,22 @@ function parseCandidateManifest(value) {
   if (value.version !== 1) throw new TypeError("Candidate manifest version must be 1.");
   return {
     version: 1,
-    commit: requireCommit(value.commit, "Candidate manifest commit"),
+    commit: requireSourceCommit(value.commit, "Candidate manifest commit"),
     sourceReportSha256: requireHash(
       value.sourceReportSha256,
       "Candidate manifest sourceReportSha256",
     ),
-    contractSha256: parseHashMap(
+    contractSha256: parseSourceHashMap(
       value.contractSha256,
-      CONTRACT_PATHS,
+      SOURCE_CONTRACT_PATHS,
       "Candidate manifest contractSha256",
     ),
     captureSha256: requireHash(value.captureSha256, "Candidate manifest captureSha256"),
-    keysSha256: parseHashMap(value.keysSha256, KEY_PATHS, "Candidate manifest keysSha256"),
+    keysSha256: parseSourceHashMap(
+      value.keysSha256,
+      SOURCE_KEY_PATHS,
+      "Candidate manifest keysSha256",
+    ),
     rendererReportSha256: requireHash(
       value.rendererReportSha256,
       "Candidate manifest rendererReportSha256",
@@ -109,25 +101,32 @@ function parseExpectedCandidateBindings(value) {
   return parseCandidateManifest({ version: 1, ...expected });
 }
 
-function requireBinding(actual, expected, label) {
-  if (actual !== expected) {
-    throw new TypeError(`Candidate manifest references a stale ${label}.`);
-  }
-}
-
 function compareCandidateBindings(manifest, expected) {
-  requireBinding(manifest.commit, expected.commit, "commit");
-  requireBinding(manifest.sourceReportSha256, expected.sourceReportSha256, "source report");
-  for (const path of CONTRACT_PATHS) {
-    requireBinding(manifest.contractSha256[path], expected.contractSha256[path], path);
-  }
-  requireBinding(manifest.captureSha256, expected.captureSha256, "capture manifest");
-  for (const path of KEY_PATHS) {
-    requireBinding(manifest.keysSha256[path], expected.keysSha256[path], path);
-  }
-  requireBinding(manifest.rendererReportSha256, expected.rendererReportSha256, "renderer report");
-  requireBinding(manifest.profileSha256, expected.profileSha256, "operation profile");
-  requireBinding(manifest.tarballSha256, expected.tarballSha256, "tarball");
+  compareSourceArtifactBindings(manifest, expected, "Candidate manifest");
+  requireSourceBinding(
+    manifest.sourceReportSha256,
+    expected.sourceReportSha256,
+    "source report",
+    "Candidate manifest",
+  );
+  requireSourceBinding(
+    manifest.rendererReportSha256,
+    expected.rendererReportSha256,
+    "renderer report",
+    "Candidate manifest",
+  );
+  requireSourceBinding(
+    manifest.profileSha256,
+    expected.profileSha256,
+    "operation profile",
+    "Candidate manifest",
+  );
+  requireSourceBinding(
+    manifest.tarballSha256,
+    expected.tarballSha256,
+    "tarball",
+    "Candidate manifest",
+  );
 }
 
 export function validateCandidateManifest({ manifestSource, manifestSidecar, expectedBindings }) {
@@ -197,9 +196,168 @@ function parseJson(source, label) {
   }
 }
 
+function objectLiteralToJson(source) {
+  let result = "";
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === '"') {
+      result += character;
+      for (index += 1; index < source.length; index += 1) {
+        const stringCharacter = source[index];
+        result += stringCharacter;
+        if (stringCharacter === "\\") {
+          const escaped = source[index + 1];
+          if (escaped === undefined) return result;
+          result += escaped;
+          index += 1;
+        } else if (stringCharacter === '"') {
+          break;
+        }
+      }
+      continue;
+    }
+    if (character === "'") {
+      result += '"';
+      for (index += 1; index < source.length; index += 1) {
+        const stringCharacter = source[index];
+        if (stringCharacter === "\\") {
+          const escaped = source[index + 1];
+          if (escaped === undefined) return result;
+          result += escaped === "'" ? "'" : `\\${escaped}`;
+          index += 1;
+        } else if (stringCharacter === '"') {
+          result += '\\"';
+        } else if (stringCharacter === "'") {
+          result += '"';
+          break;
+        } else {
+          result += stringCharacter;
+        }
+      }
+      continue;
+    }
+    if (character === "`") {
+      throw new TypeError("Template literals are not static JSON values.");
+    }
+    if (character === ",") {
+      let next = index + 1;
+      while (/\s/u.test(source[next] ?? "")) next += 1;
+      if (source[next] === "}" || source[next] === "]") continue;
+    }
+    if (/[$A-Z_a-z]/u.test(character)) {
+      let end = index + 1;
+      while (/[$\w]/u.test(source[end] ?? "")) end += 1;
+      let colon = end;
+      while (/\s/u.test(source[colon] ?? "")) colon += 1;
+      if (source[colon] === ":") {
+        result += `${JSON.stringify(source.slice(index, end))}${source.slice(end, colon + 1)}`;
+        index = colon;
+        continue;
+      }
+    }
+    result += character;
+  }
+  return result;
+}
+
+function extractOperationDescriptors(source) {
+  const label = "Packaged operation descriptors";
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(sourceBytes(source, label));
+  const declarations = ["var OPERATION_DESCRIPTORS = ", "export const OPERATION_DESCRIPTORS = "];
+  let start = -1;
+  for (const declaration of declarations) {
+    const declarationStart = text.indexOf(declaration);
+    if (declarationStart !== -1) {
+      start = declarationStart + declaration.length;
+      break;
+    }
+  }
+  if (start === -1 || text[start] !== "{") {
+    throw new TypeError(`${label} are missing from the packaged entry module.`);
+  }
+
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (quote !== "") {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        const expression = text.slice(start, index + 1);
+        try {
+          return requireObject(JSON.parse(objectLiteralToJson(expression)), label);
+        } catch (error) {
+          throw new TypeError(`${label} must contain a static object literal.`, { cause: error });
+        }
+      }
+    }
+  }
+  throw new TypeError(`${label} contain an unterminated object literal.`);
+}
+
+function requireSameJson(actual, expected, label) {
+  let actualBytes;
+  let expectedBytes;
+  try {
+    actualBytes = canonicalizeJson(actual);
+    expectedBytes = canonicalizeJson(expected);
+  } catch (error) {
+    throw new TypeError(`${label} must be JSON-compatible.`, { cause: error });
+  }
+  if (!actualBytes.equals(expectedBytes)) {
+    throw new TypeError(`${label} do not match the generated source contract.`);
+  }
+}
+
+function validatePackagedOperationDescriptors(source, document, operations) {
+  const descriptors = extractOperationDescriptors(source);
+  const operationIds = operations.map(({ operationId }) => operationId);
+  requireExactKeys(descriptors, operationIds, "Packaged operation descriptors");
+
+  let resourceAuthorizationRules = 0;
+  for (const { operationId, operation } of operations) {
+    const descriptor = requireObject(
+      descriptors[operationId],
+      `Packaged operation descriptor ${operationId}`,
+    );
+    const requirements = operation.security ?? document.security;
+    const expectedSecurity = requirements.map((requirement) => requirement.BearerAuth);
+    requireSameJson(
+      descriptor.security,
+      expectedSecurity,
+      `Packaged security metadata for ${operationId}`,
+    );
+
+    const expectedAuthorization = AUTHORIZATION_REGISTRY[operationId] ?? null;
+    requireSameJson(
+      descriptor.resourceAuthorization,
+      expectedAuthorization,
+      `Packaged resource authorization metadata for ${operationId}`,
+    );
+    if (descriptor.resourceAuthorization !== null) resourceAuthorizationRules += 1;
+  }
+  return resourceAuthorizationRules;
+}
+
 export function validatePackagedOperationProfile({
   packagedProfileSource,
   packagedProfileSidecar,
+  packagedOperationDescriptorsSource,
   sourceProfileSource,
   sourceProfileSidecar,
   openApiSource,
@@ -233,9 +391,14 @@ export function validatePackagedOperationProfile({
       sourceBytes(openApiSource, "OpenAPI contract"),
     ),
   );
-  validateStandardSecurity(document);
+  const operations = validateStandardSecurity(document);
   validateOperationProfile(document, profile);
   validateAuthorizationRegistry(document);
+  const resourceAuthorizationRules = validatePackagedOperationDescriptors(
+    packagedOperationDescriptorsSource,
+    document,
+    operations,
+  );
 
   if (
     !Array.isArray(profile.operations) ||
@@ -252,13 +415,13 @@ export function validatePackagedOperationProfile({
     profileDigest: actualDigest,
     operations: profile.operations.length,
     iterators: profile.iterators.length,
-    resourceAuthorizationRules: Object.keys(AUTHORIZATION_REGISTRY).length,
+    resourceAuthorizationRules,
   };
 }
 
 export function validateCleanCommit({ commit, expectedCommit, status }) {
-  const actualCommit = requireCommit(commit.trim(), "Repository commit");
-  const sourceCommit = requireCommit(expectedCommit, "Source report commit");
+  const actualCommit = requireSourceCommit(commit.trim(), "Repository commit");
+  const sourceCommit = requireSourceCommit(expectedCommit, "Source report commit");
   if (actualCommit !== sourceCommit) {
     throw new TypeError(
       `Repository commit ${actualCommit} does not match source report commit ${sourceCommit}.`,
@@ -414,17 +577,25 @@ export async function createCandidate({
       "dist/_metadata/operation-profile.sha256",
       repositoryRoot,
     );
+    const packagedOperationDescriptors = extractPackageFile(
+      runCommand,
+      tarballPath,
+      "dist/index.js",
+      repositoryRoot,
+    );
     const profileSummary = validatePackagedOperationProfile({
       packagedProfileSource: packagedProfile,
       packagedProfileSidecar,
+      packagedOperationDescriptorsSource: packagedOperationDescriptors,
       sourceProfileSource: sourceProfile,
       sourceProfileSidecar,
       openApiSource,
     });
-    requireBinding(
+    requireSourceBinding(
       profileSummary.profileDigest,
       expectedSourceBindings.profileSha256,
       "operation profile",
+      "Candidate manifest",
     );
 
     const tarballSha256 = sha256Hex(await readFile(tarballPath));

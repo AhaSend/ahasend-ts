@@ -26,6 +26,7 @@ export interface CandidateManifestSummary {
 export interface ValidatePackagedOperationProfileOptions {
   readonly packagedProfileSource: string | Uint8Array;
   readonly packagedProfileSidecar: string | Uint8Array;
+  readonly packagedOperationDescriptorsSource: string | Uint8Array;
   readonly sourceProfileSource: string | Uint8Array;
   readonly sourceProfileSidecar: string | Uint8Array;
   readonly openApiSource: string | Uint8Array;

@@ -33,25 +33,47 @@ export const REQUIRED_SOURCE_GATES = Object.freeze([
 const GIT_COMMIT = /^[0-9a-f]{40}$/u;
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const CONTRACT_PATHS = Object.freeze(["contracts.lock.json", "openapi.yaml", "webhooks.yaml"]);
-const KEY_PATHS = Object.freeze([
+export const SOURCE_CONTRACT_PATHS = Object.freeze([
+  "contracts.lock.json",
+  "openapi.yaml",
+  "webhooks.yaml",
+]);
+export const SOURCE_KEY_PATHS = Object.freeze([
   "contracts/webhooks/captured/keys/configured-webhook.key",
   "contracts/webhooks/captured/keys/route.key",
 ]);
 
-function requireCommit(value, label) {
+export function requireSourceCommit(value, label) {
   if (typeof value !== "string" || !GIT_COMMIT.test(value)) {
     throw new TypeError(`${label} must be a full lowercase Git commit.`);
   }
   return value;
 }
 
-function parseHashMap(value, paths, label) {
+export function parseSourceHashMap(value, paths, label) {
   const map = requireObject(value, label);
   requireExactKeys(map, paths, label);
   return Object.fromEntries(
     paths.map((path) => [path, requireHash(map[path], `${label}[${JSON.stringify(path)}]`)]),
   );
+}
+
+export function requireSourceBinding(actual, expected, label, owner = "Source gate report") {
+  if (actual !== expected) {
+    throw new TypeError(`${owner} references a stale ${label}.`);
+  }
+}
+
+export function compareSourceArtifactBindings(actual, expected, owner = "Source gate report") {
+  requireSourceBinding(actual.commit, expected.commit, "commit", owner);
+  for (const path of SOURCE_CONTRACT_PATHS) {
+    requireSourceBinding(actual.contractSha256[path], expected.contractSha256[path], path, owner);
+  }
+  requireSourceBinding(actual.profileSha256, expected.profileSha256, "operation profile", owner);
+  requireSourceBinding(actual.captureSha256, expected.captureSha256, "capture manifest", owner);
+  for (const path of SOURCE_KEY_PATHS) {
+    requireSourceBinding(actual.keysSha256[path], expected.keysSha256[path], path, owner);
+  }
 }
 
 function parseReport(value) {
@@ -71,13 +93,17 @@ function parseReport(value) {
     "Source gate report",
   );
   if (value.version !== 1) throw new TypeError("Source gate report version must be 1.");
-  const commit = requireCommit(value.commit, "Source gate report commit");
-  const contractSha256 = parseHashMap(
+  const commit = requireSourceCommit(value.commit, "Source gate report commit");
+  const contractSha256 = parseSourceHashMap(
     value.contractSha256,
-    CONTRACT_PATHS,
+    SOURCE_CONTRACT_PATHS,
     "Source gate report contractSha256",
   );
-  const keysSha256 = parseHashMap(value.keysSha256, KEY_PATHS, "Source gate report keysSha256");
+  const keysSha256 = parseSourceHashMap(
+    value.keysSha256,
+    SOURCE_KEY_PATHS,
+    "Source gate report keysSha256",
+  );
   const profileSha256 = requireHash(value.profileSha256, "Source gate report profileSha256");
   const captureSha256 = requireHash(value.captureSha256, "Source gate report captureSha256");
   const lockfileSha256 = requireHash(value.lockfileSha256, "Source gate report lockfileSha256");
@@ -143,38 +169,24 @@ function parseExpectedBindings(value) {
     "Expected source bindings",
   );
   return {
-    commit: requireCommit(expected.commit, "Expected source commit"),
-    contractSha256: parseHashMap(
+    commit: requireSourceCommit(expected.commit, "Expected source commit"),
+    contractSha256: parseSourceHashMap(
       expected.contractSha256,
-      CONTRACT_PATHS,
+      SOURCE_CONTRACT_PATHS,
       "Expected contractSha256",
     ),
     profileSha256: requireHash(expected.profileSha256, "Expected profileSha256"),
     captureSha256: requireHash(expected.captureSha256, "Expected captureSha256"),
-    keysSha256: parseHashMap(expected.keysSha256, KEY_PATHS, "Expected keysSha256"),
+    keysSha256: parseSourceHashMap(expected.keysSha256, SOURCE_KEY_PATHS, "Expected keysSha256"),
     lockfileSha256: requireHash(expected.lockfileSha256, "Expected lockfileSha256"),
     auditPolicySha256: requireHash(expected.auditPolicySha256, "Expected auditPolicySha256"),
   };
 }
 
-function requireBinding(actual, expected, label) {
-  if (actual !== expected) {
-    throw new TypeError(`Source gate report references a stale ${label}.`);
-  }
-}
-
 function compareBindings(report, expected) {
-  requireBinding(report.commit, expected.commit, "commit");
-  for (const path of CONTRACT_PATHS) {
-    requireBinding(report.contractSha256[path], expected.contractSha256[path], path);
-  }
-  requireBinding(report.profileSha256, expected.profileSha256, "operation profile");
-  requireBinding(report.captureSha256, expected.captureSha256, "capture manifest");
-  for (const path of KEY_PATHS) {
-    requireBinding(report.keysSha256[path], expected.keysSha256[path], path);
-  }
-  requireBinding(report.lockfileSha256, expected.lockfileSha256, "package lockfile");
-  requireBinding(report.auditPolicySha256, expected.auditPolicySha256, "audit policy");
+  compareSourceArtifactBindings(report, expected);
+  requireSourceBinding(report.lockfileSha256, expected.lockfileSha256, "package lockfile");
+  requireSourceBinding(report.auditPolicySha256, expected.auditPolicySha256, "audit policy");
 }
 
 export function validateSourceGateReport({ reportSource, reportSidecar, expectedBindings }) {
@@ -245,8 +257,8 @@ export async function readRepositorySourceBindings() {
       "Capture manifest",
       "contracts/webhooks/captured/manifest.sha256",
     ),
-    readFile(resolve(repositoryRoot, KEY_PATHS[0])),
-    readFile(resolve(repositoryRoot, KEY_PATHS[1])),
+    readFile(resolve(repositoryRoot, SOURCE_KEY_PATHS[0])),
+    readFile(resolve(repositoryRoot, SOURCE_KEY_PATHS[1])),
     readJsonDigest("package-lock.json", "Package lockfile"),
     readJsonDigest("security/audit-policy.json", "Audit policy"),
   ]);
@@ -257,7 +269,7 @@ export async function readRepositorySourceBindings() {
   }).trim();
 
   return {
-    commit: requireCommit(commit, "Repository commit"),
+    commit: requireSourceCommit(commit, "Repository commit"),
     contractSha256: {
       "contracts.lock.json": contractsLock,
       "openapi.yaml": digestYamlArtifact(openapi),
@@ -266,8 +278,8 @@ export async function readRepositorySourceBindings() {
     profileSha256,
     captureSha256,
     keysSha256: {
-      [KEY_PATHS[0]]: sha256Hex(configuredWebhookKey),
-      [KEY_PATHS[1]]: sha256Hex(routeKey),
+      [SOURCE_KEY_PATHS[0]]: sha256Hex(configuredWebhookKey),
+      [SOURCE_KEY_PATHS[1]]: sha256Hex(routeKey),
     },
     lockfileSha256,
     auditPolicySha256,

@@ -59,6 +59,9 @@ const sourceProfile = readFileSync(resolve(repositoryRoot, "src/generated/operat
 const sourceProfileSidecar = readFileSync(
   resolve(repositoryRoot, "src/generated/operation-profile.sha256"),
 );
+const sourceOperationDescriptors = readFileSync(
+  resolve(repositoryRoot, "src/generated/operations.ts"),
+);
 const openApiSource = readFileSync(resolve(repositoryRoot, "openapi.yaml"));
 
 function validReport(bindings: SourceBindings): SourceGateReport {
@@ -368,6 +371,7 @@ describe("release candidate validation", () => {
       validatePackagedOperationProfile({
         packagedProfileSource: sourceProfile,
         packagedProfileSidecar: sourceProfileSidecar,
+        packagedOperationDescriptorsSource: sourceOperationDescriptors,
         sourceProfileSource: sourceProfile,
         sourceProfileSidecar,
         openApiSource,
@@ -387,6 +391,7 @@ describe("release candidate validation", () => {
       validatePackagedOperationProfile({
         packagedProfileSource: transformed,
         packagedProfileSidecar: sourceProfileSidecar,
+        packagedOperationDescriptorsSource: sourceOperationDescriptors,
         sourceProfileSource: sourceProfile,
         sourceProfileSidecar,
         openApiSource,
@@ -403,6 +408,7 @@ describe("release candidate validation", () => {
       validatePackagedOperationProfile({
         packagedProfileSource: invalidProfileSource,
         packagedProfileSidecar: invalidProfileSidecar,
+        packagedOperationDescriptorsSource: sourceOperationDescriptors,
         sourceProfileSource: invalidProfileSource,
         sourceProfileSidecar: invalidProfileSidecar,
         openApiSource,
@@ -416,11 +422,50 @@ describe("release candidate validation", () => {
       validatePackagedOperationProfile({
         packagedProfileSource: sourceProfile,
         packagedProfileSidecar: sourceProfileSidecar,
+        packagedOperationDescriptorsSource: sourceOperationDescriptors,
         sourceProfileSource: sourceProfile,
         sourceProfileSidecar,
         openApiSource: invalidSecurity,
       }),
     ).toThrow("standard HTTP bearer security");
+
+    const missingPackagedSecurity = Buffer.from(
+      sourceOperationDescriptors
+        .toString("utf8")
+        .replace('security: [["messages:send:all"], ["messages:send:{domain}"]]', "security: []"),
+      "utf8",
+    );
+    expect(() =>
+      validatePackagedOperationProfile({
+        packagedProfileSource: sourceProfile,
+        packagedProfileSidecar: sourceProfileSidecar,
+        packagedOperationDescriptorsSource: missingPackagedSecurity,
+        sourceProfileSource: sourceProfile,
+        sourceProfileSidecar,
+        openApiSource,
+      }),
+    ).toThrow("Packaged security metadata for createMessage");
+
+    const descriptorSource = sourceOperationDescriptors.toString("utf8");
+    const descriptorStart = descriptorSource.indexOf("export const OPERATION_DESCRIPTORS");
+    if (descriptorStart === -1) throw new TypeError("Missing generated operation descriptors");
+    const missingPackagedAuthorization = Buffer.from(
+      descriptorSource.slice(0, descriptorStart) +
+        descriptorSource
+          .slice(descriptorStart)
+          .replace('global: "messages:read:all"', 'global: "messages:read:altered"'),
+      "utf8",
+    );
+    expect(() =>
+      validatePackagedOperationProfile({
+        packagedProfileSource: sourceProfile,
+        packagedProfileSidecar: sourceProfileSidecar,
+        packagedOperationDescriptorsSource: missingPackagedAuthorization,
+        sourceProfileSource: sourceProfile,
+        sourceProfileSidecar,
+        openApiSource,
+      }),
+    ).toThrow("Packaged resource authorization metadata for getMessages");
   });
 
   it("rejects dirty or mismatched commits", async () => {
@@ -494,6 +539,9 @@ describe("release candidate validation", () => {
       }
       if (command === "tar" && args.at(-1)?.endsWith("operation-profile.sha256")) {
         return sourceProfileSidecar;
+      }
+      if (command === "tar" && args.at(-1)?.endsWith("dist/index.js")) {
+        return sourceOperationDescriptors;
       }
       throw new TypeError(`Unexpected command: ${command} ${args.join(" ")}`);
     };

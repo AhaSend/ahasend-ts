@@ -15,6 +15,46 @@ export const REQUIRED_SOURCE_GATES: readonly [
   "audit",
 ];
 
+export const SOURCE_CONTRACT_PATHS: readonly [
+  "contracts.lock.json",
+  "openapi.yaml",
+  "webhooks.yaml",
+];
+
+export const SOURCE_KEY_PATHS: readonly [
+  "contracts/webhooks/captured/keys/configured-webhook.key",
+  "contracts/webhooks/captured/keys/route.key",
+];
+
+export function requireSourceCommit(value: unknown, label: string): string;
+
+export function parseSourceHashMap(
+  value: unknown,
+  paths: readonly string[],
+  label: string,
+): Record<string, string>;
+
+export function requireSourceBinding(
+  actual: unknown,
+  expected: unknown,
+  label: string,
+  owner?: string,
+): void;
+
+export interface SourceArtifactBindings {
+  readonly commit: string;
+  readonly contractSha256: Readonly<Record<string, string>>;
+  readonly profileSha256: string;
+  readonly captureSha256: string;
+  readonly keysSha256: Readonly<Record<string, string>>;
+}
+
+export function compareSourceArtifactBindings(
+  actual: SourceArtifactBindings,
+  expected: SourceArtifactBindings,
+  owner?: string,
+): void;
+
 export interface SourceBindings {
   readonly commit: string;
   readonly contractSha256: Readonly<Record<string, string>>;
