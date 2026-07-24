@@ -439,6 +439,48 @@ describe("live scenario inventory", () => {
     expectTypeOf<IsAssignable<AhaSendClient, DomainLiveClient>>().toEqualTypeOf<true>();
   });
 
+  it("dispatches domain lifecycle calls through the authenticated packaged mappings", async () => {
+    const candidate = inspectFixture();
+    const fixture = domainClientFixture();
+    const domains = fixture.client.domains;
+    const packagedMethods = {
+      packagedCreate: vi.fn(() => domains.create()),
+      packagedGet: vi.fn(() => domains.get()),
+      packagedUpdate: vi.fn(() => domains.update()),
+      packagedCheckDns: vi.fn(() => domains.checkDns()),
+      packagedDelete: vi.fn(() => domains.delete()),
+    };
+    Object.assign(domains, packagedMethods);
+    const mappedMethods = new Map([
+      ["createDomain", "packagedCreate"],
+      ["getDomain", "packagedGet"],
+      ["updateDomain", "packagedUpdate"],
+      ["checkDomainDNS", "packagedCheckDns"],
+      ["deleteDomain", "packagedDelete"],
+    ]);
+    const profile = {
+      ...candidate.profile,
+      operations: candidate.profile.operations.map((mapping) => ({
+        ...mapping,
+        method: mappedMethods.get(mapping.operationId) ?? mapping.method,
+      })),
+    };
+    const registry = createDomainScenarioRegistry({
+      profile,
+      client: fixture.client,
+      createRequest: { domain: fixture.domain },
+    });
+
+    const result = await runDomainLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(packagedMethods.packagedCreate).toHaveBeenCalledOnce();
+    expect(packagedMethods.packagedGet).toHaveBeenCalledTimes(2);
+    expect(packagedMethods.packagedUpdate).toHaveBeenCalledOnce();
+    expect(packagedMethods.packagedCheckDns).toHaveBeenCalledOnce();
+    expect(packagedMethods.packagedDelete).toHaveBeenCalledTimes(2);
+  });
+
   it("records the domain iterator as one linked subcase without a second primary", async () => {
     const candidate = inspectFixture();
     const fixture = domainClientFixture();

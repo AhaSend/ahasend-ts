@@ -450,15 +450,16 @@ export function createScenarioRegistry(
   return Object.freeze({ primary: readonlyMap(primary), iterators: Object.freeze(iterators) });
 }
 
-function requireDomainClient(value) {
+function requireMappedClientMethod(value, mapping, label) {
   const client = requireObject(value, "Domain live client");
-  const domains = requireObject(client.domains, "Domain live client domains facade");
-  for (const method of ["list", "iterate", "create", "get", "update", "delete", "checkDns"]) {
-    if (typeof domains[method] !== "function") {
-      throw new TypeError(`Domain live client domains.${method} must be a function.`);
-    }
+  const facade = requireObject(client[mapping.facade], `${label} ${mapping.facade} facade`);
+  const method = facade[mapping.method];
+  if (typeof method !== "function") {
+    throw new TypeError(
+      `${label} packaged mapping ${mapping.facade}.${mapping.method} must be a function.`,
+    );
   }
-  return domains;
+  return method.bind(facade);
 }
 
 function requireDomainRequest(value, label, requiredKeys) {
@@ -508,9 +509,9 @@ function isNotFoundError(error) {
   );
 }
 
-async function verifyDomainRemoved(domains, domain) {
+async function verifyDomainRemoved(getDomain, domain) {
   try {
-    await domains.get(domain);
+    await getDomain(domain);
   } catch (error) {
     if (isNotFoundError(error)) return;
     throw error;
@@ -543,6 +544,10 @@ function assertDomainMappings(profile) {
       "Packaged domain iterator must link getDomains iterate to its primary list operation.",
     );
   }
+  return Object.freeze({
+    operations: new Map(actual.map((mapping) => [mapping.operationId, mapping])),
+    iterator: iterator[0],
+  });
 }
 
 /**
@@ -557,8 +562,22 @@ export function createDomainScenarioRegistry({
   updateRequest = { tracking_subdomain: "live" },
   pagination = { limit: 1 },
 }) {
-  assertDomainMappings(profile);
-  const domains = requireDomainClient(client);
+  const mappings = assertDomainMappings(profile);
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Domain ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("getDomains"),
+    iterate: requireMappedClientMethod(client, mappings.iterator, "Domain iterator scenario"),
+    create: mappedOperation("createDomain"),
+    get: mappedOperation("getDomain"),
+    update: mappedOperation("updateDomain"),
+    checkDns: mappedOperation("checkDomainDNS"),
+    delete: mappedOperation("deleteDomain"),
+  });
   const createBody = requireDomainRequest(createRequest, "Domain live create request", ["domain"]);
   const updateBody = requireDomainRequest(updateRequest, "Domain live update request", []);
   const pageParams = requireDomainPagination(pagination);
@@ -571,7 +590,7 @@ export function createDomainScenarioRegistry({
         operationId: "getDomains",
         async run() {
           const page = requireObject(
-            await domains.list(pageParams),
+            await methods.list(pageParams),
             "Domain list scenario response",
           );
           if (!Array.isArray(page.data)) {
@@ -580,7 +599,7 @@ export function createDomainScenarioRegistry({
           requireObject(page.pagination, "Domain list scenario pagination");
 
           let itemCount = 0;
-          for await (const _entry of domains.iterate(pageParams)) {
+          for await (const _entry of methods.iterate(pageParams)) {
             itemCount += 1;
             if (itemCount >= pageParams.limit) break;
           }
@@ -604,14 +623,14 @@ export function createDomainScenarioRegistry({
       {
         operationId: "createDomain",
         async run({ cleanup }) {
-          const result = await domains.create(createBody);
+          const result = await methods.create(createBody);
           cleanup.register("delete and verify domain fixture", async () => {
             try {
-              await domains.delete(domain);
+              await methods.delete(domain);
             } catch (error) {
               if (!isNotFoundError(error)) throw error;
             }
-            await verifyDomainRemoved(domains, domain);
+            await verifyDomainRemoved(methods.get, domain);
           });
           requireDomainResult(result, domain, "Domain create scenario response");
           return Object.freeze({ evidence: Object.freeze({ created: true }) });
@@ -623,7 +642,7 @@ export function createDomainScenarioRegistry({
       {
         operationId: "getDomain",
         async run() {
-          requireDomainResult(await domains.get(domain), domain, "Domain get scenario response");
+          requireDomainResult(await methods.get(domain), domain, "Domain get scenario response");
           return Object.freeze({ evidence: Object.freeze({ matched: true }) });
         },
       },
@@ -634,7 +653,7 @@ export function createDomainScenarioRegistry({
         operationId: "updateDomain",
         async run() {
           requireDomainResult(
-            await domains.update(domain, updateBody),
+            await methods.update(domain, updateBody),
             domain,
             "Domain update scenario response",
           );
@@ -648,7 +667,7 @@ export function createDomainScenarioRegistry({
         operationId: "checkDomainDNS",
         async run() {
           requireDomainResult(
-            await domains.checkDns(domain),
+            await methods.checkDns(domain),
             domain,
             "Domain DNS-check scenario response",
           );
@@ -661,7 +680,7 @@ export function createDomainScenarioRegistry({
       {
         operationId: "deleteDomain",
         async run() {
-          await domains.delete(domain);
+          await methods.delete(domain);
           return Object.freeze({ evidence: Object.freeze({ deleted: true }) });
         },
       },
