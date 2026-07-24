@@ -647,6 +647,44 @@ export type AccountLiveRun = DomainLiveRun;
 
 export function runAccountLiveScenarios(registry: ScenarioRegistry): Promise<AccountLiveRun>;
 
+export interface SuppressionLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+  readonly wipe: (...args: never[]) => unknown;
+}
+
+export interface SuppressionLiveClient {
+  readonly suppressions: SuppressionLiveFacade;
+}
+
+export interface SuppressionLiveCreateRequest {
+  readonly email: string;
+  readonly domain: string;
+  readonly reason?: string;
+  readonly expires_at: string;
+}
+
+export interface CreateSuppressionScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: SuppressionLiveClient;
+  readonly disposableDomain: string;
+  readonly createRequest: SuppressionLiveCreateRequest;
+  readonly wipeCreateRequest: SuppressionLiveCreateRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createSuppressionScenarioRegistry(
+  options: CreateSuppressionScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type SuppressionLiveRun = DomainLiveRun;
+
+export function runSuppressionLiveScenarios(
+  registry: ScenarioRegistry,
+): Promise<SuppressionLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";

@@ -82,6 +82,12 @@ const accountOperationIds = Object.freeze([
   "addAccountMember",
   "removeAccountMember",
 ]);
+const suppressionOperationIds = Object.freeze([
+  "getSuppressions",
+  "createSuppression",
+  "deleteSuppression",
+  "deleteAllSuppressions",
+]);
 const mutableAccountFields = Object.freeze([
   "name",
   "website",
@@ -2924,6 +2930,216 @@ export function createAccountScenarioRegistry({
 /** Execute account and member scenarios in dependency order and always drain cleanup. */
 export function runAccountLiveScenarios(registry) {
   return runLiveScenarios(registry, accountOperationIds, null, "Account");
+}
+
+function requireDisposableSuppressionRequest(value, disposableDomain, label) {
+  const request = requireObject(value, label);
+  const email = requireString(request.email, `${label} email`);
+  if (
+    email.indexOf("@") < 1 ||
+    email.lastIndexOf("@") === email.length - 1 ||
+    requireString(request.domain, `${label} domain`) !== disposableDomain
+  ) {
+    throw new TypeError(`${label} must use an email and the disposable suppression domain.`);
+  }
+  const expiresAt = requireString(request.expires_at, `${label} expires_at`);
+  if (!Number.isFinite(Date.parse(expiresAt))) {
+    throw new TypeError(`${label} expires_at must be an RFC 3339 date-time.`);
+  }
+  if (request.reason !== undefined) requireString(request.reason, `${label} reason`);
+  return Object.freeze({ ...request, email, domain: disposableDomain, expires_at: expiresAt });
+}
+
+function requireSuppressionList(value, label) {
+  const response = requireObject(value, label);
+  if (response.object !== "list" || !Array.isArray(response.data)) {
+    throw new TypeError(`${label} must contain suppression data.`);
+  }
+  requireObject(response.pagination, `${label} pagination`);
+  return response;
+}
+
+function matchesSuppression(entry, target, label) {
+  const suppression = requireObject(entry, label);
+  return suppression.email === target.email && suppression.domain === target.domain;
+}
+
+function requireCreatedSuppression(value, target, label) {
+  const response = requireObject(value, label);
+  if (response.object !== "list" || !Array.isArray(response.data)) {
+    throw new TypeError(`${label} must contain created suppression data.`);
+  }
+  const created = response.data.find((entry, index) =>
+    matchesSuppression(entry, target, `${label} suppression ${index}`),
+  );
+  if (created === undefined) {
+    throw new TypeError(`${label} did not return the disposable suppression.`);
+  }
+  requireString(created.id, `${label} suppression id`);
+  return response;
+}
+
+async function requireSuppressionAbsent(list, target, label) {
+  const response = requireSuppressionList(
+    await list({ email: target.email, domain: target.domain, limit: 1 }),
+    label,
+  );
+  if (
+    response.data.some((entry, index) =>
+      matchesSuppression(entry, target, `${label} suppression ${index}`),
+    )
+  ) {
+    throw new TypeError(`${label} found the disposable suppression.`);
+  }
+}
+
+/**
+ * Build the suppression lifecycle from two domain-scoped disposable records.
+ * Every create is followed immediately by cleanup registration, before its
+ * response is validated.
+ */
+export function createSuppressionScenarioRegistry({
+  profile,
+  client,
+  disposableDomain,
+  createRequest,
+  wipeCreateRequest,
+  pagination = { limit: 1 },
+}) {
+  const mappings = requireLifecycleMappings(
+    profile,
+    suppressionOperationIds,
+    "suppressions",
+    "getSuppressions",
+    "suppression",
+  );
+  const domain = requireString(disposableDomain, "Disposable suppression domain");
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Suppression ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("getSuppressions"),
+    iterate: requireMappedClientMethod(client, mappings.iterator, "Suppression iterator scenario"),
+    create: mappedOperation("createSuppression"),
+    delete: mappedOperation("deleteSuppression"),
+    wipe: mappedOperation("deleteAllSuppressions"),
+  });
+  const createBody = requireDisposableSuppressionRequest(
+    createRequest,
+    domain,
+    "Suppression live create request",
+  );
+  const wipeCreateBody = requireDisposableSuppressionRequest(
+    wipeCreateRequest,
+    domain,
+    "Suppression live wipe fixture request",
+  );
+  if (createBody.email.toLowerCase() === wipeCreateBody.email.toLowerCase()) {
+    throw new TypeError("Suppression create and wipe fixtures must use different emails.");
+  }
+  const pageParams = requireLivePagination(pagination, "Suppression");
+  const deleteParams = (target) => Object.freeze({ email: target.email, domain: target.domain });
+  const registerCleanup = (cleanup, target, label) => {
+    cleanup.register(label, async () => {
+      try {
+        await methods.delete(deleteParams(target));
+      } catch (error) {
+        if (!isNotFoundError(error)) throw error;
+      }
+      await requireSuppressionAbsent(methods.list, target, "Suppression cleanup verification");
+    });
+  };
+
+  const scenarios = new Map([
+    [
+      "getSuppressions",
+      {
+        operationId: "getSuppressions",
+        async run() {
+          return runListIteratorScenario(methods.list, methods.iterate, pageParams, "Suppression");
+        },
+      },
+    ],
+    [
+      "createSuppression",
+      {
+        operationId: "createSuppression",
+        async run({ cleanup }) {
+          const result = await methods.create(createBody);
+          registerCleanup(cleanup, createBody, "delete and verify disposable suppression fixture");
+          requireCreatedSuppression(result, createBody, "Suppression create scenario response");
+          return Object.freeze({
+            evidence: Object.freeze({
+              cleanupRegistered: true,
+              disposableDataUsed: true,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteSuppression",
+      {
+        operationId: "deleteSuppression",
+        async run() {
+          await methods.delete(deleteParams(createBody));
+          await requireSuppressionAbsent(
+            methods.list,
+            createBody,
+            "Suppression delete scenario verification",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupVerified: true, deleted: true }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteAllSuppressions",
+      {
+        operationId: "deleteAllSuppressions",
+        async run({ cleanup }) {
+          const result = await methods.create(wipeCreateBody);
+          registerCleanup(
+            cleanup,
+            wipeCreateBody,
+            "delete and verify disposable wipe suppression fixture",
+          );
+          requireCreatedSuppression(
+            result,
+            wipeCreateBody,
+            "Suppression wipe fixture create response",
+          );
+          await methods.wipe({ domain });
+          await requireSuppressionAbsent(
+            methods.list,
+            wipeCreateBody,
+            "Suppression wipe scenario verification",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              cleanupRegistered: true,
+              cleanupVerified: true,
+              domainScoped: true,
+            }),
+          });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute suppression scenarios in lifecycle order and always drain cleanup. */
+export function runSuppressionLiveScenarios(registry) {
+  return runLiveScenarios(registry, suppressionOperationIds, "getSuppressions", "Suppression");
 }
 
 export function createCleanupRegistry() {

@@ -18,6 +18,7 @@ import {
   createScenarioRegistry,
   createSMTPCredentialScenarioRegistry,
   createStatisticsScenarioRegistry,
+  createSuppressionScenarioRegistry,
   createWebhookScenarioRegistry,
   inspectLiveCandidate,
   installLiveCandidate,
@@ -29,6 +30,7 @@ import {
   runRouteLiveScenarios,
   runSMTPCredentialLiveScenarios,
   runStatisticsLiveScenarios,
+  runSuppressionLiveScenarios,
   runWebhookLiveScenarios,
   runWithCleanup,
   validateLiveReportArtifacts,
@@ -44,6 +46,7 @@ import {
   type RouteLiveClient,
   type SMTPCredentialLiveClient,
   type StatisticsLiveClient,
+  type SuppressionLiveClient,
   type WebhookLiveClient,
 } from "../../scripts/live-acceptance.mjs";
 import liveReportSchema from "../../scripts/live-report.schema.json";
@@ -880,6 +883,122 @@ function accountClientFixture(
     priorState,
     updateRequest: { track_opens: false, track_clicks: true },
     updateRequests,
+  };
+}
+
+function suppressionClientFixture(
+  options: { failCleanup?: boolean; malformedCreate?: "create" | "wipe" } = {},
+) {
+  const disposableDomain = "sdk-live-suppressions.example.test";
+  const createRequest = {
+    email: "delete-fixture@example.test",
+    domain: disposableDomain,
+    reason: "SDK live delete fixture",
+    expires_at: "2030-01-01T00:00:00.000Z",
+  };
+  const wipeCreateRequest = {
+    email: "wipe-fixture@example.test",
+    domain: disposableDomain,
+    reason: "SDK live wipe fixture",
+    expires_at: "2030-01-02T00:00:00.000Z",
+  };
+  const outside = {
+    object: "suppression" as const,
+    id: "99999999-9999-4999-8999-999999999999",
+    created_at: "2026-01-01T00:00:00.000Z",
+    email: "outside@example.test",
+    domain: "outside.example.test",
+    reason: "Existing unrelated suppression",
+    expires_at: "2030-01-03T00:00:00.000Z",
+  };
+  const records = new Map([[`${outside.email}|${outside.domain}`, outside]]);
+  const calls: string[] = [];
+  let createCalls = 0;
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const select = (params: { email?: string; domain?: string }) =>
+    [...records.values()].filter(
+      (entry) =>
+        (params.email === undefined || entry.email === params.email) &&
+        (params.domain === undefined || entry.domain === params.domain),
+    );
+  const list = vi.fn(
+    async (params: {
+      limit: number;
+      after?: string;
+      before?: string;
+      email?: string;
+      domain?: string;
+    }) => {
+      calls.push(`list:${JSON.stringify(params)}`);
+      return {
+        object: "list" as const,
+        data: select(params).slice(0, params.limit),
+        pagination: { has_more: false },
+      };
+    },
+  );
+  const iterate = vi.fn(async function* (params: {
+    limit: number;
+    after?: string;
+    before?: string;
+  }) {
+    calls.push(`iterate:${JSON.stringify(params)}`);
+    for (const entry of select({}).slice(0, params.limit)) yield entry;
+  });
+  const create = vi.fn(
+    async (request: { email: string; domain?: string; reason?: string; expires_at: string }) => {
+      calls.push(`create:${request.email}`);
+      createCalls += 1;
+      const record = {
+        object: "suppression" as const,
+        id: `${createCalls}1111111-1111-4111-8111-111111111111`.slice(0, 36),
+        created_at: "2026-01-01T00:00:00.000Z",
+        email: request.email,
+        domain: request.domain ?? "",
+        reason: request.reason ?? "",
+        expires_at: request.expires_at,
+      };
+      records.set(`${record.email}|${record.domain}`, record);
+      const malformed =
+        (createCalls === 1 && options.malformedCreate === "create") ||
+        (createCalls === 2 && options.malformedCreate === "wipe");
+      return {
+        object: "list" as const,
+        data: malformed ? [] : [record],
+      };
+    },
+  );
+  const deleteSuppression = vi.fn(async (params: { email: string; domain?: string }) => {
+    calls.push(`delete:${params.email}`);
+    const key = `${params.email}|${params.domain ?? ""}`;
+    if (
+      !records.has(key) &&
+      options.failCleanup === true &&
+      params.email === wipeCreateRequest.email
+    ) {
+      throw Object.assign(new Error("cleanup verification failed"), { status: 500 });
+    }
+    if (!records.delete(key)) throw notFound();
+    return { message: "deleted" };
+  });
+  const wipe = vi.fn(async (params: { domain?: string }) => {
+    calls.push(`wipe:${params.domain ?? ""}`);
+    for (const [key, entry] of records) {
+      if (params.domain === undefined || entry.domain === params.domain) records.delete(key);
+    }
+    return { message: "wiped" };
+  });
+  const client: SuppressionLiveClient = {
+    suppressions: { list, iterate, create, delete: deleteSuppression, wipe },
+  };
+  return {
+    calls,
+    client,
+    createRequest,
+    disposableDomain,
+    outside,
+    records,
+    wipeCreateRequest,
   };
 }
 
@@ -2689,6 +2808,204 @@ describe("live scenario inventory", () => {
     expect(source).not.toContain(fixture.priorState.website);
     expect(source).toContain('"disposableMailboxUsed":true');
     expect(source).toContain('"invitationDataReported":false');
+  });
+
+  it("registers exactly one executable scenario for every packaged suppression primary", () => {
+    const fixture = suppressionClientFixture();
+    const registry = createSuppressionScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      disposableDomain: fixture.disposableDomain,
+      createRequest: fixture.createRequest,
+      wipeCreateRequest: fixture.wipeCreateRequest,
+    });
+    const suppressionEntries = [...registry.primary.values()].filter(
+      ({ facade }) => facade === "suppressions",
+    );
+
+    expect(suppressionEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      ["getSuppressions", "createSuppression", "deleteSuppression", "deleteAllSuppressions"].sort(),
+    );
+    expect(suppressionEntries).toHaveLength(4);
+    expect(suppressionEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, SuppressionLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("links suppression iteration to the list primary without a duplicate primary scenario", async () => {
+    const fixture = suppressionClientFixture();
+    const registry = createSuppressionScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      disposableDomain: fixture.disposableDomain,
+      createRequest: fixture.createRequest,
+      wipeCreateRequest: fixture.wipeCreateRequest,
+    });
+    const result = await runSuppressionLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(
+      result.operationResults.filter(({ operationId }) => operationId === "getSuppressions"),
+    ).toHaveLength(1);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getSuppressions",
+        status: "passed",
+        evidence: { direction: "forward", items: 1, limit: 1 },
+      },
+    ]);
+    expect(registry.iterators.filter(({ facade }) => facade === "suppressions")).toHaveLength(1);
+    expect(registry.primary.get("getSuppressions")?.iterator).toMatchObject({
+      operationId: "getSuppressions",
+      method: "iterate",
+    });
+  });
+
+  it("uses positive single-direction suppression pagination for list and iteration", async () => {
+    const fixture = suppressionClientFixture();
+    const pagination = { limit: 2, before: "previous-page" };
+    const registry = createSuppressionScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      disposableDomain: fixture.disposableDomain,
+      createRequest: fixture.createRequest,
+      wipeCreateRequest: fixture.wipeCreateRequest,
+      pagination,
+    });
+    const result = await runSuppressionLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.suppressions.list).toHaveBeenNthCalledWith(1, pagination);
+    expect(fixture.client.suppressions.iterate).toHaveBeenCalledOnce();
+    expect(fixture.client.suppressions.iterate).toHaveBeenCalledWith(pagination);
+    expect(fixture.client.suppressions.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ after: expect.anything() }),
+    );
+    expect(result.iteratorResults[0]).toMatchObject({
+      evidence: { direction: "backward", limit: 2 },
+    });
+
+    expect(() =>
+      createSuppressionScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        disposableDomain: fixture.disposableDomain,
+        createRequest: fixture.createRequest,
+        wipeCreateRequest: fixture.wipeCreateRequest,
+        pagination: { limit: 0 },
+      }),
+    ).toThrow("limit must be an integer from 1 to 100");
+  });
+
+  it("wipes only the disposable suppression domain and verifies removal immediately", async () => {
+    const fixture = suppressionClientFixture();
+    const result = await runSuppressionLiveScenarios(
+      createSuppressionScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        disposableDomain: fixture.disposableDomain,
+        createRequest: fixture.createRequest,
+        wipeCreateRequest: fixture.wipeCreateRequest,
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.suppressions.wipe).toHaveBeenCalledOnce();
+    expect(fixture.client.suppressions.wipe).toHaveBeenCalledWith({
+      domain: fixture.disposableDomain,
+    });
+    expect(fixture.records.has(`${fixture.outside.email}|${fixture.outside.domain}`)).toBe(true);
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "deleteAllSuppressions"),
+    ).toMatchObject({
+      evidence: {
+        cleanupRegistered: true,
+        cleanupVerified: true,
+        domainScoped: true,
+      },
+    });
+  });
+
+  it("registers suppression cleanup before validation and drains it in reverse creation order", async () => {
+    const malformedFixture = suppressionClientFixture({ malformedCreate: "create" });
+    const malformedResult = await runSuppressionLiveScenarios(
+      createSuppressionScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: malformedFixture.client,
+        disposableDomain: malformedFixture.disposableDomain,
+        createRequest: malformedFixture.createRequest,
+        wipeCreateRequest: malformedFixture.wipeCreateRequest,
+      }),
+    );
+
+    expect(malformedResult.failure).toEqual({
+      phase: "operation",
+      operationId: "createSuppression",
+    });
+    expect(malformedResult.cleanupResults).toEqual([
+      { label: "delete and verify disposable suppression fixture", status: "passed" },
+    ]);
+
+    const fixture = suppressionClientFixture();
+    const result = await runSuppressionLiveScenarios(
+      createSuppressionScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        disposableDomain: fixture.disposableDomain,
+        createRequest: fixture.createRequest,
+        wipeCreateRequest: fixture.wipeCreateRequest,
+      }),
+    );
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable wipe suppression fixture", status: "passed" },
+      { label: "delete and verify disposable suppression fixture", status: "passed" },
+    ]);
+
+    const cleanupFailureFixture = suppressionClientFixture({ failCleanup: true });
+    const cleanupFailureResult = await runSuppressionLiveScenarios(
+      createSuppressionScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: cleanupFailureFixture.client,
+        disposableDomain: cleanupFailureFixture.disposableDomain,
+        createRequest: cleanupFailureFixture.createRequest,
+        wipeCreateRequest: cleanupFailureFixture.wipeCreateRequest,
+      }),
+    );
+    expect(cleanupFailureResult.failure).toEqual({ phase: "cleanup" });
+    expect(cleanupFailureResult.cleanupResults).toEqual([
+      { label: "delete and verify disposable wipe suppression fixture", status: "failed" },
+      { label: "delete and verify disposable suppression fixture", status: "passed" },
+    ]);
+  });
+
+  it("reports suppression lifecycle and cleanup evidence without disposable data", async () => {
+    const candidate = inspectFixture();
+    const fixture = suppressionClientFixture();
+    const result = await runSuppressionLiveScenarios(
+      createSuppressionScenarioRegistry({
+        profile: candidate.profile,
+        client: fixture.client,
+        disposableDomain: fixture.disposableDomain,
+        createRequest: fixture.createRequest,
+        wipeCreateRequest: fixture.wipeCreateRequest,
+      }),
+    );
+    const source = canonicalizeJson(
+      createLiveReport({
+        candidate,
+        operationResults: result.operationResults,
+        iteratorResults: result.iteratorResults,
+        cleanupResults: result.cleanupResults,
+      }),
+    ).toString("utf8");
+
+    expect(source).not.toContain(fixture.createRequest.email);
+    expect(source).not.toContain(fixture.wipeCreateRequest.email);
+    expect(source).not.toContain(fixture.disposableDomain);
+    expect(source).not.toContain(fixture.createRequest.reason);
+    expect(source).toContain('"disposableDataUsed":true');
+    expect(source).toContain('"domainScoped":true');
+    expect(source).toContain('"cleanupVerified":true');
   });
 
   it("registers exactly one executable scenario for every packaged statistics primary", () => {
