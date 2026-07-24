@@ -738,10 +738,19 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
     expectedCandidate.profile,
     "Verified live candidate profile",
   );
+  const verifiedManifestSha256 = requireHash(
+    expectedCandidate.manifestSha256,
+    "Verified live candidate manifestSha256",
+  );
+  if (sha256Hex(canonicalizeJson(expectedManifest)) !== verifiedManifestSha256) {
+    throw new TypeError(
+      "Verified live candidate manifest does not match its authenticated manifestSha256.",
+    );
+  }
   requireSameReportValue(candidateCommit, expectedManifest.commit, "Live report candidate commit");
   requireSameReportValue(
     candidateManifestSha256,
-    expectedCandidate.manifestSha256,
+    verifiedManifestSha256,
     "Live report candidate manifestSha256",
   );
   requireSameReportValue(

@@ -116,6 +116,19 @@ describe("live candidate foundation", () => {
     expect(candidate.profile.iterators).toHaveLength(9);
     expect(candidate.registry.primary.size).toBe(56);
     expect(candidate.registry.iterators).toHaveLength(9);
+    expect(Object.isFrozen(candidate.manifest)).toBe(true);
+    expect(Object.isFrozen(candidate.manifest.contractSha256)).toBe(true);
+    expect(Object.isFrozen(candidate.manifest.keysSha256)).toBe(true);
+    expect(() => {
+      (candidate.manifest.contractSha256 as Record<string, string>)["openapi.yaml"] = "a".repeat(
+        64,
+      );
+    }).toThrow(TypeError);
+    expect(() => {
+      (candidate.manifest.keysSha256 as Record<string, string>)[
+        "contracts/webhooks/captured/keys/route.key"
+      ] = "b".repeat(64);
+    }).toThrow(TypeError);
   });
 
   it("rejects changed candidate, profile, or detached digest bytes", () => {
@@ -527,6 +540,30 @@ describe("live cleanup and reporting", () => {
   it("rejects substituted candidate identities and invented packaged operation inventories", () => {
     const candidate = inspectFixture();
     const report = createLiveReport({ candidate });
+    const inconsistentCandidate = {
+      ...candidate,
+      manifest: {
+        ...candidate.manifest,
+        contractSha256: {
+          ...candidate.manifest.contractSha256,
+          "openapi.yaml": "c".repeat(64),
+        },
+        keysSha256: {
+          ...candidate.manifest.keysSha256,
+          "contracts/webhooks/captured/keys/route.key": "d".repeat(64),
+        },
+      },
+    } satisfies LiveCandidate;
+    const inconsistentReport = createLiveReport({ candidate: inconsistentCandidate });
+    const inconsistentReportSource = canonicalizeJson(inconsistentReport);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: inconsistentReportSource,
+        reportSidecar: `${sha256Hex(inconsistentReportSource)}\n`,
+        candidate: inconsistentCandidate,
+      }),
+    ).toThrow("manifest does not match its authenticated manifestSha256");
+
     const staleCandidate = structuredClone(report) as {
       candidate: { manifestSha256: string };
     };

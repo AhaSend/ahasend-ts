@@ -55,21 +55,21 @@ export function parseCandidateManifest(value, label = "Candidate manifest") {
     label,
   );
   if (value.version !== 1) throw new TypeError(`${label} version must be 1.`);
-  return {
+  return Object.freeze({
     version: 1,
     commit: requireSourceCommit(value.commit, `${label} commit`),
     sourceReportSha256: requireHash(value.sourceReportSha256, `${label} sourceReportSha256`),
-    contractSha256: parseSourceHashMap(
-      value.contractSha256,
-      SOURCE_CONTRACT_PATHS,
-      `${label} contractSha256`,
+    contractSha256: Object.freeze(
+      parseSourceHashMap(value.contractSha256, SOURCE_CONTRACT_PATHS, `${label} contractSha256`),
     ),
     captureSha256: requireHash(value.captureSha256, `${label} captureSha256`),
-    keysSha256: parseSourceHashMap(value.keysSha256, SOURCE_KEY_PATHS, `${label} keysSha256`),
+    keysSha256: Object.freeze(
+      parseSourceHashMap(value.keysSha256, SOURCE_KEY_PATHS, `${label} keysSha256`),
+    ),
     rendererReportSha256: requireHash(value.rendererReportSha256, `${label} rendererReportSha256`),
     profileSha256: requireHash(value.profileSha256, `${label} profileSha256`),
     tarballSha256: requireHash(value.tarballSha256, `${label} tarballSha256`),
-  };
+  });
 }
 
 function parseExpectedCandidateBindings(value) {
