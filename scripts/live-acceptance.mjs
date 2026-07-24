@@ -88,6 +88,16 @@ const suppressionOperationIds = Object.freeze([
   "deleteSuppression",
   "deleteAllSuppressions",
 ]);
+const subAccountOperationIds = Object.freeze([
+  "listSubAccounts",
+  "createSubAccount",
+  "getSubAccountsUsage",
+  "getSubAccount",
+  "updateSubAccount",
+  "suspendSubAccount",
+  "unsuspendSubAccount",
+  "deleteSubAccount",
+]);
 const mutableAccountFields = Object.freeze([
   "name",
   "website",
@@ -3140,6 +3150,438 @@ export function createSuppressionScenarioRegistry({
 /** Execute suppression scenarios in lifecycle order and always drain cleanup. */
 export function runSuppressionLiveScenarios(registry) {
   return runLiveScenarios(registry, suppressionOperationIds, "getSuppressions", "Suppression");
+}
+
+function requireNonNegativeSafeInteger(value, label) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(`${label} must be a non-negative safe integer.`);
+  }
+  return value;
+}
+
+function requireSubAccountCredit(value, label) {
+  requireNonNegativeSafeInteger(value, label);
+  if (value > 1_000_000_000) {
+    throw new TypeError(`${label} must not exceed 1000000000.`);
+  }
+  return value;
+}
+
+function requireSubAccountCreateRequest(value) {
+  const request = requireObject(value, "Sub-account live create request");
+  const unexpected = Object.keys(request).filter(
+    (field) => !["monthly_credit", "name", "website"].includes(field),
+  );
+  if (unexpected.length > 0) {
+    throw new TypeError(
+      `Sub-account live create request contains unexpected fields ${JSON.stringify(unexpected)}.`,
+    );
+  }
+  const name = requireString(request.name, "Sub-account live create request name");
+  const website = requireString(request.website, "Sub-account live create request website");
+  if (request.monthly_credit !== undefined) {
+    requireSubAccountCredit(
+      request.monthly_credit,
+      "Sub-account live create request monthly_credit",
+    );
+  }
+  return Object.freeze({ ...request, name, website });
+}
+
+function requireSubAccountUpdateRequest(value, createBody) {
+  const request = requireObject(value, "Sub-account live update request");
+  const fields = Object.keys(request);
+  const unexpected = fields.filter(
+    (field) => !["monthly_credit", "name", "website"].includes(field),
+  );
+  if (fields.length === 0 || unexpected.length > 0) {
+    throw new TypeError(
+      `Sub-account live update request must contain editable fields only; unexpected ${JSON.stringify(unexpected)}.`,
+    );
+  }
+  for (const field of fields) {
+    const fieldValue = request[field];
+    if (fieldValue === undefined || fieldValue === null) {
+      throw new TypeError(`Sub-account live update request ${field} must be non-null.`);
+    }
+    if (field === "monthly_credit") {
+      requireSubAccountCredit(fieldValue, "Sub-account live update request monthly_credit");
+    } else {
+      requireString(fieldValue, `Sub-account live update request ${field}`);
+    }
+  }
+  if (fields.every((field) => request[field] === createBody[field])) {
+    throw new TypeError("Sub-account live update request must change the created sub account.");
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireSubAccountResult(value, expectedId, expectedParentId, label) {
+  const result = requireObject(value, label);
+  if (
+    result.object !== "sub_account" ||
+    requireString(result.id, `${label} id`) !== expectedId ||
+    requireString(result.parent_account_id, `${label} parent_account_id`) !== expectedParentId
+  ) {
+    throw new TypeError(`${label} returned the wrong sub account.`);
+  }
+  requireString(result.name, `${label} name`);
+  requireString(result.website, `${label} website`);
+  requireString(result.created_at, `${label} created_at`);
+  requireSubAccountCredit(result.monthly_credit, `${label} monthly_credit`);
+  requireNonNegativeSafeInteger(result.domain_count, `${label} domain_count`);
+  requireNonNegativeSafeInteger(result.member_count, `${label} member_count`);
+  if (!["active", "deleted", "parent-suspended", "suspended"].includes(result.status)) {
+    throw new TypeError(`${label} status is invalid.`);
+  }
+  if (result.last_activity_at !== null) {
+    requireString(result.last_activity_at, `${label} last_activity_at`);
+  }
+  return result;
+}
+
+function requireSubAccountFields(result, expected, label) {
+  for (const [field, expectedValue] of Object.entries(expected)) {
+    if (result[field] !== expectedValue) {
+      throw new TypeError(`${label} did not preserve ${field}.`);
+    }
+  }
+  return result;
+}
+
+function requireSubAccountStatus(result, expectedStatus, label) {
+  if (result.status !== expectedStatus) {
+    throw new TypeError(`${label} status must be ${expectedStatus}.`);
+  }
+  return result;
+}
+
+function requireUsageBreakdown(value, label, requireIdentity = false) {
+  const breakdown = requireObject(value, label);
+  requireNonNegativeSafeInteger(breakdown.reception_count, `${label} reception_count`);
+  if (
+    typeof breakdown.allocated_cost !== "number" ||
+    !Number.isFinite(breakdown.allocated_cost) ||
+    breakdown.allocated_cost < 0
+  ) {
+    throw new TypeError(`${label} allocated_cost must be a non-negative finite number.`);
+  }
+  if (requireIdentity) {
+    requireString(breakdown.account_id, `${label} account_id`);
+    if (breakdown.name !== undefined) requireString(breakdown.name, `${label} name`);
+  }
+  return breakdown;
+}
+
+function requireSubAccountUsage(value, expectedParentId, label) {
+  const response = requireObject(value, label);
+  const billingPeriod = requireObject(response.billing_period, `${label} billing_period`);
+  for (const field of ["start", "end"]) {
+    const dateTime = requireString(billingPeriod[field], `${label} billing_period ${field}`);
+    if (!Number.isFinite(Date.parse(dateTime))) {
+      throw new TypeError(`${label} billing_period ${field} must be an RFC 3339 date-time.`);
+    }
+  }
+  requireString(response.currency, `${label} currency`);
+  requireString(response.allocation_note, `${label} allocation_note`);
+  if (response.allocation_method !== "proportional") {
+    throw new TypeError(`${label} allocation_method must be proportional.`);
+  }
+  const parent = requireUsageBreakdown(response.parent, `${label} parent`, true);
+  if (parent.account_id !== expectedParentId) {
+    throw new TypeError(`${label} returned usage for the wrong parent account.`);
+  }
+  if (!Array.isArray(response.sub_accounts)) {
+    throw new TypeError(`${label} sub_accounts must be an array.`);
+  }
+  for (const [index, entry] of response.sub_accounts.entries()) {
+    const breakdown = requireUsageBreakdown(entry, `${label} sub_account ${index}`, true);
+    requireString(breakdown.name, `${label} sub_account ${index} name`);
+  }
+  requireUsageBreakdown(response.removed_sub_accounts, `${label} removed_sub_accounts`);
+  requireUsageBreakdown(response.total, `${label} total`);
+  return response;
+}
+
+function requireSubAccountSuspendRequest(value) {
+  const request = requireObject(value, "Sub-account live suspend request");
+  const fields = Object.keys(request);
+  if (fields.length !== 1 || fields[0] !== "reason") {
+    throw new TypeError("Sub-account live suspend request must contain only reason.");
+  }
+  const reason = requireString(request.reason, "Sub-account live suspend request reason");
+  if (reason.length > 500) {
+    throw new TypeError("Sub-account live suspend request reason must not exceed 500 characters.");
+  }
+  return Object.freeze({ reason });
+}
+
+/**
+ * Build the parent sub-account lifecycle around one disposable child. Cleanup
+ * is registered as soon as the created child ID is available, before the
+ * response's remaining fields are validated.
+ */
+export function createSubAccountScenarioRegistry({
+  profile,
+  client,
+  createRequest,
+  updateRequest,
+  suspendRequest,
+  pagination = { limit: 1 },
+}) {
+  const mappings = requireLifecycleMappings(
+    profile,
+    subAccountOperationIds,
+    "subAccounts",
+    "listSubAccounts",
+    "sub-account",
+  );
+  const liveClient = requireObject(client, "Live client");
+  const parentAccountId = requireString(liveClient.accountId, "Live client accountId");
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Sub-account ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("listSubAccounts"),
+    iterate: requireMappedClientMethod(client, mappings.iterator, "Sub-account iterator scenario"),
+    create: mappedOperation("createSubAccount"),
+    usage: mappedOperation("getSubAccountsUsage"),
+    get: mappedOperation("getSubAccount"),
+    update: mappedOperation("updateSubAccount"),
+    delete: mappedOperation("deleteSubAccount"),
+    suspend: mappedOperation("suspendSubAccount"),
+    unsuspend: mappedOperation("unsuspendSubAccount"),
+  });
+  const createBody = requireSubAccountCreateRequest(createRequest);
+  const updateBody = requireSubAccountUpdateRequest(updateRequest, createBody);
+  const suspendBody = requireSubAccountSuspendRequest(suspendRequest);
+  const pageParams = requireLivePagination(pagination, "Sub-account");
+  let subAccountId;
+  const fixtureId = () => requireString(subAccountId, "Disposable sub-account fixture id");
+
+  const scenarios = new Map([
+    [
+      "listSubAccounts",
+      {
+        operationId: "listSubAccounts",
+        async run() {
+          return runListIteratorScenario(methods.list, methods.iterate, pageParams, "Sub-account");
+        },
+      },
+    ],
+    [
+      "createSubAccount",
+      {
+        operationId: "createSubAccount",
+        async run({ cleanup }) {
+          const result = requireObject(
+            await methods.create(createBody),
+            "Sub-account create scenario response",
+          );
+          const createdId = requireString(result.id, "Sub-account create scenario response id");
+          subAccountId = createdId;
+          cleanup.register("delete and verify disposable sub-account fixture", async () => {
+            try {
+              await methods.delete(createdId);
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
+            }
+            await requireResourceAbsent(
+              methods.get,
+              createdId,
+              "Sub-account cleanup verification",
+              "sub account",
+            );
+          });
+          requireSubAccountFields(
+            requireSubAccountStatus(
+              requireSubAccountResult(
+                result,
+                createdId,
+                parentAccountId,
+                "Sub-account create scenario response",
+              ),
+              "active",
+              "Sub-account create scenario response",
+            ),
+            createBody,
+            "Sub-account create scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              cleanupRegistered: true,
+              disposableDataReported: false,
+              status: "active",
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getSubAccountsUsage",
+      {
+        operationId: "getSubAccountsUsage",
+        async run() {
+          const response = requireSubAccountUsage(
+            await methods.usage(),
+            parentAccountId,
+            "Sub-account usage scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              allocationMethod: "proportional",
+              safeIntegersVerified: true,
+              subAccountBuckets: response.sub_accounts.length,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getSubAccount",
+      {
+        operationId: "getSubAccount",
+        async run() {
+          requireSubAccountStatus(
+            requireSubAccountResult(
+              await methods.get(fixtureId()),
+              fixtureId(),
+              parentAccountId,
+              "Sub-account get scenario response",
+            ),
+            "active",
+            "Sub-account get scenario response",
+          );
+          return Object.freeze({ evidence: Object.freeze({ matched: true, status: "active" }) });
+        },
+      },
+    ],
+    [
+      "updateSubAccount",
+      {
+        operationId: "updateSubAccount",
+        async run() {
+          const id = fixtureId();
+          requireSubAccountFields(
+            requireSubAccountStatus(
+              requireSubAccountResult(
+                await methods.update(id, updateBody),
+                id,
+                parentAccountId,
+                "Sub-account update scenario response",
+              ),
+              "active",
+              "Sub-account update scenario response",
+            ),
+            updateBody,
+            "Sub-account update scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              status: "active",
+              updatedFields: Object.keys(updateBody).length,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "suspendSubAccount",
+      {
+        operationId: "suspendSubAccount",
+        async run() {
+          const id = fixtureId();
+          requireSubAccountStatus(
+            requireSubAccountResult(
+              await methods.suspend(id, suspendBody),
+              id,
+              parentAccountId,
+              "Sub-account suspend scenario response",
+            ),
+            "suspended",
+            "Sub-account suspend scenario response",
+          );
+          requireSubAccountStatus(
+            requireSubAccountResult(
+              await methods.get(id),
+              id,
+              parentAccountId,
+              "Sub-account suspend verification",
+            ),
+            "suspended",
+            "Sub-account suspend verification",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ status: "suspended", transitionVerified: true }),
+          });
+        },
+      },
+    ],
+    [
+      "unsuspendSubAccount",
+      {
+        operationId: "unsuspendSubAccount",
+        async run() {
+          const id = fixtureId();
+          requireSubAccountStatus(
+            requireSubAccountResult(
+              await methods.unsuspend(id),
+              id,
+              parentAccountId,
+              "Sub-account unsuspend scenario response",
+            ),
+            "active",
+            "Sub-account unsuspend scenario response",
+          );
+          requireSubAccountStatus(
+            requireSubAccountResult(
+              await methods.get(id),
+              id,
+              parentAccountId,
+              "Sub-account unsuspend verification",
+            ),
+            "active",
+            "Sub-account unsuspend verification",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ status: "active", transitionVerified: true }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteSubAccount",
+      {
+        operationId: "deleteSubAccount",
+        async run() {
+          const id = fixtureId();
+          await methods.delete(id);
+          await requireResourceAbsent(
+            methods.get,
+            id,
+            "Sub-account delete scenario verification",
+            "sub account",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupVerified: true, deleted: true }),
+          });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute the disposable child lifecycle and always drain registered cleanup. */
+export function runSubAccountLiveScenarios(registry) {
+  return runLiveScenarios(registry, subAccountOperationIds, "listSubAccounts", "Sub-account");
 }
 
 export function createCleanupRegistry() {

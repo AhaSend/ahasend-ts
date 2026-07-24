@@ -18,6 +18,7 @@ import {
   createScenarioRegistry,
   createSMTPCredentialScenarioRegistry,
   createStatisticsScenarioRegistry,
+  createSubAccountScenarioRegistry,
   createSuppressionScenarioRegistry,
   createWebhookScenarioRegistry,
   inspectLiveCandidate,
@@ -30,6 +31,7 @@ import {
   runRouteLiveScenarios,
   runSMTPCredentialLiveScenarios,
   runStatisticsLiveScenarios,
+  runSubAccountLiveScenarios,
   runSuppressionLiveScenarios,
   runWebhookLiveScenarios,
   runWithCleanup,
@@ -46,6 +48,7 @@ import {
   type RouteLiveClient,
   type SMTPCredentialLiveClient,
   type StatisticsLiveClient,
+  type SubAccountLiveClient,
   type SuppressionLiveClient,
   type WebhookLiveClient,
 } from "../../scripts/live-acceptance.mjs";
@@ -999,6 +1002,158 @@ function suppressionClientFixture(
     outside,
     records,
     wipeCreateRequest,
+  };
+}
+
+function subAccountClientFixture(
+  options: {
+    failCleanup?: boolean;
+    malformedCreate?: boolean;
+    unsafeUsage?: boolean;
+  } = {},
+) {
+  const accountId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const childId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const existingId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const createRequest = {
+    name: "Disposable SDK child",
+    website: "sdk-live-child.example.test",
+    monthly_credit: 50_000,
+  };
+  const updateRequest = {
+    name: "Updated disposable SDK child",
+    monthly_credit: 75_000,
+  };
+  const suspendRequest = { reason: "SDK live lifecycle verification" };
+  const record = (id: string, name: string, website: string) => ({
+    object: "sub_account" as const,
+    id,
+    parent_account_id: accountId,
+    created_at: "2026-01-01T00:00:00.000Z",
+    name,
+    website,
+    status: "active" as "active" | "suspended",
+    monthly_credit: 0,
+    domain_count: 0,
+    member_count: 0,
+    last_activity_at: null,
+  });
+  const records = new Map([
+    [existingId, record(existingId, "Existing child", "existing-child.example.test")],
+  ]);
+  const calls: string[] = [];
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const list = vi.fn(async (params: { limit: number; after?: string; before?: string }) => {
+    calls.push(`list:${JSON.stringify(params)}`);
+    return {
+      object: "list" as const,
+      data: [...records.values()].slice(0, params.limit).map((entry) => ({ ...entry })),
+      pagination: { has_more: false },
+    };
+  });
+  const iterate = vi.fn(async function* (params: {
+    limit: number;
+    after?: string;
+    before?: string;
+  }) {
+    calls.push(`iterate:${JSON.stringify(params)}`);
+    for (const entry of [...records.values()].slice(0, params.limit)) yield { ...entry };
+  });
+  const create = vi.fn(async (request: typeof createRequest) => {
+    calls.push("create");
+    const created = {
+      ...record(childId, request.name, request.website),
+      monthly_credit: request.monthly_credit,
+      ...(options.malformedCreate === true ? { status: "suspended" as const } : {}),
+    };
+    records.set(childId, { ...created });
+    return { ...created };
+  });
+  const usage = vi.fn(async () => {
+    calls.push("usage");
+    return {
+      billing_period: {
+        start: "2026-01-01T00:00:00.000Z",
+        end: "2026-02-01T00:00:00.000Z",
+      },
+      currency: "usd",
+      allocation_method: "proportional" as const,
+      allocation_note: "Proportional pooled usage.",
+      parent: {
+        account_id: accountId,
+        reception_count: options.unsafeUsage === true ? Number.MAX_SAFE_INTEGER + 1 : 10,
+        allocated_cost: 1,
+      },
+      sub_accounts: [...records.values()].map((entry) => ({
+        account_id: entry.id,
+        name: entry.name,
+        reception_count: 5,
+        allocated_cost: 0.5,
+      })),
+      removed_sub_accounts: { reception_count: 0, allocated_cost: 0 },
+      total: { reception_count: 15, allocated_cost: 1.5 },
+    };
+  });
+  const get = vi.fn(async (id: string) => {
+    calls.push("get");
+    const child = records.get(id);
+    if (child === undefined) throw notFound();
+    return { ...child };
+  });
+  const update = vi.fn(async (id: string, request: typeof updateRequest) => {
+    calls.push("update");
+    const child = records.get(id);
+    if (child === undefined) throw notFound();
+    Object.assign(child, request);
+    return { ...child };
+  });
+  const deleteSubAccount = vi.fn(async (id: string) => {
+    calls.push("delete");
+    if (!records.delete(id)) {
+      if (options.failCleanup === true && id === childId) {
+        throw Object.assign(new Error("cleanup failed"), { status: 500 });
+      }
+      throw notFound();
+    }
+    return { message: "deleted" };
+  });
+  const suspend = vi.fn(async (id: string, request: typeof suspendRequest) => {
+    calls.push(`suspend:${request.reason}`);
+    const child = records.get(id);
+    if (child === undefined) throw notFound();
+    child.status = "suspended";
+    return { ...child };
+  });
+  const unsuspend = vi.fn(async (id: string) => {
+    calls.push("unsuspend");
+    const child = records.get(id);
+    if (child === undefined) throw notFound();
+    child.status = "active";
+    return { ...child };
+  });
+  const client: SubAccountLiveClient = {
+    accountId,
+    subAccounts: {
+      list,
+      iterate,
+      create,
+      usage,
+      get,
+      update,
+      delete: deleteSubAccount,
+      suspend,
+      unsuspend,
+    },
+  };
+  return {
+    accountId,
+    calls,
+    childId,
+    client,
+    createRequest,
+    records,
+    suspendRequest,
+    updateRequest,
   };
 }
 
@@ -3006,6 +3161,240 @@ describe("live scenario inventory", () => {
     expect(source).toContain('"disposableDataUsed":true');
     expect(source).toContain('"domainScoped":true');
     expect(source).toContain('"cleanupVerified":true');
+  });
+
+  it("registers exactly one executable scenario for every packaged parent sub-account primary", () => {
+    const fixture = subAccountClientFixture();
+    const registry = createSubAccountScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+      suspendRequest: fixture.suspendRequest,
+    });
+    const entries = [...registry.primary.values()].filter(({ facade }) => facade === "subAccounts");
+
+    expect(entries.map(({ operationId }) => operationId).sort()).toEqual(
+      [
+        "listSubAccounts",
+        "createSubAccount",
+        "getSubAccountsUsage",
+        "getSubAccount",
+        "updateSubAccount",
+        "deleteSubAccount",
+        "suspendSubAccount",
+        "unsuspendSubAccount",
+      ].sort(),
+    );
+    expect(entries).toHaveLength(8);
+    expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, SubAccountLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("links parent sub-account iteration to one positive single-direction list scenario", async () => {
+    const fixture = subAccountClientFixture();
+    const pagination = { limit: 2, after: "next-page" };
+    const registry = createSubAccountScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+      suspendRequest: fixture.suspendRequest,
+      pagination,
+    });
+    const result = await runSubAccountLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(
+      result.operationResults.filter(({ operationId }) => operationId === "listSubAccounts"),
+    ).toHaveLength(1);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "listSubAccounts",
+        status: "passed",
+        evidence: { direction: "forward", items: 1, limit: 2 },
+      },
+    ]);
+    expect(fixture.client.subAccounts.list).toHaveBeenNthCalledWith(1, pagination);
+    expect(fixture.client.subAccounts.iterate).toHaveBeenCalledOnce();
+    expect(fixture.client.subAccounts.iterate).toHaveBeenCalledWith(pagination);
+    expect(registry.iterators.filter(({ facade }) => facade === "subAccounts")).toHaveLength(1);
+    expect(registry.primary.get("listSubAccounts")?.iterator).toMatchObject({
+      operationId: "listSubAccounts",
+      method: "iterate",
+    });
+
+    expect(() =>
+      createSubAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        suspendRequest: fixture.suspendRequest,
+        pagination: { limit: 0 },
+      }),
+    ).toThrow("limit must be an integer from 1 to 100");
+  });
+
+  it("validates sub-account usage as finite numbers with safe int64 counts", async () => {
+    const fixture = subAccountClientFixture();
+    const result = await runSubAccountLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        suspendRequest: fixture.suspendRequest,
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.subAccounts.usage).toHaveBeenCalledOnce();
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "getSubAccountsUsage"),
+    ).toMatchObject({
+      status: "passed",
+      evidence: {
+        allocationMethod: "proportional",
+        safeIntegersVerified: true,
+        subAccountBuckets: 2,
+      },
+    });
+
+    const unsafeFixture = subAccountClientFixture({ unsafeUsage: true });
+    const unsafeResult = await runSubAccountLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: unsafeFixture.client,
+        createRequest: unsafeFixture.createRequest,
+        updateRequest: unsafeFixture.updateRequest,
+        suspendRequest: unsafeFixture.suspendRequest,
+      }),
+    );
+    expect(unsafeResult.failure).toEqual({
+      phase: "operation",
+      operationId: "getSubAccountsUsage",
+    });
+    expect(unsafeResult.cleanupResults).toEqual([
+      { label: "delete and verify disposable sub-account fixture", status: "passed" },
+    ]);
+  });
+
+  it("verifies active, suspended, restored, and deleted sub-account lifecycle states", async () => {
+    const fixture = subAccountClientFixture();
+    const result = await runSubAccountLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        suspendRequest: fixture.suspendRequest,
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.subAccounts.suspend).toHaveBeenCalledWith(
+      fixture.childId,
+      fixture.suspendRequest,
+    );
+    expect(fixture.client.subAccounts.unsuspend).toHaveBeenCalledWith(fixture.childId);
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "suspendSubAccount"),
+    ).toMatchObject({
+      evidence: { status: "suspended", transitionVerified: true },
+    });
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "unsuspendSubAccount"),
+    ).toMatchObject({
+      evidence: { status: "active", transitionVerified: true },
+    });
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "deleteSubAccount"),
+    ).toMatchObject({
+      evidence: { cleanupVerified: true, deleted: true },
+    });
+    expect(fixture.records.has(fixture.childId)).toBe(false);
+    expect(fixture.calls).toEqual(
+      expect.arrayContaining([
+        "create",
+        "usage",
+        "update",
+        `suspend:${fixture.suspendRequest.reason}`,
+        "unsuspend",
+        "delete",
+      ]),
+    );
+  });
+
+  it("registers sub-account cleanup before validation and reports cleanup failures", async () => {
+    const malformedFixture = subAccountClientFixture({ malformedCreate: true });
+    const malformedResult = await runSubAccountLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: malformedFixture.client,
+        createRequest: malformedFixture.createRequest,
+        updateRequest: malformedFixture.updateRequest,
+        suspendRequest: malformedFixture.suspendRequest,
+      }),
+    );
+
+    expect(malformedResult.failure).toEqual({
+      phase: "operation",
+      operationId: "createSubAccount",
+    });
+    expect(malformedResult.cleanupResults).toEqual([
+      { label: "delete and verify disposable sub-account fixture", status: "passed" },
+    ]);
+    expect(malformedFixture.records.has(malformedFixture.childId)).toBe(false);
+
+    const cleanupFailureFixture = subAccountClientFixture({ failCleanup: true });
+    const cleanupFailureResult = await runSubAccountLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: cleanupFailureFixture.client,
+        createRequest: cleanupFailureFixture.createRequest,
+        updateRequest: cleanupFailureFixture.updateRequest,
+        suspendRequest: cleanupFailureFixture.suspendRequest,
+      }),
+    );
+    expect(cleanupFailureResult.failure).toEqual({ phase: "cleanup" });
+    expect(cleanupFailureResult.cleanupResults).toEqual([
+      { label: "delete and verify disposable sub-account fixture", status: "failed" },
+    ]);
+  });
+
+  it("reports sub-account lifecycle evidence without disposable or secret material", async () => {
+    const candidate = inspectFixture();
+    const fixture = subAccountClientFixture();
+    const result = await runSubAccountLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile: candidate.profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        suspendRequest: fixture.suspendRequest,
+      }),
+    );
+    const source = canonicalizeJson(
+      createLiveReport({
+        candidate,
+        operationResults: result.operationResults,
+        iteratorResults: result.iteratorResults,
+        cleanupResults: result.cleanupResults,
+      }),
+    ).toString("utf8");
+
+    expect(source).not.toContain(fixture.childId);
+    expect(source).not.toContain(fixture.accountId);
+    expect(source).not.toContain(fixture.createRequest.name);
+    expect(source).not.toContain(fixture.createRequest.website);
+    expect(source).not.toContain(fixture.updateRequest.name);
+    expect(source).not.toContain(fixture.suspendRequest.reason);
+    expect(source).toContain('"cleanupRegistered":true');
+    expect(source).toContain('"disposableDataReported":false');
+    expect(source).toContain('"safeIntegersVerified":true');
+    expect(source).toContain('"transitionVerified":true');
   });
 
   it("registers exactly one executable scenario for every packaged statistics primary", () => {

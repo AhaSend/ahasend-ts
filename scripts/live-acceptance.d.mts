@@ -685,6 +685,56 @@ export function runSuppressionLiveScenarios(
   registry: ScenarioRegistry,
 ): Promise<SuppressionLiveRun>;
 
+export interface SubAccountLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly usage: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly update: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+  readonly suspend: (...args: never[]) => unknown;
+  readonly unsuspend: (...args: never[]) => unknown;
+}
+
+export interface SubAccountLiveClient {
+  readonly accountId: string;
+  readonly subAccounts: SubAccountLiveFacade;
+}
+
+export interface SubAccountLiveCreateRequest {
+  readonly name: string;
+  readonly website: string;
+  readonly monthly_credit?: number;
+}
+
+export interface SubAccountLiveUpdateRequest {
+  readonly name?: string;
+  readonly website?: string;
+  readonly monthly_credit?: number;
+}
+
+export interface SubAccountLiveSuspendRequest {
+  readonly reason: string;
+}
+
+export interface CreateSubAccountScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: SubAccountLiveClient;
+  readonly createRequest: SubAccountLiveCreateRequest;
+  readonly updateRequest: SubAccountLiveUpdateRequest;
+  readonly suspendRequest: SubAccountLiveSuspendRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createSubAccountScenarioRegistry(
+  options: CreateSubAccountScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type SubAccountLiveRun = DomainLiveRun;
+
+export function runSubAccountLiveScenarios(registry: ScenarioRegistry): Promise<SubAccountLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";
