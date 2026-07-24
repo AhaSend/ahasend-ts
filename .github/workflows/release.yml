@@ -47,7 +47,7 @@ jobs:
         run: npm run lint
 
       - name: Unit test gate
-        run: npm run test:unit
+        run: npm run test:unit -- --exclude tests/package.test.ts
 
       - name: State test gate
         run: npx vitest run tests/state-machines.test.ts
@@ -59,7 +59,7 @@ jobs:
         run: npx vitest run tests/webhook-express.integration.test.ts
 
       - name: Coverage gate
-        run: npm run test:coverage
+        run: npm run test:coverage -- --exclude tests/package.test.ts
 
       - name: Format gate
         run: npx prettier --check "src/**/*.ts" "tests/**/*.ts"
@@ -315,30 +315,41 @@ jobs:
         env:
           AHASEND_API_KEY: ${{ secrets.AHASEND_API_KEY }}
           AHASEND_ACCOUNT_ID: ${{ secrets.AHASEND_ACCOUNT_ID }}
+          AHASEND_LIVE_CONFIG_JSON: ${{ secrets.AHASEND_LIVE_CONFIG_JSON }}
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           export SDK_TARBALL="$TARBALL"
           export SDK_TARBALL_SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
-          node scripts/live-acceptance.mjs \
+          mkdir -p /tmp/gate-report
+          node scripts/run-live-acceptance.mjs \
             /tmp/candidate/candidate-manifest.json \
             "$TARBALL" \
             /tmp/live-install \
+            /tmp/gate-report/live-report.json \
+            /tmp/gate-report/live-report.sha256 \
             /tmp/candidate/candidate-manifest.sha256
 
       - name: Create detached gate report
         run: |
-          mkdir -p /tmp/gate-report
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
           import { canonicalizeJson, sha256Hex } from "./scripts/digest-artifact.mjs";
 
           const manifestSource = await readFile("/tmp/candidate/candidate-manifest.json");
+          const liveReportSource = await readFile("/tmp/gate-report/live-report.json");
+          const liveReportSha256 = (
+            await readFile("/tmp/gate-report/live-report.sha256", "utf8")
+          ).trim();
+          if (sha256Hex(liveReportSource) !== liveReportSha256) {
+            throw new TypeError("Live report does not match its detached digest.");
+          }
           const manifest = JSON.parse(manifestSource);
           const source = canonicalizeJson({
             version: 1,
             commit: manifest.commit,
             manifestSha256: sha256Hex(manifestSource),
             tarballSha256: manifest.tarballSha256,
+            liveReportSha256,
             results: [
               { name: "artifact", passed: true },
               { name: "external", passed: true },
@@ -502,6 +513,25 @@ jobs:
           name: gate-report
           path: /tmp/gate-report
 
+      - name: Capture the prior latest tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
+          PACKAGE_NAME="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")"
+          PREVIOUS_LATEST="$(npm view "$PACKAGE_NAME" dist-tags.latest 2>/dev/null || true)"
+          mkdir -p /tmp/promotion-state
+          node -e "const fs=require('fs'); const [name,previous]=process.argv.slice(1); fs.writeFileSync('/tmp/promotion-state/promotion-state.json', JSON.stringify({name,previousLatest:previous || null})+'\\n', {flag:'wx'})" \
+            "$PACKAGE_NAME" "$PREVIOUS_LATEST"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: promotion-state
+          path: /tmp/promotion-state
+          if-no-files-found: error
+          retention-days: ${{ env.RETENTION_DAYS }}
+
       - name: Promote only the verified version
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -543,7 +573,7 @@ jobs:
           name: gate-report
           path: /tmp/gate-report
 
-      - name: Create the public release last
+      - name: Stage and publish the complete release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -556,6 +586,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
+            --draft \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
             /tmp/candidate/*.tgz \
@@ -565,4 +596,62 @@ jobs:
             /tmp/source-report/source-report.json \
             /tmp/source-report/source-report.sha256 \
             /tmp/gate-report/gate-report.json \
-            /tmp/gate-report/gate-report.sha256
+            /tmp/gate-report/gate-report.sha256 \
+            /tmp/gate-report/live-report.json \
+            /tmp/gate-report/live-report.sha256
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false
+
+  release-compensation:
+    name: Compensate failed terminal release
+    needs: [latest-promotion, github-release]
+    if: ${{ always() && needs.latest-promotion.result == 'success' && needs.github-release.result != 'success' }}
+    runs-on: ubuntu-latest
+    environment: npm-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: candidate-tarball
+          path: /tmp/candidate
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: promotion-state
+          path: /tmp/promotion-state
+
+      - name: Restore latest and remove an incomplete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          FAILED=0
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
+          PACKAGE_NAME="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")"
+          FAILED_VERSION="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$PACKAGE_JSON")"
+          STATE_NAME="$(node -p "JSON.parse(require('fs').readFileSync('/tmp/promotion-state/promotion-state.json')).name")"
+          PREVIOUS_LATEST="$(node -p "JSON.parse(require('fs').readFileSync('/tmp/promotion-state/promotion-state.json')).previousLatest || ''")"
+          test "$STATE_NAME" = "$PACKAGE_NAME"
+          CURRENT_LATEST="$(npm view "$PACKAGE_NAME" dist-tags.latest 2>/dev/null || true)"
+          if test "$CURRENT_LATEST" = "$FAILED_VERSION"
+          then
+            if test -n "$PREVIOUS_LATEST"
+            then
+              npm dist-tag add "$PACKAGE_NAME@$PREVIOUS_LATEST" latest || FAILED=1
+            else
+              npm dist-tag rm "$PACKAGE_NAME" latest || FAILED=1
+            fi
+          fi
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
+          then
+            gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes || FAILED=1
+          fi
+          exit "$FAILED"

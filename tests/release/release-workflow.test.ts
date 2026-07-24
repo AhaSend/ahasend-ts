@@ -7,6 +7,10 @@ const workflowSource = readFileSync(
   resolve(process.cwd(), ".github/workflows/release.yml"),
   "utf8",
 );
+const liveRunnerSource = readFileSync(
+  resolve(process.cwd(), "scripts/run-live-acceptance.mjs"),
+  "utf8",
+);
 const workflow = yaml.load(workflowSource, { schema: yaml.JSON_SCHEMA }) as unknown;
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
@@ -53,6 +57,7 @@ describe("single-run release workflow", () => {
       "registry-smoke",
       "latest-promotion",
       "github-release",
+      "release-compensation",
     ]);
     expect(record(jobs["candidate"], "candidate")["needs"]).toBe("source-gate");
     expect(record(jobs["artifact-gates"], "artifact")["needs"]).toBe("candidate");
@@ -62,6 +67,10 @@ describe("single-run release workflow", () => {
     expect(record(jobs["registry-smoke"], "smoke")["needs"]).toBe("next-publish");
     expect(record(jobs["latest-promotion"], "promotion")["needs"]).toBe("registry-smoke");
     expect(record(jobs["github-release"], "GitHub release")["needs"]).toBe("latest-promotion");
+    expect(record(jobs["release-compensation"], "compensation")["needs"]).toEqual([
+      "latest-promotion",
+      "github-release",
+    ]);
   });
 
   it("builds and packs only in candidate creation and never regenerates the artifact", () => {
@@ -77,6 +86,9 @@ describe("single-run release workflow", () => {
     expect(allCommands.match(/create-candidate\.mjs/gu)).toHaveLength(1);
     expect(allCommands).not.toMatch(/\bnpm run build\b/u);
     expect(allCommands).not.toMatch(/\bnpm pack\b/u);
+    expect(
+      commands(jobs["source-gate"], "source gate").match(/exclude tests\/package\.test\.ts/gu),
+    ).toHaveLength(2);
     expect(afterCandidate).not.toMatch(/create-candidate\.mjs/u);
     expect(afterCandidate).not.toMatch(/from ["'][./]*src\//u);
     expect(commands(jobs["registry-smoke"], "registry smoke")).toContain("verify-provenance.mjs");
@@ -103,6 +115,7 @@ describe("single-run release workflow", () => {
       "candidate-tarball",
       "candidate-manifest",
       "gate-report",
+      "promotion-state",
     ]);
     for (const name of [
       "source-report",
@@ -116,9 +129,45 @@ describe("single-run release workflow", () => {
     expect(workflowSource).toContain("*.tgz.sha256");
     expect(workflowSource).toContain("candidate-manifest.sha256");
     expect(workflowSource).toContain("gate-report.sha256");
+    expect(workflowSource).toContain("live-report.sha256");
   });
 
-  it("pins actions and limits publish authority to the two terminal mutations", () => {
+  it("executes and validates the complete installed-candidate live report", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const liveCommands = commands(jobs["live-gates"], "live gates");
+
+    expect(liveCommands).toContain("scripts/run-live-acceptance.mjs");
+    expect(liveCommands).toContain("/tmp/gate-report/live-report.json");
+    expect(liveCommands).toContain("/tmp/gate-report/live-report.sha256");
+    expect(liveCommands).toContain("liveReportSha256");
+    expect(liveRunnerSource).toContain("validateLiveReportArtifacts");
+    expect(liveRunnerSource.match(/await run[A-Z][A-Za-z]+LiveScenarios/gu)).toHaveLength(10);
+    expect(liveRunnerSource).toContain("combined.subAccounts.operationResults");
+    expect(liveRunnerSource).toContain("combined.subAccountAPIKeys.operationResults");
+    expect(liveRunnerSource).not.toMatch(/from ["'][./]*src\//u);
+  });
+
+  it("stages releases as drafts and compensates every failure after latest promotion", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const promotionCommands = commands(jobs["latest-promotion"], "latest promotion");
+    const releaseCommands = commands(jobs["github-release"], "GitHub release");
+    const compensation = record(jobs["release-compensation"], "compensation");
+    const compensationCommands = commands(compensation, "compensation");
+
+    expect(promotionCommands).toContain("promotion-state.json");
+    expect(promotionCommands).toContain("npm dist-tag add");
+    expect(releaseCommands).toContain("--draft");
+    expect(releaseCommands).toContain("gh release edit");
+    expect(releaseCommands.indexOf("--draft")).toBeLessThan(
+      releaseCommands.indexOf("--draft=false"),
+    );
+    expect(compensation["if"]).toContain("needs.github-release.result != 'success'");
+    expect(compensationCommands).toContain("npm dist-tag add");
+    expect(compensationCommands).toContain("npm dist-tag rm");
+    expect(compensationCommands).toContain("gh release delete");
+  });
+
+  it("pins actions and limits publish authority to terminal mutations and compensation", () => {
     const root = record(workflow, "workflow");
     const jobs = record(root["jobs"], "jobs");
     const actionReferences = Object.values(jobs).flatMap((job, jobIndex) =>
@@ -136,6 +185,12 @@ describe("single-run release workflow", () => {
       record(
         record(jobs["github-release"], "GitHub release")["permissions"],
         "release permissions",
+      ),
+    ).toEqual({ contents: "write" });
+    expect(
+      record(
+        record(jobs["release-compensation"], "compensation")["permissions"],
+        "compensation permissions",
       ),
     ).toEqual({ contents: "write" });
   });
