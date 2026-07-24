@@ -206,10 +206,17 @@ export function validateWebhookAttestations({
   if (goResults.version !== 1 || goResults.implementation !== "ahasend-go") {
     throw new TypeError("Go webhook attestation must identify ahasend-go version 1.");
   }
+  const capturedServerCommit = requireServerCommit(
+    manifest.serverCommit,
+    "Captured manifest serverCommit",
+  );
   const serverCommit = requireServerCommit(
     goResults.serverCommit,
     "Go webhook attestation serverCommit",
   );
+  if (serverCommit !== capturedServerCommit) {
+    throw new TypeError("Go webhook attestation has a stale serverCommit.");
+  }
   if (goResults.manifestSha256 !== manifestDigest) {
     throw new TypeError("Go webhook attestation references a stale capture digest.");
   }
@@ -230,7 +237,7 @@ export function validateWebhookAttestations({
     requireMatchingEvidence(goRow, expectedRow(capture), `${label} Go evidence`);
     requireMatchingEvidence(goRow, typescriptRow, `${label} cross-implementation evidence`);
 
-    if (goRow.serverCommit !== serverCommit) {
+    if (goRow.serverCommit !== capturedServerCommit) {
       throw new TypeError(`${label} has a stale serverCommit.`);
     }
     if (goRow.expectedResult !== capture.expectedResult) {

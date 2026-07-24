@@ -4,10 +4,15 @@
   "title": "AhaSend captured webhook evidence manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "version", "headerRecordFormat", "captures"],
+  "required": ["$schema", "version", "serverCommit", "headerRecordFormat", "captures"],
   "properties": {
     "$schema": { "const": "manifest.schema.json" },
     "version": { "const": 1 },
+    "serverCommit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$",
+      "description": "Server revision that produced the captured webhook deliveries."
+    },
     "headerRecordFormat": {
       "const": "webhook-id:{webhookId}\nwebhook-timestamp:{webhookTimestamp}\nwebhook-signature:{signature}\n",
       "description": "Exact UTF-8 record hashed by headersSha256; it is an integrity record, not a replacement for persisted signed header values."

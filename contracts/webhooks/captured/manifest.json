@@ -1,6 +1,7 @@
 {
   "$schema": "manifest.schema.json",
   "version": 1,
+  "serverCommit": "1234567890abcdef1234567890abcdef12345678",
   "headerRecordFormat": "webhook-id:{webhookId}\nwebhook-timestamp:{webhookTimestamp}\nwebhook-signature:{signature}\n",
   "captures": [
     {

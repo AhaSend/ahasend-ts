@@ -78,6 +78,11 @@
       "expectedError": "stale serverCommit"
     },
     {
+      "name": "rejects a substituted whole-report server revision",
+      "mutation": "substitutedServerCommit",
+      "expectedError": "stale serverCommit"
+    },
+    {
       "name": "rejects swapped resource keys",
       "mutation": "swappedKeys",
       "expectedError": "signing key digest mismatch"

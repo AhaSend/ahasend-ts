@@ -49,6 +49,7 @@ interface GoRow extends EvidenceRow {
 }
 
 interface CapturedManifest extends JsonRecord {
+  serverCommit: string;
   headerRecordFormat: string;
   captures: Capture[];
 }
@@ -75,8 +76,6 @@ const schemaPath = `${capturedRoot}/manifest.schema.json`;
 const manifestSidecarPath = `${capturedRoot}/manifest.sha256`;
 const typescriptResultsPath = `${capturedRoot}/typescript-results.json`;
 const typescriptResultsSidecarPath = `${capturedRoot}/typescript-results.sha256`;
-const serverCommit = "1234567890abcdef1234567890abcdef12345678";
-
 function read(path: string): Buffer {
   return readFileSync(resolve(root, path));
 }
@@ -120,10 +119,10 @@ export function validGoWebhookAttestation(manifest: CapturedManifest = webhookMa
     version: 1,
     implementation: "ahasend-go",
     manifestSha256: digestJsonArtifact(manifest),
-    serverCommit,
+    serverCommit: manifest.serverCommit,
     results: manifest.captures.map((capture) => ({
       ...expectedEvidence(capture),
-      serverCommit,
+      serverCommit: manifest.serverCommit,
       expectedResult: capture.expectedResult,
       actualResult: capture.expectedResult,
     })),
@@ -191,6 +190,12 @@ export function webhookAttestationFixture(mutation: string): {
       break;
     case "staleServerCommit":
       requireRow(goResults.results, 0).serverCommit = "0".repeat(40);
+      break;
+    case "substitutedServerCommit":
+      goResults.serverCommit = "0".repeat(40);
+      for (const row of goResults.results) {
+        row.serverCommit = goResults.serverCommit;
+      }
       break;
     case "swappedKeys": {
       const first = manifest.captures[0];

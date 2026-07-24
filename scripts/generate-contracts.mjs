@@ -33,6 +33,7 @@ const NODE_LANGUAGES = new Set([
   "node.js",
 ]);
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const GIT_COMMIT_PATTERN = /^[a-f0-9]{40}$/;
 const SIGNATURE_PATTERN = /^v1,[A-Za-z0-9+/]{43}=$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EVIDENCE_PATH = "contracts/webhooks/captured";
@@ -159,7 +160,7 @@ function compileCapturedManifestSchema(schema) {
     throw new TypeError("Captured evidence manifest schema must define a closed object");
   }
   const required = assertArray(root.required, "Captured evidence schema required fields");
-  for (const field of ["$schema", "version", "headerRecordFormat", "captures"]) {
+  for (const field of ["$schema", "version", "serverCommit", "headerRecordFormat", "captures"]) {
     if (!required.includes(field))
       throw new TypeError(`Captured evidence schema must require ${field}`);
   }
@@ -219,13 +220,18 @@ export function validateCapturedManifest(manifest, schema) {
     );
   }
   const root = assertRecord(manifest, "Captured evidence manifest");
-  assertExactKeys(root, ["$schema", "version", "headerRecordFormat", "captures"], "Manifest");
+  assertExactKeys(
+    root,
+    ["$schema", "version", "serverCommit", "headerRecordFormat", "captures"],
+    "Manifest",
+  );
   if (root.$schema !== "manifest.schema.json" || root.version !== 1) {
     throw new TypeError("Captured evidence manifest must use schema and version 1");
   }
   if (root.headerRecordFormat !== HEADER_RECORD_FORMAT) {
     throw new TypeError("Captured evidence manifest has an unknown header record format");
   }
+  assertString(root.serverCommit, "Captured evidence manifest serverCommit", GIT_COMMIT_PATTERN);
 
   const captures = assertArray(root.captures, "Captured evidence captures");
   if (captures.length < 2)
