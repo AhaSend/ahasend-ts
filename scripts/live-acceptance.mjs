@@ -28,9 +28,11 @@ const packageName = "@ahasend/sdk";
 const sensitiveFieldNames = new Set([
   "apikey",
   "authorization",
+  "dkimprivatekey",
   "password",
   "privatekey",
   "secret",
+  "secretkey",
   "signature",
   "signingkey",
   "token",

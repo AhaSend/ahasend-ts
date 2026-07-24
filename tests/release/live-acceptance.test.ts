@@ -380,6 +380,8 @@ describe("live cleanup and reporting", () => {
   it("writes a redacted canonical report and linked detached digest", async () => {
     const candidate = inspectFixture();
     const secret = "live-api-key-value";
+    const oneTimeSecretKey = "one-time-secret-key-value";
+    const dkimPrivateKey = "private-key-material";
     const report = createLiveReport({
       candidate,
       operationResults: [
@@ -390,6 +392,8 @@ describe("live cleanup and reporting", () => {
             apiKey: secret,
             request: `Authorization: Bearer ${secret}`,
             response: `safe prefix ${secret}`,
+            secret_key: oneTimeSecretKey,
+            dkim_private_key: dkimPrivateKey,
           },
         },
       ],
@@ -417,6 +421,8 @@ describe("live cleanup and reporting", () => {
 
     expect(reportSource).toEqual(canonicalizeJson(parsed));
     expect(reportSource.toString("utf8")).not.toContain(secret);
+    expect(reportSource.toString("utf8")).not.toContain(oneTimeSecretKey);
+    expect(reportSource.toString("utf8")).not.toContain(dkimPrivateKey);
     expect(reportSource.toString("utf8")).toContain("[REDACTED]");
     expect(sidecar.toString("utf8")).toBe(`${sha256Hex(reportSource)}\n`);
     expect(validateSchema(parsed), JSON.stringify(validateSchema.errors)).toBe(true);
