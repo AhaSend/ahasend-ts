@@ -1,0 +1,49 @@
+{
+  "rendererCases": [
+    {
+      "name": "accepts the exact renderer handoff coverage",
+      "mutation": "none",
+      "expectedError": null
+    },
+    {
+      "name": "rejects a stale renderer handoff",
+      "mutation": "staleHandoffDigest",
+      "expectedError": "stale handoff digest"
+    },
+    {
+      "name": "rejects a missing renderer operation",
+      "mutation": "missingOperation",
+      "expectedError": "must contain 56 operations"
+    },
+    {
+      "name": "rejects a duplicate renderer operation",
+      "mutation": "duplicateOperation",
+      "expectedError": "duplicate operation"
+    },
+    {
+      "name": "rejects a missing renderer tab",
+      "mutation": "missingTab",
+      "expectedError": "missing required sample tabs"
+    },
+    {
+      "name": "rejects a noncanonical renderer tab",
+      "mutation": "noncanonicalTab",
+      "expectedError": "missing the canonical"
+    },
+    {
+      "name": "rejects renderer source-hash drift",
+      "mutation": "sourceHashDrift",
+      "expectedError": "source-hash mismatch"
+    },
+    {
+      "name": "rejects a noncanonical renderer payload",
+      "mutation": "noncanonicalPayload",
+      "expectedError": "canonical JSON bytes"
+    },
+    {
+      "name": "rejects a renderer handoff sidecar mismatch",
+      "mutation": "sidecarMismatch",
+      "expectedError": "sidecar mismatch"
+    }
+  ]
+}
