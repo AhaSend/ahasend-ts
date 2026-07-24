@@ -11,6 +11,10 @@ const liveRunnerSource = readFileSync(
   resolve(process.cwd(), "scripts/run-live-acceptance.mjs"),
   "utf8",
 );
+const restoreLatestSource = readFileSync(
+  resolve(process.cwd(), "scripts/restore-latest.mjs"),
+  "utf8",
+);
 const workflow = yaml.load(workflowSource, { schema: yaml.JSON_SCHEMA }) as unknown;
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
@@ -47,6 +51,10 @@ describe("single-run release workflow", () => {
 
     expect(push["tags"]).toEqual(["v*"]);
     expect(Object.keys(trigger)).toEqual(["push"]);
+    expect(record(root["concurrency"], "release concurrency")).toEqual({
+      group: "release",
+      "cancel-in-progress": false,
+    });
     expect(Object.keys(jobs)).toEqual([
       "source-gate",
       "candidate",
@@ -144,10 +152,14 @@ describe("single-run release workflow", () => {
     expect(liveRunnerSource.match(/await run[A-Z][A-Za-z]+LiveScenarios/gu)).toHaveLength(10);
     expect(liveRunnerSource).toContain("combined.subAccounts.operationResults");
     expect(liveRunnerSource).toContain("combined.subAccountAPIKeys.operationResults");
+    expect(liveRunnerSource).toContain(
+      'import { AUTHORIZATION_REGISTRY } from "./generate-sdk.mjs";',
+    );
+    expect(liveRunnerSource).not.toContain("const resourceAuthorization");
     expect(liveRunnerSource).not.toMatch(/from ["'][./]*src\//u);
   });
 
-  it("stages releases as drafts and compensates every failure after latest promotion", () => {
+  it("stages releases as drafts and compensates promotion and release failures", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
     const promotionCommands = commands(jobs["latest-promotion"], "latest promotion");
     const releaseCommands = commands(jobs["github-release"], "GitHub release");
@@ -161,9 +173,16 @@ describe("single-run release workflow", () => {
     expect(releaseCommands.indexOf("--draft")).toBeLessThan(
       releaseCommands.indexOf("--draft=false"),
     );
-    expect(compensation["if"]).toContain("needs.github-release.result != 'success'");
-    expect(compensationCommands).toContain("npm dist-tag add");
-    expect(compensationCommands).toContain("npm dist-tag rm");
+    expect(compensation["if"]).toBe(
+      "${{ always() && needs.latest-promotion.result != 'skipped' && (needs.latest-promotion.result != 'success' || needs.github-release.result != 'success') }}",
+    );
+    expect(promotionCommands).not.toContain("|| true");
+    expect(compensationCommands).not.toContain("|| true");
+    expect(compensationCommands).not.toContain('if test "$CURRENT_LATEST"');
+    expect(compensationCommands).toContain("/tmp/release-tools/scripts/restore-latest.mjs");
+    expect(restoreLatestSource).toContain('"dist-tag", "add"');
+    expect(restoreLatestSource).toContain('"dist-tag", "rm"');
+    expect(restoreLatestSource).toContain("Latest rollback verification failed");
     expect(compensationCommands).toContain("gh release delete");
   });
 

@@ -31,6 +31,7 @@ import {
   validateLiveReportArtifacts,
   writeLiveReport,
 } from "./live-acceptance.mjs";
+import { AUTHORIZATION_REGISTRY } from "./generate-sdk.mjs";
 import { requireExactKeys, requireObject, requireString } from "./report-validation.mjs";
 
 const configKeys = Object.freeze([
@@ -43,81 +44,6 @@ const configKeys = Object.freeze([
   "verifiedDomain",
   "webhookUrl",
 ]);
-
-// These semantic rules are consumed by the scenario builders, which reject any
-// shape that does not match the authorization contract exercised by the suite.
-const resourceAuthorization = Object.freeze({
-  getRoutes: {
-    kind: "query_domain_required_for_scoped",
-    queryParameter: "domain",
-    condition: "scoped_role_requires_filter",
-    roles: { global: "routes:read:all", domain: "routes:read:{domain}" },
-  },
-  createRoute: {
-    kind: "body_domain",
-    bodyPath: "recipient",
-    quantifier: "one",
-    roles: { global: "routes:write:all", domain: "routes:write:{domain}" },
-  },
-  updateRoute: {
-    kind: "existing_and_replacement_domain",
-    resource: "route",
-    resourceIdParameter: "route_id",
-    existingPath: "recipient",
-    replacementBodyPath: "recipient",
-    quantifier: "every",
-    roles: { global: "routes:write:all", domain: "routes:write:{domain}" },
-  },
-  createWebhook: {
-    kind: "all_body_domains",
-    bodyPath: "domains",
-    scopeBodyPath: "scope",
-    globalValue: "global",
-    quantifier: "every",
-    condition: "global_scope_requires_global_role",
-    roles: { global: "webhooks:write:all", domain: "webhooks:write:{domain}" },
-  },
-  updateWebhook: {
-    kind: "existing_and_new_domains",
-    resource: "webhook",
-    resourceIdParameter: "webhook_id",
-    existingPath: "domains",
-    newBodyPath: "domains",
-    scopeBodyPath: "scope",
-    globalValue: "global",
-    quantifier: "every",
-    transition: "global_scope_requires_global_role",
-    roles: { global: "webhooks:write:all", domain: "webhooks:write:{domain}" },
-  },
-  createSMTPCredential: {
-    kind: "all_body_domains",
-    bodyPath: "domains",
-    scopeBodyPath: "scope",
-    globalValue: "global",
-    quantifier: "every",
-    condition: "global_scope_requires_global_role",
-    roles: {
-      global: "smtp-credentials:write:all",
-      domain: "smtp-credentials:write:{domain}",
-    },
-  },
-  ...Object.fromEntries(
-    ["getDeliverabilityStatistics", "getBounceStatistics", "getDeliveryTimeStatistics"].map(
-      (operationId) => [
-        operationId,
-        {
-          kind: "comma_separated_query_domains",
-          queryParameter: "sender_domain",
-          quantifier: "every",
-          roles: {
-            global: "statistics-transactional:read:all",
-            domain: "statistics-transactional:read:{domain}",
-          },
-        },
-      ],
-    ),
-  ),
-});
 
 function parseLiveConfig(source) {
   let parsed;
@@ -246,7 +172,7 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
         createStatisticsScenarioRegistry({
           profile,
           client,
-          authorization: resourceAuthorization,
+          authorization: AUTHORIZATION_REGISTRY,
           senderDomains: {
             authorized: config.verifiedDomain,
             unauthorized: config.neverRegisteredDomain,
@@ -283,7 +209,7 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
         createRouteScenarioRegistry({
           profile,
           client,
-          authorization: resourceAuthorization,
+          authorization: AUTHORIZATION_REGISTRY,
           controlledDomains: {
             existing: config.verifiedDomain,
             replacement: config.replacementVerifiedDomain,
@@ -310,7 +236,7 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
         createWebhookScenarioRegistry({
           profile,
           client,
-          authorization: resourceAuthorization,
+          authorization: AUTHORIZATION_REGISTRY,
           controlledDomains: {
             existing: [config.verifiedDomain],
             newlySupplied: [config.replacementVerifiedDomain],
@@ -339,7 +265,7 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
         createSMTPCredentialScenarioRegistry({
           profile,
           client,
-          authorization: resourceAuthorization,
+          authorization: AUTHORIZATION_REGISTRY,
           controlledDomains,
           scopedCreateRequest: {
             name: `SDK live scoped SMTP ${suffix}`,
