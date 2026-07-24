@@ -398,7 +398,7 @@ describe("captured webhook evidence", () => {
   });
 
   it("pins the server revision that produced the captured deliveries", () => {
-    expect(capturedManifest.serverCommit).toBe("1234567890abcdef1234567890abcdef12345678");
+    expect(capturedManifest.serverCommit).toBe("7565fcb337a9f6fda0e8c3a22917dfcda3d76544");
   });
 
   it("validates the manifest schema, detached digest, locked artifacts, and all evidence", async () => {

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "implementation": "@ahasend/sdk",
-  "manifestSha256": "21b97988282054e49c09f0e136809b71755c08840dc189d50c05820e8192919f",
+  "manifestSha256": "4a0b22cc76d1aa09f694f0884250e6d4990db5035db4e403431d7426b4abc1dd",
   "results": [
     {
       "fixture": "configured-webhook-message-delivered",
