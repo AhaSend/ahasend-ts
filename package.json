@@ -60,6 +60,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "tsup --watch",
+    "verify:audit": "node scripts/verify-audit.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "test:package:tarball": "npm run verify:package",
     "test:package:preflight": "npm run build && node scripts/create-preflight-pack.mjs",
@@ -79,7 +80,7 @@
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run typecheck && npm run test && npm run build"
+    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run verify:audit && npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
