@@ -59,7 +59,7 @@ const runtimeFiles = [
 ];
 const secretPatterns = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-  /(?:^|\s)_authToken\s*=/,
+  /(?:^|[\s:])_authToken\s*=/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
@@ -325,6 +325,28 @@ function verifySourceMaps(packageFiles, sourceFiles) {
   }
 }
 
+function exportTargetMatchesPath(target, path) {
+  const parts = target.split("*");
+  if (parts.length === 1) return target === path;
+
+  const escapeRegExp = (part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let pattern = `^${escapeRegExp(parts[0])}(?<replacement>.+)`;
+  for (const part of parts.slice(1, -1)) {
+    pattern += `${escapeRegExp(part)}\\k<replacement>`;
+  }
+  pattern += `${escapeRegExp(parts.at(-1))}$`;
+  return new RegExp(pattern).test(path);
+}
+
+function exportTargets(value) {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(exportTargets);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).flatMap(exportTargets);
+  }
+  return [];
+}
+
 function verifyMetadata(packageFiles) {
   const profilePath = "dist/_metadata/operation-profile.json";
   const digestPath = "dist/_metadata/operation-profile.sha256";
@@ -349,11 +371,13 @@ function verifyMetadata(packageFiles) {
   }
 
   const manifest = parseJson(requirePackageFile(packageFiles, "package.json"), "package.json");
-  const serializedExports = JSON.stringify(manifest.exports);
+  const privateMetadataPaths = [`./${profilePath}`, `./${digestPath}`];
+  const targets = exportTargets(manifest.exports);
   if (
     manifest.exports === undefined ||
-    serializedExports.includes("_metadata") ||
-    serializedExports.includes("operation-profile")
+    targets.some((target) =>
+      privateMetadataPaths.some((metadataPath) => exportTargetMatchesPath(target, metadataPath)),
+    )
   ) {
     throw new TypeError("Packaged operation metadata must remain unexported.");
   }
@@ -518,6 +542,18 @@ function verifyNegativeCases(packageFiles, sourceFiles, rules) {
     /match generated source bytes exactly/,
   );
 
+  const withPatternExport = new Map(packageFiles);
+  const manifest = structuredClone(
+    parseJson(requirePackageFile(packageFiles, "package.json"), "package.json"),
+  );
+  manifest.exports["./meta*"] = "./dist/_meta*";
+  withPatternExport.set("package.json", Buffer.from(JSON.stringify(manifest)));
+  expectValidationFailure(
+    "negative metadata export-pattern case",
+    () => verifyMetadata(withPatternExport),
+    /must remain unexported/,
+  );
+
   const withFixtureKey = new Map(packageFiles);
   withFixtureKey.set(
     "README.md",
@@ -527,6 +563,23 @@ function verifyNegativeCases(packageFiles, sourceFiles, rules) {
     "negative fixture-key case",
     () => verifyNoClassifiedSecrets(withFixtureKey, rules, "Package"),
     /contains fixture key/,
+  );
+
+  const withRegistryToken = new Map(packageFiles);
+  const registryToken = ["//registry.npmjs.org/", ":", "_auth", "Token", "=", "legacy-token"].join(
+    "",
+  );
+  withRegistryToken.set(
+    "README.md",
+    Buffer.concat([
+      requirePackageFile(packageFiles, "README.md"),
+      Buffer.from(`\n${registryToken}\n`),
+    ]),
+  );
+  expectValidationFailure(
+    "negative registry token case",
+    () => verifyNoClassifiedSecrets(withRegistryToken, rules, "Package"),
+    /unclassified secret signature/,
   );
 }
 
