@@ -61,6 +61,16 @@ const REQUIREMENTS = Object.freeze([
     text: "pages are fetched lazily",
   },
   {
+    label: "README idempotent-operation inventory",
+    path: "README.md",
+    text: "all 11 endpoints whose generated operation profile marks them idempotent",
+  },
+  {
+    label: "README parsed webhook body behavior",
+    path: "README.md",
+    text: "The adapters treat an already-parsed body as a setup error",
+  },
+  {
     label: "constructor timeout unit",
     path: "docs/cancellation.md",
     text: "`timeoutMs` is a per-network-attempt budget in **milliseconds**",
@@ -179,6 +189,20 @@ const REQUIREMENTS = Object.freeze([
     label: "verified webhook integration",
     path: "docs/security-and-webhooks.md",
     text: "expressWebhookHandler(verifier",
+  },
+  {
+    label: "webhook-id claim integration",
+    path: "docs/security-and-webhooks.md",
+    text: "const firstDelivery = await webhookDeliveries.claim(webhookId);",
+  },
+  {
+    label: "duplicate webhook early-return integration",
+    path: "docs/security-and-webhooks.md",
+    text: `if (!firstDelivery) {
+      res.statusCode = 200;
+      res.end();
+      return;
+    }`,
   },
   {
     label: "webhook adapter error semantics",

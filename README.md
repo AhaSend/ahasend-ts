@@ -166,11 +166,11 @@ await client.messages.send(body, {
 ### Automatic idempotency
 
 The SDK attaches a UUID `Idempotency-Key` to every **create** operation
-(the nine endpoints the API documents as idempotent: message sends and
-all resource creations). The key is generated once per call and reused
-across the SDK's internal retries, so transient failures can never
-double-send. Pass `options.idempotencyKey` to drive the key from your
-own stable identifier — see `examples/idempotency.mjs`.
+(all 11 endpoints whose generated operation profile marks them idempotent,
+including message sends and resource creations). The key is generated once per
+call and reused across the SDK's internal retries, so transient failures can
+never double-send. Pass `options.idempotencyKey` to drive the key from your own
+stable identifier — see `examples/idempotency.mjs`.
 
 `generateIdempotencyKey(prefix?)` and `IdempotencyKeyBuilder` are
 exported for advanced key management. Note the prefix is prepended
@@ -257,7 +257,8 @@ Next.js. It does not pull in the API client.
 
 The verifier needs the **raw request body** — the exact bytes AhaSend
 sent. If a JSON body parser runs first, signature verification is
-impossible (the adapters detect this and return 400 instead of hanging).
+impossible. The adapters treat an already-parsed body as a setup error:
+Express passes it to `next`, Fastify throws it, and Next.js rejects it.
 
 ```ts
 // Express 5.x — mount express.raw() on the webhook route

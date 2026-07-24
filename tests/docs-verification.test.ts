@@ -27,9 +27,35 @@ describe("operational documentation verification", () => {
       "atomic duplicate integration pattern",
       "Record the ID atomically after signature verification and before performing side effects.",
     ],
+    [
+      "webhook-id claim integration code",
+      "const firstDelivery = await webhookDeliveries.claim(webhookId);",
+    ],
+    [
+      "duplicate webhook early-return integration code",
+      `if (!firstDelivery) {
+      res.statusCode = 200;
+      res.end();
+      return;
+    }`,
+    ],
   ])("fails if the %s is removed", async (_label, requiredText) => {
     const documents = await loadDocumentation();
     const path = "docs/security-and-webhooks.md";
+    documents[path] = documents[path]!.replace(requiredText, "");
+
+    expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
+  });
+
+  it.each([
+    [
+      "idempotent-operation inventory",
+      "all 11 endpoints whose generated operation profile marks them idempotent",
+    ],
+    ["parsed webhook body behavior", "The adapters treat an already-parsed body as a setup error"],
+  ])("fails if the README %s is removed", async (_label, requiredText) => {
+    const documents = await loadDocumentation();
+    const path = "README.md";
     documents[path] = documents[path]!.replace(requiredText, "");
 
     expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
