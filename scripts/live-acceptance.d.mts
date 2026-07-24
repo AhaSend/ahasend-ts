@@ -246,6 +246,49 @@ export type MessageLiveRun = DomainLiveRun;
 
 export function runMessageLiveScenarios(registry: ScenarioRegistry): Promise<MessageLiveRun>;
 
+export interface StatisticsLiveFacade {
+  readonly deliverability: (...args: never[]) => unknown;
+  readonly bounces: (...args: never[]) => unknown;
+  readonly deliveryTimes: (...args: never[]) => unknown;
+}
+
+export interface StatisticsLiveClient {
+  readonly statistics: StatisticsLiveFacade;
+}
+
+export interface StatisticsAuthorizationRule {
+  readonly kind: "comma_separated_query_domains";
+  readonly queryParameter: "sender_domain";
+  readonly quantifier: "every";
+  readonly roles: {
+    readonly global: string;
+    readonly domain: string;
+  };
+  readonly summary?: string;
+}
+
+export interface StatisticsAuthorizationRegistry {
+  readonly getDeliverabilityStatistics: StatisticsAuthorizationRule;
+  readonly getBounceStatistics: StatisticsAuthorizationRule;
+  readonly getDeliveryTimeStatistics: StatisticsAuthorizationRule;
+  readonly [operationId: string]: unknown;
+}
+
+export interface CreateStatisticsScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: StatisticsLiveClient;
+  readonly authorization: StatisticsAuthorizationRegistry;
+  readonly senderDomains: readonly [string, string];
+}
+
+export function createStatisticsScenarioRegistry(
+  options: CreateStatisticsScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type StatisticsLiveRun = DomainLiveRun;
+
+export function runStatisticsLiveScenarios(registry: ScenarioRegistry): Promise<StatisticsLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";

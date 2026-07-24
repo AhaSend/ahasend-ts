@@ -43,6 +43,11 @@ const messageOperationIds = Object.freeze([
   "getMessage",
   "cancelMessage",
 ]);
+const statisticsOperationIds = Object.freeze([
+  "getDeliverabilityStatistics",
+  "getBounceStatistics",
+  "getDeliveryTimeStatistics",
+]);
 const sensitiveFieldNames = new Set([
   "ahasendapikey",
   "ahasendtoken",
@@ -1124,6 +1129,174 @@ export function createMessageScenarioRegistry({
 /** Execute ping and message scenarios in dependency order and always drain setup cleanup. */
 export function runMessageLiveScenarios(registry) {
   return runLiveScenarios(registry, messageOperationIds, "getMessages", "Message");
+}
+
+function requireStatisticsAuthorizationRule(value, operationId) {
+  const label = `Packaged ${operationId} authorization metadata`;
+  const rule = requireObject(value, label);
+  if (
+    rule.kind !== "comma_separated_query_domains" ||
+    rule.queryParameter !== "sender_domain" ||
+    rule.quantifier !== "every"
+  ) {
+    throw new TypeError(`${label} must authorize every comma-separated sender_domain value.`);
+  }
+  const roles = requireObject(rule.roles, `${label} roles`);
+  requireString(roles.global, `${label} global role`);
+  const domainRole = requireString(roles.domain, `${label} domain role`);
+  if (!domainRole.includes("{domain}")) {
+    throw new TypeError(`${label} domain role must contain the {domain} placeholder.`);
+  }
+  return Object.freeze({
+    queryParameter: rule.queryParameter,
+    quantifier: rule.quantifier,
+  });
+}
+
+function assertStatisticsMappings(profile, authorization) {
+  const expected = new Set(statisticsOperationIds);
+  const actual = profile.operations.filter(({ facade }) => facade === "statistics");
+  const actualIds = new Set(actual.map(({ operationId }) => operationId));
+  const missing = statisticsOperationIds.filter((operationId) => !actualIds.has(operationId));
+  const orphaned = actual
+    .map(({ operationId }) => operationId)
+    .filter((operationId) => !expected.has(operationId));
+  if (
+    actual.length !== statisticsOperationIds.length ||
+    missing.length > 0 ||
+    orphaned.length > 0
+  ) {
+    throw new TypeError(
+      `Packaged statistics operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}.`,
+    );
+  }
+
+  const authorizationRegistry = requireObject(authorization, "Packaged authorization registry");
+  return Object.freeze({
+    operations: new Map(actual.map((mapping) => [mapping.operationId, mapping])),
+    authorization: new Map(
+      actual.map(({ operationId }) => [
+        operationId,
+        requireStatisticsAuthorizationRule(authorizationRegistry[operationId], operationId),
+      ]),
+    ),
+  });
+}
+
+function requireStatisticsDomains(value) {
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new TypeError("Statistics sender domains must contain exactly two entries.");
+  }
+  const domains = value.map((domain, index) =>
+    requireString(domain, `Statistics sender domain ${index + 1}`)
+      .trim()
+      .toLowerCase(),
+  );
+  if (
+    domains.some((domain) => domain === "" || domain.includes(",") || domain.includes("@")) ||
+    new Set(domains).size !== domains.length
+  ) {
+    throw new TypeError("Statistics sender domains must be distinct domain names.");
+  }
+  return Object.freeze(domains);
+}
+
+async function runStatisticsAuthorizationCase({
+  method,
+  rule,
+  senderDomain,
+  expectedDomainCount,
+  label,
+}) {
+  const params = Object.freeze({ [rule.queryParameter]: senderDomain });
+  const suppliedDomains = requireString(
+    params[rule.queryParameter],
+    `${label} ${rule.queryParameter}`,
+  )
+    .split(",")
+    .map((domain) => domain.trim())
+    .filter((domain) => domain !== "");
+  if (suppliedDomains.length !== expectedDomainCount) {
+    throw new TypeError(`${label} must contain exactly ${expectedDomainCount} sender domains.`);
+  }
+
+  const response = requireObject(await method(params), `${label} response`);
+  if (response.object !== "list" || !Array.isArray(response.data)) {
+    throw new TypeError(`${label} response must be a statistics list.`);
+  }
+  return Object.freeze({
+    authorized: true,
+    domainCount: suppliedDomains.length,
+    resultBuckets: response.data.length,
+  });
+}
+
+/**
+ * Build one scenario for each statistics operation. Every scenario exercises a
+ * single sender domain and a comma-separated pair using the packaged
+ * authorization rule that requires every value to be authorized.
+ */
+export function createStatisticsScenarioRegistry({
+  profile,
+  client,
+  authorization,
+  senderDomains,
+}) {
+  const mappings = assertStatisticsMappings(profile, authorization);
+  const domains = requireStatisticsDomains(senderDomains);
+  const scenarios = new Map(
+    statisticsOperationIds.map((operationId) => {
+      const mapping = mappings.operations.get(operationId);
+      const rule = mappings.authorization.get(operationId);
+      const method = requireMappedClientMethod(
+        client,
+        mapping,
+        `Statistics ${operationId} scenario`,
+      );
+      return [
+        operationId,
+        {
+          operationId,
+          async run() {
+            const singleDomain = await runStatisticsAuthorizationCase({
+              method,
+              rule,
+              senderDomain: domains[0],
+              expectedDomainCount: 1,
+              label: `${operationId} single-domain authorization`,
+            });
+            const multiDomain = await runStatisticsAuthorizationCase({
+              method,
+              rule,
+              senderDomain: domains.join(","),
+              expectedDomainCount: domains.length,
+              label: `${operationId} multi-domain authorization`,
+            });
+            return Object.freeze({
+              evidence: Object.freeze({
+                senderAuthorization: Object.freeze({
+                  source: `query.${rule.queryParameter}`,
+                  quantifier: rule.quantifier,
+                  singleDomain,
+                  multiDomain,
+                }),
+              }),
+            });
+          },
+        },
+      ];
+    }),
+  );
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute the three statistics scenarios in packaged operation order. */
+export function runStatisticsLiveScenarios(registry) {
+  return runLiveScenarios(registry, statisticsOperationIds, null, "Statistics");
 }
 
 export function createCleanupRegistry() {

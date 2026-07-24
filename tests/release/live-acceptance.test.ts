@@ -6,17 +6,20 @@ import Ajv from "ajv";
 import { afterAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { canonicalizeJson, digestJsonArtifact, sha256Hex } from "../../scripts/digest-artifact.mjs";
 import type { AhaSendClient } from "../../src/client.js";
+import { RESOURCE_AUTHORIZATION } from "../../src/generated/operations.js";
 import {
   createCleanupRegistry,
   createDomainScenarioRegistry,
   createLiveReport,
   createMessageScenarioRegistry,
   createScenarioRegistry,
+  createStatisticsScenarioRegistry,
   inspectLiveCandidate,
   installLiveCandidate,
   loadLiveCandidate,
   runDomainLiveScenarios,
   runMessageLiveScenarios,
+  runStatisticsLiveScenarios,
   runWithCleanup,
   validateLiveReportArtifacts,
   validatePackagedLiveProfile,
@@ -26,6 +29,7 @@ import {
   type LiveCandidateManifest,
   type LiveProfile,
   type MessageLiveClient,
+  type StatisticsLiveClient,
 } from "../../scripts/live-acceptance.mjs";
 import liveReportSchema from "../../scripts/live-report.schema.json";
 
@@ -279,6 +283,41 @@ function messageClientFixture(
     sendRequests,
     verifiedDomain,
     verifiedRequest,
+  };
+}
+
+function statisticsClientFixture(options: { authorizeSecondDomain?: boolean } = {}) {
+  const firstDomain = "statistics-one.example";
+  const secondDomain = "statistics-two.example";
+  const authorizedDomains = new Set([
+    firstDomain,
+    ...(options.authorizeSecondDomain === false ? [] : [secondDomain]),
+  ]);
+  const request = async (params: { sender_domain?: string }) => {
+    const domains = (params.sender_domain ?? "")
+      .split(",")
+      .map((domain) => domain.trim().toLowerCase())
+      .filter((domain) => domain !== "");
+    if (domains.length === 0 || !domains.every((domain) => authorizedDomains.has(domain))) {
+      throw Object.assign(new Error("statistics sender is not authorized"), {
+        status: 403,
+        url: `https://api.example.test/statistics?sender_domain=${params.sender_domain}`,
+      });
+    }
+    return { object: "list" as const, data: [{ bucket: "redacted fixture" }] };
+  };
+  const client: StatisticsLiveClient = {
+    statistics: {
+      deliverability: vi.fn(request),
+      bounces: vi.fn(request),
+      deliveryTimes: vi.fn(request),
+    },
+  };
+  return {
+    client,
+    firstDomain,
+    secondDomain,
+    senderDomains: [firstDomain, secondDomain] as const,
   };
 }
 
@@ -978,6 +1017,171 @@ describe("live scenario inventory", () => {
     expect(source).not.toContain(fixture.messageId);
     expect(source).not.toContain("sandbox sender rejected");
     expect(source).toContain('"source":"body.from.email"');
+  });
+
+  it("registers exactly one executable scenario for every packaged statistics primary", () => {
+    const fixture = statisticsClientFixture();
+    const registry = createStatisticsScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      senderDomains: fixture.senderDomains,
+    });
+    const statisticsEntries = [...registry.primary.values()].filter(
+      ({ facade }) => facade === "statistics",
+    );
+
+    expect(statisticsEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      ["getBounceStatistics", "getDeliverabilityStatistics", "getDeliveryTimeStatistics"].sort(),
+    );
+    expect(statisticsEntries).toHaveLength(3);
+    expect(statisticsEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, StatisticsLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("dispatches single- and multi-domain statistics cases through packaged mappings", async () => {
+    const candidate = inspectFixture();
+    const fixture = statisticsClientFixture();
+    const statistics = fixture.client.statistics;
+    const original = {
+      deliverability: statistics.deliverability as unknown as (params: unknown) => unknown,
+      bounces: statistics.bounces as unknown as (params: unknown) => unknown,
+      deliveryTimes: statistics.deliveryTimes as unknown as (params: unknown) => unknown,
+    };
+    const packagedMethods = {
+      packagedDeliverability: vi.fn((params: unknown) => original.deliverability(params)),
+      packagedBounces: vi.fn((params: unknown) => original.bounces(params)),
+      packagedDeliveryTimes: vi.fn((params: unknown) => original.deliveryTimes(params)),
+    };
+    Object.assign(statistics, packagedMethods);
+    const mappedMethods = new Map([
+      ["getDeliverabilityStatistics", "packagedDeliverability"],
+      ["getBounceStatistics", "packagedBounces"],
+      ["getDeliveryTimeStatistics", "packagedDeliveryTimes"],
+    ]);
+    const profile = {
+      ...candidate.profile,
+      operations: candidate.profile.operations.map((mapping) => ({
+        ...mapping,
+        method: mappedMethods.get(mapping.operationId) ?? mapping.method,
+      })),
+    };
+    const registry = createStatisticsScenarioRegistry({
+      profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      senderDomains: fixture.senderDomains,
+    });
+
+    const result = await runStatisticsLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(result.operationResults).toHaveLength(3);
+    expect(result.operationResults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operationId: "getDeliverabilityStatistics",
+          status: "passed",
+          evidence: {
+            senderAuthorization: {
+              source: "query.sender_domain",
+              quantifier: "every",
+              singleDomain: { authorized: true, domainCount: 1, resultBuckets: 1 },
+              multiDomain: { authorized: true, domainCount: 2, resultBuckets: 1 },
+            },
+          },
+        }),
+        expect.objectContaining({ operationId: "getBounceStatistics", status: "passed" }),
+        expect.objectContaining({ operationId: "getDeliveryTimeStatistics", status: "passed" }),
+      ]),
+    );
+    for (const method of Object.values(packagedMethods)) {
+      expect(method).toHaveBeenNthCalledWith(1, {
+        sender_domain: fixture.firstDomain,
+      });
+      expect(method).toHaveBeenNthCalledWith(2, {
+        sender_domain: `${fixture.firstDomain},${fixture.secondDomain}`,
+      });
+    }
+  });
+
+  it("requires every comma-separated statistics domain to be authorized", async () => {
+    const fixture = statisticsClientFixture({ authorizeSecondDomain: false });
+    const createRegistry = (
+      authorization: Parameters<typeof createStatisticsScenarioRegistry>[0]["authorization"],
+    ) =>
+      createStatisticsScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        authorization,
+        senderDomains: fixture.senderDomains,
+      });
+
+    const result = await runStatisticsLiveScenarios(createRegistry(RESOURCE_AUTHORIZATION));
+
+    expect(result.failure).toEqual({
+      phase: "operation",
+      operationId: "getDeliverabilityStatistics",
+    });
+    expect(result.operationResults).toEqual([
+      { operationId: "getDeliverabilityStatistics", status: "failed" },
+    ]);
+    expect(fixture.client.statistics.deliverability).toHaveBeenCalledTimes(2);
+
+    const firstOnlyAuthorization = structuredClone(RESOURCE_AUTHORIZATION) as unknown as Record<
+      string,
+      Record<string, unknown>
+    >;
+    firstOnlyAuthorization.getDeliverabilityStatistics!.quantifier = "one";
+    expect(() =>
+      createRegistry(
+        firstOnlyAuthorization as unknown as Parameters<
+          typeof createStatisticsScenarioRegistry
+        >[0]["authorization"],
+      ),
+    ).toThrow("must authorize every comma-separated sender_domain value");
+  });
+
+  it("keeps statistics report authorization evidence free of domains and query-bearing URLs", async () => {
+    const candidate = inspectFixture();
+    const fixture = statisticsClientFixture();
+    const registry = createStatisticsScenarioRegistry({
+      profile: candidate.profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      senderDomains: fixture.senderDomains,
+    });
+    const result = await runStatisticsLiveScenarios(registry);
+    const report = createLiveReport({
+      candidate,
+      operationResults: result.operationResults,
+      secrets: [...fixture.senderDomains],
+    });
+    const source = canonicalizeJson(report).toString("utf8");
+    const statisticsRows = (
+      report.operations as Array<{
+        operationId: string;
+        status: string;
+        evidence?: unknown;
+      }>
+    ).filter(({ operationId }) =>
+      ["getDeliverabilityStatistics", "getBounceStatistics", "getDeliveryTimeStatistics"].includes(
+        operationId,
+      ),
+    );
+
+    expect(statisticsRows).toHaveLength(3);
+    expect(statisticsRows.every(({ status, evidence }) => status === "passed" && evidence)).toBe(
+      true,
+    );
+    expect(source).toContain('"source":"query.sender_domain"');
+    expect(source).toContain('"quantifier":"every"');
+    expect(source).not.toContain(fixture.firstDomain);
+    expect(source).not.toContain(fixture.secondDomain);
+    expect(source).not.toContain("statistics sender is not authorized");
+    expect(source).not.toMatch(/https?:\/\//u);
+    expect(source).not.toContain("?sender_domain=");
   });
 });
 
