@@ -189,6 +189,57 @@ export interface DomainLiveRun {
 
 export function runDomainLiveScenarios(registry: ScenarioRegistry): Promise<DomainLiveRun>;
 
+export interface MessageLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly send: (...args: never[]) => unknown;
+  readonly sendConversation: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly cancel: (...args: never[]) => unknown;
+}
+
+export interface MessageDomainLiveFacade {
+  readonly create: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+}
+
+export interface MessageLiveClient {
+  readonly ping: (...args: never[]) => unknown;
+  readonly messages: MessageLiveFacade;
+  readonly domains: MessageDomainLiveFacade;
+}
+
+export interface SandboxSender {
+  readonly email: string;
+  readonly name?: string;
+}
+
+export interface MessageLiveVerifiedRequest {
+  readonly from: SandboxSender;
+  readonly sandbox: true;
+  readonly [key: string]: unknown;
+}
+
+export interface CreateMessageScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: MessageLiveClient;
+  readonly verifiedRequest: MessageLiveVerifiedRequest;
+  readonly conversationRequest: MessageLiveVerifiedRequest;
+  readonly neverRegisteredDomain: string;
+  readonly dnslessCreateRequest: DomainLiveCreateRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createMessageScenarioRegistry(
+  options: CreateMessageScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type MessageLiveFailure = DomainLiveFailure;
+export type MessageLiveRun = DomainLiveRun;
+
+export function runMessageLiveScenarios(registry: ScenarioRegistry): Promise<MessageLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";

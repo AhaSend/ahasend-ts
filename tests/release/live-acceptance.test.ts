@@ -10,11 +10,13 @@ import {
   createCleanupRegistry,
   createDomainScenarioRegistry,
   createLiveReport,
+  createMessageScenarioRegistry,
   createScenarioRegistry,
   inspectLiveCandidate,
   installLiveCandidate,
   loadLiveCandidate,
   runDomainLiveScenarios,
+  runMessageLiveScenarios,
   runWithCleanup,
   validateLiveReportArtifacts,
   validatePackagedLiveProfile,
@@ -23,6 +25,7 @@ import {
   type LiveCandidate,
   type LiveCandidateManifest,
   type LiveProfile,
+  type MessageLiveClient,
 } from "../../scripts/live-acceptance.mjs";
 import liveReportSchema from "../../scripts/live-report.schema.json";
 
@@ -151,6 +154,107 @@ function domainClientFixture(options: { failGet?: boolean } = {}) {
     },
   };
   return { calls, client, domain };
+}
+
+function messageClientFixture() {
+  const calls: string[] = [];
+  const sendRequests: Array<{ from: { email: string }; [key: string]: unknown }> = [];
+  const verifiedDomain = "verified.example";
+  const neverRegisteredDomain = "absent.example";
+  const dnslessDomain = "dnsless.example";
+  const messageId = "<live-message-id@ahasend.test>";
+  const registeredDomains = new Set<string>();
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const rejected = () => Object.assign(new Error("sandbox sender rejected"), { status: 400 });
+  const success = () => ({
+    object: "list",
+    data: [{ id: messageId, status: "queued" }],
+  });
+  const client: MessageLiveClient = {
+    ping: vi.fn(async () => {
+      calls.push("ping");
+      return { message: "pong" };
+    }),
+    messages: {
+      send: vi.fn(async (request: { from: { email: string }; [key: string]: unknown }) => {
+        calls.push("send");
+        sendRequests.push(request);
+        const domain = request.from.email.split("@").at(-1);
+        if (domain !== verifiedDomain) throw rejected();
+        return success();
+      }),
+      sendConversation: vi.fn(
+        async (request: { from: { email: string }; [key: string]: unknown }) => {
+          calls.push("sendConversation");
+          sendRequests.push(request);
+          return success();
+        },
+      ),
+      list: vi.fn(async (params: unknown) => {
+        calls.push(`list:${JSON.stringify(params)}`);
+        return {
+          object: "list",
+          data: [{ id: messageId }],
+          pagination: { has_more: false },
+        };
+      }),
+      iterate: vi.fn(async function* (params: unknown) {
+        calls.push(`iterate:${JSON.stringify(params)}`);
+        yield { id: messageId };
+      }),
+      get: vi.fn(async (id: string) => {
+        calls.push(`get:${id}`);
+        return { id: messageId };
+      }),
+      cancel: vi.fn(async (id: string) => {
+        calls.push(`cancel:${id}`);
+        return { message: "cancelled" };
+      }),
+    },
+    domains: {
+      create: vi.fn(async (request: { domain: string }) => {
+        calls.push("createDomain");
+        registeredDomains.add(request.domain);
+        return { domain: request.domain };
+      }),
+      get: vi.fn(async (domain: string) => {
+        calls.push("getDomain");
+        if (!registeredDomains.has(domain)) throw notFound();
+        return { domain };
+      }),
+      delete: vi.fn(async (domain: string) => {
+        calls.push("deleteDomain");
+        if (!registeredDomains.delete(domain)) throw notFound();
+        return { message: "deleted" };
+      }),
+    },
+  };
+  const verifiedRequest = {
+    from: { email: `sender@${verifiedDomain}` },
+    recipients: [{ email: "recipient@example.net" }],
+    subject: "live message subject",
+    text_content: "live message content",
+    sandbox: true as const,
+  };
+  const conversationRequest = {
+    from: { email: `sender@${verifiedDomain}` },
+    to: [{ email: "recipient@example.net" }],
+    subject: "live conversation subject",
+    text_content: "live conversation content",
+    sandbox: true as const,
+  };
+  return {
+    calls,
+    client,
+    conversationRequest,
+    dnslessDomain,
+    messageId,
+    neverRegisteredDomain,
+    registeredDomains,
+    sendRequests,
+    verifiedDomain,
+    verifiedRequest,
+  };
 }
 
 afterAll(() => {
@@ -532,6 +636,216 @@ describe("live scenario inventory", () => {
     expect(fixture.client.domains.list).not.toHaveBeenCalledWith(
       expect.objectContaining({ before: expect.anything() }),
     );
+  });
+
+  it("registers exactly one executable scenario for ping and every message primary", () => {
+    const fixture = messageClientFixture();
+    const registry = createMessageScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      verifiedRequest: fixture.verifiedRequest,
+      conversationRequest: fixture.conversationRequest,
+      neverRegisteredDomain: fixture.neverRegisteredDomain,
+      dnslessCreateRequest: { domain: fixture.dnslessDomain },
+    });
+    const messageEntries = [...registry.primary.values()].filter(
+      ({ facade, operationId }) => facade === "messages" || operationId === "ping",
+    );
+
+    expect(messageEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      [
+        "cancelMessage",
+        "createConversationMessage",
+        "createMessage",
+        "getMessage",
+        "getMessages",
+        "ping",
+      ].sort(),
+    );
+    expect(messageEntries).toHaveLength(6);
+    expect(messageEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, MessageLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("dispatches ping and message calls through the packaged mappings", async () => {
+    const candidate = inspectFixture();
+    const fixture = messageClientFixture();
+    const messages = fixture.client.messages;
+    const original = {
+      send: messages.send as unknown as (request: unknown) => unknown,
+      sendConversation: messages.sendConversation as unknown as (request: unknown) => unknown,
+      get: messages.get as unknown as (messageId: unknown) => unknown,
+      cancel: messages.cancel as unknown as (messageId: unknown) => unknown,
+    };
+    const packagedMethods = {
+      packagedPing: vi.fn(() => fixture.client.ping()),
+      packagedSend: vi.fn((request: unknown) => original.send(request)),
+      packagedConversation: vi.fn((request: unknown) => original.sendConversation(request)),
+      packagedGet: vi.fn((messageId: unknown) => original.get(messageId)),
+      packagedCancel: vi.fn((messageId: unknown) => original.cancel(messageId)),
+    };
+    Object.assign(fixture.client, { packagedPing: packagedMethods.packagedPing });
+    Object.assign(messages, packagedMethods);
+    const mappedMethods = new Map([
+      ["ping", "packagedPing"],
+      ["createMessage", "packagedSend"],
+      ["createConversationMessage", "packagedConversation"],
+      ["getMessage", "packagedGet"],
+      ["cancelMessage", "packagedCancel"],
+    ]);
+    const profile = {
+      ...candidate.profile,
+      operations: candidate.profile.operations.map((mapping) => ({
+        ...mapping,
+        method: mappedMethods.get(mapping.operationId) ?? mapping.method,
+      })),
+    };
+    const registry = createMessageScenarioRegistry({
+      profile,
+      client: fixture.client,
+      verifiedRequest: fixture.verifiedRequest,
+      conversationRequest: fixture.conversationRequest,
+      neverRegisteredDomain: fixture.neverRegisteredDomain,
+      dnslessCreateRequest: { domain: fixture.dnslessDomain },
+    });
+
+    const result = await runMessageLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(packagedMethods.packagedPing).toHaveBeenCalledOnce();
+    expect(packagedMethods.packagedSend).toHaveBeenCalledTimes(3);
+    expect(packagedMethods.packagedConversation).toHaveBeenCalledOnce();
+    expect(packagedMethods.packagedGet).toHaveBeenCalledOnce();
+    expect(packagedMethods.packagedCancel).toHaveBeenCalledOnce();
+  });
+
+  it("runs verified, never-registered, and newly registered DNS-less sandbox outcomes", async () => {
+    const fixture = messageClientFixture();
+    const registry = createMessageScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      verifiedRequest: fixture.verifiedRequest,
+      conversationRequest: fixture.conversationRequest,
+      neverRegisteredDomain: fixture.neverRegisteredDomain,
+      dnslessCreateRequest: { domain: fixture.dnslessDomain },
+    });
+
+    const result = await runMessageLiveScenarios(registry);
+    const sendResult = result.operationResults.find(
+      ({ operationId }) => operationId === "createMessage",
+    );
+
+    expect(result.failure).toBeNull();
+    expect(sendResult).toMatchObject({
+      status: "passed",
+      evidence: {
+        senderAuthorization: { source: "body.from.email" },
+        sandbox: {
+          verified: { accepted: true, results: 1 },
+          neverRegistered: {
+            reason: "domain_not_registered",
+            rejected: true,
+            status: 400,
+          },
+          dnsless: { reason: "dns_not_verified", rejected: true, status: 400 },
+        },
+      },
+    });
+    expect(fixture.sendRequests.map(({ from }) => from.email)).toEqual([
+      `sender@${fixture.verifiedDomain}`,
+      `live-acceptance@${fixture.neverRegisteredDomain}`,
+      `live-acceptance@${fixture.dnslessDomain}`,
+      `sender@${fixture.verifiedDomain}`,
+    ]);
+    expect(fixture.sendRequests.every((request) => request.sandbox === true)).toBe(true);
+    expect(result.cleanupResults).toEqual([
+      {
+        label: "delete and verify DNS-less message domain fixture",
+        status: "passed",
+      },
+    ]);
+    expect(fixture.registeredDomains.size).toBe(0);
+  });
+
+  it("records one linked message iterator with positive single-direction pagination", async () => {
+    const fixture = messageClientFixture();
+    const registry = createMessageScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      verifiedRequest: fixture.verifiedRequest,
+      conversationRequest: fixture.conversationRequest,
+      neverRegisteredDomain: fixture.neverRegisteredDomain,
+      dnslessCreateRequest: { domain: fixture.dnslessDomain },
+      pagination: { limit: 2, before: "previous-page" },
+    });
+
+    const result = await runMessageLiveScenarios(registry);
+    const listResults = result.operationResults.filter(
+      ({ operationId }) => operationId === "getMessages",
+    );
+
+    expect(result.failure).toBeNull();
+    expect(listResults).toHaveLength(1);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getMessages",
+        status: "passed",
+        evidence: { direction: "backward", items: 1, limit: 2 },
+      },
+    ]);
+    expect(fixture.client.messages.list).toHaveBeenCalledWith({
+      limit: 2,
+      before: "previous-page",
+    });
+    expect(fixture.client.messages.iterate).toHaveBeenCalledWith({
+      limit: 2,
+      before: "previous-page",
+    });
+    expect(fixture.client.messages.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ after: expect.anything() }),
+    );
+    expect(registry.primary.get("getMessages")?.iterator).toMatchObject({
+      operationId: "getMessages",
+      method: "iterate",
+    });
+  });
+
+  it("keeps message content, addresses, IDs, and API errors out of report evidence", async () => {
+    const candidate = inspectFixture();
+    const fixture = messageClientFixture();
+    const registry = createMessageScenarioRegistry({
+      profile: candidate.profile,
+      client: fixture.client,
+      verifiedRequest: fixture.verifiedRequest,
+      conversationRequest: fixture.conversationRequest,
+      neverRegisteredDomain: fixture.neverRegisteredDomain,
+      dnslessCreateRequest: { domain: fixture.dnslessDomain },
+    });
+    const result = await runMessageLiveScenarios(registry);
+    const report = createLiveReport({
+      candidate,
+      operationResults: result.operationResults,
+      iteratorResults: result.iteratorResults,
+      cleanupResults: result.cleanupResults,
+      secrets: [
+        fixture.verifiedDomain,
+        fixture.neverRegisteredDomain,
+        fixture.dnslessDomain,
+        fixture.messageId,
+      ],
+    });
+    const source = canonicalizeJson(report).toString("utf8");
+
+    expect(source).not.toContain(fixture.verifiedRequest.subject);
+    expect(source).not.toContain(fixture.verifiedRequest.text_content);
+    expect(source).not.toContain(fixture.conversationRequest.subject);
+    expect(source).not.toContain(fixture.conversationRequest.text_content);
+    expect(source).not.toContain("sender@");
+    expect(source).not.toContain("recipient@");
+    expect(source).not.toContain(fixture.messageId);
+    expect(source).not.toContain("sandbox sender rejected");
+    expect(source).toContain('"source":"body.from.email"');
   });
 });
 

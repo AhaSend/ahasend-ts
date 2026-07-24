@@ -35,6 +35,14 @@ const domainOperationIds = Object.freeze([
   "checkDomainDNS",
   "deleteDomain",
 ]);
+const messageOperationIds = Object.freeze([
+  "ping",
+  "createMessage",
+  "createConversationMessage",
+  "getMessages",
+  "getMessage",
+  "cancelMessage",
+]);
 const sensitiveFieldNames = new Set([
   "ahasendapikey",
   "ahasendtoken",
@@ -451,8 +459,11 @@ export function createScenarioRegistry(
 }
 
 function requireMappedClientMethod(value, mapping, label) {
-  const client = requireObject(value, "Domain live client");
-  const facade = requireObject(client[mapping.facade], `${label} ${mapping.facade} facade`);
+  const client = requireObject(value, "Live client");
+  const facade =
+    mapping.facade === "client"
+      ? client
+      : requireObject(client[mapping.facade], `${label} ${mapping.facade} facade`);
   const method = facade[mapping.method];
   if (typeof method !== "function") {
     throw new TypeError(
@@ -730,6 +741,387 @@ export async function runDomainLiveScenarios(registry) {
     } catch (error) {
       operationResults.push({ operationId, status: "failed" });
       if (operationId === "getDomains") {
+        iteratorResults.push({ operationId, status: "failed" });
+      }
+      failure = Object.freeze({ phase: "operation", operationId });
+      break;
+    }
+  }
+
+  try {
+    await cleanup.run();
+  } catch {
+    if (failure === null) failure = Object.freeze({ phase: "cleanup" });
+  }
+  return Object.freeze({
+    operationResults: Object.freeze(operationResults),
+    iteratorResults: Object.freeze(iteratorResults),
+    cleanupResults: cleanup.results,
+    failure,
+  });
+}
+
+function requireSandboxMessageRequest(value, label) {
+  const request = requireObject(value, label);
+  const from = requireObject(request.from, `${label} from`);
+  const email = requireString(from.email, `${label} from.email`);
+  if (request.sandbox !== true) {
+    throw new TypeError(`${label} sandbox must be true.`);
+  }
+  return Object.freeze({ request: Object.freeze({ ...request }), email });
+}
+
+function emailDomain(email, label) {
+  const separator = email.lastIndexOf("@");
+  if (separator < 1 || separator === email.length - 1) {
+    throw new TypeError(`${label} must contain a domain.`);
+  }
+  return email.slice(separator + 1).toLowerCase();
+}
+
+function requireMessagePagination(value) {
+  const pagination = requireObject(value, "Message live pagination");
+  const unexpected = Object.keys(pagination).filter(
+    (key) => !["after", "before", "limit"].includes(key),
+  );
+  if (!Object.hasOwn(pagination, "limit") || unexpected.length > 0) {
+    throw new TypeError(
+      `Message live pagination fields must contain limit and optional after or before; unexpected ${JSON.stringify(unexpected)}.`,
+    );
+  }
+  if (!Number.isInteger(pagination.limit) || pagination.limit < 1 || pagination.limit > 100) {
+    throw new TypeError("Message live pagination limit must be an integer from 1 to 100.");
+  }
+  if (pagination.after !== undefined && pagination.before !== undefined) {
+    throw new TypeError("Message live pagination must use only one cursor direction.");
+  }
+  if (pagination.after !== undefined) {
+    requireString(pagination.after, "Message live pagination after");
+  }
+  if (pagination.before !== undefined) {
+    requireString(pagination.before, "Message live pagination before");
+  }
+  return Object.freeze({ ...pagination });
+}
+
+function assertMessageMappings(profile) {
+  const expected = new Set(messageOperationIds);
+  const actual = profile.operations.filter(
+    ({ facade, operationId }) => facade === "messages" || operationId === "ping",
+  );
+  const actualIds = new Set(actual.map(({ operationId }) => operationId));
+  const missing = messageOperationIds.filter((operationId) => !actualIds.has(operationId));
+  const orphaned = actual
+    .map(({ operationId }) => operationId)
+    .filter((operationId) => !expected.has(operationId));
+  if (actual.length !== messageOperationIds.length || missing.length > 0 || orphaned.length > 0) {
+    throw new TypeError(
+      `Packaged message operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}.`,
+    );
+  }
+
+  const ping = actual.find(({ operationId }) => operationId === "ping");
+  const list = actual.find(({ operationId }) => operationId === "getMessages");
+  const iterator = profile.iterators.filter(({ facade }) => facade === "messages");
+  if (
+    ping?.facade !== "client" ||
+    list?.method !== "list" ||
+    iterator.length !== 1 ||
+    iterator[0]?.operationId !== "getMessages" ||
+    iterator[0]?.method !== "iterate"
+  ) {
+    throw new TypeError(
+      "Packaged message mappings must link client ping and getMessages iterate to its primary list operation.",
+    );
+  }
+  return Object.freeze({
+    operations: new Map(actual.map((mapping) => [mapping.operationId, mapping])),
+    iterator: iterator[0],
+  });
+}
+
+function requireSuccessfulSandboxSend(value, label) {
+  const response = requireObject(value, label);
+  if (!Array.isArray(response.data) || response.data.length === 0) {
+    throw new TypeError(`${label} data must contain at least one result.`);
+  }
+  const result = requireObject(response.data[0], `${label} first result`);
+  if (!["queued", "scheduled"].includes(result.status)) {
+    throw new TypeError(`${label} first result must have queued or scheduled status.`);
+  }
+  return Object.freeze({
+    id: requireString(result.id, `${label} first result id`),
+    results: response.data.length,
+  });
+}
+
+async function requireExpectedSandboxRejection(action, label) {
+  try {
+    await action();
+  } catch (error) {
+    const failure = requireObject(error, `${label} rejection`);
+    if (failure.status !== 400) {
+      throw new TypeError(`${label} must fail with HTTP 400.`);
+    }
+    return Object.freeze({ rejected: true, status: 400 });
+  }
+  throw new TypeError(`${label} unexpectedly succeeded.`);
+}
+
+/**
+ * Build ping and message scenarios while retaining pending entries for every
+ * other packaged operation. Negative sends reuse the verified request body so
+ * from.email is the only authorization- and domain-state-changing input.
+ */
+export function createMessageScenarioRegistry({
+  profile,
+  client,
+  verifiedRequest,
+  conversationRequest,
+  neverRegisteredDomain,
+  dnslessCreateRequest,
+  pagination = { limit: 1 },
+}) {
+  const mappings = assertMessageMappings(profile);
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Message ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    ping: mappedOperation("ping"),
+    list: mappedOperation("getMessages"),
+    iterate: requireMappedClientMethod(client, mappings.iterator, "Message iterator scenario"),
+    send: mappedOperation("createMessage"),
+    sendConversation: mappedOperation("createConversationMessage"),
+    get: mappedOperation("getMessage"),
+    cancel: mappedOperation("cancelMessage"),
+    createDomain: requireMappedClientMethod(
+      client,
+      { facade: "domains", method: "create" },
+      "Message DNS-less domain setup",
+    ),
+    getDomain: requireMappedClientMethod(
+      client,
+      { facade: "domains", method: "get" },
+      "Message DNS-less domain verification",
+    ),
+    deleteDomain: requireMappedClientMethod(
+      client,
+      { facade: "domains", method: "delete" },
+      "Message DNS-less domain cleanup",
+    ),
+  });
+  const verified = requireSandboxMessageRequest(verifiedRequest, "Verified-domain sandbox request");
+  const conversation = requireSandboxMessageRequest(
+    conversationRequest,
+    "Conversation sandbox request",
+  );
+  const verifiedDomain = emailDomain(verified.email, "Verified-domain sandbox request from.email");
+  if (
+    emailDomain(conversation.email, "Conversation sandbox request from.email") !== verifiedDomain
+  ) {
+    throw new TypeError("Conversation sandbox request must use the verified sender domain.");
+  }
+  const absentDomain = requireString(
+    neverRegisteredDomain,
+    "Never-registered domain",
+  ).toLowerCase();
+  const dnslessBody = requireDomainRequest(dnslessCreateRequest, "DNS-less domain create request", [
+    "domain",
+  ]);
+  const dnslessDomain = dnslessBody.domain.toLowerCase();
+  if (
+    new Set([verifiedDomain, absentDomain, dnslessDomain]).size !== 3 ||
+    absentDomain.includes("@") ||
+    dnslessDomain.includes("@")
+  ) {
+    throw new TypeError(
+      "Verified, never-registered, and DNS-less sandbox domains must be distinct domain names.",
+    );
+  }
+  const negativeRequest = (domain) =>
+    Object.freeze({
+      ...verified.request,
+      from: Object.freeze({ ...verified.request.from, email: `live-acceptance@${domain}` }),
+    });
+  const pageParams = requireMessagePagination(pagination);
+  const state = { messageId: null };
+
+  const scenarios = new Map([
+    [
+      "ping",
+      {
+        operationId: "ping",
+        async run() {
+          const response = requireObject(await methods.ping(), "Ping scenario response");
+          requireString(response.message, "Ping scenario response message");
+          return Object.freeze({ evidence: Object.freeze({ authenticated: true }) });
+        },
+      },
+    ],
+    [
+      "createMessage",
+      {
+        operationId: "createMessage",
+        async run({ cleanup }) {
+          const successful = requireSuccessfulSandboxSend(
+            await methods.send(verified.request),
+            "Verified-domain sandbox response",
+          );
+          state.messageId = successful.id;
+          const absent = await requireExpectedSandboxRejection(
+            () => methods.send(negativeRequest(absentDomain)),
+            "Never-registered-domain sandbox send",
+          );
+
+          const createdDomain = await methods.createDomain(dnslessBody);
+          cleanup.register("delete and verify DNS-less message domain fixture", async () => {
+            try {
+              await methods.deleteDomain(dnslessDomain);
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
+            }
+            await verifyDomainRemoved(methods.getDomain, dnslessDomain);
+          });
+          requireDomainResult(createdDomain, dnslessBody.domain, "DNS-less domain setup response");
+          const dnsless = await requireExpectedSandboxRejection(
+            () => methods.send(negativeRequest(dnslessDomain)),
+            "DNS-less-domain sandbox send",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              senderAuthorization: Object.freeze({ source: "body.from.email" }),
+              sandbox: Object.freeze({
+                verified: Object.freeze({ accepted: true, results: successful.results }),
+                neverRegistered: Object.freeze({ ...absent, reason: "domain_not_registered" }),
+                dnsless: Object.freeze({ ...dnsless, reason: "dns_not_verified" }),
+              }),
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "createConversationMessage",
+      {
+        operationId: "createConversationMessage",
+        async run() {
+          const successful = requireSuccessfulSandboxSend(
+            await methods.sendConversation(conversation.request),
+            "Conversation sandbox response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              accepted: true,
+              senderAuthorization: Object.freeze({ source: "body.from.email" }),
+              results: successful.results,
+              sandbox: true,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getMessages",
+      {
+        operationId: "getMessages",
+        async run() {
+          const page = requireObject(await methods.list(pageParams), "Message list response");
+          if (!Array.isArray(page.data)) {
+            throw new TypeError("Message list response data must be an array.");
+          }
+          requireObject(page.pagination, "Message list response pagination");
+
+          let itemCount = 0;
+          for await (const _entry of methods.iterate(pageParams)) {
+            itemCount += 1;
+            if (itemCount >= pageParams.limit) break;
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              direction: pageParams.before === undefined ? "forward" : "backward",
+              limit: pageParams.limit,
+              pageItems: page.data.length,
+            }),
+            iteratorEvidence: Object.freeze({
+              direction: pageParams.before === undefined ? "forward" : "backward",
+              items: itemCount,
+              limit: pageParams.limit,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getMessage",
+      {
+        operationId: "getMessage",
+        async run() {
+          if (state.messageId === null) {
+            throw new TypeError("Message get scenario requires the verified sandbox message.");
+          }
+          requireObject(await methods.get(state.messageId), "Message get response");
+          return Object.freeze({ evidence: Object.freeze({ retrieved: true }) });
+        },
+      },
+    ],
+    [
+      "cancelMessage",
+      {
+        operationId: "cancelMessage",
+        async run() {
+          if (state.messageId === null) {
+            throw new TypeError("Message cancel scenario requires the verified sandbox message.");
+          }
+          requireObject(await methods.cancel(state.messageId), "Message cancel response");
+          return Object.freeze({ evidence: Object.freeze({ cancelled: true }) });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute ping and message scenarios in dependency order and always drain setup cleanup. */
+export async function runMessageLiveScenarios(registry) {
+  const scenarios = new Map();
+  for (const operationId of messageOperationIds) {
+    const scenario = registry.primary.get(operationId);
+    if (scenario === undefined || typeof scenario.run !== "function") {
+      throw new TypeError(`Message scenario registry is missing executable ${operationId}.`);
+    }
+    scenarios.set(operationId, scenario);
+  }
+
+  const cleanup = createCleanupRegistry();
+  const operationResults = [];
+  const iteratorResults = [];
+  let failure = null;
+  for (const operationId of messageOperationIds) {
+    const scenario = scenarios.get(operationId);
+    try {
+      const result = await scenario.run({ cleanup });
+      operationResults.push({
+        operationId,
+        status: "passed",
+        ...(result.evidence === undefined ? {} : { evidence: result.evidence }),
+      });
+      if (operationId === "getMessages") {
+        iteratorResults.push({
+          operationId,
+          status: "passed",
+          evidence: result.iteratorEvidence,
+        });
+      }
+    } catch {
+      operationResults.push({ operationId, status: "failed" });
+      if (operationId === "getMessages") {
         iteratorResults.push({ operationId, status: "failed" });
       }
       failure = Object.freeze({ phase: "operation", operationId });
