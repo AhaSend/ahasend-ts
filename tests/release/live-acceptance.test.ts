@@ -781,6 +781,34 @@ describe("live scenario inventory", () => {
     expect(fixture.registeredDomains.size).toBe(0);
   });
 
+  it("fails the verified sandbox outcome when a later recipient result has an error", async () => {
+    const fixture = messageClientFixture();
+    vi.spyOn(fixture.client.messages, "send").mockImplementationOnce(async () => ({
+      object: "list",
+      data: [
+        { id: fixture.messageId, status: "scheduled" },
+        { id: null, status: "error", error: "recipient rejected" },
+      ],
+    }));
+    const registry = createMessageScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      verifiedRequest: fixture.verifiedRequest,
+      conversationRequest: fixture.conversationRequest,
+      neverRegisteredDomain: fixture.neverRegisteredDomain,
+      dnslessCreateRequest: { domain: fixture.dnslessDomain },
+    });
+
+    const result = await runMessageLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createMessage" });
+    expect(result.operationResults).toEqual([
+      { operationId: "ping", status: "passed", evidence: { authenticated: true } },
+      { operationId: "createMessage", status: "failed" },
+    ]);
+    expect(fixture.client.messages.send).toHaveBeenCalledOnce();
+  });
+
   it("requires a future scheduled verified sandbox message before cancellation", async () => {
     const fixture = messageClientFixture();
     const { schedule: _schedule, ...unscheduledRequest } = fixture.verifiedRequest;

@@ -833,19 +833,32 @@ function assertMessageMappings(profile) {
   });
 }
 
-function requireSuccessfulSandboxSend(value, label) {
+function requireSuccessfulSandboxSend(value, label, expectedStatus) {
   const response = requireObject(value, label);
   if (!Array.isArray(response.data) || response.data.length === 0) {
     throw new TypeError(`${label} data must contain at least one result.`);
   }
-  const result = requireObject(response.data[0], `${label} first result`);
-  if (!["queued", "scheduled"].includes(result.status)) {
-    throw new TypeError(`${label} first result must have queued or scheduled status.`);
+  const results = response.data.map((value, index) => {
+    const resultLabel = `${label} result ${index + 1}`;
+    const result = requireObject(value, resultLabel);
+    if (!["queued", "scheduled"].includes(result.status)) {
+      throw new TypeError(`${resultLabel} must have queued or scheduled status.`);
+    }
+    if (expectedStatus !== undefined && result.status !== expectedStatus) {
+      throw new TypeError(`${resultLabel} must have ${expectedStatus} status.`);
+    }
+    return Object.freeze({
+      id: requireString(result.id, `${resultLabel} id`),
+      status: result.status,
+    });
+  });
+  const firstResult = results[0];
+  if (firstResult === undefined) {
+    throw new TypeError(`${label} data must contain at least one result.`);
   }
   return Object.freeze({
-    id: requireString(result.id, `${label} first result id`),
-    results: response.data.length,
-    status: result.status,
+    id: firstResult.id,
+    results: results.length,
   });
 }
 
@@ -966,12 +979,8 @@ export function createMessageScenarioRegistry({
           const successful = requireSuccessfulSandboxSend(
             await methods.send(verified.request),
             "Verified-domain sandbox response",
+            "scheduled",
           );
-          if (successful.status !== "scheduled") {
-            throw new TypeError(
-              "Verified-domain sandbox response first result must have scheduled status.",
-            );
-          }
           state.messageId = successful.id;
           const absent = await requireExpectedSandboxRejection(
             () => methods.send(negativeRequest(absentDomain)),
