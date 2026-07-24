@@ -527,6 +527,33 @@ function requireLivePagination(value, scenarioLabel) {
   return Object.freeze({ ...pagination });
 }
 
+async function runListIteratorScenario(list, iterate, pageParams, label) {
+  const page = requireObject(await list(pageParams), `${label} list response`);
+  if (!Array.isArray(page.data)) {
+    throw new TypeError(`${label} list response data must be an array.`);
+  }
+  requireObject(page.pagination, `${label} list response pagination`);
+
+  let itemCount = 0;
+  for await (const _entry of iterate(pageParams)) {
+    itemCount += 1;
+    if (itemCount >= pageParams.limit) break;
+  }
+  const direction = pageParams.before === undefined ? "forward" : "backward";
+  return Object.freeze({
+    evidence: Object.freeze({
+      direction,
+      limit: pageParams.limit,
+      pageItems: page.data.length,
+    }),
+    iteratorEvidence: Object.freeze({
+      direction,
+      items: itemCount,
+      limit: pageParams.limit,
+    }),
+  });
+}
+
 function requireDomainResult(value, expectedDomain, label) {
   const result = requireObject(value, label);
   if (result.domain !== expectedDomain) {
@@ -551,39 +578,39 @@ function isNotFoundError(error) {
   );
 }
 
-async function requireDomainAbsent(getDomain, domain, label) {
+async function requireResourceAbsent(getResource, resourceId, label, resourceName) {
   try {
-    await getDomain(domain);
+    await getResource(resourceId);
   } catch (error) {
     if (isNotFoundError(error)) return;
     throw error;
   }
-  throw new TypeError(`${label} found the domain.`);
+  throw new TypeError(`${label} found the ${resourceName}.`);
 }
 
-function assertDomainMappings(profile) {
-  const expected = new Set(domainOperationIds);
-  const actual = profile.operations.filter(({ facade }) => facade === "domains");
+function requireLifecycleMappings(profile, operationIds, facade, listOperationId, resourceLabel) {
+  const expected = new Set(operationIds);
+  const actual = profile.operations.filter((mapping) => mapping.facade === facade);
   const actualIds = new Set(actual.map(({ operationId }) => operationId));
-  const missing = domainOperationIds.filter((operationId) => !actualIds.has(operationId));
+  const missing = operationIds.filter((operationId) => !actualIds.has(operationId));
   const orphaned = actual
     .map(({ operationId }) => operationId)
     .filter((operationId) => !expected.has(operationId));
-  if (actual.length !== domainOperationIds.length || missing.length > 0 || orphaned.length > 0) {
+  if (actual.length !== operationIds.length || missing.length > 0 || orphaned.length > 0) {
     throw new TypeError(
-      `Packaged domain operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}.`,
+      `Packaged ${resourceLabel} operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}.`,
     );
   }
-  const list = actual.find(({ operationId }) => operationId === "getDomains");
-  const iterator = profile.iterators.filter(({ facade }) => facade === "domains");
+  const list = actual.find(({ operationId }) => operationId === listOperationId);
+  const iterator = profile.iterators.filter((mapping) => mapping.facade === facade);
   if (
     list?.method !== "list" ||
     iterator.length !== 1 ||
-    iterator[0]?.operationId !== "getDomains" ||
+    iterator[0]?.operationId !== listOperationId ||
     iterator[0]?.method !== "iterate"
   ) {
     throw new TypeError(
-      "Packaged domain iterator must link getDomains iterate to its primary list operation.",
+      `Packaged ${resourceLabel} iterator must link ${listOperationId} iterate to its primary list operation.`,
     );
   }
   return Object.freeze({
@@ -604,7 +631,13 @@ export function createDomainScenarioRegistry({
   updateRequest = { tracking_subdomain: "live" },
   pagination = { limit: 1 },
 }) {
-  const mappings = assertDomainMappings(profile);
+  const mappings = requireLifecycleMappings(
+    profile,
+    domainOperationIds,
+    "domains",
+    "getDomains",
+    "domain",
+  );
   const mappedOperation = (operationId) =>
     requireMappedClientMethod(
       client,
@@ -631,32 +664,7 @@ export function createDomainScenarioRegistry({
       {
         operationId: "getDomains",
         async run() {
-          const page = requireObject(
-            await methods.list(pageParams),
-            "Domain list scenario response",
-          );
-          if (!Array.isArray(page.data)) {
-            throw new TypeError("Domain list scenario response data must be an array.");
-          }
-          requireObject(page.pagination, "Domain list scenario pagination");
-
-          let itemCount = 0;
-          for await (const _entry of methods.iterate(pageParams)) {
-            itemCount += 1;
-            if (itemCount >= pageParams.limit) break;
-          }
-          return Object.freeze({
-            evidence: Object.freeze({
-              direction: pageParams.before === undefined ? "forward" : "backward",
-              limit: pageParams.limit,
-              pageItems: page.data.length,
-            }),
-            iteratorEvidence: Object.freeze({
-              direction: pageParams.before === undefined ? "forward" : "backward",
-              items: itemCount,
-              limit: pageParams.limit,
-            }),
-          });
+          return runListIteratorScenario(methods.list, methods.iterate, pageParams, "Domain");
         },
       },
     ],
@@ -672,7 +680,12 @@ export function createDomainScenarioRegistry({
             } catch (error) {
               if (!isNotFoundError(error)) throw error;
             }
-            await requireDomainAbsent(methods.get, domain, "Domain cleanup verification");
+            await requireResourceAbsent(
+              methods.get,
+              domain,
+              "Domain cleanup verification",
+              "domain",
+            );
           });
           requireDomainResult(result, domain, "Domain create scenario response");
           return Object.freeze({ evidence: Object.freeze({ created: true }) });
@@ -819,7 +832,8 @@ function requireScheduledSandboxMessageRequest(value, label) {
   return parsed;
 }
 
-function emailDomain(email, label) {
+function requireEmailDomain(value, label) {
+  const email = requireString(value, label);
   const separator = email.lastIndexOf("@");
   if (separator < 1 || separator === email.length - 1) {
     throw new TypeError(`${label} must contain a domain.`);
@@ -958,9 +972,13 @@ export function createMessageScenarioRegistry({
     conversationRequest,
     "Conversation sandbox request",
   );
-  const verifiedDomain = emailDomain(verified.email, "Verified-domain sandbox request from.email");
+  const verifiedDomain = requireEmailDomain(
+    verified.email,
+    "Verified-domain sandbox request from.email",
+  );
   if (
-    emailDomain(conversation.email, "Conversation sandbox request from.email") !== verifiedDomain
+    requireEmailDomain(conversation.email, "Conversation sandbox request from.email") !==
+    verifiedDomain
   ) {
     throw new TypeError("Conversation sandbox request must use the verified sender domain.");
   }
@@ -1012,10 +1030,11 @@ export function createMessageScenarioRegistry({
             "scheduled",
           );
           state.messageId = successful.id;
-          await requireDomainAbsent(
+          await requireResourceAbsent(
             methods.getDomain,
             absentDomain,
             "Never-registered domain verification",
+            "domain",
           );
           const absent = await requireExpectedSandboxRejection(
             () => methods.send(negativeRequest(absentDomain)),
@@ -1029,10 +1048,11 @@ export function createMessageScenarioRegistry({
             } catch (error) {
               if (!isNotFoundError(error)) throw error;
             }
-            await requireDomainAbsent(
+            await requireResourceAbsent(
               methods.getDomain,
               dnslessDomain,
               "DNS-less domain cleanup verification",
+              "domain",
             );
           });
           requireDomainResult(createdDomain, dnslessBody.domain, "DNS-less domain setup response");
@@ -1083,29 +1103,7 @@ export function createMessageScenarioRegistry({
       {
         operationId: "getMessages",
         async run() {
-          const page = requireObject(await methods.list(pageParams), "Message list response");
-          if (!Array.isArray(page.data)) {
-            throw new TypeError("Message list response data must be an array.");
-          }
-          requireObject(page.pagination, "Message list response pagination");
-
-          let itemCount = 0;
-          for await (const _entry of methods.iterate(pageParams)) {
-            itemCount += 1;
-            if (itemCount >= pageParams.limit) break;
-          }
-          return Object.freeze({
-            evidence: Object.freeze({
-              direction: pageParams.before === undefined ? "forward" : "backward",
-              limit: pageParams.limit,
-              pageItems: page.data.length,
-            }),
-            iteratorEvidence: Object.freeze({
-              direction: pageParams.before === undefined ? "forward" : "backward",
-              items: itemCount,
-              limit: pageParams.limit,
-            }),
-          });
+          return runListIteratorScenario(methods.list, methods.iterate, pageParams, "Message");
         },
       },
     ],
@@ -1352,38 +1350,6 @@ export function runStatisticsLiveScenarios(registry) {
   return runLiveScenarios(registry, statisticsOperationIds, null, "Statistics");
 }
 
-function assertAPIKeyMappings(profile) {
-  const expected = new Set(apiKeyOperationIds);
-  const actual = profile.operations.filter(({ facade }) => facade === "apiKeys");
-  const actualIds = new Set(actual.map(({ operationId }) => operationId));
-  const missing = apiKeyOperationIds.filter((operationId) => !actualIds.has(operationId));
-  const orphaned = actual
-    .map(({ operationId }) => operationId)
-    .filter((operationId) => !expected.has(operationId));
-  if (actual.length !== apiKeyOperationIds.length || missing.length > 0 || orphaned.length > 0) {
-    throw new TypeError(
-      `Packaged API-key operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}.`,
-    );
-  }
-
-  const list = actual.find(({ operationId }) => operationId === "getAPIKeys");
-  const iterator = profile.iterators.filter(({ facade }) => facade === "apiKeys");
-  if (
-    list?.method !== "list" ||
-    iterator.length !== 1 ||
-    iterator[0]?.operationId !== "getAPIKeys" ||
-    iterator[0]?.method !== "iterate"
-  ) {
-    throw new TypeError(
-      "Packaged API-key iterator must link getAPIKeys iterate to its primary list operation.",
-    );
-  }
-  return Object.freeze({
-    operations: new Map(actual.map((mapping) => [mapping.operationId, mapping])),
-    iterator: iterator[0],
-  });
-}
-
 function requireAPIKeyCreateRequest(value, label) {
   const request = requireObject(value, label);
   const keyLabel = requireString(request.label, `${label} label`);
@@ -1422,16 +1388,6 @@ function requireAPIKeyIPAllowList(value, expected, label) {
   return Object.freeze({ result, id });
 }
 
-async function requireAPIKeyAbsent(getAPIKey, keyId, label) {
-  try {
-    await getAPIKey(keyId);
-  } catch (error) {
-    if (isNotFoundError(error)) return;
-    throw error;
-  }
-  throw new TypeError(`${label} found the API key.`);
-}
-
 function isConflictError(error) {
   return typeof error === "object" && error !== null && error.status === 409;
 }
@@ -1453,7 +1409,13 @@ export function createAPIKeyScenarioRegistry({
   if (typeof createSecondaryClient !== "function") {
     throw new TypeError("Secondary API-key client factory must be a function.");
   }
-  const mappings = assertAPIKeyMappings(profile);
+  const mappings = requireLifecycleMappings(
+    profile,
+    apiKeyOperationIds,
+    "apiKeys",
+    "getAPIKeys",
+    "API-key",
+  );
   const mappedOperation = (operationId) =>
     requireMappedClientMethod(
       client,
@@ -1493,32 +1455,7 @@ export function createAPIKeyScenarioRegistry({
       {
         operationId: "getAPIKeys",
         async run() {
-          const page = requireObject(
-            await methods.list(pageParams),
-            "API-key list scenario response",
-          );
-          if (!Array.isArray(page.data)) {
-            throw new TypeError("API-key list scenario response data must be an array.");
-          }
-          requireObject(page.pagination, "API-key list scenario pagination");
-
-          let itemCount = 0;
-          for await (const _entry of methods.iterate(pageParams)) {
-            itemCount += 1;
-            if (itemCount >= pageParams.limit) break;
-          }
-          return Object.freeze({
-            evidence: Object.freeze({
-              direction: pageParams.before === undefined ? "forward" : "backward",
-              limit: pageParams.limit,
-              pageItems: page.data.length,
-            }),
-            iteratorEvidence: Object.freeze({
-              direction: pageParams.before === undefined ? "forward" : "backward",
-              items: itemCount,
-              limit: pageParams.limit,
-            }),
-          });
+          return runListIteratorScenario(methods.list, methods.iterate, pageParams, "API-key");
         },
       },
     ],
@@ -1538,10 +1475,11 @@ export function createAPIKeyScenarioRegistry({
             } catch (error) {
               if (!isNotFoundError(error)) throw error;
             }
-            await requireAPIKeyAbsent(
+            await requireResourceAbsent(
               methods.get,
               primary.id,
               "Primary API-key cleanup verification",
+              "API key",
             );
           });
           requireAPIKeyIPAllowList(primary.result, [], "Primary API-key create scenario response");
@@ -1561,10 +1499,11 @@ export function createAPIKeyScenarioRegistry({
             } catch (error) {
               if (!isNotFoundError(error)) throw error;
             }
-            await requireAPIKeyAbsent(
+            await requireResourceAbsent(
               methods.get,
               secondary.id,
               "Secondary API-key cleanup verification",
+              "API key",
             );
           });
           requireAPIKeyIPAllowList(
@@ -1680,7 +1619,12 @@ export function createAPIKeyScenarioRegistry({
         async run() {
           const keyId = requireFixtureId(primaryKeyId, "Primary API-key fixture id");
           await methods.delete(keyId);
-          await requireAPIKeyAbsent(methods.get, keyId, "API-key delete scenario verification");
+          await requireResourceAbsent(
+            methods.get,
+            keyId,
+            "API-key delete scenario verification",
+            "API key",
+          );
           return Object.freeze({ evidence: Object.freeze({ deleted: true }) });
         },
       },
@@ -1749,36 +1693,16 @@ function requireRouteAuthorizationRule(value, operationId) {
 }
 
 function assertRouteMappings(profile, authorization) {
-  const expected = new Set(routeOperationIds);
-  const actual = profile.operations.filter(({ facade }) => facade === "routes");
-  const actualIds = new Set(actual.map(({ operationId }) => operationId));
-  const missing = routeOperationIds.filter((operationId) => !actualIds.has(operationId));
-  const orphaned = actual
-    .map(({ operationId }) => operationId)
-    .filter((operationId) => !expected.has(operationId));
-  if (actual.length !== routeOperationIds.length || missing.length > 0 || orphaned.length > 0) {
-    throw new TypeError(
-      `Packaged route operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}.`,
-    );
-  }
-
-  const list = actual.find(({ operationId }) => operationId === "getRoutes");
-  const iterator = profile.iterators.filter(({ facade }) => facade === "routes");
-  if (
-    list?.method !== "list" ||
-    iterator.length !== 1 ||
-    iterator[0]?.operationId !== "getRoutes" ||
-    iterator[0]?.method !== "iterate"
-  ) {
-    throw new TypeError(
-      "Packaged route iterator must link getRoutes iterate to its primary list operation.",
-    );
-  }
-
+  const mappings = requireLifecycleMappings(
+    profile,
+    routeOperationIds,
+    "routes",
+    "getRoutes",
+    "route",
+  );
   const authorizationRegistry = requireObject(authorization, "Packaged authorization registry");
   return Object.freeze({
-    operations: new Map(actual.map((mapping) => [mapping.operationId, mapping])),
-    iterator: iterator[0],
+    ...mappings,
     authorization: Object.freeze({
       list: requireRouteAuthorizationRule(authorizationRegistry.getRoutes, "getRoutes"),
       create: requireRouteAuthorizationRule(authorizationRegistry.createRoute, "createRoute"),
@@ -1813,19 +1737,10 @@ function requireControlledRouteDomains(value) {
   return Object.freeze(domains);
 }
 
-function routeRecipientDomain(value, label) {
-  const recipient = requireString(value, label);
-  const separator = recipient.lastIndexOf("@");
-  if (separator < 1 || separator === recipient.length - 1) {
-    throw new TypeError(`${label} must be an email address with a domain.`);
-  }
-  return recipient.slice(separator + 1).toLowerCase();
-}
-
 function requireRouteRequest(value, label, expectedDomain, requiredKeys) {
   const request = requireObject(value, label);
   for (const key of requiredKeys) requireString(request[key], `${label} ${key}`);
-  const actualDomain = routeRecipientDomain(request.recipient, `${label} recipient`);
+  const actualDomain = requireEmailDomain(request.recipient, `${label} recipient`);
   if (actualDomain !== expectedDomain) {
     throw new TypeError(`${label} recipient must use its controlled route domain.`);
   }
@@ -1837,20 +1752,10 @@ function requireRouteResult(value, routeId, expectedDomain, label) {
   if (requireString(result.id, `${label} id`) !== routeId) {
     throw new TypeError(`${label} returned the wrong route.`);
   }
-  if (routeRecipientDomain(result.recipient, `${label} recipient`) !== expectedDomain) {
+  if (requireEmailDomain(result.recipient, `${label} recipient`) !== expectedDomain) {
     throw new TypeError(`${label} returned the wrong recipient domain.`);
   }
   return result;
-}
-
-async function requireRouteAbsent(getRoute, routeId, label) {
-  try {
-    await getRoute(routeId);
-  } catch (error) {
-    if (isNotFoundError(error)) return;
-    throw error;
-  }
-  throw new TypeError(`${label} found the route.`);
 }
 
 /**
@@ -1907,35 +1812,21 @@ export function createRouteScenarioRegistry({
       {
         operationId: "getRoutes",
         async run() {
-          const page = requireObject(
-            await methods.list(pageParams),
-            "Route list scenario response",
+          const result = await runListIteratorScenario(
+            methods.list,
+            methods.iterate,
+            pageParams,
+            "Route",
           );
-          if (!Array.isArray(page.data)) {
-            throw new TypeError("Route list scenario response data must be an array.");
-          }
-          requireObject(page.pagination, "Route list scenario pagination");
-
-          let itemCount = 0;
-          for await (const _entry of methods.iterate(pageParams)) {
-            itemCount += 1;
-            if (itemCount >= pageParams.limit) break;
-          }
           return Object.freeze({
             evidence: Object.freeze({
-              direction: pageParams.before === undefined ? "forward" : "backward",
-              limit: pageParams.limit,
-              pageItems: page.data.length,
+              ...result.evidence,
               scopedAuthorization: Object.freeze({
                 domainFilterSupplied: true,
                 source: mappings.authorization.list.source,
               }),
             }),
-            iteratorEvidence: Object.freeze({
-              direction: pageParams.before === undefined ? "forward" : "backward",
-              items: itemCount,
-              limit: pageParams.limit,
-            }),
+            iteratorEvidence: result.iteratorEvidence,
           });
         },
       },
@@ -1957,7 +1848,12 @@ export function createRouteScenarioRegistry({
             } catch (error) {
               if (!isNotFoundError(error)) throw error;
             }
-            await requireRouteAbsent(methods.get, createdRouteId, "Route cleanup verification");
+            await requireResourceAbsent(
+              methods.get,
+              createdRouteId,
+              "Route cleanup verification",
+              "route",
+            );
           });
           requireRouteResult(
             result,
@@ -2034,7 +1930,12 @@ export function createRouteScenarioRegistry({
         async run() {
           const id = fixtureId();
           await methods.delete(id);
-          await requireRouteAbsent(methods.get, id, "Route delete scenario verification");
+          await requireResourceAbsent(
+            methods.get,
+            id,
+            "Route delete scenario verification",
+            "route",
+          );
           return Object.freeze({ evidence: Object.freeze({ deleted: true }) });
         },
       },
