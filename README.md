@@ -397,8 +397,10 @@ Runnable scripts live in [`examples/`](examples/) — see its README for
 setup. Highlights: `send-sandbox.mjs` (send without delivering),
 `iterate.mjs` (async pagination), `idempotency.mjs` (explicit keys),
 `telemetry.mjs` (hooks), `error-handling.mjs` (typed errors),
-`webhook-express.mjs` (full Express endpoint), `verify-webhook.mjs`
-(offline HMAC round-trip, no credentials needed).
+`webhook-express.mjs` and `next-webhook-route.mjs` (framework endpoints with
+application-owned webhook-id deduplication), `update-api-key-ip-list.mjs` and
+`bootstrap-subaccount.mjs` (explicitly guarded mutations), and
+`verify-webhook.mjs` (offline HMAC round-trip, no credentials needed).
 
 ## Verifying the SDK locally
 

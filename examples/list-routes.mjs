@@ -14,6 +14,5 @@ try {
   }
 } catch (err) {
   console.error("✗ list routes failed:", err.name, err.status ?? "", err.message);
-  if (err.body) console.error("body:", err.body);
   process.exit(1);
 }

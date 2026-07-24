@@ -37,14 +37,18 @@ try {
       SDK_TARBALL: tarball,
       SDK_TARBALL_SHA256: checksum,
     };
-    const packageStatus = runNpm(["run", "test:package:tarball"], verificationEnvironment);
-    if (packageStatus !== 0) process.exitCode = packageStatus;
+    const docsStatus = runNpm(["run", "test:docs:tarball"], verificationEnvironment);
+    if (docsStatus !== 0) process.exitCode = docsStatus;
     else {
-      const integrationStatus = runNpm(
-        ["run", "test:integration:tarball"],
-        verificationEnvironment,
-      );
-      if (integrationStatus !== 0) process.exitCode = integrationStatus;
+      const packageStatus = runNpm(["run", "test:package:tarball"], verificationEnvironment);
+      if (packageStatus !== 0) process.exitCode = packageStatus;
+      else {
+        const integrationStatus = runNpm(
+          ["run", "test:integration:tarball"],
+          verificationEnvironment,
+        );
+        if (integrationStatus !== 0) process.exitCode = integrationStatus;
+      }
     }
   }
 } finally {

@@ -22,7 +22,7 @@ import {
   validateWebhookEvidence,
   validateWebhookContract,
 } from "../scripts/generate-contracts.mjs";
-import { NODE_CODE_SAMPLES } from "../scripts/node-code-samples.mjs";
+import { NODE_CODE_SAMPLES, NODE_OPERATION_KEYS } from "../scripts/node-code-samples.mjs";
 
 interface CodeSample {
   lang: string;
@@ -135,6 +135,21 @@ describe("REST contract normalization", () => {
       });
       expect(result.stderr, operationId).toBe("");
       expect(result.status, operationId).toBe(0);
+    }
+  });
+
+  it("sandboxes sends, guards mutations, and never prints full response bodies", () => {
+    for (const [operationId, sample] of Object.entries(NODE_CODE_SAMPLES)) {
+      const method = NODE_OPERATION_KEYS[operationId]?.split(" ", 1)[0];
+      if (method !== "GET") {
+        expect(
+          sample.source.includes('"sandbox": true') ||
+            sample.source.includes('process.env.AHASEND_ALLOW_MUTATIONS !== "1"'),
+          operationId,
+        ).toBe(true);
+      }
+      expect(sample.source, operationId).not.toContain("console.log(await response.json())");
+      expect(sample.source, operationId).toContain('console.log("AhaSend request succeeded.")');
     }
   });
 

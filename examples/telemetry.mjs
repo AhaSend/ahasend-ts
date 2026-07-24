@@ -21,7 +21,11 @@ const client = new AhaSendClient({
     onRetry: (e) =>
       console.log(`↻ retrying ${e.routeTemplate} in ${e.delayMs}ms (attempt ${e.attempt} failed)`),
     onError: (e) =>
-      console.log(`✗ ${e.method} ${e.routeTemplate} attempt ${e.attempt}: ${e.error?.name}`),
+      console.log(
+        `✗ ${e.method} ${e.routeTemplate} attempt ${e.attempt}: ${
+          e.error instanceof Error ? e.error.name : "unknown"
+        }`,
+      ),
   },
 });
 

@@ -1,6 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { loadDocumentation, verifyDocumentation } from "../scripts/verify-docs.mjs";
+import {
+  buildDocumentationIndex,
+  loadDocumentation,
+  verifyDocumentation,
+  verifyDocumentationIndex,
+} from "../scripts/verify-docs.mjs";
 
 describe("operational documentation verification", () => {
   it("accepts the committed operational and security guidance", async () => {
@@ -15,6 +20,56 @@ describe("operational documentation verification", () => {
     expect(check.stderr).toBe("");
     expect(check.stdout).toContain("10 documents passed");
     expect(check.status).toBe(0);
+  });
+
+  it("indexes and verifies commands, links, snippets, examples, samples, and profile counts", async () => {
+    const index = await buildDocumentationIndex();
+
+    expect(index.commands.length).toBeGreaterThan(0);
+    expect(index.links.length).toBeGreaterThan(0);
+    expect(index.snippets.length).toBeGreaterThan(0);
+    expect(index.examples.map(({ path }) => path)).toEqual(
+      expect.arrayContaining([
+        "examples/bootstrap-subaccount.mjs",
+        "examples/next-webhook-route.mjs",
+        "examples/update-api-key-ip-list.mjs",
+        "examples/webhook-express.mjs",
+      ]),
+    );
+    expect(Object.keys(index.nodeSamples)).toHaveLength(56);
+    expect(index.profileSummary).toEqual({ operations: 56, iterators: 9 });
+    await expect(verifyDocumentationIndex(index)).resolves.toBeUndefined();
+  });
+
+  it("rejects unguarded mutations and webhook handlers without durable ID deduplication", async () => {
+    const index = await buildDocumentationIndex();
+    const unsafeMutation = {
+      ...structuredClone(index),
+      examples: index.examples.map((example) =>
+        example.path === "examples/update-api-key-ip-list.mjs"
+          ? {
+              ...example,
+              source: example.source.replace(
+                'process.env.AHASEND_ALLOW_MUTATIONS !== "1"',
+                "false",
+              ),
+            }
+          : example,
+      ),
+    };
+    await expect(verifyDocumentationIndex(unsafeMutation)).rejects.toThrow(/unguarded mutation/);
+
+    const missingDeduplication = {
+      ...structuredClone(index),
+      examples: index.examples.map((example) =>
+        example.path === "examples/webhook-express.mjs"
+          ? { ...example, source: example.source.replace("if (!accepted)", "if (false)") }
+          : example,
+      ),
+    };
+    await expect(verifyDocumentationIndex(missingDeduplication)).rejects.toThrow(
+      /application-owned webhook-id deduplication/,
+    );
   });
 
   it.each([

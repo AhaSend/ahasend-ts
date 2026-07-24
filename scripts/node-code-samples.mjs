@@ -117,12 +117,14 @@ const requestBodies = {
     recipients: [{ email: "recipient@example.net" }],
     subject: "Hello from AhaSend",
     html_content: "<p>Hello!</p>",
+    sandbox: true,
   },
   createConversationMessage: {
     from: { email: "sender@example.com", name: "Example" },
     to: [{ email: "recipient@example.net" }],
     subject: "Hello from AhaSend",
     html_content: "<p>Hello!</p>",
+    sandbox: true,
   },
   updateAccount: { name: "Example, Inc." },
   addAccountMember: { email: "developer@example.com", role: "Developer" },
@@ -186,6 +188,8 @@ function indentJson(value, spaces) {
 
 function buildSource(operationId, method, path) {
   const keyed = idempotentOperations.has(operationId);
+  const sandboxedSend =
+    operationId === "createMessage" || operationId === "createConversationMessage";
   const body = requestBodies[operationId];
   const query = queryParameters[operationId];
   const declarations = [];
@@ -215,6 +219,14 @@ function buildSource(operationId, method, path) {
     requiredEnvironment,
     "",
   );
+  if (method !== "GET" && !sandboxedSend) {
+    lines.push(
+      'if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {',
+      '  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");',
+      "}",
+      "",
+    );
+  }
   lines.push(`const url = new URL(\`https://api.ahasend.com${renderedPath}\`);`);
 
   if (query !== undefined) {
@@ -242,7 +254,8 @@ function buildSource(operationId, method, path) {
     "  throw new Error(`AhaSend request failed (${response.status}): ${await response.text()}`);",
     "}",
     "",
-    "console.log(await response.json());",
+    "await response.json();",
+    'console.log("AhaSend request succeeded.");',
     "",
   );
 
@@ -250,7 +263,7 @@ function buildSource(operationId, method, path) {
 }
 
 export const NODE_SAMPLE_LANGUAGE = "javascript";
-export const NODE_SAMPLE_LABEL = "Node.js 18+ (built-in fetch)";
+export const NODE_SAMPLE_LABEL = "Node.js 22+ (built-in fetch)";
 export const NODE_OPERATION_KEYS = Object.freeze(
   Object.fromEntries(
     operations.map(([operationId, method, path]) => [operationId, `${method} ${path}`]),
