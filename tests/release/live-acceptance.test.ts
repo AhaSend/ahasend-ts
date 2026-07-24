@@ -164,11 +164,12 @@ function messageClientFixture() {
   const dnslessDomain = "dnsless.example";
   const messageId = "<live-message-id@ahasend.test>";
   const registeredDomains = new Set<string>();
+  const scheduledMessageIds = new Set<string>();
   const notFound = () => Object.assign(new Error("not found"), { status: 404 });
   const rejected = () => Object.assign(new Error("sandbox sender rejected"), { status: 400 });
-  const success = () => ({
+  const success = (status: "queued" | "scheduled" = "queued") => ({
     object: "list",
-    data: [{ id: messageId, status: "queued" }],
+    data: [{ id: messageId, status }],
   });
   const client: MessageLiveClient = {
     ping: vi.fn(async () => {
@@ -181,7 +182,13 @@ function messageClientFixture() {
         sendRequests.push(request);
         const domain = request.from.email.split("@").at(-1);
         if (domain !== verifiedDomain) throw rejected();
-        return success();
+        const firstAttempt = (request.schedule as { first_attempt?: unknown } | undefined)
+          ?.first_attempt;
+        if (typeof firstAttempt !== "string" || Date.parse(firstAttempt) <= Date.now()) {
+          throw new Error("verified sandbox send must be scheduled in the future");
+        }
+        scheduledMessageIds.add(messageId);
+        return success("scheduled");
       }),
       sendConversation: vi.fn(
         async (request: { from: { email: string }; [key: string]: unknown }) => {
@@ -208,6 +215,9 @@ function messageClientFixture() {
       }),
       cancel: vi.fn(async (id: string) => {
         calls.push(`cancel:${id}`);
+        if (!scheduledMessageIds.delete(id)) {
+          throw new Error("only scheduled messages can be cancelled");
+        }
         return { message: "cancelled" };
       }),
     },
@@ -235,6 +245,9 @@ function messageClientFixture() {
     subject: "live message subject",
     text_content: "live message content",
     sandbox: true as const,
+    schedule: {
+      first_attempt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    },
   };
   const conversationRequest = {
     from: { email: `sender@${verifiedDomain}` },
@@ -766,6 +779,41 @@ describe("live scenario inventory", () => {
       },
     ]);
     expect(fixture.registeredDomains.size).toBe(0);
+  });
+
+  it("requires a future scheduled verified sandbox message before cancellation", async () => {
+    const fixture = messageClientFixture();
+    const { schedule: _schedule, ...unscheduledRequest } = fixture.verifiedRequest;
+    const createRegistry = (verifiedRequest: typeof fixture.verifiedRequest) =>
+      createMessageScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        verifiedRequest,
+        conversationRequest: fixture.conversationRequest,
+        neverRegisteredDomain: fixture.neverRegisteredDomain,
+        dnslessCreateRequest: { domain: fixture.dnslessDomain },
+      });
+
+    expect(() => createRegistry(unscheduledRequest as never)).toThrow(
+      "Verified-domain sandbox request schedule must be an object",
+    );
+    expect(() =>
+      createRegistry({
+        ...fixture.verifiedRequest,
+        schedule: { first_attempt: new Date(Date.now() - 60_000).toISOString() },
+      }),
+    ).toThrow(
+      "Verified-domain sandbox request schedule.first_attempt must be a future RFC 3339 timestamp",
+    );
+
+    const result = await runMessageLiveScenarios(createRegistry(fixture.verifiedRequest));
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.messages.cancel).toHaveBeenCalledWith(fixture.messageId);
+    expect(fixture.sendRequests[0]).toMatchObject({
+      sandbox: true,
+      schedule: { first_attempt: fixture.verifiedRequest.schedule.first_attempt },
+    });
   });
 
   it("records one linked message iterator with positive single-direction pagination", async () => {

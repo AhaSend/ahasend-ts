@@ -479,27 +479,28 @@ function requireDomainRequest(value, label, requiredKeys) {
   return Object.freeze({ ...request });
 }
 
-function requireDomainPagination(value) {
-  const pagination = requireObject(value, "Domain live pagination");
+function requireLivePagination(value, scenarioLabel) {
+  const label = `${scenarioLabel} live pagination`;
+  const pagination = requireObject(value, label);
   const unexpected = Object.keys(pagination).filter(
     (key) => !["after", "before", "limit"].includes(key),
   );
   if (!Object.hasOwn(pagination, "limit") || unexpected.length > 0) {
     throw new TypeError(
-      `Domain live pagination fields must contain limit and optional after or before; unexpected ${JSON.stringify(unexpected)}.`,
+      `${label} fields must contain limit and optional after or before; unexpected ${JSON.stringify(unexpected)}.`,
     );
   }
   if (!Number.isInteger(pagination.limit) || pagination.limit < 1 || pagination.limit > 100) {
-    throw new TypeError("Domain live pagination limit must be an integer from 1 to 100.");
+    throw new TypeError(`${label} limit must be an integer from 1 to 100.`);
   }
   if (pagination.after !== undefined && pagination.before !== undefined) {
-    throw new TypeError("Domain live pagination must use only one cursor direction.");
+    throw new TypeError(`${label} must use only one cursor direction.`);
   }
   if (pagination.after !== undefined) {
-    requireString(pagination.after, "Domain live pagination after");
+    requireString(pagination.after, `${label} after`);
   }
   if (pagination.before !== undefined) {
-    requireString(pagination.before, "Domain live pagination before");
+    requireString(pagination.before, `${label} before`);
   }
   return Object.freeze({ ...pagination });
 }
@@ -591,7 +592,7 @@ export function createDomainScenarioRegistry({
   });
   const createBody = requireDomainRequest(createRequest, "Domain live create request", ["domain"]);
   const updateBody = requireDomainRequest(updateRequest, "Domain live update request", []);
-  const pageParams = requireDomainPagination(pagination);
+  const pageParams = requireLivePagination(pagination, "Domain");
   const domain = createBody.domain;
 
   const scenarios = new Map([
@@ -708,22 +709,24 @@ export function createDomainScenarioRegistry({
  * Execute the domain lifecycle in dependency order and always drain registered
  * cleanup. Results can be passed directly to createLiveReport.
  */
-export async function runDomainLiveScenarios(registry) {
-  const domainScenarios = new Map();
-  for (const operationId of domainOperationIds) {
+async function runLiveScenarios(registry, operationIds, iteratorOperationId, scenarioLabel) {
+  const scenarios = new Map();
+  for (const operationId of operationIds) {
     const scenario = registry.primary.get(operationId);
     if (scenario === undefined || typeof scenario.run !== "function") {
-      throw new TypeError(`Domain scenario registry is missing executable ${operationId}.`);
+      throw new TypeError(
+        `${scenarioLabel} scenario registry is missing executable ${operationId}.`,
+      );
     }
-    domainScenarios.set(operationId, scenario);
+    scenarios.set(operationId, scenario);
   }
 
   const cleanup = createCleanupRegistry();
   const operationResults = [];
   const iteratorResults = [];
   let failure = null;
-  for (const operationId of domainOperationIds) {
-    const scenario = domainScenarios.get(operationId);
+  for (const operationId of operationIds) {
+    const scenario = scenarios.get(operationId);
     try {
       const result = await scenario.run({ cleanup });
       operationResults.push({
@@ -731,16 +734,16 @@ export async function runDomainLiveScenarios(registry) {
         status: "passed",
         ...(result.evidence === undefined ? {} : { evidence: result.evidence }),
       });
-      if (operationId === "getDomains") {
+      if (operationId === iteratorOperationId) {
         iteratorResults.push({
           operationId,
           status: "passed",
           evidence: result.iteratorEvidence,
         });
       }
-    } catch (error) {
+    } catch {
       operationResults.push({ operationId, status: "failed" });
-      if (operationId === "getDomains") {
+      if (operationId === iteratorOperationId) {
         iteratorResults.push({ operationId, status: "failed" });
       }
       failure = Object.freeze({ phase: "operation", operationId });
@@ -761,6 +764,10 @@ export async function runDomainLiveScenarios(registry) {
   });
 }
 
+export function runDomainLiveScenarios(registry) {
+  return runLiveScenarios(registry, domainOperationIds, "getDomains", "Domain");
+}
+
 function requireSandboxMessageRequest(value, label) {
   const request = requireObject(value, label);
   const from = requireObject(request.from, `${label} from`);
@@ -771,37 +778,23 @@ function requireSandboxMessageRequest(value, label) {
   return Object.freeze({ request: Object.freeze({ ...request }), email });
 }
 
+function requireScheduledSandboxMessageRequest(value, label) {
+  const parsed = requireSandboxMessageRequest(value, label);
+  const schedule = requireObject(parsed.request.schedule, `${label} schedule`);
+  const firstAttempt = requireString(schedule.first_attempt, `${label} schedule.first_attempt`);
+  const firstAttemptTime = Date.parse(firstAttempt);
+  if (!Number.isFinite(firstAttemptTime) || firstAttemptTime <= Date.now()) {
+    throw new TypeError(`${label} schedule.first_attempt must be a future RFC 3339 timestamp.`);
+  }
+  return parsed;
+}
+
 function emailDomain(email, label) {
   const separator = email.lastIndexOf("@");
   if (separator < 1 || separator === email.length - 1) {
     throw new TypeError(`${label} must contain a domain.`);
   }
   return email.slice(separator + 1).toLowerCase();
-}
-
-function requireMessagePagination(value) {
-  const pagination = requireObject(value, "Message live pagination");
-  const unexpected = Object.keys(pagination).filter(
-    (key) => !["after", "before", "limit"].includes(key),
-  );
-  if (!Object.hasOwn(pagination, "limit") || unexpected.length > 0) {
-    throw new TypeError(
-      `Message live pagination fields must contain limit and optional after or before; unexpected ${JSON.stringify(unexpected)}.`,
-    );
-  }
-  if (!Number.isInteger(pagination.limit) || pagination.limit < 1 || pagination.limit > 100) {
-    throw new TypeError("Message live pagination limit must be an integer from 1 to 100.");
-  }
-  if (pagination.after !== undefined && pagination.before !== undefined) {
-    throw new TypeError("Message live pagination must use only one cursor direction.");
-  }
-  if (pagination.after !== undefined) {
-    requireString(pagination.after, "Message live pagination after");
-  }
-  if (pagination.before !== undefined) {
-    requireString(pagination.before, "Message live pagination before");
-  }
-  return Object.freeze({ ...pagination });
 }
 
 function assertMessageMappings(profile) {
@@ -852,6 +845,7 @@ function requireSuccessfulSandboxSend(value, label) {
   return Object.freeze({
     id: requireString(result.id, `${label} first result id`),
     results: response.data.length,
+    status: result.status,
   });
 }
 
@@ -913,7 +907,10 @@ export function createMessageScenarioRegistry({
       "Message DNS-less domain cleanup",
     ),
   });
-  const verified = requireSandboxMessageRequest(verifiedRequest, "Verified-domain sandbox request");
+  const verified = requireScheduledSandboxMessageRequest(
+    verifiedRequest,
+    "Verified-domain sandbox request",
+  );
   const conversation = requireSandboxMessageRequest(
     conversationRequest,
     "Conversation sandbox request",
@@ -946,7 +943,7 @@ export function createMessageScenarioRegistry({
       ...verified.request,
       from: Object.freeze({ ...verified.request.from, email: `live-acceptance@${domain}` }),
     });
-  const pageParams = requireMessagePagination(pagination);
+  const pageParams = requireLivePagination(pagination, "Message");
   const state = { messageId: null };
 
   const scenarios = new Map([
@@ -970,6 +967,11 @@ export function createMessageScenarioRegistry({
             await methods.send(verified.request),
             "Verified-domain sandbox response",
           );
+          if (successful.status !== "scheduled") {
+            throw new TypeError(
+              "Verified-domain sandbox response first result must have scheduled status.",
+            );
+          }
           state.messageId = successful.id;
           const absent = await requireExpectedSandboxRejection(
             () => methods.send(negativeRequest(absentDomain)),
@@ -1089,57 +1091,8 @@ export function createMessageScenarioRegistry({
 }
 
 /** Execute ping and message scenarios in dependency order and always drain setup cleanup. */
-export async function runMessageLiveScenarios(registry) {
-  const scenarios = new Map();
-  for (const operationId of messageOperationIds) {
-    const scenario = registry.primary.get(operationId);
-    if (scenario === undefined || typeof scenario.run !== "function") {
-      throw new TypeError(`Message scenario registry is missing executable ${operationId}.`);
-    }
-    scenarios.set(operationId, scenario);
-  }
-
-  const cleanup = createCleanupRegistry();
-  const operationResults = [];
-  const iteratorResults = [];
-  let failure = null;
-  for (const operationId of messageOperationIds) {
-    const scenario = scenarios.get(operationId);
-    try {
-      const result = await scenario.run({ cleanup });
-      operationResults.push({
-        operationId,
-        status: "passed",
-        ...(result.evidence === undefined ? {} : { evidence: result.evidence }),
-      });
-      if (operationId === "getMessages") {
-        iteratorResults.push({
-          operationId,
-          status: "passed",
-          evidence: result.iteratorEvidence,
-        });
-      }
-    } catch {
-      operationResults.push({ operationId, status: "failed" });
-      if (operationId === "getMessages") {
-        iteratorResults.push({ operationId, status: "failed" });
-      }
-      failure = Object.freeze({ phase: "operation", operationId });
-      break;
-    }
-  }
-
-  try {
-    await cleanup.run();
-  } catch {
-    if (failure === null) failure = Object.freeze({ phase: "cleanup" });
-  }
-  return Object.freeze({
-    operationResults: Object.freeze(operationResults),
-    iteratorResults: Object.freeze(iteratorResults),
-    cleanupResults: cleanup.results,
-    failure,
-  });
+export function runMessageLiveScenarios(registry) {
+  return runLiveScenarios(registry, messageOperationIds, "getMessages", "Message");
 }
 
 export function createCleanupRegistry() {

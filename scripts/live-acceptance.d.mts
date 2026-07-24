@@ -215,17 +215,24 @@ export interface SandboxSender {
   readonly name?: string;
 }
 
-export interface MessageLiveVerifiedRequest {
+export interface MessageLiveSandboxRequest {
   readonly from: SandboxSender;
   readonly sandbox: true;
   readonly [key: string]: unknown;
+}
+
+export interface MessageLiveVerifiedRequest extends MessageLiveSandboxRequest {
+  readonly schedule: {
+    readonly first_attempt: string;
+    readonly expires?: string;
+  };
 }
 
 export interface CreateMessageScenarioRegistryOptions {
   readonly profile: LiveProfile;
   readonly client: MessageLiveClient;
   readonly verifiedRequest: MessageLiveVerifiedRequest;
-  readonly conversationRequest: MessageLiveVerifiedRequest;
+  readonly conversationRequest: MessageLiveSandboxRequest;
   readonly neverRegisteredDomain: string;
   readonly dnslessCreateRequest: DomainLiveCreateRequest;
   readonly pagination?: DomainLivePagination;
