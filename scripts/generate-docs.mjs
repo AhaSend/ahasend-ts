@@ -11,6 +11,12 @@ import {
   validateAuthorizationRegistry,
   validateOperationProfile,
 } from "./generate-sdk.mjs";
+import { canonicalizeJson, digestYamlArtifact, sha256Hex } from "./digest-artifact.mjs";
+import {
+  NODE_CODE_SAMPLES,
+  NODE_OPERATION_KEYS,
+  NODE_SAMPLE_LANGUAGE,
+} from "./node-code-samples.mjs";
 
 const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
@@ -21,6 +27,8 @@ const GENERATED_HEADER =
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const outputPath = "docs/api-reference.md";
+const rendererHandoffPath = "docs/renderer-handoff.json";
+const rendererHandoffDigestPath = "docs/renderer-handoff.sha256";
 
 function record(value, location) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -410,25 +418,94 @@ export async function generateApiReference({ openApiSource, profileSource } = {}
   });
 }
 
-async function run(check) {
-  const expected = await generateApiReference();
-  const absoluteOutput = resolve(repositoryRoot, outputPath);
-  if (check) {
-    let actual;
-    try {
-      actual = await readFile(absoluteOutput, "utf8");
-    } catch (error) {
-      if (error !== null && typeof error === "object" && error.code === "ENOENT") {
-        actual = undefined;
-      } else {
-        throw error;
+export async function generateRendererHandoff({ openApiSource } = {}) {
+  const openApi =
+    openApiSource ?? (await readFile(resolve(repositoryRoot, "openapi.yaml"), "utf8"));
+  const document = parseOpenApi(openApi);
+  const operations = collectOperations(document);
+
+  if (operations.length !== EXPECTED_OPERATION_COUNT) {
+    throw new TypeError(
+      `Renderer handoff must contain ${EXPECTED_OPERATION_COUNT} operations, received ${operations.length}`,
+    );
+  }
+
+  const operationIds = new Set(operations.map(({ operationId }) => operationId));
+  const sampleIds = Object.keys(NODE_CODE_SAMPLES);
+  const unexpectedSampleIds = sampleIds.filter((operationId) => !operationIds.has(operationId));
+  if (sampleIds.length !== operations.length || unexpectedSampleIds.length > 0) {
+    throw new TypeError(
+      `Renderer sample inventory does not match REST operations: unexpected ${JSON.stringify(unexpectedSampleIds)}`,
+    );
+  }
+
+  const handoff = {
+    version: 1,
+    restDigest: digestYamlArtifact(openApi),
+    operations: operations.map(({ operationId, method, path }) => {
+      const sample = NODE_CODE_SAMPLES[operationId];
+      if (sample === undefined) {
+        throw new TypeError(`Renderer sample is missing for operation ${operationId}`);
       }
+      const operationKey = `${method.toUpperCase()} ${path}`;
+      if (NODE_OPERATION_KEYS[operationId] !== operationKey) {
+        throw new TypeError(`Renderer sample operation key is stale for ${operationId}`);
+      }
+      if (sample.lang !== NODE_SAMPLE_LANGUAGE) {
+        throw new TypeError(`Renderer sample language is inconsistent for ${operationId}`);
+      }
+
+      return {
+        operationId,
+        samples: [
+          {
+            label: sample.label,
+            language: sample.lang,
+            sourceHash: sha256Hex(Buffer.from(sample.source, "utf8")),
+          },
+        ],
+      };
+    }),
+  };
+  const source = canonicalizeJson(handoff);
+
+  return {
+    source: source.toString("utf8"),
+    digest: sha256Hex(source),
+  };
+}
+
+async function readOptional(path) {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (error !== null && typeof error === "object" && error.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function run(check) {
+  const expectedReference = await generateApiReference();
+  const expectedHandoff = await generateRendererHandoff();
+  const outputs = [
+    [outputPath, expectedReference],
+    [rendererHandoffPath, expectedHandoff.source],
+    [rendererHandoffDigestPath, `${expectedHandoff.digest}\n`],
+  ];
+
+  if (check) {
+    for (const [path, expected] of outputs) {
+      const actual = await readOptional(resolve(repositoryRoot, path));
+      if (actual !== expected) throw new TypeError(`${path} is stale`);
     }
-    if (actual !== expected) throw new TypeError(`${outputPath} is stale`);
     return;
   }
-  await mkdir(dirname(absoluteOutput), { recursive: true });
-  await writeFile(absoluteOutput, expected, "utf8");
+
+  for (const [path, expected] of outputs) {
+    const absoluteOutput = resolve(repositoryRoot, path);
+    await mkdir(dirname(absoluteOutput), { recursive: true });
+    await writeFile(absoluteOutput, expected, "utf8");
+  }
 }
 
 async function main() {
