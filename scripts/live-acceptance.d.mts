@@ -127,6 +127,68 @@ export function createScenarioRegistry(
   scenarioData?: readonly ScenarioData[],
 ): ScenarioRegistry;
 
+export interface DomainLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly update: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+  readonly checkDns: (...args: never[]) => unknown;
+}
+
+export interface DomainLiveClient {
+  readonly domains: DomainLiveFacade;
+}
+
+export interface DomainLiveCreateRequest {
+  readonly domain: string;
+  readonly dkim_private_key?: string;
+  readonly tracking_subdomain?: string;
+  readonly return_path_subdomain?: string;
+  readonly subscription_subdomain?: string;
+  readonly media_subdomain?: string;
+  readonly dkim_rotation_interval_days?: number;
+}
+
+export interface DomainLiveUpdateRequest {
+  readonly tracking_subdomain?: string;
+  readonly return_path_subdomain?: string;
+  readonly subscription_subdomain?: string;
+  readonly media_subdomain?: string;
+  readonly dkim_rotation_interval_days?: number;
+}
+
+export type DomainLivePagination =
+  | { readonly limit: number; readonly after?: string; readonly before?: never }
+  | { readonly limit: number; readonly before: string; readonly after?: never };
+
+export interface CreateDomainScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: DomainLiveClient;
+  readonly createRequest: DomainLiveCreateRequest;
+  readonly updateRequest?: DomainLiveUpdateRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createDomainScenarioRegistry(
+  options: CreateDomainScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export interface DomainLiveFailure {
+  readonly phase: "operation" | "cleanup";
+  readonly operationId?: string;
+}
+
+export interface DomainLiveRun {
+  readonly operationResults: readonly LiveResult[];
+  readonly iteratorResults: readonly LiveResult[];
+  readonly cleanupResults: readonly CleanupResult[];
+  readonly failure: DomainLiveFailure | null;
+}
+
+export function runDomainLiveScenarios(registry: ScenarioRegistry): Promise<DomainLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";

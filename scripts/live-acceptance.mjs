@@ -27,6 +27,14 @@ export const EXPECTED_LIVE_OPERATION_COUNT = 56;
 export const EXPECTED_LIVE_ITERATOR_COUNT = 9;
 
 const packageName = "@ahasend/sdk";
+const domainOperationIds = Object.freeze([
+  "getDomains",
+  "createDomain",
+  "getDomain",
+  "updateDomain",
+  "checkDomainDNS",
+  "deleteDomain",
+]);
 const sensitiveFieldNames = new Set([
   "ahasendapikey",
   "ahasendtoken",
@@ -440,6 +448,287 @@ export function createScenarioRegistry(
     }),
   );
   return Object.freeze({ primary: readonlyMap(primary), iterators: Object.freeze(iterators) });
+}
+
+function requireDomainClient(value) {
+  const client = requireObject(value, "Domain live client");
+  const domains = requireObject(client.domains, "Domain live client domains facade");
+  for (const method of ["list", "iterate", "create", "get", "update", "delete", "checkDns"]) {
+    if (typeof domains[method] !== "function") {
+      throw new TypeError(`Domain live client domains.${method} must be a function.`);
+    }
+  }
+  return domains;
+}
+
+function requireDomainRequest(value, label, requiredKeys) {
+  const request = requireObject(value, label);
+  for (const key of requiredKeys) requireString(request[key], `${label} ${key}`);
+  return Object.freeze({ ...request });
+}
+
+function requireDomainPagination(value) {
+  const pagination = requireObject(value, "Domain live pagination");
+  const unexpected = Object.keys(pagination).filter(
+    (key) => !["after", "before", "limit"].includes(key),
+  );
+  if (!Object.hasOwn(pagination, "limit") || unexpected.length > 0) {
+    throw new TypeError(
+      `Domain live pagination fields must contain limit and optional after or before; unexpected ${JSON.stringify(unexpected)}.`,
+    );
+  }
+  if (!Number.isInteger(pagination.limit) || pagination.limit < 1 || pagination.limit > 100) {
+    throw new TypeError("Domain live pagination limit must be an integer from 1 to 100.");
+  }
+  if (pagination.after !== undefined && pagination.before !== undefined) {
+    throw new TypeError("Domain live pagination must use only one cursor direction.");
+  }
+  if (pagination.after !== undefined) {
+    requireString(pagination.after, "Domain live pagination after");
+  }
+  if (pagination.before !== undefined) {
+    requireString(pagination.before, "Domain live pagination before");
+  }
+  return Object.freeze({ ...pagination });
+}
+
+function requireDomainResult(value, expectedDomain, label) {
+  const result = requireObject(value, label);
+  if (result.domain !== expectedDomain) {
+    throw new TypeError(`${label} did not return the created domain.`);
+  }
+  return result;
+}
+
+function isNotFoundError(error) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error.status === 404 || error.code === "not_found_error")
+  );
+}
+
+async function verifyDomainRemoved(domains, domain) {
+  try {
+    await domains.get(domain);
+  } catch (error) {
+    if (isNotFoundError(error)) return;
+    throw error;
+  }
+  throw new TypeError("Domain cleanup verification found the created domain.");
+}
+
+function assertDomainMappings(profile) {
+  const expected = new Set(domainOperationIds);
+  const actual = profile.operations.filter(({ facade }) => facade === "domains");
+  const actualIds = new Set(actual.map(({ operationId }) => operationId));
+  const missing = domainOperationIds.filter((operationId) => !actualIds.has(operationId));
+  const orphaned = actual
+    .map(({ operationId }) => operationId)
+    .filter((operationId) => !expected.has(operationId));
+  if (actual.length !== domainOperationIds.length || missing.length > 0 || orphaned.length > 0) {
+    throw new TypeError(
+      `Packaged domain operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}.`,
+    );
+  }
+  const list = actual.find(({ operationId }) => operationId === "getDomains");
+  const iterator = profile.iterators.filter(({ facade }) => facade === "domains");
+  if (
+    list?.method !== "list" ||
+    iterator.length !== 1 ||
+    iterator[0]?.operationId !== "getDomains" ||
+    iterator[0]?.method !== "iterate"
+  ) {
+    throw new TypeError(
+      "Packaged domain iterator must link getDomains iterate to its primary list operation.",
+    );
+  }
+}
+
+/**
+ * Build the six domain lifecycle scenarios while retaining pending entries for
+ * every other packaged operation. The packaged profile remains the sole source
+ * of facade and method mappings.
+ */
+export function createDomainScenarioRegistry({
+  profile,
+  client,
+  createRequest,
+  updateRequest = { tracking_subdomain: "live" },
+  pagination = { limit: 1 },
+}) {
+  assertDomainMappings(profile);
+  const domains = requireDomainClient(client);
+  const createBody = requireDomainRequest(createRequest, "Domain live create request", ["domain"]);
+  const updateBody = requireDomainRequest(updateRequest, "Domain live update request", []);
+  const pageParams = requireDomainPagination(pagination);
+  const domain = createBody.domain;
+
+  const scenarios = new Map([
+    [
+      "getDomains",
+      {
+        operationId: "getDomains",
+        async run() {
+          const page = requireObject(
+            await domains.list(pageParams),
+            "Domain list scenario response",
+          );
+          if (!Array.isArray(page.data)) {
+            throw new TypeError("Domain list scenario response data must be an array.");
+          }
+          requireObject(page.pagination, "Domain list scenario pagination");
+
+          let itemCount = 0;
+          for await (const _entry of domains.iterate(pageParams)) {
+            itemCount += 1;
+            if (itemCount >= pageParams.limit) break;
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              direction: pageParams.before === undefined ? "forward" : "backward",
+              limit: pageParams.limit,
+              pageItems: page.data.length,
+            }),
+            iteratorEvidence: Object.freeze({
+              direction: pageParams.before === undefined ? "forward" : "backward",
+              items: itemCount,
+              limit: pageParams.limit,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "createDomain",
+      {
+        operationId: "createDomain",
+        async run({ cleanup }) {
+          const result = await domains.create(createBody);
+          cleanup.register("delete and verify domain fixture", async () => {
+            try {
+              await domains.delete(domain);
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
+            }
+            await verifyDomainRemoved(domains, domain);
+          });
+          requireDomainResult(result, domain, "Domain create scenario response");
+          return Object.freeze({ evidence: Object.freeze({ created: true }) });
+        },
+      },
+    ],
+    [
+      "getDomain",
+      {
+        operationId: "getDomain",
+        async run() {
+          requireDomainResult(await domains.get(domain), domain, "Domain get scenario response");
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "updateDomain",
+      {
+        operationId: "updateDomain",
+        async run() {
+          requireDomainResult(
+            await domains.update(domain, updateBody),
+            domain,
+            "Domain update scenario response",
+          );
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "checkDomainDNS",
+      {
+        operationId: "checkDomainDNS",
+        async run() {
+          requireDomainResult(
+            await domains.checkDns(domain),
+            domain,
+            "Domain DNS-check scenario response",
+          );
+          return Object.freeze({ evidence: Object.freeze({ checked: true }) });
+        },
+      },
+    ],
+    [
+      "deleteDomain",
+      {
+        operationId: "deleteDomain",
+        async run() {
+          await domains.delete(domain);
+          return Object.freeze({ evidence: Object.freeze({ deleted: true }) });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/**
+ * Execute the domain lifecycle in dependency order and always drain registered
+ * cleanup. Results can be passed directly to createLiveReport.
+ */
+export async function runDomainLiveScenarios(registry) {
+  const domainScenarios = new Map();
+  for (const operationId of domainOperationIds) {
+    const scenario = registry.primary.get(operationId);
+    if (scenario === undefined || typeof scenario.run !== "function") {
+      throw new TypeError(`Domain scenario registry is missing executable ${operationId}.`);
+    }
+    domainScenarios.set(operationId, scenario);
+  }
+
+  const cleanup = createCleanupRegistry();
+  const operationResults = [];
+  const iteratorResults = [];
+  let failure = null;
+  for (const operationId of domainOperationIds) {
+    const scenario = domainScenarios.get(operationId);
+    try {
+      const result = await scenario.run({ cleanup });
+      operationResults.push({
+        operationId,
+        status: "passed",
+        ...(result.evidence === undefined ? {} : { evidence: result.evidence }),
+      });
+      if (operationId === "getDomains") {
+        iteratorResults.push({
+          operationId,
+          status: "passed",
+          evidence: result.iteratorEvidence,
+        });
+      }
+    } catch (error) {
+      operationResults.push({ operationId, status: "failed" });
+      if (operationId === "getDomains") {
+        iteratorResults.push({ operationId, status: "failed" });
+      }
+      failure = Object.freeze({ phase: "operation", operationId });
+      break;
+    }
+  }
+
+  try {
+    await cleanup.run();
+  } catch {
+    if (failure === null) failure = Object.freeze({ phase: "cleanup" });
+  }
+  return Object.freeze({
+    operationResults: Object.freeze(operationResults),
+    iteratorResults: Object.freeze(iteratorResults),
+    cleanupResults: cleanup.results,
+    failure,
+  });
 }
 
 export function createCleanupRegistry() {

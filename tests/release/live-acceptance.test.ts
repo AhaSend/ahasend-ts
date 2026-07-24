@@ -3,19 +3,23 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import Ajv from "ajv";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { canonicalizeJson, digestJsonArtifact, sha256Hex } from "../../scripts/digest-artifact.mjs";
+import type { AhaSendClient } from "../../src/client.js";
 import {
   createCleanupRegistry,
+  createDomainScenarioRegistry,
   createLiveReport,
   createScenarioRegistry,
   inspectLiveCandidate,
   installLiveCandidate,
   loadLiveCandidate,
+  runDomainLiveScenarios,
   runWithCleanup,
   validateLiveReportArtifacts,
   validatePackagedLiveProfile,
   writeLiveReport,
+  type DomainLiveClient,
   type LiveCandidate,
   type LiveCandidateManifest,
   type LiveProfile,
@@ -27,6 +31,8 @@ interface OperationProfileSource {
   operations: Array<{ operationId: string; facade: string; method: string }>;
   iterators: Array<{ operationId: string; facade: string; method: string }>;
 }
+
+type IsAssignable<Source, Target> = Source extends Target ? true : false;
 
 const repositoryRoot = process.cwd();
 const profileFixture = JSON.parse(
@@ -92,6 +98,59 @@ function inspectFixture(): LiveCandidate {
     profileSidecar: fixture.profile.sidecar,
     packageManifestSource: fixture.packageManifestSource,
   });
+}
+
+function domainClientFixture(options: { failGet?: boolean } = {}) {
+  const calls: string[] = [];
+  let exists = false;
+  const domain = "live-domain.example";
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const client: DomainLiveClient = {
+    domains: {
+      list: vi.fn(async (params) => {
+        calls.push(`list:${JSON.stringify(params)}`);
+        return {
+          object: "list",
+          data: exists ? [{ domain }] : [],
+          pagination: { has_more: false },
+        };
+      }),
+      iterate: vi.fn(async function* (params) {
+        calls.push(`iterate:${JSON.stringify(params)}`);
+        if (exists) yield { domain };
+      }),
+      create: vi.fn(async () => {
+        calls.push("create");
+        exists = true;
+        return { domain };
+      }),
+      get: vi.fn(async () => {
+        calls.push("get");
+        if (!exists) throw notFound();
+        if (options.failGet === true) {
+          throw Object.assign(new Error("later scenario failed"), { status: 500 });
+        }
+        return { domain };
+      }),
+      update: vi.fn(async () => {
+        calls.push("update");
+        if (!exists) throw notFound();
+        return { domain };
+      }),
+      delete: vi.fn(async () => {
+        calls.push("delete");
+        if (!exists) throw notFound();
+        exists = false;
+        return { message: "deleted" };
+      }),
+      checkDns: vi.fn(async () => {
+        calls.push("checkDns");
+        if (!exists) throw notFound();
+        return { domain };
+      }),
+    },
+  };
+  return { calls, client, domain };
 }
 
 afterAll(() => {
@@ -351,6 +410,87 @@ describe("live scenario inventory", () => {
       }),
     ).toThrow("must attach to its corresponding list-operation");
   });
+
+  it("registers exactly one executable scenario for every packaged domain primary", () => {
+    const profile = inspectFixture().profile;
+    const fixture = domainClientFixture();
+    const registry = createDomainScenarioRegistry({
+      profile,
+      client: fixture.client,
+      createRequest: { domain: fixture.domain },
+    });
+    const domainEntries = [...registry.primary.values()].filter(
+      ({ facade }) => facade === "domains",
+    );
+
+    expect(domainEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      [
+        "checkDomainDNS",
+        "createDomain",
+        "deleteDomain",
+        "getDomain",
+        "getDomains",
+        "updateDomain",
+      ].sort(),
+    );
+    expect(domainEntries).toHaveLength(6);
+    expect(domainEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, DomainLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("records the domain iterator as one linked subcase without a second primary", async () => {
+    const candidate = inspectFixture();
+    const fixture = domainClientFixture();
+    const registry = createDomainScenarioRegistry({
+      profile: candidate.profile,
+      client: fixture.client,
+      createRequest: { domain: fixture.domain },
+    });
+
+    const result = await runDomainLiveScenarios(registry);
+    const listResults = result.operationResults.filter(
+      ({ operationId }) => operationId === "getDomains",
+    );
+
+    expect(result.failure).toBeNull();
+    expect(listResults).toHaveLength(1);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getDomains",
+        status: "passed",
+        evidence: { direction: "forward", items: 0, limit: 1 },
+      },
+    ]);
+    expect(registry.primary.get("getDomains")?.iterator).toMatchObject({
+      operationId: "getDomains",
+      method: "iterate",
+    });
+  });
+
+  it("uses a positive limit and only the selected domain cursor direction", async () => {
+    const fixture = domainClientFixture();
+    const registry = createDomainScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createRequest: { domain: fixture.domain },
+      pagination: { limit: 2, after: "next-page" },
+    });
+
+    await runDomainLiveScenarios(registry);
+
+    expect(fixture.client.domains.list).toHaveBeenCalledWith({
+      limit: 2,
+      after: "next-page",
+    });
+    expect(fixture.client.domains.iterate).toHaveBeenCalledWith({
+      limit: 2,
+      after: "next-page",
+    });
+    expect(fixture.client.domains.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ before: expect.anything() }),
+    );
+  });
 });
 
 describe("live cleanup and reporting", () => {
@@ -393,6 +533,59 @@ describe("live cleanup and reporting", () => {
       { label: "last", status: "passed" },
       { label: "failing", status: "failed" },
       { label: "first", status: "passed" },
+    ]);
+  });
+
+  it("registers domain cleanup before later lifecycle work and verifies removal", async () => {
+    const fixture = domainClientFixture({ failGet: true });
+    const registry = createDomainScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createRequest: { domain: fixture.domain },
+    });
+
+    const result = await runDomainLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "getDomain" });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify domain fixture", status: "passed" },
+    ]);
+    expect(fixture.calls).toEqual([
+      'list:{"limit":1}',
+      'iterate:{"limit":1}',
+      "create",
+      "get",
+      "delete",
+      "get",
+    ]);
+  });
+
+  it("keeps domain requests and cleanup reports free of live secret material", async () => {
+    const candidate = inspectFixture();
+    const fixture = domainClientFixture();
+    const privateKey = "live-domain-private-key";
+    const registry = createDomainScenarioRegistry({
+      profile: candidate.profile,
+      client: fixture.client,
+      createRequest: {
+        domain: fixture.domain,
+        dkim_private_key: privateKey,
+      },
+    });
+    const result = await runDomainLiveScenarios(registry);
+    const report = createLiveReport({
+      candidate,
+      operationResults: result.operationResults,
+      iteratorResults: result.iteratorResults,
+      cleanupResults: result.cleanupResults,
+      secrets: [fixture.domain, privateKey],
+    });
+    const source = canonicalizeJson(report).toString("utf8");
+
+    expect(source).not.toContain(fixture.domain);
+    expect(source).not.toContain(privateKey);
+    expect(report.cleanup).toEqual([
+      { label: "delete and verify domain fixture", status: "passed" },
     ]);
   });
 
