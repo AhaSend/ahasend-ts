@@ -13,6 +13,7 @@ import {
   createDomainScenarioRegistry,
   createLiveReport,
   createMessageScenarioRegistry,
+  createRouteScenarioRegistry,
   createScenarioRegistry,
   createStatisticsScenarioRegistry,
   inspectLiveCandidate,
@@ -21,6 +22,7 @@ import {
   runDomainLiveScenarios,
   runAPIKeyLiveScenarios,
   runMessageLiveScenarios,
+  runRouteLiveScenarios,
   runStatisticsLiveScenarios,
   runWithCleanup,
   validateLiveReportArtifacts,
@@ -32,6 +34,7 @@ import {
   type LiveCandidateManifest,
   type LiveProfile,
   type MessageLiveClient,
+  type RouteLiveClient,
   type StatisticsLiveClient,
 } from "../../scripts/live-acceptance.mjs";
 import liveReportSchema from "../../scripts/live-report.schema.json";
@@ -417,6 +420,110 @@ function apiKeyClientFixture(options: { malformedSecondarySecret?: boolean } = {
     secondaryId,
     secondarySecret,
     selfUpdate,
+  };
+}
+
+function routeClientFixture(options: { malformedSecret?: boolean } = {}) {
+  const existingDomain = "route-existing.example";
+  const replacementDomain = "route-replacement.example";
+  const existingRecipient = `inbound@${existingDomain}`;
+  const replacementRecipient = `replacement@${replacementDomain}`;
+  const routeId = "33333333-3333-4333-8333-333333333333";
+  const routeSecret = `aha-route-${"R".repeat(64)}`;
+  const authorizationChecks: string[] = [];
+  let record:
+    | {
+        id: string;
+        name: string;
+        url: string;
+        recipient: string;
+      }
+    | undefined;
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const list = vi.fn(
+    async (params: { domain: string; limit: number; after?: string; before?: string }) => {
+      if (params.domain !== existingDomain) {
+        throw Object.assign(new Error("scoped route list requires domain"), { status: 403 });
+      }
+      authorizationChecks.push("list:query.domain");
+      return {
+        object: "list" as const,
+        data: record === undefined ? [] : [record],
+        pagination: { has_more: false, next_cursor: null, prev_cursor: null },
+      };
+    },
+  );
+  const iterate = vi.fn(async function* (params: {
+    domain: string;
+    limit: number;
+    after?: string;
+    before?: string;
+  }) {
+    if (params.domain !== existingDomain) {
+      throw Object.assign(new Error("scoped route iterator requires domain"), { status: 403 });
+    }
+    if (record !== undefined) yield { ...record };
+  });
+  const create = vi.fn(async (request: { name: string; url: string; recipient: string }) => {
+    if (!request.recipient.endsWith(`@${existingDomain}`)) {
+      throw Object.assign(new Error("route recipient is not authorized"), { status: 403 });
+    }
+    authorizationChecks.push("create:body.recipient");
+    record = { id: routeId, ...request };
+    return {
+      ...record,
+      ...(options.malformedSecret === true ? {} : { secret: routeSecret }),
+    };
+  });
+  const get = vi.fn(async (id: string) => {
+    if (record === undefined || id !== record.id) throw notFound();
+    return { ...record };
+  });
+  const update = vi.fn(
+    async (id: string, request: { name: string; url: string; recipient: string }) => {
+      if (record === undefined || id !== record.id) throw notFound();
+      if (
+        !record.recipient.endsWith(`@${existingDomain}`) ||
+        !request.recipient.endsWith(`@${replacementDomain}`)
+      ) {
+        throw Object.assign(new Error("route recipient transition is not authorized"), {
+          status: 403,
+        });
+      }
+      authorizationChecks.push("update:existing.recipient");
+      authorizationChecks.push("update:body.recipient");
+      record = { ...record, ...request };
+      return { ...record };
+    },
+  );
+  const deleteRoute = vi.fn(async (id: string) => {
+    if (record === undefined || id !== record.id) throw notFound();
+    record = undefined;
+    return { message: "deleted" };
+  });
+  const client: RouteLiveClient = {
+    routes: { list, iterate, create, get, update, delete: deleteRoute },
+  };
+  return {
+    authorizationChecks,
+    client,
+    createRequest: {
+      name: "Live route",
+      url: "https://example.test/route",
+      recipient: existingRecipient,
+    },
+    existingDomain,
+    existingRecipient,
+    getRoute: get,
+    replacementDomain,
+    replacementRecipient,
+    routeId,
+    routeSecret,
+    updateRequest: {
+      name: "Updated live route",
+      url: "https://example.test/route-updated",
+      recipient: replacementRecipient,
+    },
   };
 }
 
@@ -1330,6 +1437,253 @@ describe("live scenario inventory", () => {
     expect(source).not.toContain("self-lockout prevented");
     expect(source).toContain('"secretsReported":false');
     expect(source).toContain('"selfLockout":{"persisted":false,"status":409}');
+  });
+
+  it("registers exactly one executable scenario for every packaged route primary", () => {
+    const fixture = routeClientFixture();
+    const registry = createRouteScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomain,
+        replacement: fixture.replacementDomain,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    });
+    const routeEntries = [...registry.primary.values()].filter(({ facade }) => facade === "routes");
+
+    expect(routeEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      ["createRoute", "deleteRoute", "getRoute", "getRoutes", "updateRoute"].sort(),
+    );
+    expect(routeEntries).toHaveLength(5);
+    expect(routeEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, RouteLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("records the route iterator once with scoped positive single-direction pagination", async () => {
+    const fixture = routeClientFixture();
+    const registry = createRouteScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomain,
+        replacement: fixture.replacementDomain,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+      pagination: { limit: 2, before: "previous-page" },
+    });
+
+    const result = await runRouteLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(
+      result.operationResults.filter(({ operationId }) => operationId === "getRoutes"),
+    ).toHaveLength(1);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getRoutes",
+        status: "passed",
+        evidence: { direction: "backward", items: 0, limit: 2 },
+      },
+    ]);
+    const expectedParams = {
+      limit: 2,
+      before: "previous-page",
+      domain: fixture.existingDomain,
+    };
+    expect(fixture.client.routes.list).toHaveBeenCalledWith(expectedParams);
+    expect(fixture.client.routes.iterate).toHaveBeenCalledWith(expectedParams);
+    expect(fixture.client.routes.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ after: expect.anything() }),
+    );
+    expect(registry.primary.get("getRoutes")?.iterator).toMatchObject({
+      operationId: "getRoutes",
+      method: "iterate",
+    });
+  });
+
+  it("requires the packaged scoped-list rule and supplies its controlled domain filter", async () => {
+    const fixture = routeClientFixture();
+    const options = {
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomain,
+        replacement: fixture.replacementDomain,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    };
+    const registry = createRouteScenarioRegistry(options);
+
+    const result = await runRouteLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(fixture.authorizationChecks).toContain("list:query.domain");
+    expect(result.operationResults.find(({ operationId }) => operationId === "getRoutes")).toEqual({
+      operationId: "getRoutes",
+      status: "passed",
+      evidence: {
+        direction: "forward",
+        limit: 1,
+        pageItems: 0,
+        scopedAuthorization: {
+          domainFilterSupplied: true,
+          source: "query.domain",
+        },
+      },
+    });
+    expect(() =>
+      createRouteScenarioRegistry({
+        ...options,
+        authorization: {
+          ...RESOURCE_AUTHORIZATION,
+          getRoutes: {
+            ...RESOURCE_AUTHORIZATION.getRoutes,
+            queryParameter: "sender_domain",
+          },
+        } as never,
+      }),
+    ).toThrow("must require the domain query for scoped access");
+  });
+
+  it("checks controlled create, existing, and replacement recipient domains", async () => {
+    const fixture = routeClientFixture();
+    const createRegistry = (
+      overrides: Partial<Parameters<typeof createRouteScenarioRegistry>[0]> = {},
+    ) =>
+      createRouteScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        authorization: RESOURCE_AUTHORIZATION,
+        controlledDomains: {
+          existing: fixture.existingDomain,
+          replacement: fixture.replacementDomain,
+        },
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        ...overrides,
+      });
+
+    expect(() =>
+      createRegistry({
+        createRequest: {
+          ...fixture.createRequest,
+          recipient: "inbound@uncontrolled.example",
+        },
+      }),
+    ).toThrow("create request recipient must use its controlled route domain");
+    expect(() =>
+      createRegistry({
+        updateRequest: {
+          ...fixture.updateRequest,
+          recipient: "replacement@uncontrolled.example",
+        },
+      }),
+    ).toThrow("update request recipient must use its controlled route domain");
+
+    const result = await runRouteLiveScenarios(createRegistry());
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.routes.create).toHaveBeenCalledWith(fixture.createRequest);
+    expect(fixture.client.routes.update).toHaveBeenCalledWith(
+      fixture.routeId,
+      fixture.updateRequest,
+    );
+    expect(fixture.authorizationChecks).toEqual([
+      "list:query.domain",
+      "create:body.recipient",
+      "update:existing.recipient",
+      "update:body.recipient",
+    ]);
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "createRoute"),
+    ).toMatchObject({
+      evidence: {
+        recipientAuthorization: {
+          controlled: true,
+          quantifier: "one",
+          source: "body.recipient",
+        },
+      },
+    });
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "updateRoute"),
+    ).toMatchObject({
+      evidence: {
+        recipientAuthorization: {
+          existingControlled: true,
+          quantifier: "every",
+          replacementControlled: true,
+          sources: ["existing.recipient", "body.recipient"],
+        },
+      },
+    });
+  });
+
+  it("retains immediate route cleanup when the one-time secret is malformed", async () => {
+    const fixture = routeClientFixture({ malformedSecret: true });
+    const registry = createRouteScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomain,
+        replacement: fixture.replacementDomain,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    });
+
+    const result = await runRouteLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createRoute" });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify route fixture", status: "passed" },
+    ]);
+    expect(fixture.client.routes.delete).toHaveBeenCalledWith(fixture.routeId);
+    await expect(fixture.getRoute(fixture.routeId)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("keeps route secrets and controlled recipients out of canonical live reports", async () => {
+    const candidate = inspectFixture();
+    const fixture = routeClientFixture();
+    const registry = createRouteScenarioRegistry({
+      profile: candidate.profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomain,
+        replacement: fixture.replacementDomain,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    });
+    const result = await runRouteLiveScenarios(registry);
+    const report = createLiveReport({
+      candidate,
+      operationResults: result.operationResults,
+      iteratorResults: result.iteratorResults,
+      cleanupResults: result.cleanupResults,
+    });
+    const source = canonicalizeJson(report).toString("utf8");
+
+    expect(source).not.toContain(fixture.routeSecret);
+    expect(source).not.toContain(fixture.existingRecipient);
+    expect(source).not.toContain(fixture.replacementRecipient);
+    expect(source).not.toContain(fixture.existingDomain);
+    expect(source).not.toContain(fixture.replacementDomain);
+    expect(source).not.toContain('"secret"');
+    expect(source).toContain('"secretsReported":false');
+    expect(source).toContain('"sources":["existing.recipient","body.recipient"]');
   });
 
   it("registers exactly one executable scenario for every packaged statistics primary", () => {

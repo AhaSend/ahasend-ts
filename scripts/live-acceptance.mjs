@@ -55,6 +55,13 @@ const apiKeyOperationIds = Object.freeze([
   "updateAPIKey",
   "deleteAPIKey",
 ]);
+const routeOperationIds = Object.freeze([
+  "getRoutes",
+  "createRoute",
+  "getRoute",
+  "updateRoute",
+  "deleteRoute",
+]);
 const restrictedApiKeyAddress = "192.0.2.7";
 const canonicalRestrictedApiKeyAddress = `${restrictedApiKeyAddress}/32`;
 const selfLockoutAddress = "192.0.2.1/32";
@@ -1689,6 +1696,360 @@ export function createAPIKeyScenarioRegistry({
 /** Execute parent API-key scenarios in lifecycle order and always drain cleanup. */
 export function runAPIKeyLiveScenarios(registry) {
   return runLiveScenarios(registry, apiKeyOperationIds, "getAPIKeys", "API-key");
+}
+
+function requireRouteAuthorizationRule(value, operationId) {
+  const label = `Packaged ${operationId} authorization metadata`;
+  const rule = requireObject(value, label);
+  const roles = requireObject(rule.roles, `${label} roles`);
+  requireString(roles.global, `${label} global role`);
+  const domainRole = requireString(roles.domain, `${label} domain role`);
+  if (!domainRole.includes("{domain}")) {
+    throw new TypeError(`${label} domain role must contain the {domain} placeholder.`);
+  }
+
+  if (operationId === "getRoutes") {
+    if (
+      rule.kind !== "query_domain_required_for_scoped" ||
+      rule.queryParameter !== "domain" ||
+      rule.condition !== "scoped_role_requires_filter"
+    ) {
+      throw new TypeError(`${label} must require the domain query for scoped access.`);
+    }
+    return Object.freeze({
+      kind: rule.kind,
+      source: `query.${rule.queryParameter}`,
+    });
+  }
+  if (operationId === "createRoute") {
+    if (rule.kind !== "body_domain" || rule.bodyPath !== "recipient" || rule.quantifier !== "one") {
+      throw new TypeError(`${label} must authorize the domain in body.recipient.`);
+    }
+    return Object.freeze({
+      kind: rule.kind,
+      quantifier: rule.quantifier,
+      source: `body.${rule.bodyPath}`,
+    });
+  }
+  if (
+    rule.kind !== "existing_and_replacement_domain" ||
+    rule.resource !== "route" ||
+    rule.resourceIdParameter !== "route_id" ||
+    rule.existingPath !== "recipient" ||
+    rule.replacementBodyPath !== "recipient" ||
+    rule.quantifier !== "every"
+  ) {
+    throw new TypeError(`${label} must authorize the existing and replacement recipient domains.`);
+  }
+  return Object.freeze({
+    kind: rule.kind,
+    quantifier: rule.quantifier,
+    sources: Object.freeze([`existing.${rule.existingPath}`, `body.${rule.replacementBodyPath}`]),
+  });
+}
+
+function assertRouteMappings(profile, authorization) {
+  const expected = new Set(routeOperationIds);
+  const actual = profile.operations.filter(({ facade }) => facade === "routes");
+  const actualIds = new Set(actual.map(({ operationId }) => operationId));
+  const missing = routeOperationIds.filter((operationId) => !actualIds.has(operationId));
+  const orphaned = actual
+    .map(({ operationId }) => operationId)
+    .filter((operationId) => !expected.has(operationId));
+  if (actual.length !== routeOperationIds.length || missing.length > 0 || orphaned.length > 0) {
+    throw new TypeError(
+      `Packaged route operation mismatch: missing ${JSON.stringify(missing)}, orphaned ${JSON.stringify(orphaned)}.`,
+    );
+  }
+
+  const list = actual.find(({ operationId }) => operationId === "getRoutes");
+  const iterator = profile.iterators.filter(({ facade }) => facade === "routes");
+  if (
+    list?.method !== "list" ||
+    iterator.length !== 1 ||
+    iterator[0]?.operationId !== "getRoutes" ||
+    iterator[0]?.method !== "iterate"
+  ) {
+    throw new TypeError(
+      "Packaged route iterator must link getRoutes iterate to its primary list operation.",
+    );
+  }
+
+  const authorizationRegistry = requireObject(authorization, "Packaged authorization registry");
+  return Object.freeze({
+    operations: new Map(actual.map((mapping) => [mapping.operationId, mapping])),
+    iterator: iterator[0],
+    authorization: Object.freeze({
+      list: requireRouteAuthorizationRule(authorizationRegistry.getRoutes, "getRoutes"),
+      create: requireRouteAuthorizationRule(authorizationRegistry.createRoute, "createRoute"),
+      update: requireRouteAuthorizationRule(authorizationRegistry.updateRoute, "updateRoute"),
+    }),
+  });
+}
+
+function requireControlledRouteDomains(value) {
+  const controlledDomains = requireObject(value, "Controlled route domains");
+  const domains = {
+    existing: requireString(
+      controlledDomains.existing,
+      "Existing controlled route domain",
+    ).toLowerCase(),
+    replacement: requireString(
+      controlledDomains.replacement,
+      "Replacement controlled route domain",
+    ).toLowerCase(),
+  };
+  if (
+    Object.values(domains).some(
+      (domain) =>
+        domain.trim() !== domain || domain === "" || domain.includes("@") || domain.includes(","),
+    ) ||
+    domains.existing === domains.replacement
+  ) {
+    throw new TypeError(
+      "Existing and replacement controlled route domains must be distinct domain names.",
+    );
+  }
+  return Object.freeze(domains);
+}
+
+function routeRecipientDomain(value, label) {
+  const recipient = requireString(value, label);
+  const separator = recipient.lastIndexOf("@");
+  if (separator < 1 || separator === recipient.length - 1) {
+    throw new TypeError(`${label} must be an email address with a domain.`);
+  }
+  return recipient.slice(separator + 1).toLowerCase();
+}
+
+function requireRouteRequest(value, label, expectedDomain, requiredKeys) {
+  const request = requireObject(value, label);
+  for (const key of requiredKeys) requireString(request[key], `${label} ${key}`);
+  const actualDomain = routeRecipientDomain(request.recipient, `${label} recipient`);
+  if (actualDomain !== expectedDomain) {
+    throw new TypeError(`${label} recipient must use its controlled route domain.`);
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireRouteResult(value, routeId, expectedDomain, label) {
+  const result = requireObject(value, label);
+  if (requireString(result.id, `${label} id`) !== routeId) {
+    throw new TypeError(`${label} returned the wrong route.`);
+  }
+  if (routeRecipientDomain(result.recipient, `${label} recipient`) !== expectedDomain) {
+    throw new TypeError(`${label} returned the wrong recipient domain.`);
+  }
+  return result;
+}
+
+async function requireRouteAbsent(getRoute, routeId, label) {
+  try {
+    await getRoute(routeId);
+  } catch (error) {
+    if (isNotFoundError(error)) return;
+    throw error;
+  }
+  throw new TypeError(`${label} found the route.`);
+}
+
+/**
+ * Build the five route lifecycle scenarios. The controlled domains define the
+ * scoped list filter and the required create/update recipient transition.
+ */
+export function createRouteScenarioRegistry({
+  profile,
+  client,
+  authorization,
+  controlledDomains,
+  createRequest,
+  updateRequest,
+  pagination = { limit: 1 },
+}) {
+  const mappings = assertRouteMappings(profile, authorization);
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Route ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("getRoutes"),
+    iterate: requireMappedClientMethod(client, mappings.iterator, "Route iterator scenario"),
+    create: mappedOperation("createRoute"),
+    get: mappedOperation("getRoute"),
+    update: mappedOperation("updateRoute"),
+    delete: mappedOperation("deleteRoute"),
+  });
+  const domains = requireControlledRouteDomains(controlledDomains);
+  const createBody = requireRouteRequest(
+    createRequest,
+    "Route live create request",
+    domains.existing,
+    ["name", "url"],
+  );
+  const updateBody = requireRouteRequest(
+    updateRequest,
+    "Route live update request",
+    domains.replacement,
+    [],
+  );
+  const pageParams = Object.freeze({
+    ...requireLivePagination(pagination, "Route"),
+    domain: domains.existing,
+  });
+
+  let routeId;
+  const fixtureId = () => requireString(routeId, "Route fixture id");
+  const scenarios = new Map([
+    [
+      "getRoutes",
+      {
+        operationId: "getRoutes",
+        async run() {
+          const page = requireObject(
+            await methods.list(pageParams),
+            "Route list scenario response",
+          );
+          if (!Array.isArray(page.data)) {
+            throw new TypeError("Route list scenario response data must be an array.");
+          }
+          requireObject(page.pagination, "Route list scenario pagination");
+
+          let itemCount = 0;
+          for await (const _entry of methods.iterate(pageParams)) {
+            itemCount += 1;
+            if (itemCount >= pageParams.limit) break;
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              direction: pageParams.before === undefined ? "forward" : "backward",
+              limit: pageParams.limit,
+              pageItems: page.data.length,
+              scopedAuthorization: Object.freeze({
+                domainFilterSupplied: true,
+                source: mappings.authorization.list.source,
+              }),
+            }),
+            iteratorEvidence: Object.freeze({
+              direction: pageParams.before === undefined ? "forward" : "backward",
+              items: itemCount,
+              limit: pageParams.limit,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "createRoute",
+      {
+        operationId: "createRoute",
+        async run({ cleanup }) {
+          const result = requireObject(
+            await methods.create(createBody),
+            "Route create scenario response",
+          );
+          const createdRouteId = requireString(result.id, "Route create scenario response id");
+          routeId = createdRouteId;
+          cleanup.register("delete and verify route fixture", async () => {
+            try {
+              await methods.delete(createdRouteId);
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
+            }
+            await requireRouteAbsent(methods.get, createdRouteId, "Route cleanup verification");
+          });
+          requireRouteResult(
+            result,
+            createdRouteId,
+            domains.existing,
+            "Route create scenario response",
+          );
+          requireString(result.secret, "Route create scenario response secret");
+          return Object.freeze({
+            evidence: Object.freeze({
+              cleanupRegistered: true,
+              recipientAuthorization: Object.freeze({
+                controlled: true,
+                quantifier: mappings.authorization.create.quantifier,
+                source: mappings.authorization.create.source,
+              }),
+              secretsReported: false,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getRoute",
+      {
+        operationId: "getRoute",
+        async run() {
+          const id = fixtureId();
+          requireRouteResult(
+            await methods.get(id),
+            id,
+            domains.existing,
+            "Route get scenario response",
+          );
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "updateRoute",
+      {
+        operationId: "updateRoute",
+        async run() {
+          const id = fixtureId();
+          requireRouteResult(
+            await methods.get(id),
+            id,
+            domains.existing,
+            "Route existing recipient authorization check",
+          );
+          requireRouteResult(
+            await methods.update(id, updateBody),
+            id,
+            domains.replacement,
+            "Route update scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              recipientAuthorization: Object.freeze({
+                existingControlled: true,
+                quantifier: mappings.authorization.update.quantifier,
+                replacementControlled: true,
+                sources: mappings.authorization.update.sources,
+              }),
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteRoute",
+      {
+        operationId: "deleteRoute",
+        async run() {
+          const id = fixtureId();
+          await methods.delete(id);
+          await requireRouteAbsent(methods.get, id, "Route delete scenario verification");
+          return Object.freeze({ evidence: Object.freeze({ deleted: true }) });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute route scenarios in lifecycle order and always drain cleanup. */
+export function runRouteLiveScenarios(registry) {
+  return runLiveScenarios(registry, routeOperationIds, "getRoutes", "Route");
 }
 
 export function createCleanupRegistry() {

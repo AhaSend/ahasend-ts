@@ -328,6 +328,105 @@ export type APIKeyLiveRun = DomainLiveRun;
 
 export function runAPIKeyLiveScenarios(registry: ScenarioRegistry): Promise<APIKeyLiveRun>;
 
+export interface RouteLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly update: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+}
+
+export interface RouteLiveClient {
+  readonly routes: RouteLiveFacade;
+}
+
+export interface RouteLiveCreateRequest {
+  readonly name: string;
+  readonly url: string;
+  readonly recipient: string;
+  readonly attachments?: boolean;
+  readonly headers?: boolean;
+  readonly group_by_message_id?: boolean;
+  readonly strip_replies?: boolean;
+  readonly enabled?: boolean;
+}
+
+export interface RouteLiveUpdateRequest {
+  readonly name?: string;
+  readonly url?: string;
+  readonly recipient: string;
+  readonly attachments?: boolean;
+  readonly headers?: boolean;
+  readonly group_by_message_id?: boolean;
+  readonly strip_replies?: boolean;
+  readonly enabled?: boolean;
+}
+
+export interface RouteListAuthorizationRule {
+  readonly kind: "query_domain_required_for_scoped";
+  readonly queryParameter: "domain";
+  readonly condition: "scoped_role_requires_filter";
+  readonly roles: {
+    readonly global: string;
+    readonly domain: string;
+  };
+  readonly summary?: string;
+}
+
+export interface RouteCreateAuthorizationRule {
+  readonly kind: "body_domain";
+  readonly bodyPath: "recipient";
+  readonly quantifier: "one";
+  readonly roles: {
+    readonly global: string;
+    readonly domain: string;
+  };
+  readonly summary?: string;
+}
+
+export interface RouteUpdateAuthorizationRule {
+  readonly kind: "existing_and_replacement_domain";
+  readonly resource: "route";
+  readonly resourceIdParameter: "route_id";
+  readonly existingPath: "recipient";
+  readonly replacementBodyPath: "recipient";
+  readonly quantifier: "every";
+  readonly roles: {
+    readonly global: string;
+    readonly domain: string;
+  };
+  readonly summary?: string;
+}
+
+export interface RouteAuthorizationRegistry {
+  readonly getRoutes: RouteListAuthorizationRule;
+  readonly createRoute: RouteCreateAuthorizationRule;
+  readonly updateRoute: RouteUpdateAuthorizationRule;
+  readonly [operationId: string]: unknown;
+}
+
+export interface CreateRouteScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: RouteLiveClient;
+  readonly authorization: RouteAuthorizationRegistry;
+  readonly controlledDomains: {
+    readonly existing: string;
+    readonly replacement: string;
+  };
+  readonly createRequest: RouteLiveCreateRequest;
+  readonly updateRequest: RouteLiveUpdateRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createRouteScenarioRegistry(
+  options: CreateRouteScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type RouteLiveRun = DomainLiveRun;
+
+export function runRouteLiveScenarios(registry: ScenarioRegistry): Promise<RouteLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";
