@@ -438,7 +438,7 @@ describe("live cleanup and reporting", () => {
     });
   });
 
-  it("rejects an altered report sidecar and duplicate report operationIds", () => {
+  it("rejects altered sidecars, duplicate IDs, detached iterators, and extra package fields", () => {
     const candidate = inspectFixture();
     const report = createLiveReport({ candidate });
     const source = canonicalizeJson(report);
@@ -458,5 +458,32 @@ describe("live cleanup and reporting", () => {
         reportSidecar: `${sha256Hex(duplicateSource)}\n`,
       }),
     ).toThrow("duplicate operationId");
+
+    const detachedIterator = structuredClone(report) as {
+      operations: Array<Record<string, unknown>>;
+      iterators: Array<Record<string, unknown>>;
+    };
+    const nonListPrimary = detachedIterator.operations.find(({ method }) => method !== "list")!;
+    detachedIterator.iterators[0]!.operationId = nonListPrimary.operationId;
+    detachedIterator.iterators[0]!.facade = nonListPrimary.facade;
+    const detachedIteratorSource = canonicalizeJson(detachedIterator);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: detachedIteratorSource,
+        reportSidecar: `${sha256Hex(detachedIteratorSource)}\n`,
+      }),
+    ).toThrow("must attach to its corresponding primary list-operation result");
+
+    const extraPackageField = structuredClone(report) as {
+      package: Record<string, unknown>;
+    };
+    extraPackageField.package.extra = "schema-forbidden";
+    const extraPackageFieldSource = canonicalizeJson(extraPackageField);
+    expect(() =>
+      validateLiveReportArtifacts({
+        reportSource: extraPackageFieldSource,
+        reportSidecar: `${sha256Hex(extraPackageFieldSource)}\n`,
+      }),
+    ).toThrow("Live acceptance report package fields must be canonical");
   });
 });

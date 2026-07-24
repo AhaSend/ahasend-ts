@@ -642,6 +642,18 @@ function validateResultInventory(value, expectedCount, label, expectedMethod) {
   }
 }
 
+function validateReportIteratorLinks(operations, iterators) {
+  const operationsById = new Map(operations.map((operation) => [operation.operationId, operation]));
+  for (const iterator of iterators) {
+    const primary = operationsById.get(iterator.operationId);
+    if (primary === undefined || primary.facade !== iterator.facade || primary.method !== "list") {
+      throw new TypeError(
+        `Iterator inventory result ${iterator.operationId} must attach to its corresponding primary list-operation result.`,
+      );
+    }
+  }
+}
+
 export function validateLiveReportArtifacts({ reportSource, reportSidecar }) {
   const source = sourceBytes(reportSource, "Live acceptance report");
   const expectedDigest = parseSha256Sidecar(reportSidecar, "Live acceptance report sidecar");
@@ -680,7 +692,9 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar }) {
   requireHash(report.profileSha256, "Live acceptance report profileSha256");
   requireHash(report.captureSha256, "Live acceptance report captureSha256");
   parseSourceHashMap(report.keysSha256, SOURCE_KEY_PATHS, "Live acceptance report keysSha256");
-  const identity = parsePackageIdentity(canonicalizeJson(report.package));
+  const reportPackage = requireObject(report.package, "Live acceptance report package");
+  requireExactKeys(reportPackage, ["name", "version"], "Live acceptance report package");
+  const identity = parsePackageIdentity(canonicalizeJson(reportPackage));
   requireHash(report.tarballSha256, "Live acceptance report tarballSha256");
   validateResultInventory(
     report.operations,
@@ -693,6 +707,7 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar }) {
     "Iterator inventory",
     "iterate",
   );
+  validateReportIteratorLinks(report.operations, report.iterators);
   if (!Array.isArray(report.cleanup)) {
     throw new TypeError("Live acceptance report cleanup must be an array.");
   }
