@@ -71,6 +71,16 @@ describe("operational documentation verification", () => {
       "docs/security-and-webhooks.md",
       "    await webhookDeliveries.claim(webhookId);\n",
     ],
+    [
+      "full SDK error exception telemetry",
+      "README.md",
+      "    onError: (e) => sentry.captureException(e.error),\n",
+    ],
+    [
+      "webhook recipient console output",
+      "README.md",
+      "        console.log(`delivered → ${event.data.recipient}`);\n",
+    ],
   ])("fails if the %s pattern is introduced", async (_label, path, unsafeText) => {
     const documents = await loadDocumentation();
     documents[path] = `${documents[path]}\n${unsafeText}`;
@@ -84,6 +94,11 @@ describe("operational documentation verification", () => {
       "all 11 endpoints whose generated operation profile marks them idempotent",
     ],
     ["parsed webhook body behavior", "The adapters treat an already-parsed body as a setup error"],
+    [
+      "allow-listed error telemetry",
+      'errorCode: isAhaSendError(e.error) ? e.error.code : "unknown"',
+    ],
+    ["webhook metric without recipient data", 'metrics.increment("ahasend.webhook.delivered");'],
   ])("fails if the README %s is removed", async (_label, requiredText) => {
     const documents = await loadDocumentation();
     const path = "README.md";

@@ -206,6 +206,8 @@ remaining headers returned by the server. See [Local rate pacing](docs/rate-paci
 ### Telemetry
 
 ```ts
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
+
 const client = new AhaSendClient({
   apiKey,
   accountId,
@@ -213,7 +215,13 @@ const client = new AhaSendClient({
     onRequest: (e) => log.debug(`→ ${e.method} ${e.routeTemplate}`),
     onResponse: (e) => metrics.timing("ahasend.request", e.durationMs, { status: e.status }),
     onRetry: (e) => log.warn(`retrying ${e.routeTemplate} in ${e.delayMs}ms`),
-    onError: (e) => sentry.captureException(e.error),
+    onError: (e) =>
+      log.error("AhaSend request failed", {
+        operationId: e.operationId,
+        status: e.status,
+        requestId: e.requestId,
+        errorCode: isAhaSendError(e.error) ? e.error.code : "unknown",
+      }),
   },
 });
 ```
@@ -274,7 +282,7 @@ app.post(
     if (!isKnownWebhookEvent(event)) return; // future event type — acknowledge & ignore
     switch (event.type) {
       case "message.delivered":
-        console.log(`delivered → ${event.data.recipient}`);
+        metrics.increment("ahasend.webhook.delivered");
         break;
       case "message.bounced":
         // ...

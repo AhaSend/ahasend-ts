@@ -71,6 +71,16 @@ const REQUIREMENTS = Object.freeze([
     text: "The adapters treat an already-parsed body as a setup error",
   },
   {
+    label: "README allow-listed error telemetry",
+    path: "README.md",
+    text: 'errorCode: isAhaSendError(e.error) ? e.error.code : "unknown"',
+  },
+  {
+    label: "README webhook metric without recipient data",
+    path: "README.md",
+    text: 'metrics.increment("ahasend.webhook.delivered");',
+  },
+  {
     label: "constructor timeout unit",
     path: "docs/cancellation.md",
     text: "`timeoutMs` is a per-network-attempt budget in **milliseconds**",
@@ -278,6 +288,17 @@ const PROHIBITED_PATTERNS = Object.freeze([
     label: "a claim-only webhook deduplication call",
     path: "docs/security-and-webhooks.md",
     pattern: /webhookDeliveries\.claim\(/u,
+  },
+  {
+    label: "a full SDK error sent to exception telemetry",
+    path: "README.md",
+    pattern: /sentry\.captureException\s*\(\s*e\.error\s*\)/u,
+  },
+  {
+    label: "a webhook recipient sent to console output",
+    path: "README.md",
+    pattern:
+      /(?:console|log|logger)\.(?:log|debug|info|warn|error)\s*\([^;\n]*event\.data\.recipient/u,
   },
 ]);
 
