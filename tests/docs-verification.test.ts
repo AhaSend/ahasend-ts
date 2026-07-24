@@ -34,4 +34,15 @@ describe("operational documentation verification", () => {
 
     expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
   });
+
+  it.each([
+    ["operation-level retry gate", "`maxRetries` never overrides the operation-level gate"],
+    ["default first-retry jitter range", "the first retry waits from 500 to 1,000 milliseconds"],
+  ])("fails if the %s is removed", async (_label, requiredText) => {
+    const documents = await loadDocumentation();
+    const path = "docs/retries-and-idempotency.md";
+    documents[path] = documents[path]!.replace(requiredText, "");
+
+    expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
+  });
 });

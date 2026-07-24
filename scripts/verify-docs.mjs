@@ -96,6 +96,21 @@ const REQUIREMENTS = Object.freeze([
     text: "HTTP 408, 429, and 5xx responses",
   },
   {
+    label: "operation-level retry gate",
+    path: "docs/retries-and-idempotency.md",
+    text: "`maxRetries` never overrides the operation-level gate",
+  },
+  {
+    label: "default first-retry jitter range",
+    path: "docs/retries-and-idempotency.md",
+    text: "the first retry waits from 500 to 1,000 milliseconds",
+  },
+  {
+    label: "README operation-aware retry summary",
+    path: "README.md",
+    text: "generated retry profile permits another attempt",
+  },
+  {
     label: "idempotency key reuse",
     path: "docs/retries-and-idempotency.md",
     text: "reuses the\nsame value across all internal retry attempts",

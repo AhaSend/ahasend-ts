@@ -6,9 +6,11 @@ runtime.
 
 ## Retry policy
 
-Retries are enabled by default. `maxRetries: 3` means one initial attempt and at most three retry
-attempts. The default delay is exponential with jitter, starting at 1 second and capped at 30
-seconds. Linear and constant strategies are also available.
+Retry handling is enabled by default, but `maxRetries` never overrides the operation-level gate
+described above. For an eligible operation, `maxRetries: 3` means one initial attempt and at most
+three retry attempts. The default backoff is exponential with a 1,000-millisecond base delay and
+jitter, so the first retry waits from 500 to 1,000 milliseconds. Delays are capped at 30 seconds.
+Linear and constant strategies are also available.
 
 The SDK retries:
 

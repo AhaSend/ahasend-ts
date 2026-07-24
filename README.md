@@ -180,12 +180,15 @@ classification, and recovery after an uncertain result.
 
 ### Retries
 
-Automatic on `408`, `429`, `5xx`, network failures, timeouts, and eligible
-keyed `409` responses while an idempotent operation is still in progress —
-never on other 4xx. A valid server `Retry-After` on 429 (seconds or HTTP-date)
-or an eligible keyed 409 (positive integer seconds) is authoritative and
-capped at the configured `maxDelayMs` (30 seconds by default). Configure via
-the `retry` option; `maxRetries: 3` means up to 4 total attempts.
+When an operation's generated retry profile permits another attempt, the SDK
+retries `408`, `429`, `5xx`, network failures, timeouts, and eligible keyed
+`409` responses while an idempotent operation is still in progress — never
+other 4xx. Key-protected create operations require an idempotency key to be
+retryable; the SDK supplies one unless automatic key generation is disabled.
+A valid server `Retry-After` on 429 (seconds or HTTP-date) or an eligible keyed
+409 (positive integer seconds) is authoritative and capped at the configured
+`maxDelayMs` (30 seconds by default). Configure via the `retry` option;
+`maxRetries: 3` means up to 4 total attempts for an eligible operation.
 
 Caller aborts are terminal. Read [Cancellation and timeouts](docs/cancellation.md) before
 combining local pacing, retries, and end-to-end deadlines.
@@ -373,8 +376,10 @@ AhaSendError
 └── AhaSendResponseParseError            2xx with a non-JSON body
 ```
 
-`408/429/5xx/network/timeout` are retried automatically; everything else
-throws immediately.
+`408/429/5xx/network/timeout` are retryable failures only when the operation's
+generated profile permits retries. Operations classified as never retryable,
+and key-protected operations called without a key, make one attempt even for
+those failures. Other errors throw immediately.
 
 ## Examples
 
