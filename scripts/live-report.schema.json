@@ -1,0 +1,126 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ahasend.com/schemas/live-report.schema.json",
+  "title": "AhaSend SDK live acceptance report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "candidate",
+    "contractSha256",
+    "profileSha256",
+    "captureSha256",
+    "keysSha256",
+    "package",
+    "tarballSha256",
+    "operations",
+    "iterators",
+    "cleanup"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "manifestSha256"],
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "manifestSha256": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "contractSha256": { "$ref": "#/definitions/contracts" },
+    "profileSha256": { "$ref": "#/definitions/sha256" },
+    "captureSha256": { "$ref": "#/definitions/sha256" },
+    "keysSha256": { "$ref": "#/definitions/keys" },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "@ahasend/sdk" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "tarballSha256": { "$ref": "#/definitions/sha256" },
+    "operations": {
+      "type": "array",
+      "minItems": 56,
+      "maxItems": 56,
+      "items": { "$ref": "#/definitions/result" }
+    },
+    "iterators": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "allOf": [
+          { "$ref": "#/definitions/result" },
+          {
+            "properties": { "method": { "const": "iterate" } },
+            "required": ["method"]
+          }
+        ]
+      }
+    },
+    "cleanup": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/cleanupResult" }
+    }
+  },
+  "definitions": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contracts.lock.json", "openapi.yaml", "webhooks.yaml"],
+      "properties": {
+        "contracts.lock.json": { "$ref": "#/definitions/sha256" },
+        "openapi.yaml": { "$ref": "#/definitions/sha256" },
+        "webhooks.yaml": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "keys": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contracts/webhooks/captured/keys/configured-webhook.key",
+        "contracts/webhooks/captured/keys/route.key"
+      ],
+      "properties": {
+        "contracts/webhooks/captured/keys/configured-webhook.key": {
+          "$ref": "#/definitions/sha256"
+        },
+        "contracts/webhooks/captured/keys/route.key": {
+          "$ref": "#/definitions/sha256"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["operationId", "facade", "method", "status"],
+      "properties": {
+        "operationId": { "type": "string", "minLength": 1 },
+        "facade": { "type": "string", "minLength": 1 },
+        "method": { "type": "string", "minLength": 1 },
+        "status": {
+          "enum": ["failed", "passed", "pending", "skipped"]
+        }
+      }
+    },
+    "cleanupResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "status"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["failed", "passed"] }
+      }
+    }
+  }
+}
