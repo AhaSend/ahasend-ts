@@ -325,7 +325,7 @@ async function main() {
     "audit exceptions",
   );
   const productionReport = runNpmAudit(["audit", "--omit=dev", "--json"]);
-  const fullReport = runNpmAudit(["audit", "--json"]);
+  const fullReport = runNpmAudit(["audit", "--include=dev", "--json"]);
   const summary = validateAuditReports({ fullReport, productionReport, policy, exceptions });
   process.stdout.write(
     `Audit policy passed: ${summary.productionAdvisories} production, ${summary.directDevelopmentAdvisories} direct development, ${summary.transitiveDevelopmentAdvisories} transitive development advisories (${summary.exceptions} exceptions).\n`,

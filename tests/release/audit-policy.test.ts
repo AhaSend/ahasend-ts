@@ -84,7 +84,7 @@ describe("dependency audit policy", () => {
     ).toThrow("must use npm audit report version 2");
   });
 
-  it("runs the tested validator from the CLI against full and production-only npm reports", () => {
+  it("runs the tested validator from the CLI with development dependencies explicitly included", () => {
     const directory = mkdtempSync(join(tmpdir(), "ahasend-audit-cli-"));
     temporaryDirectories.push(directory);
     const npmStub = resolve(directory, "npm-stub.mjs");
@@ -102,7 +102,13 @@ process.stdout.write(${JSON.stringify(cleanReport)});
     const result = spawnSync(process.execPath, ["scripts/verify-audit.mjs"], {
       cwd: process.cwd(),
       encoding: "utf8",
-      env: { ...process.env, AUDIT_CALL_LOG: callLog, npm_execpath: npmStub },
+      env: {
+        ...process.env,
+        AUDIT_CALL_LOG: callLog,
+        NODE_ENV: "production",
+        npm_config_omit: "dev",
+        npm_execpath: npmStub,
+      },
     });
 
     expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
@@ -116,7 +122,7 @@ process.stdout.write(${JSON.stringify(cleanReport)});
         .map((line) => JSON.parse(line) as unknown),
     ).toEqual([
       ["audit", "--omit=dev", "--json"],
-      ["audit", "--json"],
+      ["audit", "--include=dev", "--json"],
     ]);
   });
 });
