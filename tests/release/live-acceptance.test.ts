@@ -18,6 +18,7 @@ import {
   createScenarioRegistry,
   createSMTPCredentialScenarioRegistry,
   createStatisticsScenarioRegistry,
+  createSubAccountAPIKeyScenarioRegistry,
   createSubAccountScenarioRegistry,
   createSuppressionScenarioRegistry,
   createWebhookScenarioRegistry,
@@ -31,6 +32,7 @@ import {
   runRouteLiveScenarios,
   runSMTPCredentialLiveScenarios,
   runStatisticsLiveScenarios,
+  runSubAccountAPIKeyLiveScenarios,
   runSubAccountLiveScenarios,
   runSuppressionLiveScenarios,
   runWebhookLiveScenarios,
@@ -48,6 +50,7 @@ import {
   type RouteLiveClient,
   type SMTPCredentialLiveClient,
   type StatisticsLiveClient,
+  type SubAccountAPIKeyLiveClient,
   type SubAccountLiveClient,
   type SuppressionLiveClient,
   type WebhookLiveClient,
@@ -1153,6 +1156,126 @@ function subAccountClientFixture(
     createRequest,
     records,
     suspendRequest,
+    updateRequest,
+  };
+}
+
+function subAccountAPIKeyClientFixture(options: { malformedSecret?: boolean } = {}) {
+  const subAccountId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const keyId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const existingKeyId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  const secret = "child-bootstrap-secret-material";
+  const createRequest = {
+    label: "Disposable child sender",
+    scopes: ["messages:send:all"] as [string, ...string[]],
+  };
+  const updateRequest = { label: "Updated disposable child sender" };
+  const calls: Array<{ method: string; args: unknown[] }> = [];
+  const scopeRecords = (id: string, scopes: readonly string[]) =>
+    scopes.map((scope, index) => ({
+      id: `scope-${index}`,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      api_key_id: id,
+      scope,
+      domain_id: null,
+    }));
+  const record = (id: string, label: string, scopes: readonly string[]) => ({
+    object: "api_key" as const,
+    id,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    last_used_at: null,
+    account_id: subAccountId,
+    label,
+    public_key: `public-${id}`,
+    scopes: scopeRecords(id, scopes),
+    ip_allow_list: [] as string[],
+  });
+  const records = new Map([
+    [existingKeyId, record(existingKeyId, "Existing child key", ["messages:send:all"])],
+  ]);
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const list = vi.fn(
+    async (
+      receivedSubAccountId: string,
+      params: { limit: number; after?: string; before?: string },
+    ) => {
+      calls.push({ method: "list", args: [receivedSubAccountId, params] });
+      return {
+        object: "list" as const,
+        data: [...records.values()].slice(0, params.limit).map((entry) => ({ ...entry })),
+        pagination: { has_more: false },
+      };
+    },
+  );
+  const iterate = vi.fn(async function* (
+    receivedSubAccountId: string,
+    params: { limit: number; after?: string; before?: string },
+  ) {
+    calls.push({ method: "iterate", args: [receivedSubAccountId, params] });
+    for (const entry of [...records.values()].slice(0, params.limit)) yield { ...entry };
+  });
+  const create = vi.fn(
+    async (
+      receivedSubAccountId: string,
+      request: { label: string; scopes: readonly string[]; ip_allow_list?: readonly string[] },
+    ) => {
+      calls.push({ method: "create", args: [receivedSubAccountId, request] });
+      const created = record(keyId, request.label, request.scopes);
+      records.set(keyId, created);
+      return {
+        ...created,
+        ...(options.malformedSecret === true ? {} : { secret_key: secret }),
+      };
+    },
+  );
+  const get = vi.fn(async (receivedSubAccountId: string, receivedKeyId: string) => {
+    calls.push({ method: "get", args: [receivedSubAccountId, receivedKeyId] });
+    const entry = records.get(receivedKeyId);
+    if (entry === undefined) throw notFound();
+    return { ...entry };
+  });
+  const update = vi.fn(
+    async (
+      receivedSubAccountId: string,
+      receivedKeyId: string,
+      request: { label?: string | null; scopes?: readonly string[] | null },
+    ) => {
+      calls.push({ method: "update", args: [receivedSubAccountId, receivedKeyId, request] });
+      const entry = records.get(receivedKeyId);
+      if (entry === undefined) throw notFound();
+      if (request.label !== undefined && request.label !== null) entry.label = request.label;
+      if (request.scopes !== undefined && request.scopes !== null) {
+        entry.scopes = scopeRecords(receivedKeyId, request.scopes);
+      }
+      return { ...entry };
+    },
+  );
+  const deleteKey = vi.fn(async (receivedSubAccountId: string, receivedKeyId: string) => {
+    calls.push({ method: "delete", args: [receivedSubAccountId, receivedKeyId] });
+    if (!records.delete(receivedKeyId)) throw notFound();
+    return { message: "deleted" };
+  });
+  const client: SubAccountAPIKeyLiveClient = {
+    subAccounts: { apiKeys: { list, iterate, create, get, update, delete: deleteKey } },
+  };
+  const ping = vi.fn(async () => ({ message: "pong" }));
+  const createChildClient = vi.fn((receivedSecret: string, receivedAccountId: string) => ({
+    accountId: receivedAccountId,
+    ping,
+  }));
+  return {
+    calls,
+    client,
+    createChildClient,
+    createRequest,
+    existingKeyId,
+    keyId,
+    ping,
+    records,
+    secret,
+    subAccountId,
     updateRequest,
   };
 }
@@ -3395,6 +3518,208 @@ describe("live scenario inventory", () => {
     expect(source).toContain('"disposableDataReported":false');
     expect(source).toContain('"safeIntegersVerified":true');
     expect(source).toContain('"transitionVerified":true');
+  });
+
+  it("registers exactly one executable scenario for every packaged child API-key primary", () => {
+    const fixture = subAccountAPIKeyClientFixture();
+    const registry = createSubAccountAPIKeyScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      subAccountId: fixture.subAccountId,
+      createChildClient: fixture.createChildClient,
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    });
+    const entries = [...registry.primary.values()].filter(
+      ({ facade }) => facade === "subAccounts.apiKeys",
+    );
+
+    expect(entries.map(({ operationId }) => operationId).sort()).toEqual(
+      [
+        "listSubAccountAPIKeys",
+        "createSubAccountAPIKey",
+        "getSubAccountAPIKey",
+        "updateSubAccountAPIKey",
+        "deleteSubAccountAPIKey",
+      ].sort(),
+    );
+    expect(entries).toHaveLength(5);
+    expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, SubAccountAPIKeyLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("links child-key iteration and preserves subaccount-before-key identifier order", async () => {
+    const fixture = subAccountAPIKeyClientFixture();
+    const pagination = { limit: 2, before: "previous-page" };
+    const registry = createSubAccountAPIKeyScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      subAccountId: fixture.subAccountId,
+      createChildClient: fixture.createChildClient,
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+      pagination,
+    });
+
+    const result = await runSubAccountAPIKeyLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(
+      result.operationResults.filter(({ operationId }) => operationId === "listSubAccountAPIKeys"),
+    ).toHaveLength(1);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "listSubAccountAPIKeys",
+        status: "passed",
+        evidence: { direction: "backward", items: 1, limit: 2 },
+      },
+    ]);
+    expect(fixture.client.subAccounts.apiKeys.list).toHaveBeenCalledWith(
+      fixture.subAccountId,
+      pagination,
+    );
+    expect(fixture.client.subAccounts.apiKeys.iterate).toHaveBeenCalledWith(
+      fixture.subAccountId,
+      pagination,
+    );
+    expect(fixture.client.subAccounts.apiKeys.create).toHaveBeenCalledWith(fixture.subAccountId, {
+      ...fixture.createRequest,
+      ip_allow_list: [],
+    });
+    expect(fixture.client.subAccounts.apiKeys.get).toHaveBeenCalledWith(
+      fixture.subAccountId,
+      fixture.keyId,
+    );
+    expect(fixture.client.subAccounts.apiKeys.update).toHaveBeenCalledWith(
+      fixture.subAccountId,
+      fixture.keyId,
+      fixture.updateRequest,
+    );
+    expect(fixture.client.subAccounts.apiKeys.delete).toHaveBeenCalledWith(
+      fixture.subAccountId,
+      fixture.keyId,
+    );
+    expect(
+      registry.iterators.filter(({ facade }) => facade === "subAccounts.apiKeys"),
+    ).toHaveLength(1);
+    expect(registry.primary.get("listSubAccountAPIKeys")?.iterator).toMatchObject({
+      operationId: "listSubAccountAPIKeys",
+      method: "iterate",
+    });
+
+    expect(() =>
+      createSubAccountAPIKeyScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        subAccountId: fixture.subAccountId,
+        createChildClient: fixture.createChildClient,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        pagination: { limit: 0 },
+      }),
+    ).toThrow("limit must be an integer from 1 to 100");
+  });
+
+  it("bootstraps only the child client and keeps nested-key authority on the parent", async () => {
+    const fixture = subAccountAPIKeyClientFixture();
+    const result = await runSubAccountAPIKeyLiveScenarios(
+      createSubAccountAPIKeyScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        subAccountId: fixture.subAccountId,
+        createChildClient: fixture.createChildClient,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(fixture.createChildClient).toHaveBeenCalledOnce();
+    expect(fixture.createChildClient).toHaveBeenCalledWith(fixture.secret, fixture.subAccountId);
+    expect(fixture.ping).toHaveBeenCalledOnce();
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "createSubAccountAPIKey"),
+    ).toMatchObject({
+      evidence: {
+        bootstrapAuthenticated: true,
+        parentManaged: true,
+        secretsReported: false,
+        unsupportedAuthorityGranted: false,
+      },
+    });
+
+    for (const scope of ["sub-accounts:create", "sub-account-api-keys:write"]) {
+      expect(() =>
+        createSubAccountAPIKeyScenarioRegistry({
+          profile: inspectFixture().profile,
+          client: fixture.client,
+          subAccountId: fixture.subAccountId,
+          createChildClient: fixture.createChildClient,
+          createRequest: { label: "unsafe child key", scopes: [scope] },
+          updateRequest: fixture.updateRequest,
+        }),
+      ).toThrow("cannot grant child credentials sub-account management authority");
+    }
+  });
+
+  it("registers child-key cleanup before validating the creation-only secret", async () => {
+    const fixture = subAccountAPIKeyClientFixture({ malformedSecret: true });
+    const result = await runSubAccountAPIKeyLiveScenarios(
+      createSubAccountAPIKeyScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        subAccountId: fixture.subAccountId,
+        createChildClient: fixture.createChildClient,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+      }),
+    );
+
+    expect(result.failure).toEqual({
+      phase: "operation",
+      operationId: "createSubAccountAPIKey",
+    });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable child API-key fixture", status: "passed" },
+    ]);
+    expect(fixture.records.has(fixture.keyId)).toBe(false);
+    expect(fixture.records.has(fixture.existingKeyId)).toBe(true);
+    expect(fixture.createChildClient).not.toHaveBeenCalled();
+  });
+
+  it("keeps child-key secrets and disposable identifiers out of live reports", async () => {
+    const candidate = inspectFixture();
+    const fixture = subAccountAPIKeyClientFixture();
+    const result = await runSubAccountAPIKeyLiveScenarios(
+      createSubAccountAPIKeyScenarioRegistry({
+        profile: candidate.profile,
+        client: fixture.client,
+        subAccountId: fixture.subAccountId,
+        createChildClient: fixture.createChildClient,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+      }),
+    );
+    const source = canonicalizeJson(
+      createLiveReport({
+        candidate,
+        operationResults: result.operationResults,
+        iteratorResults: result.iteratorResults,
+        cleanupResults: result.cleanupResults,
+        secrets: [fixture.secret, fixture.subAccountId, fixture.keyId],
+      }),
+    ).toString("utf8");
+
+    expect(source).not.toContain(fixture.secret);
+    expect(source).not.toContain(fixture.subAccountId);
+    expect(source).not.toContain(fixture.keyId);
+    expect(source).not.toContain(fixture.createRequest.label);
+    expect(source).not.toContain(fixture.updateRequest.label);
+    expect(source).not.toContain("secret_key");
+    expect(source).toContain('"bootstrapAuthenticated":true');
+    expect(source).toContain('"secretsReported":false');
+    expect(source).toContain('"unsupportedAuthorityGranted":false');
   });
 
   it("registers exactly one executable scenario for every packaged statistics primary", () => {

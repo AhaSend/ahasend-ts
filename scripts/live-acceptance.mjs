@@ -98,6 +98,13 @@ const subAccountOperationIds = Object.freeze([
   "unsuspendSubAccount",
   "deleteSubAccount",
 ]);
+const subAccountAPIKeyOperationIds = Object.freeze([
+  "listSubAccountAPIKeys",
+  "createSubAccountAPIKey",
+  "getSubAccountAPIKey",
+  "updateSubAccountAPIKey",
+  "deleteSubAccountAPIKey",
+]);
 const mutableAccountFields = Object.freeze([
   "name",
   "website",
@@ -529,10 +536,12 @@ export function createScenarioRegistry(
 
 function requireMappedClientMethod(value, mapping, label) {
   const client = requireObject(value, "Live client");
-  const facade =
-    mapping.facade === "client"
-      ? client
-      : requireObject(client[mapping.facade], `${label} ${mapping.facade} facade`);
+  let facade = client;
+  if (mapping.facade !== "client") {
+    for (const segment of mapping.facade.split(".")) {
+      facade = requireObject(facade[segment], `${label} ${mapping.facade} facade`);
+    }
+  }
   const method = facade[mapping.method];
   if (typeof method !== "function") {
     throw new TypeError(
@@ -574,15 +583,17 @@ function requireLivePagination(value, scenarioLabel) {
   return Object.freeze({ ...pagination });
 }
 
-async function runListIteratorScenario(list, iterate, pageParams, label) {
+async function runListIteratorScenario(list, iterate, pageParams, label, validateEntry = () => {}) {
   const page = requireObject(await list(pageParams), `${label} list response`);
   if (!Array.isArray(page.data)) {
     throw new TypeError(`${label} list response data must be an array.`);
   }
   requireObject(page.pagination, `${label} list response pagination`);
+  page.data.forEach((entry, index) => validateEntry(entry, `${label} list response item ${index}`));
 
   let itemCount = 0;
-  for await (const _entry of iterate(pageParams)) {
+  for await (const entry of iterate(pageParams)) {
+    validateEntry(entry, `${label} iterator item ${itemCount}`);
     itemCount += 1;
     if (itemCount >= pageParams.limit) break;
   }
@@ -3582,6 +3593,322 @@ export function createSubAccountScenarioRegistry({
 /** Execute the disposable child lifecycle and always drain registered cleanup. */
 export function runSubAccountLiveScenarios(registry) {
   return runLiveScenarios(registry, subAccountOperationIds, "listSubAccounts", "Sub-account");
+}
+
+function isUnsupportedChildAPIKeyScope(scope) {
+  return scope.startsWith("sub-accounts:") || scope.startsWith("sub-account-api-keys:");
+}
+
+function requireChildAPIKeyScopes(value, label) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new TypeError(`${label} must contain at least one scope.`);
+  }
+  const scopes = value.map((scope, index) => requireString(scope, `${label} ${index}`));
+  const unsupported = scopes.filter(isUnsupportedChildAPIKeyScope);
+  if (unsupported.length > 0) {
+    throw new TypeError(
+      `${label} cannot grant child credentials sub-account management authority.`,
+    );
+  }
+  return Object.freeze(scopes);
+}
+
+function requireChildAPIKeyCreateRequest(value) {
+  const request = requireObject(value, "Child API-key live create request");
+  const unexpected = Object.keys(request).filter(
+    (field) => !["ip_allow_list", "label", "scopes"].includes(field),
+  );
+  if (unexpected.length > 0) {
+    throw new TypeError(
+      `Child API-key live create request contains unexpected fields ${JSON.stringify(unexpected)}.`,
+    );
+  }
+  const label = requireString(request.label, "Child API-key live create request label");
+  const scopes = requireChildAPIKeyScopes(
+    request.scopes,
+    "Child API-key live create request scopes",
+  );
+  if (
+    request.ip_allow_list !== undefined &&
+    (!Array.isArray(request.ip_allow_list) || request.ip_allow_list.length !== 0)
+  ) {
+    throw new TypeError(
+      "Child API-key live create request ip_allow_list must be empty or omitted.",
+    );
+  }
+  return Object.freeze({ label, scopes, ip_allow_list: Object.freeze([]) });
+}
+
+function requireChildAPIKeyUpdateRequest(value, createBody) {
+  const request = requireObject(value, "Child API-key live update request");
+  const fields = Object.keys(request);
+  const unexpected = fields.filter(
+    (field) => !["ip_allow_list", "label", "scopes"].includes(field),
+  );
+  if (fields.length === 0 || unexpected.length > 0) {
+    throw new TypeError(
+      `Child API-key live update request must contain editable fields only; unexpected ${JSON.stringify(unexpected)}.`,
+    );
+  }
+  if (request.label !== undefined && request.label !== null) {
+    requireString(request.label, "Child API-key live update request label");
+  }
+  if (request.scopes !== undefined && request.scopes !== null) {
+    requireChildAPIKeyScopes(request.scopes, "Child API-key live update request scopes");
+  }
+  if (
+    request.ip_allow_list !== undefined &&
+    request.ip_allow_list !== null &&
+    !Array.isArray(request.ip_allow_list)
+  ) {
+    throw new TypeError(
+      "Child API-key live update request ip_allow_list must be an array or null.",
+    );
+  }
+  if (fields.every((field) => request[field] === createBody[field])) {
+    throw new TypeError("Child API-key live update request must change the created API key.");
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireChildAPIKeyResult(value, subAccountId, label, expectedId) {
+  const result = requireObject(value, label);
+  const id = requireString(result.id, `${label} id`);
+  if (
+    result.object !== "api_key" ||
+    result.account_id !== subAccountId ||
+    (expectedId !== undefined && id !== expectedId)
+  ) {
+    throw new TypeError(`${label} returned the wrong child API key.`);
+  }
+  requireString(result.label, `${label} label`);
+  requireChildAPIKeyScopes(
+    result.scopes.map((scope, index) => {
+      const record = requireObject(scope, `${label} scope ${index}`);
+      return record.scope;
+    }),
+    `${label} scopes`,
+  );
+  if (!Array.isArray(result.ip_allow_list)) {
+    throw new TypeError(`${label} ip_allow_list must be an array.`);
+  }
+  return Object.freeze({ id, result });
+}
+
+function requireChildAPIKeyReadResult(value, subAccountId, label, expectedId) {
+  const parsed = requireChildAPIKeyResult(value, subAccountId, label, expectedId);
+  if (Object.hasOwn(parsed.result, "secret_key")) {
+    throw new TypeError(`${label} must not expose the creation-only secret.`);
+  }
+  return parsed;
+}
+
+/**
+ * Build the five child API-key scenarios beneath an already disposable child.
+ * The parent client owns all nested-key mutations and cleanup. The one-time
+ * secret is passed only to the child-client bootstrap factory.
+ */
+export function createSubAccountAPIKeyScenarioRegistry({
+  profile,
+  client,
+  subAccountId,
+  createChildClient,
+  createRequest,
+  updateRequest,
+  pagination = { limit: 1 },
+}) {
+  if (typeof createChildClient !== "function") {
+    throw new TypeError("Child API-key client factory must be a function.");
+  }
+  const childId = requireString(subAccountId, "Disposable sub-account id");
+  const mappings = requireLifecycleMappings(
+    profile,
+    subAccountAPIKeyOperationIds,
+    "subAccounts.apiKeys",
+    "listSubAccountAPIKeys",
+    "child API-key",
+  );
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Child API-key ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("listSubAccountAPIKeys"),
+    iterate: requireMappedClientMethod(
+      client,
+      mappings.iterator,
+      "Child API-key iterator scenario",
+    ),
+    create: mappedOperation("createSubAccountAPIKey"),
+    get: mappedOperation("getSubAccountAPIKey"),
+    update: mappedOperation("updateSubAccountAPIKey"),
+    delete: mappedOperation("deleteSubAccountAPIKey"),
+  });
+  const createBody = requireChildAPIKeyCreateRequest(createRequest);
+  const updateBody = requireChildAPIKeyUpdateRequest(updateRequest, createBody);
+  const pageParams = requireLivePagination(pagination, "Child API-key");
+  let keyId;
+  const fixtureId = () => requireString(keyId, "Disposable child API-key fixture id");
+  const validateReadEntry = (entry, label) => requireChildAPIKeyReadResult(entry, childId, label);
+
+  const scenarios = new Map([
+    [
+      "listSubAccountAPIKeys",
+      {
+        operationId: "listSubAccountAPIKeys",
+        async run() {
+          return runListIteratorScenario(
+            (params) => methods.list(childId, params),
+            (params) => methods.iterate(childId, params),
+            pageParams,
+            "Child API-key",
+            validateReadEntry,
+          );
+        },
+      },
+    ],
+    [
+      "createSubAccountAPIKey",
+      {
+        operationId: "createSubAccountAPIKey",
+        async run({ cleanup }) {
+          const created = requireObject(
+            await methods.create(childId, createBody),
+            "Child API-key create scenario response",
+          );
+          const createdId = requireString(created.id, "Child API-key create scenario response id");
+          keyId = createdId;
+          cleanup.register("delete and verify disposable child API-key fixture", async () => {
+            try {
+              await methods.delete(childId, createdId);
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
+            }
+            await requireResourceAbsent(
+              (id) => methods.get(childId, id),
+              createdId,
+              "Child API-key cleanup verification",
+              "child API key",
+            );
+          });
+          const parsed = requireChildAPIKeyResult(
+            created,
+            childId,
+            "Child API-key create scenario response",
+            createdId,
+          );
+          const secret = requireString(
+            parsed.result.secret_key,
+            "Child API-key create scenario response secret",
+          );
+          const childClient = requireObject(
+            createChildClient(secret, childId),
+            "Bootstrapped child client",
+          );
+          if (childClient.accountId !== childId) {
+            throw new TypeError(
+              "Bootstrapped child client must use the disposable sub-account id.",
+            );
+          }
+          const ping = requireMappedClientMethod(
+            childClient,
+            { facade: "client", method: "ping" },
+            "Bootstrapped child client",
+          );
+          const response = requireObject(await ping(), "Bootstrapped child client ping response");
+          requireString(response.message, "Bootstrapped child client ping response message");
+          return Object.freeze({
+            evidence: Object.freeze({
+              bootstrapAuthenticated: true,
+              cleanupRegistered: true,
+              parentManaged: true,
+              secretsReported: false,
+              unsupportedAuthorityGranted: false,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getSubAccountAPIKey",
+      {
+        operationId: "getSubAccountAPIKey",
+        async run() {
+          const id = fixtureId();
+          requireChildAPIKeyReadResult(
+            await methods.get(childId, id),
+            childId,
+            "Child API-key get scenario response",
+            id,
+          );
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "updateSubAccountAPIKey",
+      {
+        operationId: "updateSubAccountAPIKey",
+        async run() {
+          const id = fixtureId();
+          const updated = requireChildAPIKeyReadResult(
+            await methods.update(childId, id, updateBody),
+            childId,
+            "Child API-key update scenario response",
+            id,
+          );
+          for (const [field, expected] of Object.entries(updateBody)) {
+            if (field === "scopes" || field === "ip_allow_list") continue;
+            if (updated.result[field] !== expected) {
+              throw new TypeError(`Child API-key update scenario did not preserve ${field}.`);
+            }
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              parentManaged: true,
+              updatedFields: Object.keys(updateBody).length,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteSubAccountAPIKey",
+      {
+        operationId: "deleteSubAccountAPIKey",
+        async run() {
+          const id = fixtureId();
+          await methods.delete(childId, id);
+          await requireResourceAbsent(
+            (key) => methods.get(childId, key),
+            id,
+            "Child API-key delete scenario verification",
+            "child API key",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupVerified: true, deleted: true }),
+          });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute child API-key scenarios in lifecycle order and always drain cleanup. */
+export function runSubAccountAPIKeyLiveScenarios(registry) {
+  return runLiveScenarios(
+    registry,
+    subAccountAPIKeyOperationIds,
+    "listSubAccountAPIKeys",
+    "Child API-key",
+  );
 }
 
 export function createCleanupRegistry() {

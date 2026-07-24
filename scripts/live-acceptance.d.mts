@@ -735,6 +735,58 @@ export type SubAccountLiveRun = DomainLiveRun;
 
 export function runSubAccountLiveScenarios(registry: ScenarioRegistry): Promise<SubAccountLiveRun>;
 
+export interface SubAccountAPIKeyLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly update: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+}
+
+export interface SubAccountAPIKeyLiveClient {
+  readonly subAccounts: {
+    readonly apiKeys: SubAccountAPIKeyLiveFacade;
+  };
+}
+
+export interface ChildBootstrapLiveClient {
+  readonly accountId: string;
+  readonly ping: (...args: never[]) => unknown;
+}
+
+export interface SubAccountAPIKeyLiveCreateRequest {
+  readonly label: string;
+  readonly scopes: readonly [string, ...string[]];
+  readonly ip_allow_list?: readonly [];
+}
+
+export interface SubAccountAPIKeyLiveUpdateRequest {
+  readonly label?: string | null;
+  readonly scopes?: readonly string[] | null;
+  readonly ip_allow_list?: readonly string[] | null;
+}
+
+export interface CreateSubAccountAPIKeyScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: SubAccountAPIKeyLiveClient;
+  readonly subAccountId: string;
+  readonly createChildClient: (secretKey: string, subAccountId: string) => ChildBootstrapLiveClient;
+  readonly createRequest: SubAccountAPIKeyLiveCreateRequest;
+  readonly updateRequest: SubAccountAPIKeyLiveUpdateRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createSubAccountAPIKeyScenarioRegistry(
+  options: CreateSubAccountAPIKeyScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type SubAccountAPIKeyLiveRun = DomainLiveRun;
+
+export function runSubAccountAPIKeyLiveScenarios(
+  registry: ScenarioRegistry,
+): Promise<SubAccountAPIKeyLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";
