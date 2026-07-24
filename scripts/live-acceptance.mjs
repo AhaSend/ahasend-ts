@@ -62,6 +62,13 @@ const routeOperationIds = Object.freeze([
   "updateRoute",
   "deleteRoute",
 ]);
+const webhookOperationIds = Object.freeze([
+  "getWebhooks",
+  "createWebhook",
+  "getWebhook",
+  "updateWebhook",
+  "deleteWebhook",
+]);
 const restrictedApiKeyAddress = "192.0.2.7";
 const canonicalRestrictedApiKeyAddress = `${restrictedApiKeyAddress}/32`;
 const selfLockoutAddress = "192.0.2.1/32";
@@ -1951,6 +1958,363 @@ export function createRouteScenarioRegistry({
 /** Execute route scenarios in lifecycle order and always drain cleanup. */
 export function runRouteLiveScenarios(registry) {
   return runLiveScenarios(registry, routeOperationIds, "getRoutes", "Route");
+}
+
+function requireWebhookAuthorizationRule(value, operationId) {
+  const label = `Packaged ${operationId} authorization metadata`;
+  const rule = requireObject(value, label);
+  const roles = requireObject(rule.roles, `${label} roles`);
+  requireString(roles.global, `${label} global role`);
+  const domainRole = requireString(roles.domain, `${label} domain role`);
+  if (!domainRole.includes("{domain}")) {
+    throw new TypeError(`${label} domain role must contain the {domain} placeholder.`);
+  }
+
+  if (operationId === "createWebhook") {
+    if (
+      rule.kind !== "all_body_domains" ||
+      rule.bodyPath !== "domains" ||
+      rule.scopeBodyPath !== "scope" ||
+      rule.globalValue !== "global" ||
+      rule.quantifier !== "every" ||
+      rule.condition !== "global_scope_requires_global_role"
+    ) {
+      throw new TypeError(
+        `${label} must authorize every scoped domain and require the global role for global scope.`,
+      );
+    }
+    return Object.freeze({
+      quantifier: rule.quantifier,
+      source: `body.${rule.bodyPath}`,
+    });
+  }
+  if (
+    rule.kind !== "existing_and_new_domains" ||
+    rule.resource !== "webhook" ||
+    rule.resourceIdParameter !== "webhook_id" ||
+    rule.existingPath !== "domains" ||
+    rule.newBodyPath !== "domains" ||
+    rule.scopeBodyPath !== "scope" ||
+    rule.globalValue !== "global" ||
+    rule.quantifier !== "every" ||
+    rule.transition !== "global_scope_requires_global_role"
+  ) {
+    throw new TypeError(
+      `${label} must authorize existing and new domains and require the global role for global transitions.`,
+    );
+  }
+  return Object.freeze({
+    existingSource: `existing.${rule.existingPath}`,
+    globalRoleRequired: true,
+    newSource: `body.${rule.newBodyPath}`,
+    quantifier: rule.quantifier,
+    scopeSource: `body.${rule.scopeBodyPath}`,
+  });
+}
+
+function assertWebhookMappings(profile, authorization) {
+  const mappings = requireLifecycleMappings(
+    profile,
+    webhookOperationIds,
+    "webhooks",
+    "getWebhooks",
+    "configured-webhook",
+  );
+  const authorizationRegistry = requireObject(authorization, "Packaged authorization registry");
+  return Object.freeze({
+    ...mappings,
+    authorization: Object.freeze({
+      create: requireWebhookAuthorizationRule(authorizationRegistry.createWebhook, "createWebhook"),
+      update: requireWebhookAuthorizationRule(authorizationRegistry.updateWebhook, "updateWebhook"),
+    }),
+  });
+}
+
+function requireControlledWebhookDomains(value) {
+  const controlledDomains = requireObject(value, "Controlled configured-webhook domains");
+  const normalize = (domains, label) => {
+    if (!Array.isArray(domains) || domains.length === 0) {
+      throw new TypeError(`${label} must contain at least one domain.`);
+    }
+    const normalized = domains.map((domain, index) =>
+      requireString(domain, `${label} entry ${index}`).toLowerCase(),
+    );
+    if (
+      normalized.some(
+        (domain) =>
+          domain.trim() !== domain || domain === "" || domain.includes("@") || domain.includes(","),
+      ) ||
+      new Set(normalized).size !== normalized.length
+    ) {
+      throw new TypeError(`${label} must contain distinct domain names.`);
+    }
+    return Object.freeze(normalized);
+  };
+  const existing = normalize(controlledDomains.existing, "Existing controlled webhook domains");
+  const newlySupplied = normalize(
+    controlledDomains.newlySupplied,
+    "Newly supplied controlled webhook domains",
+  );
+  if (newlySupplied.some((domain) => existing.includes(domain))) {
+    throw new TypeError("Existing and newly supplied controlled webhook domains must be distinct.");
+  }
+  return Object.freeze({ existing, newlySupplied });
+}
+
+function requireWebhookRequest(value, label, expectedDomains, requiredKeys) {
+  const request = requireObject(value, label);
+  for (const key of requiredKeys) requireString(request[key], `${label} ${key}`);
+  if (request.scope !== "scoped") {
+    throw new TypeError(`${label} scope must be scoped.`);
+  }
+  requireWebhookDomains(request.domains, expectedDomains, `${label} domains`);
+  return Object.freeze({ ...request, domains: Object.freeze([...expectedDomains]) });
+}
+
+function requireWebhookDomains(value, expectedDomains, label) {
+  if (!Array.isArray(value) || value.length !== expectedDomains.length) {
+    throw new TypeError(`${label} must contain every controlled domain.`);
+  }
+  const actual = value.map((domain, index) =>
+    requireString(domain, `${label} entry ${index}`).toLowerCase(),
+  );
+  if (
+    new Set(actual).size !== actual.length ||
+    expectedDomains.some((domain) => !actual.includes(domain))
+  ) {
+    throw new TypeError(`${label} must contain every controlled domain.`);
+  }
+  return Object.freeze(actual);
+}
+
+function requireWebhookResult(value, webhookId, scope, expectedDomains, label) {
+  const result = requireObject(value, label);
+  if (requireString(result.id, `${label} id`) !== webhookId) {
+    throw new TypeError(`${label} returned the wrong configured webhook.`);
+  }
+  if (result.scope !== scope) {
+    throw new TypeError(`${label} returned the wrong configured-webhook scope.`);
+  }
+  requireWebhookDomains(result.domains, expectedDomains, `${label} domains`);
+  return result;
+}
+
+/**
+ * Build the five configured-webhook lifecycle scenarios. The update primary
+ * covers existing associations, new domains, scoped clearing, and the
+ * global-scope authorization transition without reporting domain values.
+ */
+export function createWebhookScenarioRegistry({
+  profile,
+  client,
+  authorization,
+  controlledDomains,
+  createRequest,
+  updateRequest,
+  pagination = { limit: 1 },
+}) {
+  const mappings = assertWebhookMappings(profile, authorization);
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Configured-webhook ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("getWebhooks"),
+    iterate: requireMappedClientMethod(
+      client,
+      mappings.iterator,
+      "Configured-webhook iterator scenario",
+    ),
+    create: mappedOperation("createWebhook"),
+    get: mappedOperation("getWebhook"),
+    update: mappedOperation("updateWebhook"),
+    delete: mappedOperation("deleteWebhook"),
+  });
+  const domains = requireControlledWebhookDomains(controlledDomains);
+  const createBody = requireWebhookRequest(
+    createRequest,
+    "Configured-webhook live create request",
+    domains.existing,
+    ["name", "url"],
+  );
+  const updateBody = requireWebhookRequest(
+    updateRequest,
+    "Configured-webhook live update request",
+    domains.newlySupplied,
+    [],
+  );
+  const pageParams = requireLivePagination(pagination, "Configured-webhook");
+
+  let webhookId;
+  const fixtureId = () => requireString(webhookId, "Configured-webhook fixture id");
+  const scenarios = new Map([
+    [
+      "getWebhooks",
+      {
+        operationId: "getWebhooks",
+        async run() {
+          return runListIteratorScenario(
+            methods.list,
+            methods.iterate,
+            pageParams,
+            "Configured-webhook",
+          );
+        },
+      },
+    ],
+    [
+      "createWebhook",
+      {
+        operationId: "createWebhook",
+        async run({ cleanup }) {
+          const result = requireObject(
+            await methods.create(createBody),
+            "Configured-webhook create scenario response",
+          );
+          const createdWebhookId = requireString(
+            result.id,
+            "Configured-webhook create scenario response id",
+          );
+          webhookId = createdWebhookId;
+          cleanup.register("delete and verify configured-webhook fixture", async () => {
+            try {
+              await methods.delete(createdWebhookId);
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
+            }
+            await requireResourceAbsent(
+              methods.get,
+              createdWebhookId,
+              "Configured-webhook cleanup verification",
+              "configured webhook",
+            );
+          });
+          requireWebhookResult(
+            result,
+            createdWebhookId,
+            "scoped",
+            domains.existing,
+            "Configured-webhook create scenario response",
+          );
+          requireString(result.secret, "Configured-webhook create scenario response secret");
+          return Object.freeze({
+            evidence: Object.freeze({
+              cleanupRegistered: true,
+              scopedAuthorization: Object.freeze({
+                controlled: true,
+                domainsVerified: domains.existing.length,
+                quantifier: mappings.authorization.create.quantifier,
+                source: mappings.authorization.create.source,
+              }),
+              secretsReported: false,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getWebhook",
+      {
+        operationId: "getWebhook",
+        async run() {
+          const id = fixtureId();
+          requireWebhookResult(
+            await methods.get(id),
+            id,
+            "scoped",
+            domains.existing,
+            "Configured-webhook get scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              existingAssociationsVerified: domains.existing.length,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "updateWebhook",
+      {
+        operationId: "updateWebhook",
+        async run() {
+          const id = fixtureId();
+          requireWebhookResult(
+            await methods.get(id),
+            id,
+            "scoped",
+            domains.existing,
+            "Configured-webhook existing-association authorization check",
+          );
+          requireWebhookResult(
+            await methods.update(id, updateBody),
+            id,
+            "scoped",
+            domains.newlySupplied,
+            "Configured-webhook new-domain update response",
+          );
+          requireWebhookResult(
+            await methods.update(id, { scope: "scoped", domains: [] }),
+            id,
+            "scoped",
+            [],
+            "Configured-webhook scoped-clearing response",
+          );
+          requireWebhookResult(
+            await methods.update(id, { scope: "global" }),
+            id,
+            "global",
+            [],
+            "Configured-webhook global-transition response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              domainAuthorization: Object.freeze({
+                existingAssociationsVerified: domains.existing.length,
+                existingSource: mappings.authorization.update.existingSource,
+                globalRoleRequired: mappings.authorization.update.globalRoleRequired,
+                newDomainsVerified: domains.newlySupplied.length,
+                newSource: mappings.authorization.update.newSource,
+                quantifier: mappings.authorization.update.quantifier,
+                scopeSource: mappings.authorization.update.scopeSource,
+              }),
+              globalTransitionVerified: true,
+              scopedClearingVerified: true,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteWebhook",
+      {
+        operationId: "deleteWebhook",
+        async run() {
+          const id = fixtureId();
+          await methods.delete(id);
+          await requireResourceAbsent(
+            methods.get,
+            id,
+            "Configured-webhook delete scenario verification",
+            "configured webhook",
+          );
+          return Object.freeze({ evidence: Object.freeze({ deleted: true }) });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute configured-webhook scenarios in lifecycle order and always drain cleanup. */
+export function runWebhookLiveScenarios(registry) {
+  return runLiveScenarios(registry, webhookOperationIds, "getWebhooks", "Configured-webhook");
 }
 
 export function createCleanupRegistry() {

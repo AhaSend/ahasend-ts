@@ -427,6 +427,113 @@ export type RouteLiveRun = DomainLiveRun;
 
 export function runRouteLiveScenarios(registry: ScenarioRegistry): Promise<RouteLiveRun>;
 
+export interface WebhookLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly update: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+}
+
+export interface WebhookLiveClient {
+  readonly webhooks: WebhookLiveFacade;
+}
+
+export interface WebhookLiveCreateRequest {
+  readonly name: string;
+  readonly url: string;
+  readonly scope: "scoped";
+  readonly domains: readonly [string, ...string[]];
+  readonly enabled?: boolean;
+  readonly on_reception?: boolean;
+  readonly on_delivered?: boolean;
+  readonly on_transient_error?: boolean;
+  readonly on_failed?: boolean;
+  readonly on_bounced?: boolean;
+  readonly on_suppressed?: boolean;
+  readonly on_opened?: boolean;
+  readonly on_clicked?: boolean;
+  readonly on_suppression_created?: boolean;
+  readonly on_dns_error?: boolean;
+}
+
+export interface WebhookLiveUpdateRequest {
+  readonly name?: string | null;
+  readonly url?: string | null;
+  readonly enabled?: boolean | null;
+  readonly on_reception?: boolean | null;
+  readonly on_delivered?: boolean | null;
+  readonly on_transient_error?: boolean | null;
+  readonly on_failed?: boolean | null;
+  readonly on_bounced?: boolean | null;
+  readonly on_suppressed?: boolean | null;
+  readonly on_opened?: boolean | null;
+  readonly on_clicked?: boolean | null;
+  readonly on_suppression_created?: boolean | null;
+  readonly on_dns_error?: boolean | null;
+  readonly scope: "scoped";
+  readonly domains: readonly [string, ...string[]];
+}
+
+export interface WebhookCreateAuthorizationRule {
+  readonly kind: "all_body_domains";
+  readonly bodyPath: "domains";
+  readonly scopeBodyPath: "scope";
+  readonly globalValue: "global";
+  readonly quantifier: "every";
+  readonly condition: "global_scope_requires_global_role";
+  readonly roles: {
+    readonly global: string;
+    readonly domain: string;
+  };
+  readonly summary?: string;
+}
+
+export interface WebhookUpdateAuthorizationRule {
+  readonly kind: "existing_and_new_domains";
+  readonly resource: "webhook";
+  readonly resourceIdParameter: "webhook_id";
+  readonly existingPath: "domains";
+  readonly newBodyPath: "domains";
+  readonly scopeBodyPath: "scope";
+  readonly globalValue: "global";
+  readonly quantifier: "every";
+  readonly transition: "global_scope_requires_global_role";
+  readonly roles: {
+    readonly global: string;
+    readonly domain: string;
+  };
+  readonly summary?: string;
+}
+
+export interface WebhookAuthorizationRegistry {
+  readonly createWebhook: WebhookCreateAuthorizationRule;
+  readonly updateWebhook: WebhookUpdateAuthorizationRule;
+  readonly [operationId: string]: unknown;
+}
+
+export interface CreateWebhookScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: WebhookLiveClient;
+  readonly authorization: WebhookAuthorizationRegistry;
+  readonly controlledDomains: {
+    readonly existing: readonly [string, ...string[]];
+    readonly newlySupplied: readonly [string, ...string[]];
+  };
+  readonly createRequest: WebhookLiveCreateRequest;
+  readonly updateRequest: WebhookLiveUpdateRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createWebhookScenarioRegistry(
+  options: CreateWebhookScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type WebhookLiveRun = DomainLiveRun;
+
+export function runWebhookLiveScenarios(registry: ScenarioRegistry): Promise<WebhookLiveRun>;
+
 export interface CleanupResult {
   readonly label: string;
   readonly status: "passed" | "failed";

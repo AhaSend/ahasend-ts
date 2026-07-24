@@ -16,6 +16,7 @@ import {
   createRouteScenarioRegistry,
   createScenarioRegistry,
   createStatisticsScenarioRegistry,
+  createWebhookScenarioRegistry,
   inspectLiveCandidate,
   installLiveCandidate,
   loadLiveCandidate,
@@ -24,6 +25,7 @@ import {
   runMessageLiveScenarios,
   runRouteLiveScenarios,
   runStatisticsLiveScenarios,
+  runWebhookLiveScenarios,
   runWithCleanup,
   validateLiveReportArtifacts,
   validatePackagedLiveProfile,
@@ -36,6 +38,7 @@ import {
   type MessageLiveClient,
   type RouteLiveClient,
   type StatisticsLiveClient,
+  type WebhookLiveClient,
 } from "../../scripts/live-acceptance.mjs";
 import liveReportSchema from "../../scripts/live-report.schema.json";
 
@@ -524,6 +527,122 @@ function routeClientFixture(options: { malformedSecret?: boolean } = {}) {
       url: "https://example.test/route-updated",
       recipient: replacementRecipient,
     },
+  };
+}
+
+function webhookClientFixture(options: { malformedSecret?: boolean } = {}) {
+  const existingDomains = ["webhook-existing.example", "webhook-second.example"] as const;
+  const newlySuppliedDomains = ["webhook-new.example", "webhook-newer.example"] as const;
+  const webhookId = "44444444-4444-4444-8444-444444444444";
+  const webhookSecret = `aha-webhook-${"W".repeat(64)}`;
+  const authorizationChecks: string[] = [];
+  let record:
+    | {
+        id: string;
+        name: string;
+        url: string;
+        scope: "global" | "scoped";
+        domains: string[];
+      }
+    | undefined;
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const list = vi.fn(async (_params: { limit: number; after?: string; before?: string }) => ({
+    object: "list" as const,
+    data: record === undefined ? [] : [{ ...record, domains: [...record.domains] }],
+    pagination: { has_more: false, next_cursor: null, prev_cursor: null },
+  }));
+  const iterate = vi.fn(async function* (_params: {
+    limit: number;
+    after?: string;
+    before?: string;
+  }) {
+    if (record !== undefined) yield { ...record, domains: [...record.domains] };
+  });
+  const create = vi.fn(
+    async (request: { name: string; url: string; scope: "scoped"; domains: readonly string[] }) => {
+      for (const domain of request.domains) {
+        if (!existingDomains.includes(domain as (typeof existingDomains)[number])) {
+          throw Object.assign(new Error("webhook domain is not authorized"), { status: 403 });
+        }
+        authorizationChecks.push(`create:body.domains:${domain}`);
+      }
+      record = {
+        id: webhookId,
+        ...request,
+        domains: [...request.domains],
+      };
+      return {
+        ...record,
+        ...(options.malformedSecret === true ? {} : { secret: webhookSecret }),
+      };
+    },
+  );
+  const get = vi.fn(async (id: string) => {
+    if (record === undefined || id !== record.id) throw notFound();
+    return { ...record, domains: [...record.domains] };
+  });
+  const update = vi.fn(
+    async (
+      id: string,
+      request: {
+        name?: string;
+        url?: string;
+        scope?: "global" | "scoped";
+        domains?: readonly string[];
+      },
+    ) => {
+      if (record === undefined || id !== record.id) throw notFound();
+      for (const domain of record.domains) {
+        authorizationChecks.push(`update:existing.domains:${domain}`);
+      }
+      if (request.scope === "global") {
+        authorizationChecks.push("update:global-role");
+        record = { ...record, ...request, scope: "global", domains: [] };
+      } else {
+        for (const domain of request.domains ?? []) {
+          if (!newlySuppliedDomains.includes(domain as (typeof newlySuppliedDomains)[number])) {
+            throw Object.assign(new Error("new webhook domain is not authorized"), { status: 403 });
+          }
+          authorizationChecks.push(`update:body.domains:${domain}`);
+        }
+        record = {
+          ...record,
+          ...request,
+          domains: request.domains === undefined ? record.domains : [...request.domains],
+        };
+      }
+      if (record === undefined) throw notFound();
+      return { ...record, domains: [...record.domains] };
+    },
+  );
+  const deleteWebhook = vi.fn(async (id: string) => {
+    if (record === undefined || id !== record.id) throw notFound();
+    record = undefined;
+    return { message: "deleted" };
+  });
+  const client: WebhookLiveClient = {
+    webhooks: { list, iterate, create, get, update, delete: deleteWebhook },
+  };
+  return {
+    authorizationChecks,
+    client,
+    createRequest: {
+      name: "Live configured webhook",
+      url: "https://example.test/configured-webhook",
+      scope: "scoped" as const,
+      domains: existingDomains,
+      on_delivered: true,
+    },
+    existingDomains,
+    getWebhook: get,
+    newlySuppliedDomains,
+    updateRequest: {
+      name: "Updated live configured webhook",
+      scope: "scoped" as const,
+      domains: newlySuppliedDomains,
+    },
+    webhookId,
+    webhookSecret,
   };
 }
 
@@ -1684,6 +1803,248 @@ describe("live scenario inventory", () => {
     expect(source).not.toContain('"secret"');
     expect(source).toContain('"secretsReported":false');
     expect(source).toContain('"sources":["existing.recipient","body.recipient"]');
+  });
+
+  it("registers exactly one executable scenario for every packaged configured-webhook primary", () => {
+    const fixture = webhookClientFixture();
+    const registry = createWebhookScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomains,
+        newlySupplied: fixture.newlySuppliedDomains,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    });
+    const webhookEntries = [...registry.primary.values()].filter(
+      ({ facade }) => facade === "webhooks",
+    );
+
+    expect(webhookEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      ["createWebhook", "deleteWebhook", "getWebhook", "getWebhooks", "updateWebhook"].sort(),
+    );
+    expect(webhookEntries).toHaveLength(5);
+    expect(webhookEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.size).toBe(56);
+    expectTypeOf<IsAssignable<AhaSendClient, WebhookLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("records the configured-webhook iterator once with positive single-direction pagination", async () => {
+    const fixture = webhookClientFixture();
+    const registry = createWebhookScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomains,
+        newlySupplied: fixture.newlySuppliedDomains,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+      pagination: { limit: 2, after: "next-page" },
+    });
+
+    const result = await runWebhookLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(
+      result.operationResults.filter(({ operationId }) => operationId === "getWebhooks"),
+    ).toHaveLength(1);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getWebhooks",
+        status: "passed",
+        evidence: { direction: "forward", items: 0, limit: 2 },
+      },
+    ]);
+    const expectedParams = { limit: 2, after: "next-page" };
+    expect(fixture.client.webhooks.list).toHaveBeenCalledWith(expectedParams);
+    expect(fixture.client.webhooks.iterate).toHaveBeenCalledWith(expectedParams);
+    expect(fixture.client.webhooks.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ before: expect.anything() }),
+    );
+    expect(registry.primary.get("getWebhooks")?.iterator).toMatchObject({
+      operationId: "getWebhooks",
+      method: "iterate",
+    });
+  });
+
+  it("verifies every scoped creation domain and the existing webhook associations", async () => {
+    const fixture = webhookClientFixture();
+    const options = {
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomains,
+        newlySupplied: fixture.newlySuppliedDomains,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    };
+
+    expect(() =>
+      createWebhookScenarioRegistry({
+        ...options,
+        createRequest: {
+          ...fixture.createRequest,
+          domains: [fixture.existingDomains[0], "uncontrolled.example"],
+        },
+      }),
+    ).toThrow("domains must contain every controlled domain");
+
+    const result = await runWebhookLiveScenarios(createWebhookScenarioRegistry(options));
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.webhooks.create).toHaveBeenCalledWith(fixture.createRequest);
+    expect(fixture.authorizationChecks.slice(0, 2)).toEqual(
+      fixture.existingDomains.map((domain) => `create:body.domains:${domain}`),
+    );
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "createWebhook"),
+    ).toMatchObject({
+      evidence: {
+        scopedAuthorization: {
+          controlled: true,
+          domainsVerified: 2,
+          quantifier: "every",
+          source: "body.domains",
+        },
+      },
+    });
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "getWebhook"),
+    ).toMatchObject({
+      evidence: { existingAssociationsVerified: 2 },
+    });
+  });
+
+  it("checks existing and new domains, clears scoped domains, and requires global transition auth", async () => {
+    const fixture = webhookClientFixture();
+    const options = {
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomains,
+        newlySupplied: fixture.newlySuppliedDomains,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    };
+
+    expect(() =>
+      createWebhookScenarioRegistry({
+        ...options,
+        authorization: {
+          ...RESOURCE_AUTHORIZATION,
+          updateWebhook: {
+            ...RESOURCE_AUTHORIZATION.updateWebhook,
+            transition: "scoped_only",
+          },
+        } as never,
+      }),
+    ).toThrow("require the global role for global transitions");
+
+    const result = await runWebhookLiveScenarios(createWebhookScenarioRegistry(options));
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.webhooks.update).toHaveBeenNthCalledWith(
+      1,
+      fixture.webhookId,
+      fixture.updateRequest,
+    );
+    expect(fixture.client.webhooks.update).toHaveBeenNthCalledWith(2, fixture.webhookId, {
+      scope: "scoped",
+      domains: [],
+    });
+    expect(fixture.client.webhooks.update).toHaveBeenNthCalledWith(3, fixture.webhookId, {
+      scope: "global",
+    });
+    expect(fixture.authorizationChecks).toEqual([
+      ...fixture.existingDomains.map((domain) => `create:body.domains:${domain}`),
+      ...fixture.existingDomains.map((domain) => `update:existing.domains:${domain}`),
+      ...fixture.newlySuppliedDomains.map((domain) => `update:body.domains:${domain}`),
+      ...fixture.newlySuppliedDomains.map((domain) => `update:existing.domains:${domain}`),
+      "update:global-role",
+    ]);
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "updateWebhook"),
+    ).toMatchObject({
+      evidence: {
+        domainAuthorization: {
+          existingAssociationsVerified: 2,
+          existingSource: "existing.domains",
+          globalRoleRequired: true,
+          newDomainsVerified: 2,
+          newSource: "body.domains",
+          quantifier: "every",
+          scopeSource: "body.scope",
+        },
+        globalTransitionVerified: true,
+        scopedClearingVerified: true,
+      },
+    });
+  });
+
+  it("retains immediate configured-webhook cleanup when its one-time secret is malformed", async () => {
+    const fixture = webhookClientFixture({ malformedSecret: true });
+    const registry = createWebhookScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomains,
+        newlySupplied: fixture.newlySuppliedDomains,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    });
+
+    const result = await runWebhookLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createWebhook" });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify configured-webhook fixture", status: "passed" },
+    ]);
+    expect(fixture.client.webhooks.delete).toHaveBeenCalledWith(fixture.webhookId);
+    await expect(fixture.getWebhook(fixture.webhookId)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("keeps configured-webhook secrets and controlled domains out of canonical live reports", async () => {
+    const candidate = inspectFixture();
+    const fixture = webhookClientFixture();
+    const registry = createWebhookScenarioRegistry({
+      profile: candidate.profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      controlledDomains: {
+        existing: fixture.existingDomains,
+        newlySupplied: fixture.newlySuppliedDomains,
+      },
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+    });
+    const result = await runWebhookLiveScenarios(registry);
+    const report = createLiveReport({
+      candidate,
+      operationResults: result.operationResults,
+      iteratorResults: result.iteratorResults,
+      cleanupResults: result.cleanupResults,
+    });
+    const source = canonicalizeJson(report).toString("utf8");
+
+    expect(source).not.toContain(fixture.webhookSecret);
+    for (const domain of [...fixture.existingDomains, ...fixture.newlySuppliedDomains]) {
+      expect(source).not.toContain(domain);
+    }
+    expect(source).not.toContain('"secret"');
+    expect(source).toContain('"secretsReported":false');
+    expect(source).toContain('"globalRoleRequired":true');
   });
 
   it("registers exactly one executable scenario for every packaged statistics primary", () => {
