@@ -156,14 +156,19 @@ function domainClientFixture(options: { failGet?: boolean } = {}) {
   return { calls, client, domain };
 }
 
-function messageClientFixture() {
+function messageClientFixture(
+  options: { absentDomainRegistered?: boolean; dnslessDnsValid?: boolean } = {},
+) {
   const calls: string[] = [];
   const sendRequests: Array<{ from: { email: string }; [key: string]: unknown }> = [];
   const verifiedDomain = "verified.example";
   const neverRegisteredDomain = "absent.example";
   const dnslessDomain = "dnsless.example";
   const messageId = "<live-message-id@ahasend.test>";
-  const registeredDomains = new Set<string>();
+  const registeredDomains = new Map<string, boolean>();
+  if (options.absentDomainRegistered === true) {
+    registeredDomains.set(neverRegisteredDomain, false);
+  }
   const scheduledMessageIds = new Set<string>();
   const notFound = () => Object.assign(new Error("not found"), { status: 404 });
   const rejected = () => Object.assign(new Error("sandbox sender rejected"), { status: 400 });
@@ -181,7 +186,13 @@ function messageClientFixture() {
         calls.push("send");
         sendRequests.push(request);
         const domain = request.from.email.split("@").at(-1);
-        if (domain !== verifiedDomain) throw rejected();
+        const dnsValid =
+          domain === verifiedDomain
+            ? true
+            : domain === undefined
+              ? undefined
+              : registeredDomains.get(domain);
+        if (dnsValid !== true) throw rejected();
         const firstAttempt = (request.schedule as { first_attempt?: unknown } | undefined)
           ?.first_attempt;
         if (typeof firstAttempt !== "string" || Date.parse(firstAttempt) <= Date.now()) {
@@ -224,13 +235,14 @@ function messageClientFixture() {
     domains: {
       create: vi.fn(async (request: { domain: string }) => {
         calls.push("createDomain");
-        registeredDomains.add(request.domain);
-        return { domain: request.domain };
+        const dnsValid = options.dnslessDnsValid ?? false;
+        registeredDomains.set(request.domain, dnsValid);
+        return { domain: request.domain, dns_valid: dnsValid };
       }),
       get: vi.fn(async (domain: string) => {
         calls.push("getDomain");
         if (!registeredDomains.has(domain)) throw notFound();
-        return { domain };
+        return { domain, dns_valid: registeredDomains.get(domain) };
       }),
       delete: vi.fn(async (domain: string) => {
         calls.push("deleteDomain");
@@ -779,6 +791,50 @@ describe("live scenario inventory", () => {
       },
     ]);
     expect(fixture.registeredDomains.size).toBe(0);
+  });
+
+  it("refuses to attribute a rejection to an absent domain that is registered", async () => {
+    const fixture = messageClientFixture({ absentDomainRegistered: true });
+    const registry = createMessageScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      verifiedRequest: fixture.verifiedRequest,
+      conversationRequest: fixture.conversationRequest,
+      neverRegisteredDomain: fixture.neverRegisteredDomain,
+      dnslessCreateRequest: { domain: fixture.dnslessDomain },
+    });
+
+    const result = await runMessageLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createMessage" });
+    expect(fixture.client.domains.get).toHaveBeenCalledWith(fixture.neverRegisteredDomain);
+    expect(fixture.sendRequests).toHaveLength(1);
+    expect(fixture.client.domains.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses to attribute a rejection to DNS when the new domain is DNS-valid", async () => {
+    const fixture = messageClientFixture({ dnslessDnsValid: true });
+    const registry = createMessageScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      verifiedRequest: fixture.verifiedRequest,
+      conversationRequest: fixture.conversationRequest,
+      neverRegisteredDomain: fixture.neverRegisteredDomain,
+      dnslessCreateRequest: { domain: fixture.dnslessDomain },
+    });
+
+    const result = await runMessageLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createMessage" });
+    expect(fixture.client.domains.get).toHaveBeenCalledWith(fixture.neverRegisteredDomain);
+    expect(fixture.client.domains.get).toHaveBeenCalledWith(fixture.dnslessDomain);
+    expect(fixture.sendRequests).toHaveLength(2);
+    expect(result.cleanupResults).toEqual([
+      {
+        label: "delete and verify DNS-less message domain fixture",
+        status: "passed",
+      },
+    ]);
   });
 
   it("fails the verified sandbox outcome when a later recipient result has an error", async () => {

@@ -242,7 +242,6 @@ export function createMessageScenarioRegistry(
   options: CreateMessageScenarioRegistryOptions,
 ): ScenarioRegistry;
 
-export type MessageLiveFailure = DomainLiveFailure;
 export type MessageLiveRun = DomainLiveRun;
 
 export function runMessageLiveScenarios(registry: ScenarioRegistry): Promise<MessageLiveRun>;

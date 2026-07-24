@@ -513,6 +513,14 @@ function requireDomainResult(value, expectedDomain, label) {
   return result;
 }
 
+function requireDnsInvalidDomainResult(value, expectedDomain, label) {
+  const result = requireDomainResult(value, expectedDomain, label);
+  if (result.dns_valid !== false) {
+    throw new TypeError(`${label} must report dns_valid as false.`);
+  }
+  return result;
+}
+
 function isNotFoundError(error) {
   return (
     typeof error === "object" &&
@@ -521,14 +529,14 @@ function isNotFoundError(error) {
   );
 }
 
-async function verifyDomainRemoved(getDomain, domain) {
+async function requireDomainAbsent(getDomain, domain, label) {
   try {
     await getDomain(domain);
   } catch (error) {
     if (isNotFoundError(error)) return;
     throw error;
   }
-  throw new TypeError("Domain cleanup verification found the created domain.");
+  throw new TypeError(`${label} found the domain.`);
 }
 
 function assertDomainMappings(profile) {
@@ -642,7 +650,7 @@ export function createDomainScenarioRegistry({
             } catch (error) {
               if (!isNotFoundError(error)) throw error;
             }
-            await verifyDomainRemoved(methods.get, domain);
+            await requireDomainAbsent(methods.get, domain, "Domain cleanup verification");
           });
           requireDomainResult(result, domain, "Domain create scenario response");
           return Object.freeze({ evidence: Object.freeze({ created: true }) });
@@ -982,6 +990,11 @@ export function createMessageScenarioRegistry({
             "scheduled",
           );
           state.messageId = successful.id;
+          await requireDomainAbsent(
+            methods.getDomain,
+            absentDomain,
+            "Never-registered domain verification",
+          );
           const absent = await requireExpectedSandboxRejection(
             () => methods.send(negativeRequest(absentDomain)),
             "Never-registered-domain sandbox send",
@@ -994,9 +1007,18 @@ export function createMessageScenarioRegistry({
             } catch (error) {
               if (!isNotFoundError(error)) throw error;
             }
-            await verifyDomainRemoved(methods.getDomain, dnslessDomain);
+            await requireDomainAbsent(
+              methods.getDomain,
+              dnslessDomain,
+              "DNS-less domain cleanup verification",
+            );
           });
           requireDomainResult(createdDomain, dnslessBody.domain, "DNS-less domain setup response");
+          requireDnsInvalidDomainResult(
+            await methods.getDomain(dnslessDomain),
+            dnslessBody.domain,
+            "DNS-less domain verification response",
+          );
           const dnsless = await requireExpectedSandboxRejection(
             () => methods.send(negativeRequest(dnslessDomain)),
             "DNS-less-domain sandbox send",
