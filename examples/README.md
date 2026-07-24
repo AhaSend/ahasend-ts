@@ -62,7 +62,7 @@ node examples/send-sandbox.mjs
 | Script                       | Shows                                                                                                             |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `iterate.mjs`                | Async pagination — `for await (const msg of client.messages.iterate(...))`                                        |
-| `idempotency.mjs`            | Explicit idempotency keys + `IdempotencyKeyBuilder` (sandbox send, run twice with same key)                       |
+| `idempotency.mjs`            | Explicit stable idempotency key reuse (sandbox send, run twice with the same key)                                 |
 | `telemetry.mjs`              | `onRequest` / `onResponse` / `onRetry` / `onError` hooks for logging and metrics                                  |
 | `error-handling.mjs`         | Branching on the typed error classes (`AhaSendNotFoundError`, `AhaSendRateLimitError`, …)                         |
 | `webhook-express.mjs`        | Express webhook endpoint with application-owned, durable `webhook-id` deduplication (needs `npm install express`) |

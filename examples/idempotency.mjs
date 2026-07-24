@@ -19,7 +19,7 @@ if (!fromEmail) {
 
 const client = AhaSendClient.fromEnv();
 
-// Pattern 1 — key derived from your own stable ID:
+// Derive the key from your own stable ID:
 const orderId = "order-12345";
 const send = () =>
   client.messages.send(
