@@ -1,5 +1,6 @@
 import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
+import js from "@eslint/js";
 
 export default [
   {
@@ -23,6 +24,26 @@ export default [
       // The SDK deliberately uses `{}`-style empty interfaces for
       // forward-compatible param objects (e.g. ListMembersParams).
       "@typescript-eslint/no-empty-object-type": "off",
+    },
+  },
+  {
+    files: ["examples/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        Buffer: "readonly",
+        console: "readonly",
+        fetch: "readonly",
+        globalThis: "readonly",
+        process: "readonly",
+        Response: "readonly",
+        URL: "readonly",
+      },
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
   },
 ];

@@ -82,13 +82,14 @@
     "sdk:check": "node scripts/generate-sdk.mjs --check",
     "docs:generate": "node scripts/generate-docs.mjs",
     "docs:check": "node scripts/generate-docs.mjs --check && node scripts/verify-docs.mjs",
-    "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
+    "lint": "eslint \"src/**/*.ts\" \"examples/**/*.mjs\" --max-warnings 0",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "clean": "rimraf dist",
     "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run test && npm run test:docs:preflight"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
+    "@eslint/js": "9.39.4",
     "@microsoft/api-extractor": "7.58.10",
     "@stoplight/prism-cli": "5.14.2",
     "@types/express": "5.0.6",

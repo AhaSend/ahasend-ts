@@ -7,29 +7,17 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import tsParser from "@typescript-eslint/parser";
+import { ESLint } from "eslint";
 import { format, resolveConfig } from "prettier";
 import ts from "typescript";
 import { NODE_CODE_SAMPLES, NODE_OPERATION_KEYS } from "./node-code-samples.mjs";
+import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const EXPECTED_NODE_SAMPLE_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
-const SECRET_PATTERNS = Object.freeze([
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/u,
-  /(?:^|[\s:])_authToken\s*=/u,
-  /(?<![A-Za-z0-9_-])aha-sk-[A-Za-z0-9_-]{64}(?![A-Za-z0-9_-])/u,
-  /\bAKIA[0-9A-Z]{16}\b/u,
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/u,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/u,
-  /\bnpm_[A-Za-z0-9]{20,}\b/u,
-]);
-const UNSAFE_OUTPUT_PATTERNS = Object.freeze([
-  /console\.(?:log|error|warn|info)\s*\([^;\n]*(?:secret_key|idempotencyKey)/u,
-  /console\.(?:log|error|warn|info)\s*\([^;\n]*\berr(?:or)?\.body\b/u,
-  /console\.(?:log|error|warn|info)\s*\([^;\n]*event\.data\.(?:recipient|subject)\b/u,
-]);
-
 export const REQUIRED_DOCUMENT_PATHS = Object.freeze([
   "README.md",
   "CHANGELOG.md",
@@ -438,6 +426,365 @@ function verifyJavaScriptSyntax(label, source) {
   }
 }
 
+function propertyPath(node) {
+  if (ts.isIdentifier(node)) return node.text;
+  if (ts.isPropertyAccessExpression(node)) {
+    const parent = propertyPath(node.expression);
+    return parent === undefined ? undefined : `${parent}.${node.name.text}`;
+  }
+  if (
+    ts.isElementAccessExpression(node) &&
+    node.argumentExpression !== undefined &&
+    ts.isStringLiteral(node.argumentExpression)
+  ) {
+    const parent = propertyPath(node.expression);
+    return parent === undefined ? undefined : `${parent}.${node.argumentExpression.text}`;
+  }
+  return undefined;
+}
+
+function sourceFileFor(label, source, scriptKind = ts.ScriptKind.JS) {
+  return ts.createSourceFile(label, source, ts.ScriptTarget.ESNext, true, scriptKind);
+}
+
+function hasUnsafeConsoleOutput(sourceFile) {
+  const sensitiveIdentifiers = new Set();
+  function isSensitiveReference(node) {
+    if (
+      ts.isAwaitExpression(node) ||
+      ts.isParenthesizedExpression(node) ||
+      ts.isAsExpression(node) ||
+      ts.isTypeAssertionExpression(node)
+    ) {
+      return isSensitiveReference(node.expression);
+    }
+    const path = propertyPath(node);
+    return (
+      (ts.isIdentifier(node) &&
+        (node.text === "idempotencyKey" || sensitiveIdentifiers.has(node.text))) ||
+      path?.endsWith(".secret_key") === true ||
+      /(?:^|\.)(?:err|error)\.body$/u.test(path ?? "") ||
+      /(?:^|\.)event\.data\.(?:recipient|subject)$/u.test(path ?? "")
+    );
+  }
+  function containsSensitiveValue(node) {
+    if (isSensitiveReference(node)) return true;
+    let sensitive = false;
+    ts.forEachChild(node, (child) => {
+      if (containsSensitiveValue(child)) sensitive = true;
+    });
+    return sensitive;
+  }
+  function collectSensitiveIdentifiers(node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      isSensitiveReference(node.initializer)
+    ) {
+      sensitiveIdentifiers.add(node.name.text);
+    }
+    ts.forEachChild(node, collectSensitiveIdentifiers);
+  }
+  collectSensitiveIdentifiers(sourceFile);
+
+  let unsafe = false;
+  function visit(node) {
+    if (unsafe) return;
+    if (
+      ts.isCallExpression(node) &&
+      /^(?:console|log|logger)\.(?:log|debug|info|warn|error)$/u.test(
+        propertyPath(node.expression) ?? "",
+      )
+    ) {
+      unsafe = node.arguments.some(containsSensitiveValue);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return unsafe;
+}
+
+function statementTerminates(statement) {
+  if (ts.isThrowStatement(statement) || ts.isReturnStatement(statement)) return true;
+  if (ts.isBlock(statement)) {
+    const last = statement.statements.at(-1);
+    return last !== undefined && statementTerminates(last);
+  }
+  return false;
+}
+
+function isMutationGuard(statement) {
+  if (!ts.isIfStatement(statement) || !statementTerminates(statement.thenStatement)) return false;
+  const condition = statement.expression;
+  if (
+    !ts.isBinaryExpression(condition) ||
+    (condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken &&
+      condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsToken)
+  ) {
+    return false;
+  }
+  return (
+    (propertyPath(condition.left) === "process.env.AHASEND_ALLOW_MUTATIONS" &&
+      ts.isStringLiteral(condition.right) &&
+      condition.right.text === "1") ||
+    (propertyPath(condition.right) === "process.env.AHASEND_ALLOW_MUTATIONS" &&
+      ts.isStringLiteral(condition.left) &&
+      condition.left.text === "1")
+  );
+}
+
+function hasMutationGuardBefore(sourceFile, position) {
+  return sourceFile.statements.some(
+    (statement) => statement.getStart(sourceFile) < position && isMutationGuard(statement),
+  );
+}
+
+function hasSandboxFlag(call) {
+  function objectHasSandboxFlag(node) {
+    return (
+      ts.isObjectLiteralExpression(node) &&
+      node.properties.some(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          ((ts.isIdentifier(property.name) && property.name.text === "sandbox") ||
+            (ts.isStringLiteral(property.name) && property.name.text === "sandbox")) &&
+          property.initializer.kind === ts.SyntaxKind.TrueKeyword,
+      )
+    );
+  }
+  return call.arguments.some(objectHasSandboxFlag);
+}
+
+function hasSandboxedFetch(call) {
+  const options = call.arguments[1];
+  if (options === undefined || !ts.isObjectLiteralExpression(options)) return false;
+  const body = options.properties.find(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      ((ts.isIdentifier(property.name) && property.name.text === "body") ||
+        (ts.isStringLiteral(property.name) && property.name.text === "body")),
+  );
+  if (
+    body === undefined ||
+    !ts.isPropertyAssignment(body) ||
+    !ts.isCallExpression(body.initializer)
+  ) {
+    return false;
+  }
+  return (
+    propertyPath(body.initializer.expression) === "JSON.stringify" &&
+    body.initializer.arguments.some(
+      (argument) =>
+        ts.isObjectLiteralExpression(argument) &&
+        argument.properties.some(
+          (property) =>
+            ts.isPropertyAssignment(property) &&
+            ((ts.isIdentifier(property.name) && property.name.text === "sandbox") ||
+              (ts.isStringLiteral(property.name) && property.name.text === "sandbox")) &&
+            property.initializer.kind === ts.SyntaxKind.TrueKeyword,
+        ),
+    )
+  );
+}
+
+function findUnguardedClientMutation(sourceFile) {
+  let unguarded = false;
+  function visit(node) {
+    if (unguarded) return;
+    if (ts.isCallExpression(node)) {
+      const path = propertyPath(node.expression);
+      if (
+        path !== undefined &&
+        /^client\..+\.(?:create|update|delete|wipe|suspend|unsuspend|send)$/u.test(path) &&
+        !hasSandboxFlag(node) &&
+        !hasMutationGuardBefore(sourceFile, node.getStart(sourceFile))
+      ) {
+        unguarded = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return unguarded;
+}
+
+function hasDurableWebhookDeduplication(sourceFile) {
+  let found = false;
+  function inspectContainer(node) {
+    if (found) return;
+    if (ts.isSourceFile(node) || ts.isBlock(node)) {
+      for (const [index, statement] of node.statements.entries()) {
+        if (!ts.isVariableStatement(statement)) continue;
+        for (const declaration of statement.declarationList.declarations) {
+          if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) continue;
+          const initializer = ts.isAwaitExpression(declaration.initializer)
+            ? declaration.initializer.expression
+            : declaration.initializer;
+          if (
+            !ts.isCallExpression(initializer) ||
+            !propertyPath(initializer.expression)?.endsWith(".enqueueOnce") ||
+            initializer.arguments.length !== 2 ||
+            propertyPath(initializer.arguments[0]) !== "webhookId" ||
+            propertyPath(initializer.arguments[1]) !== "event"
+          ) {
+            continue;
+          }
+          const acceptedName = declaration.name.text;
+          const candidate = node.statements[index + 1];
+          const rejectsDuplicate =
+            candidate !== undefined &&
+            ts.isIfStatement(candidate) &&
+            ts.isPrefixUnaryExpression(candidate.expression) &&
+            candidate.expression.operator === ts.SyntaxKind.ExclamationToken &&
+            propertyPath(candidate.expression.operand) === acceptedName &&
+            statementTerminates(candidate.thenStatement);
+          if (rejectsDuplicate) {
+            found = true;
+            return;
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, inspectContainer);
+  }
+  inspectContainer(sourceFile);
+  return found;
+}
+
+async function verifyLint(index, root) {
+  const eslint = new ESLint({
+    cwd: root,
+    overrideConfigFile: true,
+    overrideConfig: [
+      {
+        files: ["**/*.{js,mjs,ts}"],
+        languageOptions: {
+          parser: tsParser,
+          parserOptions: { ecmaVersion: "latest", sourceType: "module" },
+        },
+        rules: {
+          "constructor-super": "error",
+          "for-direction": "error",
+          "getter-return": "error",
+          "no-async-promise-executor": "error",
+          "no-constant-binary-expression": "error",
+          "no-dupe-args": "error",
+          "no-dupe-keys": "error",
+          "no-new-native-nonconstructor": "error",
+          "no-promise-executor-return": "error",
+          "no-self-assign": "error",
+          "no-unreachable": "error",
+          "no-unreachable-loop": "error",
+          "no-unsafe-finally": "error",
+          "no-unsafe-negation": "error",
+          "require-yield": "error",
+          "use-isnan": "error",
+          "valid-typeof": "error",
+        },
+      },
+    ],
+  });
+  const sources = [
+    ...index.examples.map((example) => ({ ...example, language: "mjs" })),
+    ...index.snippets.filter(({ path }) => path !== "docs/api-reference.md"),
+  ];
+  const results = (
+    await Promise.all(
+      sources.map(({ path, line, language, source }, index) =>
+        eslint.lintText(source, {
+          filePath: resolve(
+            root,
+            `.documentation-lint/${index}-${path.replaceAll("/", "-")}.${language.startsWith("ts") ? "ts" : "mjs"}`,
+          ),
+          warnIgnored: false,
+        }),
+      ),
+    )
+  ).flat();
+  const errors = results.flatMap((result, sourceIndex) =>
+    result.messages
+      .filter(({ severity }) => severity === 2)
+      .map(
+        ({ line: lintLine, column, message, ruleId }) =>
+          `${sources[sourceIndex].path}:${(sources[sourceIndex].line ?? 0) + lintLine}:${column} ${message} (${ruleId ?? "parse"})`,
+      ),
+  );
+  if (errors.length > 0) {
+    throw new TypeError(`Documentation lint failed:\n${errors.join("\n")}`);
+  }
+}
+
+const exportNameCache = new Map();
+
+function publicExportNames(root, moduleName) {
+  let exportsByModule = exportNameCache.get(root);
+  if (exportsByModule === undefined) {
+    const configPath = resolve(root, "tsconfig.json");
+    const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+    if (configFile.error !== undefined) {
+      throw new TypeError(
+        `Unable to read ${configPath}: ${ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n")}`,
+      );
+    }
+    const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, root);
+    const program = ts.createProgram(parsed.fileNames, parsed.options);
+    const checker = program.getTypeChecker();
+    exportsByModule = new Map();
+    for (const [name, path] of [
+      ["@ahasend/sdk", "src/index.ts"],
+      ["@ahasend/sdk/webhooks", "src/webhooks/index.ts"],
+    ]) {
+      const sourceFile = program.getSourceFile(resolve(root, path));
+      const symbol = sourceFile === undefined ? undefined : checker.getSymbolAtLocation(sourceFile);
+      if (symbol === undefined) {
+        throw new TypeError(`Unable to inspect public exports from ${path}.`);
+      }
+      exportsByModule.set(
+        name,
+        new Set(checker.getExportsOfModule(symbol).map(({ name }) => name)),
+      );
+    }
+    exportNameCache.set(root, exportsByModule);
+  }
+  const names = exportsByModule.get(moduleName);
+  if (names === undefined) throw new TypeError(`Unknown SDK documentation module: ${moduleName}`);
+  return names;
+}
+
+function verifySdkImports(index, root) {
+  for (const snippet of index.snippets) {
+    if (snippet.path === "docs/api-reference.md") continue;
+    const scriptKind =
+      snippet.language === "ts" || snippet.language === "typescript"
+        ? ts.ScriptKind.TS
+        : ts.ScriptKind.JS;
+    const sourceFile = sourceFileFor(`${snippet.path}:${snippet.line}`, snippet.source, scriptKind);
+    for (const statement of sourceFile.statements) {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        (statement.moduleSpecifier.text !== "@ahasend/sdk" &&
+          statement.moduleSpecifier.text !== "@ahasend/sdk/webhooks") ||
+        statement.importClause?.namedBindings === undefined ||
+        !ts.isNamedImports(statement.importClause.namedBindings)
+      ) {
+        continue;
+      }
+      const names = publicExportNames(root, statement.moduleSpecifier.text);
+      for (const element of statement.importClause.namedBindings.elements) {
+        const importedName = element.propertyName?.text ?? element.name.text;
+        if (!names.has(importedName)) {
+          throw new TypeError(
+            `${snippet.path}:${snippet.line} imports missing ${statement.moduleSpecifier.text} export ${importedName}.`,
+          );
+        }
+      }
+    }
+  }
+}
+
 async function pathExists(path) {
   try {
     await stat(path);
@@ -494,28 +841,50 @@ function verifyExamples(index) {
     if (NODE_OPERATION_KEYS[operationId] === undefined) {
       throw new TypeError(`Node sample ${operationId} has no operation profile key.`);
     }
+    const sourceFile = sourceFileFor(`Node sample ${operationId}`, sample.source);
     verifyJavaScriptSyntax(`Node sample ${operationId}`, sample.source);
     const operationKey = NODE_OPERATION_KEYS[operationId];
     if (
       operationKey !== undefined &&
       !operationKey.startsWith("GET ") &&
-      !sample.source.includes('"sandbox": true') &&
-      !sample.source.includes('process.env.AHASEND_ALLOW_MUTATIONS !== "1"')
+      !hasSandboxedFetch(
+        [...sourceFile.statements]
+          .flatMap((statement) => {
+            const calls = [];
+            function collect(node) {
+              if (ts.isCallExpression(node)) calls.push(node);
+              ts.forEachChild(node, collect);
+            }
+            collect(statement);
+            return calls;
+          })
+          .find((call) => propertyPath(call.expression) === "fetch") ?? {
+          arguments: [],
+        },
+      ) &&
+      !hasMutationGuardBefore(sourceFile, sourceFile.end)
     ) {
       throw new TypeError(`Node sample ${operationId} performs an unguarded mutation.`);
     }
-    for (const pattern of [...SECRET_PATTERNS, ...UNSAFE_OUTPUT_PATTERNS]) {
+    for (const pattern of SECRET_PATTERNS) {
       if (pattern.test(sample.source)) {
         throw new TypeError(`Node sample ${operationId} contains unsafe secret output.`);
       }
     }
+    if (hasUnsafeConsoleOutput(sourceFile)) {
+      throw new TypeError(`Node sample ${operationId} contains unsafe secret output.`);
+    }
   }
   for (const example of index.examples) {
+    const sourceFile = sourceFileFor(example.path, example.source);
     verifyJavaScriptSyntax(example.path, example.source);
-    for (const pattern of [...SECRET_PATTERNS, ...UNSAFE_OUTPUT_PATTERNS]) {
+    for (const pattern of SECRET_PATTERNS) {
       if (pattern.test(example.source)) {
         throw new TypeError(`${example.path} contains unsafe secret or payload output.`);
       }
+    }
+    if (hasUnsafeConsoleOutput(sourceFile)) {
+      throw new TypeError(`${example.path} contains unsafe secret or payload output.`);
     }
   }
   for (const [path, source] of Object.entries(index.documents)) {
@@ -526,14 +895,8 @@ function verifyExamples(index) {
     }
   }
 
-  const mutationPattern =
-    /\bclient\.[A-Za-z.]+\.(?:create|update|delete|wipe|suspend|unsuspend|send)\s*\(/u;
   for (const example of index.examples) {
-    if (
-      mutationPattern.test(example.source) &&
-      !example.source.includes("sandbox: true") &&
-      !example.source.includes('process.env.AHASEND_ALLOW_MUTATIONS !== "1"')
-    ) {
+    if (findUnguardedClientMutation(sourceFileFor(example.path, example.source))) {
       throw new TypeError(`${example.path} performs an unguarded mutation.`);
     }
   }
@@ -542,8 +905,7 @@ function verifyExamples(index) {
     const example = index.examples.find((candidate) => candidate.path === path);
     if (
       example === undefined ||
-      !example.source.includes("enqueueOnce(webhookId, event)") ||
-      !example.source.includes("if (!accepted)")
+      !hasDurableWebhookDeduplication(sourceFileFor(example.path, example.source))
     ) {
       throw new TypeError(`${path} must demonstrate application-owned webhook-id deduplication.`);
     }
@@ -574,10 +936,12 @@ async function verifyFormatting(index, root) {
 export async function verifyDocumentationIndex(index, root = repositoryRoot) {
   verifyDocumentation(index.documents);
   verifyExamples(index);
+  verifySdkImports(index, root);
   await verifyLinks(index, root);
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
   await verifyCommands(index, manifest, root);
   await verifyFormatting(index, root);
+  await verifyLint(index, root);
 
   for (const snippet of index.snippets) {
     // Generated API-reference fences render method signatures, not standalone
@@ -716,14 +1080,44 @@ export async function verifyPackagedJavaScript(
       await writeFile(path, sample.source);
       run(process.execPath, ["--check", path], temporaryRoot);
     }
-    const javaScriptSnippets = index.snippets.filter(({ language }) =>
-      ["js", "javascript", "mjs"].includes(language),
-    );
-    for (const [snippetIndex, snippet] of javaScriptSnippets.entries()) {
-      const path = resolve(snippetsDirectory, `snippet-${snippetIndex}.mjs`);
+    const runnableSnippets = index.snippets.filter(({ path }) => path !== "docs/api-reference.md");
+    for (const [snippetIndex, snippet] of runnableSnippets.entries()) {
+      const isTypeScript = snippet.language === "ts" || snippet.language === "typescript";
+      const path = resolve(
+        snippetsDirectory,
+        `snippet-${snippetIndex}.${isTypeScript ? "ts" : "mjs"}`,
+      );
       await writeFile(path, snippet.source);
-      run(process.execPath, ["--check", path], temporaryRoot);
+      if (!isTypeScript) run(process.execPath, ["--check", path], temporaryRoot);
     }
+    await writeFile(
+      resolve(snippetsDirectory, "documentation-globals.d.ts"),
+      `export {};
+declare global {
+  const AhaSendClient: typeof import("@ahasend/sdk").AhaSendClient;
+  const client: import("@ahasend/sdk").AhaSendClient;
+  const verifier: InstanceType<typeof import("@ahasend/sdk/webhooks").WebhookVerifier>;
+  const accountId: string;
+  const apiKey: string;
+  const body: any;
+  const child: any;
+  const customerId: string;
+  const fastify: any;
+  const headersRecordOrHeaders: any;
+  const log: any;
+  const logger: any;
+  const message: any;
+  const messageId: string;
+  const metrics: any;
+  const orderId: string;
+  const rawBodyStringOrBuffer: string | Buffer;
+  const reportLocalFailure: (value: unknown) => void;
+  const secretStore: any;
+  const traceId: string;
+  const webhookDeliveries: any;
+}
+`,
+    );
 
     await writeFile(
       resolve(temporaryRoot, "tsconfig.json"),
@@ -739,7 +1133,13 @@ export async function verifyPackagedJavaScript(
             strict: false,
             skipLibCheck: true,
           },
-          include: ["examples/**/*.mjs", "node-samples/**/*.mjs", "snippets/**/*.mjs"],
+          include: [
+            "examples/**/*.mjs",
+            "node-samples/**/*.mjs",
+            "snippets/**/*.mjs",
+            "snippets/**/*.ts",
+            "snippets/**/*.d.ts",
+          ],
         },
         null,
         2,

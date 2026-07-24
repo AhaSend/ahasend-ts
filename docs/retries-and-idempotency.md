@@ -65,9 +65,12 @@ content produces `AhaSendIdempotencyMismatchError`. A completed replay can be id
 the response envelope:
 
 ```ts
-const result = await client.messages
-  .send(message, { idempotencyKey: `order-email-${orderId}` })
-  .withResponse();
+import type { AhaSendPromise, SendMessageResponse } from "@ahasend/sdk";
+
+const request = client.messages.send(message, {
+  idempotencyKey: `order-email-${orderId}`,
+}) as AhaSendPromise<SendMessageResponse>;
+const result = await request.withResponse();
 
 if (result.idempotentReplayed) {
   // The server returned the stored result of an earlier identical request.

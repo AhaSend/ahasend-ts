@@ -18,6 +18,7 @@ import { basename, dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { digestJsonArtifact } from "./digest-artifact.mjs";
 import { validateSecretScanAllowlist } from "./generate-contracts.mjs";
+import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixtureRoot = resolve(repositoryRoot, "tests/package");
@@ -57,15 +58,6 @@ const runtimeFiles = [
   "dist/index.js",
   "dist/webhooks/index.cjs",
   "dist/webhooks/index.js",
-];
-const secretPatterns = [
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-  /(?:^|[\s:])_authToken\s*=/,
-  /(?<![A-Za-z0-9_-])aha-sk-[A-Za-z0-9_-]{64}(?![A-Za-z0-9_-])/,
-  /\bAKIA[0-9A-Z]{16}\b/,
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
-  /\bnpm_[A-Za-z0-9]{20,}\b/,
 ];
 
 function fail(message) {
@@ -420,7 +412,7 @@ function countOccurrences(bytes, needle) {
 function verifySecretPatterns(files, label) {
   for (const [path, bytes] of files) {
     const source = bytes.toString("utf8");
-    for (const pattern of secretPatterns) {
+    for (const pattern of SECRET_PATTERNS) {
       if (pattern.test(source)) {
         throw new TypeError(`${label} contains an unclassified secret signature in ${path}.`);
       }

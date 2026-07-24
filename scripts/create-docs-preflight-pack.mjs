@@ -1,53 +1,14 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runPackPreflight } from "./preflight-pack.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const temporaryDirectory = mkdtempSync(join(tmpdir(), "ahasend-sdk-docs-preflight-"));
-const npmExecutable = process.env.npm_execpath;
 
-function runNpm(args, env = process.env) {
-  const command = npmExecutable === undefined ? "npm" : process.execPath;
-  const commandArgs = npmExecutable === undefined ? args : [npmExecutable, ...args];
-  const result = spawnSync(command, commandArgs, {
-    cwd: repositoryRoot,
-    env,
-    stdio: "inherit",
-  });
-  if (result.error !== undefined) throw result.error;
-  return result.status ?? 1;
-}
-
-try {
-  const buildStatus = runNpm(["run", "build"]);
-  if (buildStatus !== 0) process.exitCode = buildStatus;
-  else {
-    const packStatus = runNpm([
-      "pack",
-      "--ignore-scripts",
-      "--pack-destination",
-      temporaryDirectory,
-    ]);
-    if (packStatus !== 0) process.exitCode = packStatus;
-    else {
-      const tarballs = readdirSync(temporaryDirectory).filter((name) => name.endsWith(".tgz"));
-      if (tarballs.length !== 1) {
-        throw new Error(`Expected one docs preflight tarball, found ${tarballs.length}.`);
-      }
-      const tarball = join(temporaryDirectory, tarballs[0]);
-      const checksum = createHash("sha256").update(readFileSync(tarball)).digest("hex");
-      process.exitCode = runNpm(["run", "test:docs:tarball"], {
-        ...process.env,
-        SDK_TARBALL: tarball,
-        SDK_TARBALL_SHA256: checksum,
-      });
-    }
-  }
-} finally {
-  rmSync(temporaryDirectory, { recursive: true, force: true });
-}
+process.exitCode = runPackPreflight({
+  repositoryRoot,
+  build: true,
+  verificationScripts: ["test:docs:tarball"],
+  temporaryPrefix: "ahasend-sdk-docs-preflight-",
+});

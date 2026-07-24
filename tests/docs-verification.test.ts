@@ -50,8 +50,11 @@ describe("operational documentation verification", () => {
           ? {
               ...example,
               source: example.source.replace(
-                'process.env.AHASEND_ALLOW_MUTATIONS !== "1"',
-                "false",
+                `if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Refusing mutation; set AHASEND_ALLOW_MUTATIONS=1 after reviewing the script.");
+}
+`,
+                '// process.env.AHASEND_ALLOW_MUTATIONS !== "1"\n',
               ),
             }
           : example,
@@ -63,12 +66,69 @@ describe("operational documentation verification", () => {
       ...structuredClone(index),
       examples: index.examples.map((example) =>
         example.path === "examples/webhook-express.mjs"
-          ? { ...example, source: example.source.replace("if (!accepted)", "if (false)") }
+          ? {
+              ...example,
+              source: example.source.replace(
+                `if (!accepted) {
+      res.statusCode = 200;
+      res.end();
+      return;
+    }`,
+                `// enqueueOnce(webhookId, event)
+    // if (!accepted) return;`,
+              ),
+            }
           : example,
       ),
     };
     await expect(verifyDocumentationIndex(missingDeduplication)).rejects.toThrow(
       /application-owned webhook-id deduplication/,
+    );
+  });
+
+  it("rejects sensitive values in multiline console output", async () => {
+    const index = await buildDocumentationIndex();
+    const unsafeOutput = {
+      ...structuredClone(index),
+      examples: index.examples.map((example) =>
+        example.path === "examples/bootstrap-subaccount.mjs"
+          ? {
+              ...example,
+              source: example.source.replace(
+                "console.log(`✓ created child account and stored its one-time key in ${secretFile}`);",
+                `console.log({
+  secret: key.secret_key,
+});`,
+              ),
+            }
+          : example,
+      ),
+    };
+
+    await expect(verifyDocumentationIndex(unsafeOutput)).rejects.toThrow(
+      /unsafe secret or payload output/,
+    );
+  });
+
+  it("rejects TypeScript snippets that import a missing SDK export", async () => {
+    const index = await buildDocumentationIndex();
+    const invalidImport = {
+      ...structuredClone(index),
+      snippets: index.snippets.map((snippet) =>
+        snippet.path === "README.md" && snippet.source.includes("import { AhaSendClient }")
+          ? {
+              ...snippet,
+              source: snippet.source.replace(
+                "import { AhaSendClient }",
+                "import { DefinitelyNotAnSdkExport }",
+              ),
+            }
+          : snippet,
+      ),
+    };
+
+    await expect(verifyDocumentationIndex(invalidImport)).rejects.toThrow(
+      /imports missing @ahasend\/sdk export DefinitelyNotAnSdkExport/,
     );
   });
 

@@ -36,7 +36,9 @@ describe("CI policy", () => {
     expect(parserOptions["project"]).toBe("./tsconfig.eslint.json");
     expect(parserOptions["tsconfigRootDir"]).toBe(repositoryRoot);
     expect(rules["@typescript-eslint/no-floating-promises"]).toEqual([2]);
-    expect(packageJson.scripts["lint"]).toBe('eslint "src/**/*.ts" --max-warnings 0');
+    expect(packageJson.scripts["lint"]).toBe(
+      'eslint "src/**/*.ts" "examples/**/*.mjs" --max-warnings 0',
+    );
   });
 
   it("keeps Node 22 and 24 blocking while making Node 26 best-effort", () => {
