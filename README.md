@@ -261,15 +261,15 @@ impossible. The adapters treat an already-parsed body as a setup error:
 Express passes it to `next`, Fastify throws it, and Next.js rejects it.
 
 ```ts
-// Express 5.x — mount express.raw() on the webhook route
+// Express 5.x — mount directly so the adapter reads and bounds the raw stream
 import express from "express";
 import { WebhookVerifier, expressWebhookHandler, isKnownWebhookEvent } from "@ahasend/sdk/webhooks";
 
+const app = express();
 const verifier = new WebhookVerifier(process.env.AHASEND_WEBHOOK_SECRET!);
 
 app.post(
   "/webhooks/ahasend",
-  express.raw({ type: "*/*" }),
   expressWebhookHandler(verifier, async (event) => {
     if (!isKnownWebhookEvent(event)) return; // future event type — acknowledge & ignore
     switch (event.type) {
@@ -312,10 +312,11 @@ added by the server doesn't crash your exhaustive `switch`. Narrow with
 `isKnownWebhookEvent(event)`.
 
 Timestamp checking does not deduplicate a valid delivery replayed inside the
-accepted window. Your application must atomically record and deduplicate each
-`webhook-id` before running side effects. The [security and webhooks
-guide](docs/security-and-webhooks.md) includes an Express 5.x integration
-pattern, body limits, adapter failure behavior, and safe replay handling.
+accepted window. Your application must atomically commit each `webhook-id`
+with durable processing work, then perform side effects idempotently from that
+work. The [security and webhooks guide](docs/security-and-webhooks.md) includes
+an Express 5.x integration pattern, body limits, adapter failure behavior, and
+safe replay handling.
 
 ## Operational guides
 

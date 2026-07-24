@@ -52,6 +52,24 @@ afterEach(async () => {
 });
 
 describe("Express 5 webhook adapter integration", () => {
+  it("owns the opaque oversized-body response when mounted directly", async () => {
+    const handler = vi.fn();
+    const app = express();
+    app.post("/webhook", expressWebhookHandler(new WebhookVerifier(SECRET), handler));
+    const baseUrl = await listen(app);
+
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: signedHeaders(),
+      body: Buffer.alloc(1_048_577, 97),
+    });
+
+    expect(response.status).toBe(413);
+    expect(response.headers.get("content-type")).toBeNull();
+    await expect(response.text()).resolves.toBe("");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("delivers the original application failure to terminal error middleware", async () => {
     const original = new Error("local application failure");
     const terminal = vi.fn<ErrorRequestHandler>((error, _request, response, _next) => {

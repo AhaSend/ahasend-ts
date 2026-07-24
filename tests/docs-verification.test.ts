@@ -25,19 +25,31 @@ describe("operational documentation verification", () => {
     ["timestamp-window distinction", "Timestamp-window verification is not replay deduplication."],
     [
       "atomic duplicate integration pattern",
-      "Record the ID atomically after signature verification and before performing side effects.",
+      "Record the ID atomically after signature verification and before performing side effects, in the\nsame transaction as durable processing work.",
     ],
     [
-      "webhook-id claim integration code",
-      "const firstDelivery = await webhookDeliveries.claim(webhookId);",
+      "Express adapter-owned raw stream",
+      "mounts `expressWebhookHandler` directly so the adapter reads the bounded raw\nstream and owns the empty 413 response",
+    ],
+    [
+      "transactional durable enqueue contract",
+      "must commit both the unique `webhook-id` record and a\ndurable work/outbox record",
+    ],
+    [
+      "webhook-id durable enqueue integration code",
+      "const accepted = await webhookDeliveries.enqueueOnce(webhookId, event);",
     ],
     [
       "duplicate webhook early-return integration code",
-      `if (!firstDelivery) {
+      `if (!accepted) {
       res.statusCode = 200;
       res.end();
       return;
     }`,
+    ],
+    [
+      "durable worker retry behavior",
+      "A worker\nfailure then leaves retryable work instead of turning the sender's next delivery into a false\nsuccess.",
     ],
   ])("fails if the %s is removed", async (_label, requiredText) => {
     const documents = await loadDocumentation();
@@ -45,6 +57,25 @@ describe("operational documentation verification", () => {
     documents[path] = documents[path]!.replace(requiredText, "");
 
     expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
+  });
+
+  it.each([
+    ["README Express parser", "README.md", '  express.raw({ type: "*/*" }),\n'],
+    [
+      "security-guide Express parser",
+      "docs/security-and-webhooks.md",
+      '  express.raw({ type: "*/*", limit: "1mb" }),\n',
+    ],
+    [
+      "claim-only webhook deduplication",
+      "docs/security-and-webhooks.md",
+      "    await webhookDeliveries.claim(webhookId);\n",
+    ],
+  ])("fails if the %s pattern is introduced", async (_label, path, unsafeText) => {
+    const documents = await loadDocumentation();
+    documents[path] = `${documents[path]}\n${unsafeText}`;
+
+    expect(() => verifyDocumentation(documents)).toThrow(/unsafe guidance/);
   });
 
   it.each([

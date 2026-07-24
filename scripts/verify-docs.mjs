@@ -178,12 +178,14 @@ const REQUIREMENTS = Object.freeze([
   {
     label: "atomic webhook replay claim",
     path: "docs/security-and-webhooks.md",
-    text: "Record the ID atomically after signature verification and before performing side effects.",
+    text:
+      "Record the ID atomically after signature verification and before performing side effects, in the\n" +
+      "same transaction as durable processing work.",
   },
   {
     label: "duplicate webhook rejection pattern",
     path: "docs/security-and-webhooks.md",
-    text: "Duplicate delivery: acknowledge it but do not run the application handler again.",
+    text: "Duplicate delivery: acknowledge it but do not enqueue or run the application\nhandler again.",
   },
   {
     label: "verified webhook integration",
@@ -191,18 +193,33 @@ const REQUIREMENTS = Object.freeze([
     text: "expressWebhookHandler(verifier",
   },
   {
-    label: "webhook-id claim integration",
+    label: "Express adapter-owned raw stream",
     path: "docs/security-and-webhooks.md",
-    text: "const firstDelivery = await webhookDeliveries.claim(webhookId);",
+    text: "mounts `expressWebhookHandler` directly so the adapter reads the bounded raw\nstream and owns the empty 413 response",
+  },
+  {
+    label: "transactional durable webhook enqueue",
+    path: "docs/security-and-webhooks.md",
+    text: "must commit both the unique `webhook-id` record and a\ndurable work/outbox record",
+  },
+  {
+    label: "webhook-id durable enqueue integration",
+    path: "docs/security-and-webhooks.md",
+    text: "const accepted = await webhookDeliveries.enqueueOnce(webhookId, event);",
   },
   {
     label: "duplicate webhook early-return integration",
     path: "docs/security-and-webhooks.md",
-    text: `if (!firstDelivery) {
+    text: `if (!accepted) {
       res.statusCode = 200;
       res.end();
       return;
     }`,
+  },
+  {
+    label: "durable webhook worker retry behavior",
+    path: "docs/security-and-webhooks.md",
+    text: "A worker\nfailure then leaves retryable work instead of turning the sender's next delivery into a false\nsuccess.",
   },
   {
     label: "webhook adapter error semantics",
@@ -246,6 +263,24 @@ const REQUIREMENTS = Object.freeze([
   },
 ]);
 
+const PROHIBITED_PATTERNS = Object.freeze([
+  {
+    label: "an Express parser mounted before the webhook adapter",
+    path: "README.md",
+    pattern: /^\s*express\.raw\(/mu,
+  },
+  {
+    label: "an Express parser mounted before the webhook adapter",
+    path: "docs/security-and-webhooks.md",
+    pattern: /^\s*express\.raw\(/mu,
+  },
+  {
+    label: "a claim-only webhook deduplication call",
+    path: "docs/security-and-webhooks.md",
+    pattern: /webhookDeliveries\.claim\(/u,
+  },
+]);
+
 export async function loadDocumentation(root = repositoryRoot) {
   return Object.fromEntries(
     await Promise.all(
@@ -271,6 +306,12 @@ export function verifyDocumentation(documents) {
   for (const requirement of REQUIREMENTS) {
     if (!documents[requirement.path].includes(requirement.text)) {
       throw new TypeError(`${requirement.path} is missing required guidance: ${requirement.label}`);
+    }
+  }
+
+  for (const prohibited of PROHIBITED_PATTERNS) {
+    if (prohibited.pattern.test(documents[prohibited.path])) {
+      throw new TypeError(`${prohibited.path} contains unsafe guidance: ${prohibited.label}`);
     }
   }
 }

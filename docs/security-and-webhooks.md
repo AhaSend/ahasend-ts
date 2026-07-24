@@ -21,23 +21,31 @@ as long as your delivery/retry horizon.
 
 ## Record and reject duplicate deliveries
 
-Record the ID atomically after signature verification and before performing side effects. Back the
-claim with a unique key or equivalent compare-and-set; a read followed by an insert is racy.
-Duplicate delivery: acknowledge it but do not run the application handler again. A 2xx
-acknowledgement prevents an already processed delivery from being retried indefinitely.
+Record the ID atomically after signature verification and before performing side effects, in the
+same transaction as durable processing work. A unique ID insert alone is unsafe: if the process
+fails after that insert but before processing, a retry can look like a completed duplicate and the
+event is lost. Duplicate delivery: acknowledge it but do not enqueue or run the application
+handler again. A 2xx acknowledgement prevents an accepted delivery from being retried
+indefinitely.
 
-This Express 5 pattern relies on `expressWebhookHandler` to verify and parse first. The store's
-`claim()` must atomically insert `webhook-id` and return `false` on its uniqueness conflict:
+This Express 5 pattern mounts `expressWebhookHandler` directly so the adapter reads the bounded raw
+stream and owns the empty 413 response. Do not put `express.raw()`, `express.json()`, or another body
+parser in front of it: parser size and syntax errors happen before the adapter and may produce a
+framework-generated response.
+
+The store's `enqueueOnce()` transaction must commit both the unique `webhook-id` record and a
+durable work/outbox record, returning `false` when that ID was already committed. Any other
+database error must roll back and throw so Express does not acknowledge the delivery:
 
 ```ts
 import express from "express";
 import { WebhookVerifier, expressWebhookHandler } from "@ahasend/sdk/webhooks";
 
+const app = express();
 const verifier = new WebhookVerifier(process.env.AHASEND_WEBHOOK_SECRET!);
 
 app.post(
   "/webhooks/ahasend",
-  express.raw({ type: "*/*", limit: "1mb" }),
   expressWebhookHandler(verifier, async (event, req, res) => {
     const value = req.headers["webhook-id"];
     const webhookId = Array.isArray(value) ? value[0] : value;
@@ -45,22 +53,23 @@ app.post(
     // Verification already required a non-empty webhook-id.
     if (!webhookId) throw new Error("verified webhook-id missing");
 
-    const firstDelivery = await webhookDeliveries.claim(webhookId);
-    if (!firstDelivery) {
+    const accepted = await webhookDeliveries.enqueueOnce(webhookId, event);
+    if (!accepted) {
       res.statusCode = 200;
       res.end();
       return;
     }
 
-    await processWebhook(event);
+    res.statusCode = 202;
+    res.end();
   }),
 );
 ```
 
-Do not include the webhook secret, signature, raw body, or event data in the deduplication key or
-diagnostic logs. For stronger crash recovery, make the ID claim and a durable work/outbox record
-one transaction, then process the work idempotently. A process that records an ID and crashes
-before recording work must not silently lose the event.
+Process the durable work with retries and idempotent side effects outside the request. A worker
+failure then leaves retryable work instead of turning the sender's next delivery into a false
+success. Do not include the webhook secret, signature, raw body, or event data in the deduplication
+key or diagnostic logs.
 
 ## Adapter boundaries
 
@@ -97,8 +106,9 @@ original application error can still carry sensitive information.
 - Load API keys and webhook secrets from a secret manager; never ship them to a browser or edge
   bundle.
 - Serve webhook endpoints over HTTPS and preserve the raw body.
-- Apply a bounded request-body limit at the proxy and adapter.
+- Apply a bounded request-body limit at the proxy and adapter; configure proxy failures to avoid
+  exposing diagnostics.
 - Verify before any parsing-dependent or business side effect.
-- Atomically deduplicate `webhook-id` and make downstream processing idempotent.
+- Atomically commit `webhook-id` and durable work, then process that work idempotently.
 - Return opaque failures and log only allow-listed metadata.
 - Rotate a suspected secret in the dashboard and deploy the replacement promptly.
