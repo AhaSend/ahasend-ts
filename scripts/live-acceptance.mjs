@@ -1184,19 +1184,24 @@ function assertStatisticsMappings(profile, authorization) {
 }
 
 function requireStatisticsDomains(value) {
-  if (!Array.isArray(value) || value.length !== 2) {
-    throw new TypeError("Statistics sender domains must contain exactly two entries.");
-  }
-  const domains = value.map((domain, index) =>
-    requireString(domain, `Statistics sender domain ${index + 1}`)
+  const senderDomains = requireObject(value, "Statistics sender domains");
+  const domains = {
+    authorized: requireString(senderDomains.authorized, "Authorized statistics sender domain")
       .trim()
       .toLowerCase(),
-  );
+    unauthorized: requireString(senderDomains.unauthorized, "Unauthorized statistics sender domain")
+      .trim()
+      .toLowerCase(),
+  };
   if (
-    domains.some((domain) => domain === "" || domain.includes(",") || domain.includes("@")) ||
-    new Set(domains).size !== domains.length
+    Object.values(domains).some(
+      (domain) => domain === "" || domain.includes(",") || domain.includes("@"),
+    ) ||
+    domains.authorized === domains.unauthorized
   ) {
-    throw new TypeError("Statistics sender domains must be distinct domain names.");
+    throw new TypeError(
+      "Authorized and unauthorized statistics sender domains must be distinct domain names.",
+    );
   }
   return Object.freeze(domains);
 }
@@ -1206,6 +1211,7 @@ async function runStatisticsAuthorizationCase({
   rule,
   senderDomain,
   expectedDomainCount,
+  expectedAuthorized,
   label,
 }) {
   const params = Object.freeze({ [rule.queryParameter]: senderDomain });
@@ -1220,7 +1226,26 @@ async function runStatisticsAuthorizationCase({
     throw new TypeError(`${label} must contain exactly ${expectedDomainCount} sender domains.`);
   }
 
-  const response = requireObject(await method(params), `${label} response`);
+  let responseValue;
+  try {
+    responseValue = await method(params);
+  } catch (error) {
+    if (expectedAuthorized) throw error;
+    const failure = requireObject(error, `${label} rejection`);
+    if (failure.status !== 403) {
+      throw new TypeError(`${label} must fail with HTTP 403.`);
+    }
+    return Object.freeze({
+      authorized: false,
+      domainCount: suppliedDomains.length,
+      status: 403,
+    });
+  }
+  if (!expectedAuthorized) {
+    throw new TypeError(`${label} unexpectedly succeeded.`);
+  }
+
+  const response = requireObject(responseValue, `${label} response`);
   if (response.object !== "list" || !Array.isArray(response.data)) {
     throw new TypeError(`${label} response must be a statistics list.`);
   }
@@ -1233,8 +1258,8 @@ async function runStatisticsAuthorizationCase({
 
 /**
  * Build one scenario for each statistics operation. Every scenario exercises a
- * single sender domain and a comma-separated pair using the packaged
- * authorization rule that requires every value to be authorized.
+ * permitted domain, a denied domain, and a permitted-first/denied-second pair
+ * using the packaged authorization rule that requires every value to pass.
  */
 export function createStatisticsScenarioRegistry({
   profile,
@@ -1261,15 +1286,25 @@ export function createStatisticsScenarioRegistry({
             const singleDomain = await runStatisticsAuthorizationCase({
               method,
               rule,
-              senderDomain: domains[0],
+              senderDomain: domains.authorized,
               expectedDomainCount: 1,
+              expectedAuthorized: true,
               label: `${operationId} single-domain authorization`,
+            });
+            const unauthorizedDomain = await runStatisticsAuthorizationCase({
+              method,
+              rule,
+              senderDomain: domains.unauthorized,
+              expectedDomainCount: 1,
+              expectedAuthorized: false,
+              label: `${operationId} unauthorized-domain authorization`,
             });
             const multiDomain = await runStatisticsAuthorizationCase({
               method,
               rule,
-              senderDomain: domains.join(","),
-              expectedDomainCount: domains.length,
+              senderDomain: `${domains.authorized},${domains.unauthorized}`,
+              expectedDomainCount: 2,
+              expectedAuthorized: false,
               label: `${operationId} multi-domain authorization`,
             });
             return Object.freeze({
@@ -1278,6 +1313,7 @@ export function createStatisticsScenarioRegistry({
                   source: `query.${rule.queryParameter}`,
                   quantifier: rule.quantifier,
                   singleDomain,
+                  unauthorizedDomain,
                   multiDomain,
                 }),
               }),

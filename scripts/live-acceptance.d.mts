@@ -278,7 +278,10 @@ export interface CreateStatisticsScenarioRegistryOptions {
   readonly profile: LiveProfile;
   readonly client: StatisticsLiveClient;
   readonly authorization: StatisticsAuthorizationRegistry;
-  readonly senderDomains: readonly [string, string];
+  readonly senderDomains: {
+    readonly authorized: string;
+    readonly unauthorized: string;
+  };
 }
 
 export function createStatisticsScenarioRegistry(

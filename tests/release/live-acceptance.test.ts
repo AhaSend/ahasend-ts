@@ -286,19 +286,20 @@ function messageClientFixture(
   };
 }
 
-function statisticsClientFixture(options: { authorizeSecondDomain?: boolean } = {}) {
+function statisticsClientFixture(options: { checkEveryDomain?: boolean } = {}) {
   const firstDomain = "statistics-one.example";
   const secondDomain = "statistics-two.example";
-  const authorizedDomains = new Set([
-    firstDomain,
-    ...(options.authorizeSecondDomain === false ? [] : [secondDomain]),
-  ]);
+  const authorizedDomains = new Set([firstDomain]);
   const request = async (params: { sender_domain?: string }) => {
     const domains = (params.sender_domain ?? "")
       .split(",")
       .map((domain) => domain.trim().toLowerCase())
       .filter((domain) => domain !== "");
-    if (domains.length === 0 || !domains.every((domain) => authorizedDomains.has(domain))) {
+    const checkedDomains = options.checkEveryDomain === false ? domains.slice(0, 1) : domains;
+    if (
+      checkedDomains.length === 0 ||
+      !checkedDomains.every((domain) => authorizedDomains.has(domain))
+    ) {
       throw Object.assign(new Error("statistics sender is not authorized"), {
         status: 403,
         url: `https://api.example.test/statistics?sender_domain=${params.sender_domain}`,
@@ -317,7 +318,10 @@ function statisticsClientFixture(options: { authorizeSecondDomain?: boolean } = 
     client,
     firstDomain,
     secondDomain,
-    senderDomains: [firstDomain, secondDomain] as const,
+    senderDomains: {
+      authorized: firstDomain,
+      unauthorized: secondDomain,
+    },
   };
 }
 
@@ -1088,7 +1092,8 @@ describe("live scenario inventory", () => {
               source: "query.sender_domain",
               quantifier: "every",
               singleDomain: { authorized: true, domainCount: 1, resultBuckets: 1 },
-              multiDomain: { authorized: true, domainCount: 2, resultBuckets: 1 },
+              unauthorizedDomain: { authorized: false, domainCount: 1, status: 403 },
+              multiDomain: { authorized: false, domainCount: 2, status: 403 },
             },
           },
         }),
@@ -1101,13 +1106,16 @@ describe("live scenario inventory", () => {
         sender_domain: fixture.firstDomain,
       });
       expect(method).toHaveBeenNthCalledWith(2, {
+        sender_domain: fixture.secondDomain,
+      });
+      expect(method).toHaveBeenNthCalledWith(3, {
         sender_domain: `${fixture.firstDomain},${fixture.secondDomain}`,
       });
     }
   });
 
   it("requires every comma-separated statistics domain to be authorized", async () => {
-    const fixture = statisticsClientFixture({ authorizeSecondDomain: false });
+    const fixture = statisticsClientFixture({ checkEveryDomain: false });
     const createRegistry = (
       authorization: Parameters<typeof createStatisticsScenarioRegistry>[0]["authorization"],
     ) =>
@@ -1127,7 +1135,7 @@ describe("live scenario inventory", () => {
     expect(result.operationResults).toEqual([
       { operationId: "getDeliverabilityStatistics", status: "failed" },
     ]);
-    expect(fixture.client.statistics.deliverability).toHaveBeenCalledTimes(2);
+    expect(fixture.client.statistics.deliverability).toHaveBeenCalledTimes(3);
 
     const firstOnlyAuthorization = structuredClone(RESOURCE_AUTHORIZATION) as unknown as Record<
       string,
@@ -1156,7 +1164,7 @@ describe("live scenario inventory", () => {
     const report = createLiveReport({
       candidate,
       operationResults: result.operationResults,
-      secrets: [...fixture.senderDomains],
+      secrets: Object.values(fixture.senderDomains),
     });
     const source = canonicalizeJson(report).toString("utf8");
     const statisticsRows = (
