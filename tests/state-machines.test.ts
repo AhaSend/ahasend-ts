@@ -96,7 +96,11 @@ describe("deterministic execution state machines", () => {
       .execute<{
         object: string;
         domain: string;
-      }>("createDomain", { path: { account_id: "acc_1" }, body }, { idempotencyKey: "execution-key" })
+      }>(
+        "createDomain",
+        { path: { account_id: "acc_1" }, body },
+        { idempotencyKey: "execution-key" },
+      )
       .withResponse();
 
     await vi.advanceTimersByTimeAsync(0);

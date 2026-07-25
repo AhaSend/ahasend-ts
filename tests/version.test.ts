@@ -5,9 +5,9 @@ import { DEFAULT_USER_AGENT, SDK_VERSION } from "../src/version.js";
 
 describe("SDK_VERSION", () => {
   it("matches package.json#version (bump both together)", () => {
-    const pkg = JSON.parse(
-      readFileSync(resolve(process.cwd(), "package.json"), "utf-8"),
-    ) as { version: string };
+    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf-8")) as {
+      version: string;
+    };
     expect(SDK_VERSION).toBe(pkg.version);
   });
 
