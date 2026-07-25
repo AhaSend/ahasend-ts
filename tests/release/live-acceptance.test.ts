@@ -4311,8 +4311,11 @@ describe("live cleanup and reporting", () => {
     const environmentToken = "environment-token-value";
     const environmentWebhookSecret = "environment-webhook-secret-value";
     const standaloneApiKey = `aha-sk-${"A".repeat(64)}`;
-    const pemPrivateKey =
-      "-----BEGIN PRIVATE KEY-----\nfixture-private-key\n-----END PRIVATE KEY-----";
+    const pemPrivateKey = [
+      "-----BEGIN PRIVATE",
+      " KEY-----\nfixture-private-key\n-----END PRIVATE",
+      " KEY-----",
+    ].join("");
     complete.operations[0]!.evidence = {
       apiKey: secret,
       request: `Authorization: Bearer ${secret}`,

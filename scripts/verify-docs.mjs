@@ -282,7 +282,7 @@ const REQUIREMENTS = Object.freeze([
   {
     label: "v0.1.0 surface",
     path: "CHANGELOG.md",
-    text: "## [0.1.0] — Unreleased",
+    text: "## [0.1.0] — 2026-07-25",
   },
 ]);
 
