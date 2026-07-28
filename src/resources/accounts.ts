@@ -1,4 +1,4 @@
-import type { HttpClient } from "../http.js";
+import type { OperationExecutor } from "../operations.js";
 import type { ISODateTime, RequestOptions, SuccessResponse, UUID } from "../types/common.js";
 import { forwardOptions, forwardWithIdempotency } from "./_helpers.js";
 import type { IdempotencyRequestOptions } from "./_helpers.js";
@@ -8,6 +8,7 @@ export type AccountMemberRole = "Administrator" | "Developer" | "Analyst" | "Bil
 export interface Account {
   object: "account";
   id: UUID;
+  parent_account_id: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
   name: string;
@@ -53,60 +54,56 @@ export interface AddAccountMemberRequest {
   role: AccountMemberRole;
 }
 
-export interface ListMembersParams {
-  // The AhaSend API does not accept query parameters on GET /members.
-  // Reserved for forward compatibility.
-}
-
 /** Account settings and member management. */
 export class AccountsClient {
-  constructor(
-    private readonly http: HttpClient,
-    private readonly accountId: UUID,
-  ) {}
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
+
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
 
   get(options: RequestOptions = {}): Promise<Account> {
-    return this.http.request<Account>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<Account>(
+      "getAccount",
+      { path: { account_id: this.#accountId } },
+      forwardOptions(options),
+    );
   }
 
   update(body: UpdateAccountRequest, options: RequestOptions = {}): Promise<Account> {
-    return this.http.request<Account>({
-      method: "PUT",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}`,
-      body,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<Account>(
+      "updateAccount",
+      { path: { account_id: this.#accountId }, body },
+      forwardOptions(options),
+    );
   }
 
   listMembers(options: RequestOptions = {}): Promise<ListAccountMembersResponse> {
-    return this.http.request<ListAccountMembersResponse>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/members`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<ListAccountMembersResponse>(
+      "getAccountMembers",
+      { path: { account_id: this.#accountId } },
+      forwardOptions(options),
+    );
   }
 
   addMember(
     body: AddAccountMemberRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<UserAccount> {
-    return this.http.request<UserAccount>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/members`,
-      body,
-      ...forwardWithIdempotency(options),
-    });
+    return this.#operations.execute<UserAccount>(
+      "addAccountMember",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
+    );
   }
 
   removeMember(userId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.http.request<SuccessResponse>({
-      method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/members/${encodeURIComponent(userId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<SuccessResponse>(
+      "removeAccountMember",
+      { path: { account_id: this.#accountId, user_id: userId } },
+      forwardOptions(options),
+    );
   }
 }

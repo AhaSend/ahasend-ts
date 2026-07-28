@@ -1,0 +1,54 @@
+{
+  "cases": [
+    {
+      "name": "accepts the complete renderer attestation",
+      "mutation": "none",
+      "expectedError": null
+    },
+    {
+      "name": "rejects a stale handoff digest",
+      "mutation": "staleHandoffDigest",
+      "expectedError": "stale handoff digest"
+    },
+    {
+      "name": "rejects a stale REST digest",
+      "mutation": "staleRestDigest",
+      "expectedError": "stale REST digest"
+    },
+    {
+      "name": "rejects a missing operation",
+      "mutation": "missingOperation",
+      "expectedError": "must contain 56 operations"
+    },
+    {
+      "name": "rejects a duplicate operation",
+      "mutation": "duplicateOperation",
+      "expectedError": "duplicate operation"
+    },
+    {
+      "name": "rejects a missing sample tab",
+      "mutation": "missingTab",
+      "expectedError": "missing required sample tabs"
+    },
+    {
+      "name": "rejects a duplicate sample tab",
+      "mutation": "duplicateTab",
+      "expectedError": "duplicate tab"
+    },
+    {
+      "name": "rejects a source-hash mismatch",
+      "mutation": "sourceHashMismatch",
+      "expectedError": "source-hash mismatch"
+    },
+    {
+      "name": "rejects a noncanonical report payload",
+      "mutation": "noncanonicalPayload",
+      "expectedError": "canonical JSON bytes"
+    },
+    {
+      "name": "rejects a handoff sidecar mismatch",
+      "mutation": "sidecarMismatch",
+      "expectedError": "sidecar mismatch"
+    }
+  ]
+}

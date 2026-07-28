@@ -1,0 +1,8 @@
+{
+  "name": "ahasend-sdk-types-consumer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

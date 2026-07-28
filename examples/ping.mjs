@@ -11,6 +11,5 @@ try {
   console.log("✓ ping:", res);
 } catch (err) {
   console.error("✗ ping failed:", err.name, err.status ?? "", err.message);
-  if (err.body) console.error("body:", err.body);
   process.exit(1);
 }

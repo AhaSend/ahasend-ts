@@ -1,8 +1,9 @@
-import type { HttpClient } from "../http.js";
+import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   Address,
   ISODateTime,
+  NonEmptyArray,
   PaginatedResponse,
   PaginationParams,
   RequestOptions,
@@ -15,8 +16,8 @@ import {
   type IdempotencyRequestOptions,
 } from "./_helpers.js";
 
-/** Values allowed in a Jinja2 substitution context. */
-export type SubstitutionValue = string | number | boolean | null;
+/** A value in a Jinja2 substitution context, including nested objects and arrays. */
+export type SubstitutionValue = unknown;
 
 /** A single recipient of a `messages.send()` call. */
 export interface Recipient {
@@ -53,19 +54,21 @@ export interface Attachment {
   content_id?: string;
 }
 
-export interface Tracking {
-  /** `null` opts back to the account default (per spec `nullable: true`). */
+/** Per-message tracking overrides. `null` restores all account defaults. */
+export type Tracking = {
+  /** `null` opts back to the account default. */
   open?: boolean | null;
-  /** `null` opts back to the account default (per spec `nullable: true`). */
+  /** `null` opts back to the account default. */
   click?: boolean | null;
-}
+} | null;
 
-export interface Retention {
-  /** `null` opts back to the account default (per spec `nullable: true`). */
+/** Per-message retention overrides. `null` restores all account defaults. */
+export type Retention = {
+  /** `null` opts back to the account default. */
   metadata?: number | null;
-  /** `null` opts back to the account default (per spec `nullable: true`). */
+  /** `null` opts back to the account default. */
   data?: number | null;
-}
+} | null;
 
 /** Delivery scheduling for a message. */
 export interface MessageSchedule {
@@ -97,7 +100,7 @@ export interface CreateMessageRequest {
   /** Sender — must be on a verified sending domain of your account. */
   from: Address;
   /** 1–100 recipients (the API rejects an empty array). */
-  recipients: [Recipient, ...Recipient[]];
+  recipients: NonEmptyArray<Recipient>;
   subject: string;
   reply_to?: Address;
   /** Plain-text body. Required if `html_content` is empty. */
@@ -106,13 +109,13 @@ export interface CreateMessageRequest {
   html_content?: string;
   /** AMP HTML variant. */
   amp_content?: string;
-  attachments?: Attachment[];
+  attachments?: readonly Attachment[];
   /** Custom SMTP headers. `Reply-To` and `Message-ID` are managed by the API. */
   headers?: Record<string, string>;
   /** Request-level template variables; per-recipient substitutions win. */
   substitutions?: Record<string, SubstitutionValue>;
   /** Free-form tags for filtering in lists, statistics, and webhooks. */
-  tags?: string[];
+  tags?: readonly string[];
   /**
    * Sandbox mode: the API validates and accepts the request but no
    * email leaves the platform. The `from` domain must still be verified.
@@ -130,17 +133,17 @@ export interface CreateMessageRequest {
 export interface CreateConversationMessageRequest {
   from: Address;
   /** 1–50 To recipients (combined To+Cc+Bcc must be ≤50). */
-  to: [Address, ...Address[]];
+  to: NonEmptyArray<Address>;
   subject: string;
-  cc?: Address[];
-  bcc?: Address[];
+  cc?: NonEmptyArray<Address>;
+  bcc?: NonEmptyArray<Address>;
   reply_to?: Address;
   text_content?: string;
   html_content?: string;
   amp_content?: string;
-  attachments?: Attachment[];
+  attachments?: readonly Attachment[];
   headers?: Record<string, string>;
-  tags?: string[];
+  tags?: readonly string[];
   sandbox?: boolean;
   sandbox_result?: SandboxResult;
   tracking?: Tracking;
@@ -153,15 +156,14 @@ export type SendMessageStatus = "queued" | "scheduled" | "error";
 export interface SendMessageResult {
   object: "message";
   /**
-   * RFC-822 Message-ID of the queued message, e.g. `<uuid@host>`.
+   * Generated Message-ID of the queued message, e.g. `<uuid@host>`, or `null`
+   * when the message was not sent.
    *
-   * **This is NOT the resource UUID for `messages.get()`** — it is the
-   * SMTP-level identifier the API records when the message is queued
-   * for delivery. To fetch the message resource later use the UUID from
-   * the `Message.id` field on the persisted record.
+   * When non-null, this value can be passed directly to {@link MessagesClient.get}
+   * or {@link MessagesClient.cancel}; those methods also accept its bare UUID portion.
    */
   id: string | null;
-  recipient: Recipient;
+  recipient: Recipient & { name: string };
   status: SendMessageStatus;
   error: string | null;
   schedule?: MessageSchedule;
@@ -187,7 +189,7 @@ export interface MessageContentAttachment {
   filename: string;
   content: string;
   content_type: string;
-  content_id?: string | null;
+  content_id: string;
 }
 
 export interface MessageContentParsed {
@@ -196,20 +198,17 @@ export interface MessageContentParsed {
   headers: Record<string, string[]>;
 }
 
-export interface Message {
+export interface MessageSummary {
   object: "message";
-  id: UUID;
+  id: string | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
-  /** Not in the spec's `required` array — omitted while queued. */
-  sent_at?: ISODateTime | null;
-  /** Not in the spec's `required` array — omitted until delivered. */
-  delivered_at?: ISODateTime | null;
+  sent_at: ISODateTime | null;
+  delivered_at: ISODateTime | null;
   retain_until: ISODateTime;
   direction: "inbound" | "outbound";
   is_bounce_notification: boolean;
-  /** Optional per spec — present only on bounce notifications. */
-  bounce_classification?: string;
+  bounce_classification: string;
   delivery_attempts: DeliveryAttempt[];
   message_id: string;
   subject: string;
@@ -223,11 +222,14 @@ export interface Message {
   reference_message_id: number | null;
   domain_id: UUID;
   account_id: UUID;
-  content?: string | null;
-  content_parsed?: MessageContentParsed | null;
 }
 
-export interface ListMessagesParams extends PaginationParams {
+export interface Message extends MessageSummary {
+  content?: string;
+  content_parsed?: MessageContentParsed;
+}
+
+export type ListMessagesParams = PaginationParams & {
   status?: string;
   sender?: string;
   recipient?: string;
@@ -236,14 +238,17 @@ export interface ListMessagesParams extends PaginationParams {
   tags?: string;
   from_time?: ISODateTime;
   to_time?: ISODateTime;
-}
+};
 
 /** Send, list, fetch, and cancel transactional messages. */
 export class MessagesClient {
-  constructor(
-    private readonly http: HttpClient,
-    private readonly accountId: UUID,
-  ) {}
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
+
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
 
   /**
    * Send a message to 1–100 recipients. Each recipient gets a separate
@@ -253,48 +258,57 @@ export class MessagesClient {
    * `options.idempotencyKey`; retries (the SDK's and yours, if you reuse
    * the key) can never double-send.
    *
-   * Requires scope `messages:send:all` or `messages:send:{domain}`.
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain in `from.email`.
    */
   send(
     body: CreateMessageRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<SendMessageResponse> {
-    return this.http.request<SendMessageResponse>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages`,
-      body,
-      ...forwardWithIdempotency(options),
-    });
+    return this.#operations.execute<SendMessageResponse>(
+      "createMessage",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
+    );
   }
 
   /**
    * Send a single message with multiple visible To/Cc/Bcc recipients
    * (combined ≤ 50) — like a normal mail client, everyone sees the
    * recipient list. Use {@link send} for individualized fan-out.
+   *
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain in `from.email`.
    */
   sendConversation(
     body: CreateConversationMessageRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<SendMessageResponse> {
-    return this.http.request<SendMessageResponse>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages/conversation`,
-      body,
-      ...forwardWithIdempotency(options),
-    });
+    return this.#operations.execute<SendMessageResponse>(
+      "createConversationMessage",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
+    );
   }
 
-  /** Fetch one page of messages. Filters combine with AND semantics. */
+  /**
+   * Fetch one page of messages. Filters combine with AND semantics.
+   *
+   * `messages:read:all` returns every message; `messages:read:{domain}` returns
+   * only messages whose `sender` domain is authorized.
+   */
   list(
     params: ListMessagesParams = {},
     options: RequestOptions = {},
-  ): Promise<PaginatedResponse<Message>> {
-    return this.http.request<PaginatedResponse<Message>>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages`,
-      query: params as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+  ): Promise<PaginatedResponse<MessageSummary>> {
+    return this.#operations.execute<PaginatedResponse<MessageSummary>>(
+      "getMessages",
+      {
+        path: { account_id: this.#accountId },
+        query: params,
+      },
+      forwardOptions(options),
+    );
   }
 
   /**
@@ -304,36 +318,40 @@ export class MessagesClient {
   iterate(
     params: ListMessagesParams = {},
     options: RequestOptions = {},
-  ): AsyncGenerator<Message, void, undefined> {
-    return paginate<Message, ListMessagesParams>(
-      (p) => this.list(p, options),
-      params,
-    );
+  ): AsyncGenerator<MessageSummary, void, undefined> {
+    return paginate<MessageSummary, ListMessagesParams>((p) => this.list(p, options), params);
   }
 
   /**
-   * Fetch a single message by its resource UUID (the `Message.id` field
-   * from {@link list} — not the RFC-822 Message-ID that
-   * {@link send} returns).
+   * Fetch a single message by its opaque message ID. Accepts the generated
+   * Message-ID returned by {@link send} when non-null, or its bare UUID portion.
+   * The ID is encoded as one path segment.
+   *
+   * Authorization requires `messages:read:all` or `messages:read:{domain}`
+   * matching the message's `sender` domain.
    */
-  get(messageId: UUID, options: RequestOptions = {}): Promise<Message> {
-    return this.http.request<Message>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages/${encodeURIComponent(messageId)}`,
-      ...forwardOptions(options),
-    });
+  get(messageId: string, options: RequestOptions = {}): Promise<Message> {
+    return this.#operations.execute<Message>(
+      "getMessage",
+      { path: { account_id: this.#accountId, message_id: messageId } },
+      forwardOptions(options),
+    );
   }
 
   /**
    * Cancel a queued or scheduled message. Only possible before the
    * first delivery attempt; already-sent messages cannot be recalled.
-   * Requires scope `messages:cancel:all` or `messages:cancel:{domain}`.
+   * Accepts the generated Message-ID returned by {@link send} when non-null,
+   * or its bare UUID portion.
+   *
+   * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
+   * matching the message's `sender` domain.
    */
-  cancel(messageId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.http.request<SuccessResponse>({
-      method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/messages/${encodeURIComponent(messageId)}/cancel`,
-      ...forwardOptions(options),
-    });
+  cancel(messageId: string, options: RequestOptions = {}): Promise<SuccessResponse> {
+    return this.#operations.execute<SuccessResponse>(
+      "cancelMessage",
+      { path: { account_id: this.#accountId, message_id: messageId } },
+      forwardOptions(options),
+    );
   }
 }

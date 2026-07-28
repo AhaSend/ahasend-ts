@@ -1,21 +1,32 @@
+import type { AccountsClient as AccountsClientType } from "./resources/accounts.js";
+import type { APIKeysClient as APIKeysClientType } from "./resources/api-keys.js";
+import type { DomainsClient as DomainsClientType } from "./resources/domains.js";
+import type { MessagesClient as MessagesClientType } from "./resources/messages.js";
+import type { RoutesClient as RoutesClientType } from "./resources/routes.js";
+import type { SMTPCredentialsClient as SMTPCredentialsClientType } from "./resources/smtp-credentials.js";
+import type { StatisticsClient as StatisticsClientType } from "./resources/statistics.js";
+import type { SubAccountAPIKeysClient as SubAccountAPIKeysClientType } from "./resources/sub-account-api-keys.js";
+import type { SubAccountsClient as SubAccountsClientType } from "./resources/sub-accounts.js";
+import type { SuppressionsClient as SuppressionsClientType } from "./resources/suppressions.js";
+import type { WebhooksClient as WebhooksClientType } from "./resources/webhooks.js";
+
 export { AhaSendClient } from "./client.js";
 export type { AhaSendClientOptions, PingResponse } from "./client.js";
 
 export type { ClientOptions } from "./config.js";
 export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS, optionsFromEnv } from "./config.js";
 
-export { getResponseMetadata } from "./http.js";
-
 export {
+  AhaSendAbortError,
   AhaSendAPIError,
   AhaSendAuthenticationError,
   AhaSendBadRequestError,
   AhaSendConflictError,
+  AhaSendConfigurationError,
   AhaSendConnectionError,
   AhaSendError,
   AhaSendIdempotencyConflictError,
   AhaSendIdempotencyMismatchError,
-  AhaSendIdempotencyPreconditionFailedError,
   AhaSendNotFoundError,
   AhaSendPermissionError,
   AhaSendRateLimitError,
@@ -23,8 +34,9 @@ export {
   AhaSendServerError,
   AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
+  isAhaSendError,
 } from "./errors.js";
-export type { ApiErrorBody } from "./errors.js";
+export type { AhaSendErrorCode, ApiErrorBody, SerializedAhaSendError } from "./errors.js";
 
 export {
   DEFAULT_IDEMPOTENCY_CONFIG,
@@ -33,36 +45,16 @@ export {
   IdempotencyKeyBuilder,
   generateIdempotencyKey,
 } from "./idempotency.js";
-export type { IdempotencyConfig, ResolvedIdempotencyConfig } from "./idempotency.js";
+export type { IdempotencyConfig } from "./idempotency.js";
 
-export {
-  DEFAULT_RETRY_CONFIG,
-  computeBackoffMs,
-  computeRetryDelayMs,
-  isRetryableError,
-} from "./retry.js";
-export type { ResolvedRetryConfig, RetryConfig, RetryStrategy } from "./retry.js";
+export type { RetryConfig, RetryStrategy } from "./retry.js";
 
-export {
-  DEFAULT_RATE_LIMIT_CONFIG,
-  RateLimiter,
-  detectCategory,
-} from "./rate-limit.js";
-export type {
-  CategoryRateLimit,
-  EndpointCategory,
-  RateLimitConfig,
-  ResolvedCategoryRateLimit,
-  ResolvedRateLimitConfig,
-} from "./rate-limit.js";
+export type { CategoryRateLimit, RateLimitConfig } from "./rate-limit.js";
 
-export { collect, paginate } from "./pagination.js";
-
-export { composeHooks, debugConsoleHooks } from "./telemetry.js";
+export { composeHooks } from "./telemetry.js";
 export type {
   ErrorEvent,
   RequestEvent,
-  ResolvedTelemetryHooks,
   ResponseEvent,
   RetryEvent,
   TelemetryHooks,
@@ -70,7 +62,11 @@ export type {
 
 export type {
   Address,
+  AhaSendPromise,
+  AhaSendResponse,
+  IdempotencyRequestOptions,
   ISODateTime,
+  NonEmptyArray,
   PaginatedResponse,
   PaginationMeta,
   PaginationParams,
@@ -79,7 +75,6 @@ export type {
   UUID,
 } from "./types/common.js";
 
-export { MessagesClient } from "./resources/messages.js";
 export type {
   Attachment,
   CreateConversationMessageRequest,
@@ -87,6 +82,7 @@ export type {
   DeliveryAttempt,
   ListMessagesParams,
   Message,
+  MessageSummary,
   MessageContentAttachment,
   MessageContentParsed,
   MessageContentPart,
@@ -100,29 +96,27 @@ export type {
   SubstitutionValue,
   Tracking,
 } from "./resources/messages.js";
+export type MessagesClient = MessagesClientType;
 
-export { DomainsClient } from "./resources/domains.js";
 export type {
   CreateDomainRequest,
   DNSRecord,
   Domain,
-  DomainRequestOptions,
   ListDomainsParams,
   UpdateDomainRequest,
 } from "./resources/domains.js";
+export type DomainsClient = DomainsClientType;
 
-export { APIKeysClient } from "./resources/api-keys.js";
 export type {
   APIKey,
-  APIKeyRequestOptions,
   APIKeyScope,
   APIKeyScopeName,
   CreateAPIKeyRequest,
   CreatedAPIKey,
   UpdateAPIKeyRequest,
 } from "./resources/api-keys.js";
+export type APIKeysClient = APIKeysClientType;
 
-export { WebhooksClient } from "./resources/webhooks.js";
 export type {
   CreateWebhookRequest,
   CreatedWebhook,
@@ -131,8 +125,8 @@ export type {
   Webhook,
   WebhookScope,
 } from "./resources/webhooks.js";
+export type WebhooksClient = WebhooksClientType;
 
-export { StatisticsClient } from "./resources/statistics.js";
 export type {
   BounceClassificationCount,
   BounceStatistics,
@@ -145,8 +139,8 @@ export type {
   StatisticsGranularity,
   StatisticsParams,
 } from "./resources/statistics.js";
+export type StatisticsClient = StatisticsClientType;
 
-export { SuppressionsClient } from "./resources/suppressions.js";
 export type {
   CreateSuppressionRequest,
   CreateSuppressionResponse,
@@ -155,8 +149,8 @@ export type {
   Suppression,
   WipeSuppressionsParams,
 } from "./resources/suppressions.js";
+export type SuppressionsClient = SuppressionsClientType;
 
-export { RoutesClient } from "./resources/routes.js";
 export type {
   CreateRouteRequest,
   CreatedRoute,
@@ -164,26 +158,37 @@ export type {
   Route,
   UpdateRouteRequest,
 } from "./resources/routes.js";
+export type RoutesClient = RoutesClientType;
 
-export { AccountsClient } from "./resources/accounts.js";
 export type {
   Account,
   AccountMemberRole,
   AddAccountMemberRequest,
   ListAccountMembersResponse,
-  ListMembersParams,
   UpdateAccountRequest,
   UserAccount,
 } from "./resources/accounts.js";
+export type AccountsClient = AccountsClientType;
 
-export { SMTPCredentialsClient } from "./resources/smtp-credentials.js";
 export type {
   CreateSMTPCredentialRequest,
   CreatedSMTPCredential,
   SMTPCredential,
   SMTPCredentialScope,
 } from "./resources/smtp-credentials.js";
+export type SMTPCredentialsClient = SMTPCredentialsClientType;
 
-export type { IdempotencyRequestOptions } from "./resources/_helpers.js";
+export type {
+  CreateSubAccountRequest,
+  ListSubAccountsParams,
+  SubAccount,
+  SubAccountStatus,
+  SubAccountUsageBreakdown,
+  SubAccountUsageResponse,
+  SuspendSubAccountRequest,
+  UpdateSubAccountRequest,
+} from "./resources/sub-accounts.js";
+export type SubAccountsClient = SubAccountsClientType;
+export type SubAccountAPIKeysClient = SubAccountAPIKeysClientType;
 
 export { SDK_VERSION } from "./version.js";

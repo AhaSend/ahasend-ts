@@ -9,10 +9,13 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  target: "node18",
-  splitting: false,
+  target: "node22",
+  splitting: true,
   treeshake: true,
   minify: false,
+  esbuildOptions(options) {
+    options.chunkNames = "_internal/errors";
+  },
   outExtension: ({ format }) => ({
     js: format === "cjs" ? ".cjs" : ".js",
   }),

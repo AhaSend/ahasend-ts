@@ -1,0 +1,20 @@
+{
+  "type": "message.routing",
+  "route_id": "b33c56aa-4bb8-4796-a44e-e204c2a9cb49",
+  "timestamp": "2026-07-14T15:04:07.123456789Z",
+  "data": {
+    "id": "capture-route-message-01",
+    "from": "Customer <customer@example.net>",
+    "reply_to": "customer@example.net",
+    "to": "inbound@capture.example",
+    "subject": "Routing capture",
+    "message_id": "<capture-routing-01@example.net>",
+    "size": 421,
+    "spam_score": 0.1,
+    "bounce": false,
+    "html_body": "<p>Line one.<br>Line two.</p>",
+    "plain_body": "Line one.\r\nLine two.",
+    "attachments": [],
+    "headers": {"X-Capture": "route-01", "X-Original-Fold": "one\t two"}
+  }
+}

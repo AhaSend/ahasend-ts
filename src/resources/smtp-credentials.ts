@@ -1,7 +1,8 @@
-import type { HttpClient } from "../http.js";
+import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
+  NonEmptyArray,
   PaginatedResponse,
   PaginationParams,
   RequestOptions,
@@ -22,7 +23,8 @@ export interface SMTPCredential {
   username: string;
   sandbox: boolean;
   scope: SMTPCredentialScope;
-  domains?: string[];
+  /** Always present. Global credentials return an empty array. */
+  domains: string[];
 }
 
 export interface CreatedSMTPCredential extends SMTPCredential {
@@ -30,22 +32,22 @@ export interface CreatedSMTPCredential extends SMTPCredential {
 }
 
 /**
- * Discriminated union: when `scope: "scoped"`, `domains` is required and
- * lists the domains the credential may send from. When `scope: "global"`,
- * `domains` must not be present.
+ * Discriminated union mirroring the spec: `scope: "scoped"` requires a
+ * non-empty `domains` array. Global credentials may omit `domains` or send
+ * any array or `null`; the API accepts and ignores supplied values.
  */
 export type CreateSMTPCredentialRequest =
   | {
       name: string;
       sandbox?: boolean;
       scope: "global";
-      domains?: never;
+      domains?: readonly string[] | null;
     }
   | {
       name: string;
       sandbox?: boolean;
       scope: "scoped";
-      domains: string[];
+      domains: NonEmptyArray<string>;
     };
 
 /**
@@ -53,58 +55,100 @@ export type CreateSMTPCredentialRequest =
  * the HTTP API. The created credential's `password` is returned once.
  */
 export class SMTPCredentialsClient {
-  constructor(
-    private readonly http: HttpClient,
-    private readonly accountId: UUID,
-  ) {}
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
 
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
+
+  /**
+   * Fetch one page of SMTP credentials.
+   *
+   * `smtp-credentials:read:all` returns every SMTP credential;
+   * `smtp-credentials:read:{domain}` returns only credentials with at least one
+   * authorized `domains` entry.
+   */
   list(
     params: PaginationParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<SMTPCredential>> {
-    return this.http.request<PaginatedResponse<SMTPCredential>>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/smtp-credentials`,
-      query: params as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<PaginatedResponse<SMTPCredential>>(
+      "getSMTPCredentials",
+      {
+        path: { account_id: this.#accountId },
+        query: params,
+      },
+      forwardOptions(options),
+    );
   }
 
   iterate(
     params: PaginationParams = {},
     options: RequestOptions = {},
   ): AsyncGenerator<SMTPCredential, void, undefined> {
-    return paginate<SMTPCredential, PaginationParams>(
-      (p) => this.list(p, options),
-      params,
-    );
+    return paginate<SMTPCredential, PaginationParams>((p) => this.list(p, options), params);
   }
 
+  /**
+   * Create an SMTP credential.
+   *
+   * A `scoped` SMTP credential requires `smtp-credentials:write:{domain}` for
+   * every `domains` entry; `scope: "global"` requires
+   * `smtp-credentials:write:all`.
+   *
+   * The response is the only time the SMTP `password` is exposed. SMTP
+   * credentials have no update operation.
+   */
   create(
     body: CreateSMTPCredentialRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreatedSMTPCredential> {
-    return this.http.request<CreatedSMTPCredential>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/smtp-credentials`,
-      body,
-      ...forwardWithIdempotency(options),
-    });
+    return this.#operations.execute<CreatedSMTPCredential>(
+      "createSMTPCredential",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
+    );
   }
 
+  /**
+   * Fetch an SMTP credential.
+   *
+   * Authorization requires `smtp-credentials:read:all` or
+   * `smtp-credentials:read:{domain}` matching at least one credential `domains`
+   * entry.
+   */
   get(credentialId: UUID, options: RequestOptions = {}): Promise<SMTPCredential> {
-    return this.http.request<SMTPCredential>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/smtp-credentials/${encodeURIComponent(credentialId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<SMTPCredential>(
+      "getSMTPCredential",
+      {
+        path: {
+          account_id: this.#accountId,
+          smtp_credential_id: credentialId,
+        },
+      },
+      forwardOptions(options),
+    );
   }
 
+  /**
+   * Delete an SMTP credential.
+   *
+   * Authorization requires `smtp-credentials:delete:all` or
+   * `smtp-credentials:delete:{domain}` matching at least one credential
+   * `domains` entry.
+   */
   delete(credentialId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.http.request<SuccessResponse>({
-      method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/smtp-credentials/${encodeURIComponent(credentialId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<SuccessResponse>(
+      "deleteSMTPCredential",
+      {
+        path: {
+          account_id: this.#accountId,
+          smtp_credential_id: credentialId,
+        },
+      },
+      forwardOptions(options),
+    );
   }
 }

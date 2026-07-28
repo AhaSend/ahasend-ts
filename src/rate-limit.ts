@@ -1,6 +1,7 @@
+import { AhaSendAbortError } from "./errors.js";
 import { sleep } from "./retry.js";
 
-export type EndpointCategory = "general" | "statistics" | "sendMessage";
+type EndpointCategory = "standard" | "statistics";
 
 export interface CategoryRateLimit {
   requestsPerSecond: number;
@@ -10,9 +11,8 @@ export interface CategoryRateLimit {
 
 export interface RateLimitConfig {
   enabled?: boolean;
-  general?: Partial<CategoryRateLimit>;
+  standard?: Partial<CategoryRateLimit>;
   statistics?: Partial<CategoryRateLimit>;
-  sendMessage?: Partial<CategoryRateLimit>;
 }
 
 export interface ResolvedCategoryRateLimit {
@@ -23,24 +23,21 @@ export interface ResolvedCategoryRateLimit {
 
 export interface ResolvedRateLimitConfig {
   enabled: boolean;
-  general: ResolvedCategoryRateLimit;
+  standard: ResolvedCategoryRateLimit;
   statistics: ResolvedCategoryRateLimit;
-  sendMessage: ResolvedCategoryRateLimit;
 }
 
 export const DEFAULT_RATE_LIMIT_CONFIG: ResolvedRateLimitConfig = {
-  enabled: true,
-  general: { requestsPerSecond: 100, burst: 200, enabled: true },
+  enabled: false,
+  standard: { requestsPerSecond: 100, burst: 200, enabled: true },
   statistics: { requestsPerSecond: 1, burst: 1, enabled: true },
-  sendMessage: { requestsPerSecond: 100, burst: 200, enabled: true },
 };
 
 export function resolveRateLimitConfig(override?: RateLimitConfig): ResolvedRateLimitConfig {
   return {
     enabled: override?.enabled ?? DEFAULT_RATE_LIMIT_CONFIG.enabled,
-    general: mergeCategory(DEFAULT_RATE_LIMIT_CONFIG.general, override?.general),
+    standard: mergeCategory(DEFAULT_RATE_LIMIT_CONFIG.standard, override?.standard),
     statistics: mergeCategory(DEFAULT_RATE_LIMIT_CONFIG.statistics, override?.statistics),
-    sendMessage: mergeCategory(DEFAULT_RATE_LIMIT_CONFIG.sendMessage, override?.sendMessage),
   };
 }
 
@@ -55,53 +52,78 @@ function mergeCategory(
   };
 }
 
-/**
- * Map a (method, path) pair to its rate-limit category.
- *
- * Send-message bucket covers exactly the two endpoints the AhaSend API
- * documents as send paths:
- *
- *   - `POST /v2/accounts/{account_id}/messages`
- *   - `POST /v2/accounts/{account_id}/messages/conversation`
- *
- * `POST /messages/{id}/cancel` (and any GET on /messages*) intentionally
- * fall through to `general`.
- */
-export function detectCategory(method: string, path: string): EndpointCategory {
-  if (path.includes("/statistics/")) return "statistics";
-  if (method === "POST" && /\/messages(?:\/conversation)?$/.test(path)) {
-    return "sendMessage";
-  }
-  return "general";
+/** Map an API path to one of the two documented rate-limit tiers. */
+export function detectCategory(_method: string, path: string): EndpointCategory {
+  return path.includes("/statistics/") ? "statistics" : "standard";
+}
+
+interface RateLimitClock {
+  now(): number;
+  sleep(ms: number, signal?: AbortSignal): Promise<void>;
+}
+
+const MONOTONIC_CLOCK: RateLimitClock = {
+  now: () => performance.now(),
+  sleep,
+};
+
+interface PendingAcquisition {
+  resolve: () => void;
+  reject: (reason: unknown) => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
 }
 
 class TokenBucket {
   private tokens: number;
   private lastRefill: number;
-  private chain: Promise<void> = Promise.resolve();
+  private readonly queue: PendingAcquisition[] = [];
+  private waitController: AbortController | undefined;
 
   constructor(
     private rps: number,
     private burst: number,
     private enabled: boolean,
-    private now: () => number = Date.now,
+    private readonly clock: RateLimitClock,
   ) {
     this.tokens = burst;
-    this.lastRefill = now();
+    this.lastRefill = clock.now();
   }
 
   setLimit(rps: number, burst: number): void {
+    this.refill();
     this.rps = rps;
     this.burst = burst;
-    if (this.tokens > burst) this.tokens = burst;
+    this.tokens = Math.min(this.tokens, burst);
+    this.restartWait();
   }
 
   setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) return;
     this.enabled = enabled;
+    if (!enabled) {
+      this.releaseQueued();
+      return;
+    }
+
+    // Calls made while pacing was disabled bypassed this bucket, so resume
+    // from a fresh burst instead of carrying stale local state forward.
+    this.tokens = this.burst;
+    this.lastRefill = this.clock.now();
   }
 
-  isEnabled(): boolean {
-    return this.enabled;
+  releaseQueued(): void {
+    this.cancelWait();
+    for (const pending of this.queue.splice(0)) {
+      this.cleanup(pending);
+      pending.resolve();
+    }
+  }
+
+  reset(): void {
+    if (!this.enabled) return;
+    this.tokens = this.burst;
+    this.lastRefill = this.clock.now();
   }
 
   available(): number {
@@ -109,80 +131,119 @@ class TokenBucket {
     return this.tokens;
   }
 
-  /**
-   * Adjust the bucket to reflect the server's reported remaining quota.
-   * Only ever lowers the local tokens — never inflates beyond what we have,
-   * because the server is the source of truth on its own remaining budget.
-   */
-  reconcile(remaining: number): void {
-    if (!Number.isFinite(remaining) || remaining < 0) return;
-    this.refill();
-    if (remaining < this.tokens) {
-      this.tokens = remaining;
-    }
-  }
-
   acquire(signal?: AbortSignal): Promise<void> {
     if (!this.enabled) return Promise.resolve();
-    const next = this.chain.then(() => this.acquireOnce(signal));
-    this.chain = next.catch(() => {});
-    return next;
+    if (signal?.aborted) {
+      return Promise.reject(new AhaSendAbortError("Request aborted", signal.reason));
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const pending: PendingAcquisition = { resolve, reject };
+      if (signal) {
+        pending.signal = signal;
+        pending.onAbort = () => this.cancel(pending);
+        signal.addEventListener("abort", pending.onAbort, { once: true });
+      }
+      this.queue.push(pending);
+      this.processQueue();
+    });
   }
 
-  private async acquireOnce(signal?: AbortSignal): Promise<void> {
-    this.refill();
-    if (this.tokens >= 1) {
-      this.tokens -= 1;
+  private cancel(pending: PendingAcquisition): void {
+    const index = this.queue.indexOf(pending);
+    if (index < 0) return;
+    this.queue.splice(index, 1);
+    this.cleanup(pending);
+    pending.reject(new AhaSendAbortError("Request aborted", pending.signal?.reason));
+    if (this.queue.length === 0) this.cancelWait();
+  }
+
+  private processQueue(): void {
+    if (!this.enabled) {
+      this.releaseQueued();
       return;
     }
-    const need = 1 - this.tokens;
-    const waitMs = Math.ceil((need / this.rps) * 1000);
-    await sleep(waitMs, signal);
+
     this.refill();
-    this.tokens -= 1;
+    while (this.tokens >= 1 && this.queue.length > 0) {
+      const pending = this.queue.shift();
+      if (!pending) break;
+      this.tokens -= 1;
+      this.cleanup(pending);
+      pending.resolve();
+    }
+
+    if (this.queue.length === 0 || this.waitController) return;
+    const waitMs = Math.max(1, Math.ceil(((1 - this.tokens) / this.rps) * 1000));
+    const controller = new AbortController();
+    this.waitController = controller;
+    void this.clock.sleep(waitMs, controller.signal).then(
+      () => {
+        if (this.waitController !== controller) return;
+        this.waitController = undefined;
+        this.processQueue();
+      },
+      (error: unknown) => {
+        if (this.waitController !== controller) return;
+        this.waitController = undefined;
+        if (controller.signal.aborted) return;
+        for (const pending of this.queue.splice(0)) {
+          this.cleanup(pending);
+          pending.reject(error);
+        }
+      },
+    );
+  }
+
+  private restartWait(): void {
+    this.cancelWait();
+    this.processQueue();
+  }
+
+  private cancelWait(): void {
+    this.waitController?.abort();
+    this.waitController = undefined;
+  }
+
+  private cleanup(pending: PendingAcquisition): void {
+    if (pending.signal && pending.onAbort) {
+      pending.signal.removeEventListener("abort", pending.onAbort);
+    }
   }
 
   private refill(): void {
-    const now = this.now();
-    const elapsedSec = (now - this.lastRefill) / 1000;
-    if (elapsedSec <= 0) return;
-    this.tokens = Math.min(this.burst, this.tokens + elapsedSec * this.rps);
-    this.lastRefill = now;
+    const now = this.clock.now();
+    const elapsedMs = Math.max(0, now - this.lastRefill);
+    this.tokens = Math.min(this.burst, this.tokens + (elapsedMs / 1000) * this.rps);
+    this.lastRefill = Math.max(this.lastRefill, now);
   }
 }
 
 export class RateLimiter {
-  private buckets: Record<EndpointCategory, TokenBucket>;
+  private readonly buckets: Record<EndpointCategory, TokenBucket>;
   private masterEnabled: boolean;
 
-  constructor(config: ResolvedRateLimitConfig, now: () => number = Date.now) {
+  constructor(config: ResolvedRateLimitConfig, clock: RateLimitClock = MONOTONIC_CLOCK) {
     this.masterEnabled = config.enabled;
     this.buckets = {
-      general: new TokenBucket(
-        config.general.requestsPerSecond,
-        config.general.burst,
-        config.general.enabled,
-        now,
+      standard: new TokenBucket(
+        config.standard.requestsPerSecond,
+        config.standard.burst,
+        config.standard.enabled,
+        clock,
       ),
       statistics: new TokenBucket(
         config.statistics.requestsPerSecond,
         config.statistics.burst,
         config.statistics.enabled,
-        now,
-      ),
-      sendMessage: new TokenBucket(
-        config.sendMessage.requestsPerSecond,
-        config.sendMessage.burst,
-        config.sendMessage.enabled,
-        now,
+        clock,
       ),
     };
   }
 
   acquire(method: string, path: string, signal?: AbortSignal): Promise<void> {
     if (!this.masterEnabled) return Promise.resolve();
-    const category = detectCategory(method, path);
-    return this.buckets[category].acquire(signal);
+    return this.buckets[detectCategory(method, path)].acquire(signal);
   }
 
   detectCategory(method: string, path: string): EndpointCategory {
@@ -198,7 +259,13 @@ export class RateLimiter {
   }
 
   setEnabled(enabled: boolean): void {
+    if (this.masterEnabled === enabled) return;
     this.masterEnabled = enabled;
+    if (!enabled) {
+      for (const bucket of Object.values(this.buckets)) bucket.releaseQueued();
+    } else {
+      for (const bucket of Object.values(this.buckets)) bucket.reset();
+    }
   }
 
   isEnabled(): boolean {
@@ -208,47 +275,4 @@ export class RateLimiter {
   available(category: EndpointCategory): number {
     return this.buckets[category].available();
   }
-
-  /**
-   * Inspect a response's rate-limit headers and reconcile the matching
-   * bucket. No-op if the response has no recognised rate-limit headers.
-   */
-  recordResponseHeaders(
-    method: string,
-    path: string,
-    headers: Headers | Record<string, string>,
-  ): void {
-    if (!this.masterEnabled) return;
-    const remaining = parseRateLimitRemaining(headers);
-    if (remaining === undefined) return;
-    const category = detectCategory(method, path);
-    this.buckets[category].reconcile(remaining);
-  }
-}
-
-function parseRateLimitRemaining(
-  headers: Headers | Record<string, string>,
-): number | undefined {
-  const candidates = [
-    "x-ratelimit-remaining",
-    "ratelimit-remaining",
-    "x-rate-limit-remaining",
-  ];
-  for (const name of candidates) {
-    const raw = readHeader(headers, name);
-    if (raw === undefined) continue;
-    const n = Number(raw);
-    if (Number.isFinite(n) && n >= 0) return n;
-  }
-  return undefined;
-}
-
-function readHeader(
-  headers: Headers | Record<string, string>,
-  name: string,
-): string | undefined {
-  if (headers instanceof Headers) {
-    return headers.get(name) ?? undefined;
-  }
-  return headers[name] ?? headers[name.toLowerCase()];
 }

@@ -1,4 +1,4 @@
-import type { HttpClient } from "../http.js";
+import type { OperationExecutor } from "../operations.js";
 import type { ISODateTime, RequestOptions, UUID } from "../types/common.js";
 import { forwardOptions } from "./_helpers.js";
 
@@ -60,7 +60,7 @@ export interface DeliveryTimeStatistics {
   to_timestamp: ISODateTime;
   avg_delivery_time: number;
   delivered_count: number;
-  delivery_times?: DeliveryTimeBreakdown[];
+  delivery_times: DeliveryTimeBreakdown[];
 }
 
 export interface DeliveryTimeStatisticsResponse {
@@ -76,47 +76,71 @@ export interface DeliveryTimeStatisticsResponse {
  * paces these calls automatically.
  */
 export class StatisticsClient {
-  constructor(
-    private readonly http: HttpClient,
-    private readonly accountId: UUID,
-  ) {}
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
 
-  /** Reception/delivery/bounce/open/click counts, bucketed by `group_by`. */
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
+
+  /**
+   * Reception/delivery/bounce/open/click counts, bucketed by `group_by`.
+   * Authorization requires `statistics-transactional:read:all` or
+   * `statistics-transactional:read:{domain}` for every comma-separated
+   * `sender_domain` value.
+   */
   deliverability(
-    params: StatisticsParams,
+    params: StatisticsParams = {},
     options: RequestOptions = {},
   ): Promise<DeliverabilityStatisticsResponse> {
-    return this.http.request<DeliverabilityStatisticsResponse>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/statistics/transactional/deliverability`,
-      query: params as unknown as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<DeliverabilityStatisticsResponse>(
+      "getDeliverabilityStatistics",
+      {
+        path: { account_id: this.#accountId },
+        query: params as Readonly<Record<string, unknown>>,
+      },
+      forwardOptions(options),
+    );
   }
 
-  /** Bounce counts broken down by bounce classification per time bucket. */
+  /**
+   * Bounce counts broken down by bounce classification per time bucket.
+   * Authorization requires `statistics-transactional:read:all` or
+   * `statistics-transactional:read:{domain}` for every comma-separated
+   * `sender_domain` value.
+   */
   bounces(
-    params: StatisticsParams,
+    params: StatisticsParams = {},
     options: RequestOptions = {},
   ): Promise<BounceStatisticsResponse> {
-    return this.http.request<BounceStatisticsResponse>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/statistics/transactional/bounce`,
-      query: params as unknown as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<BounceStatisticsResponse>(
+      "getBounceStatistics",
+      {
+        path: { account_id: this.#accountId },
+        query: params as Readonly<Record<string, unknown>>,
+      },
+      forwardOptions(options),
+    );
   }
 
-  /** Average delivery latency per time bucket, with per-recipient-domain breakdown. */
+  /**
+   * Average delivery latency per time bucket, with per-recipient-domain breakdown.
+   * Authorization requires `statistics-transactional:read:all` or
+   * `statistics-transactional:read:{domain}` for every comma-separated
+   * `sender_domain` value.
+   */
   deliveryTimes(
-    params: StatisticsParams,
+    params: StatisticsParams = {},
     options: RequestOptions = {},
   ): Promise<DeliveryTimeStatisticsResponse> {
-    return this.http.request<DeliveryTimeStatisticsResponse>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/statistics/transactional/delivery-time`,
-      query: params as unknown as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<DeliveryTimeStatisticsResponse>(
+      "getDeliveryTimeStatistics",
+      {
+        path: { account_id: this.#accountId },
+        query: params as Readonly<Record<string, unknown>>,
+      },
+      forwardOptions(options),
+    );
   }
 }

@@ -1,14 +1,27 @@
 import type { ResolvedConfig } from "./config.js";
+import { assertHeaders } from "./config.js";
 import {
+  AhaSendAbortError,
   AhaSendConnectionError,
   AhaSendResponseParseError,
   AhaSendTimeoutError,
   createApiError,
 } from "./errors.js";
 import type { ApiErrorBody } from "./errors.js";
-import { generateIdempotencyKey, IDEMPOTENCY_HEADER } from "./idempotency.js";
+import {
+  createIdempotencyExecutionRecord,
+  generateIdempotencyKey,
+  IDEMPOTENCY_HEADER,
+  IDEMPOTENT_REPLAYED_HEADER,
+  assertValidIdempotencyKey,
+} from "./idempotency.js";
+import type { IdempotencyExecutionRecord } from "./idempotency.js";
+import { OPERATION_DESCRIPTORS } from "./generated/operations.js";
+import type { OperationId, RetryMode } from "./generated/operations.js";
+import type { OperationExecutionRecord } from "./operations.js";
 import { RateLimiter } from "./rate-limit.js";
 import { computeRetryDelayMs, isRetryableError, sleep } from "./retry.js";
+import type { AhaSendPromise, AhaSendResponse } from "./types/common.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -18,6 +31,8 @@ export interface RequestOptions {
   query?: Record<string, unknown>;
   body?: unknown;
   headers?: Record<string, string>;
+  /** Validated explicit key forwarded separately from caller-controlled headers. */
+  idempotencyKey?: string;
   signal?: AbortSignal;
   /**
    * Resource clients set this on the 9 spec-documented idempotency
@@ -27,6 +42,12 @@ export interface RequestOptions {
    * handlers — leave this unset and never receive an auto-generated key.
    */
   autoIdempotency?: boolean;
+  /** Generated operation identity for policy and diagnostic consumers. */
+  operationId?: OperationId;
+  /** Generated retry-safety classification for this operation. */
+  retryMode?: RetryMode;
+  /** Immutable generated policy for operation-aware response handling. */
+  execution?: OperationExecutionRecord;
 }
 
 export type QueryValue =
@@ -46,127 +67,173 @@ export class HttpClient {
     this.rateLimiter = new RateLimiter(config.rateLimit);
   }
 
-  async request<T>(options: RequestOptions): Promise<T> {
+  request<T>(options: RequestOptions): AhaSendPromise<T> {
+    assertHeaders(options.headers, "request headers");
+    if (options.idempotencyKey !== undefined) {
+      assertValidIdempotencyKey(options.idempotencyKey, "request idempotency key");
+    }
+    let responseEnvelope: AhaSendResponse<T>;
+    const bodyPromise = this.requestWithResponse<T>(options).then((envelope) => {
+      responseEnvelope = envelope;
+      return envelope.data;
+    }) as AhaSendPromise<T>;
+    // Derive the envelope view from the public body promise. Consuming either
+    // view observes the same rejection, while an entirely ignored failed
+    // request remains an unhandled rejection as callers expect from a Promise.
+    bodyPromise.withResponse = () => bodyPromise.then(() => responseEnvelope);
+    return bodyPromise;
+  }
+
+  private async requestWithResponse<T>(options: RequestOptions): Promise<AhaSendResponse<T>> {
     const url = this.buildUrl(options.path, options.query);
     const init = this.buildRequestInit(options);
+    const execution = this.buildExecutionRecord(options, url, init);
 
     const retry = this.config.retry;
-    const maxAttempts = retry.enabled ? retry.maxRetries + 1 : 1;
+    const maxAttempts = retry.enabled && this.isRetryAllowed(execution) ? retry.maxRetries + 1 : 1;
     const hooks = this.config.hooks;
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      // Acquire a token on every attempt — including retries — so the
-      // local bucket stays in sync with the server-reconciled state
-      // updated by `recordResponseHeaders` on each response. Without
-      // this, a 429 retry would bypass the local limiter entirely.
-      await this.rateLimiter.acquire(options.method, options.path, options.signal);
+      let startedAt: number | undefined;
       try {
-        return await this.executeOnce<T>(url, init, options, attempt);
+        const envelope = await this.executeAttempt<T>(
+          execution,
+          options,
+          () => {
+            startedAt = Date.now();
+            hooks.onRequest(this.buildAttemptEvent(execution, options, attempt));
+          },
+          (response, requestId) => {
+            const responseEvent: import("./telemetry.js").ResponseEvent = {
+              ...this.buildAttemptEvent(execution, options, attempt),
+              status: response.status,
+              durationMs: elapsedSince(startedAt),
+            };
+            if (requestId) responseEvent.requestId = requestId;
+            hooks.onResponse(Object.freeze(responseEvent));
+          },
+        );
+        return envelope;
       } catch (err) {
         lastError = err;
+        const durationMs = elapsedSince(startedAt);
         const requestId = extractRequestId(err);
+        const status = extractStatus(err);
         const errorEvent: import("./telemetry.js").ErrorEvent = {
-          method: options.method,
-          path: options.path,
-          url,
-          attempt,
+          ...this.buildAttemptEvent(execution, options, attempt),
+          durationMs,
           error: err,
         };
+        if (status !== undefined) errorEvent.status = status;
         if (requestId) errorEvent.requestId = requestId;
-        hooks.onError(errorEvent);
+        hooks.onError(Object.freeze(errorEvent));
         if (attempt === maxAttempts) throw err;
         if (!isRetryableError(err)) throw err;
         const delayMs = computeRetryDelayMs(err, attempt, retry);
         const retryEvent: import("./telemetry.js").RetryEvent = {
-          method: options.method,
-          path: options.path,
-          url,
-          attempt,
+          ...this.buildAttemptEvent(execution, options, attempt),
           delayMs,
+          durationMs,
           error: err,
         };
+        if (status !== undefined) retryEvent.status = status;
         if (requestId) retryEvent.requestId = requestId;
-        hooks.onRetry(retryEvent);
+        hooks.onRetry(Object.freeze(retryEvent));
         await sleep(delayMs, options.signal);
       }
     }
     throw lastError;
   }
 
-  private async executeOnce<T>(
-    url: string,
-    init: RequestInit,
+  private async executeAttempt<T>(
+    execution: HttpExecutionRecord,
     options: RequestOptions,
-    attempt: number,
-  ): Promise<T> {
-    const controller = this.linkAbortSignal(options.signal, this.config.timeout);
-    const startedAt = Date.now();
+    onStarted: () => void,
+    onResponseComplete: (response: Response, requestId: string | undefined) => void,
+  ): Promise<AhaSendResponse<T>> {
+    // Local pacing is part of the total call, so it observes caller cancellation,
+    // but it is outside the per-attempt network timeout budget.
+    await this.rateLimiter.acquire(options.method, options.path, options.signal);
 
-    this.config.hooks.onRequest({
-      method: options.method,
-      path: options.path,
-      url,
-      attempt,
-    });
+    const controller = this.linkAbortSignal(options.signal, this.config.timeoutMs);
+    onStarted();
 
-    let response: Response;
+    return this.executeOnce<T>(execution, options, controller, onResponseComplete);
+  }
+
+  private async executeOnce<T>(
+    execution: HttpExecutionRecord,
+    options: RequestOptions,
+    controller: LinkedAbortSignal,
+    onResponseComplete: (response: Response, requestId: string | undefined) => void,
+  ): Promise<AhaSendResponse<T>> {
+    const { url, init } = execution;
     try {
-      response = await this.config.fetch(url, { ...init, signal: controller.signal });
-    } catch (err) {
-      controller.cleanup();
-      if (controller.timedOut) {
-        throw new AhaSendTimeoutError(
-          `Request to ${options.method} ${options.path} timed out after ${this.config.timeout}ms`,
+      this.throwIfAttemptAborted(controller, options, "before fetch");
+
+      let response: Response;
+      try {
+        response = await this.config.fetch(url, {
+          ...init,
+          headers: { ...(init.headers as Record<string, string>) },
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (controller.signal.aborted) {
+          throw this.createAttemptAbortError(controller, options, "during fetch", err);
+        }
+        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new AhaSendAbortError("Request aborted", err);
+        }
+        throw new AhaSendConnectionError(
+          `Network error while calling ${options.method} ${options.path}`,
           err,
         );
       }
-      if (err instanceof Error && err.name === "AbortError") {
-        throw new AhaSendConnectionError("Request aborted", err);
-      }
-      throw new AhaSendConnectionError(
-        `Network error while calling ${options.method} ${options.path}`,
-        err,
-      );
-    }
+      this.throwIfAttemptAborted(controller, options, "during fetch");
 
-    // Keep the timer armed until the body has been fully read. A
-    // misbehaving server that sends headers quickly then stalls on the
-    // body would otherwise escape the configured `timeout`.
-    try {
-      this.rateLimiter.recordResponseHeaders(options.method, options.path, response.headers);
+      // Keep the timer armed until the body has been fully read. A server
+      // that sends headers quickly and then stalls remains inside this
+      // attempt's timeout budget.
       const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
-      const responseEvent: import("./telemetry.js").ResponseEvent = {
-        method: options.method,
-        path: options.path,
-        url,
-        status: response.status,
-        durationMs: Date.now() - startedAt,
-        attempt,
-      };
-      if (requestId) responseEvent.requestId = requestId;
-      this.config.hooks.onResponse(responseEvent);
 
-      return await this.parseResponse<T>(response, requestId);
-    } catch (err) {
-      if (controller.timedOut) {
-        throw new AhaSendTimeoutError(
-          `Response body read for ${options.method} ${options.path} timed out after ${this.config.timeout}ms`,
-          err,
-        );
+      try {
+        let data: T;
+        try {
+          data = await this.parseResponse<T>(response, execution.idempotency, requestId);
+        } catch (err) {
+          if (controller.signal.aborted) {
+            throw this.createAttemptAbortError(controller, options, "during body read", err);
+          }
+          if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
+          if (err instanceof Error && err.name === "AbortError") {
+            throw new AhaSendAbortError("Request aborted during body read", err);
+          }
+          throw err;
+        }
+        this.throwIfAttemptAborted(controller, options, "during body read");
+
+        return {
+          data,
+          response,
+          ...(requestId ? { requestId } : {}),
+          ...(response.headers.get(IDEMPOTENT_REPLAYED_HEADER) === "true"
+            ? { idempotentReplayed: true as const }
+            : {}),
+        };
+      } finally {
+        onResponseComplete(response, requestId);
       }
-      if (err instanceof Error && err.name === "AbortError") {
-        throw new AhaSendConnectionError("Request aborted during body read", err);
-      }
-      throw err;
     } finally {
       controller.cleanup();
     }
   }
 
   private buildUrl(path: string, query?: Record<string, unknown>): string {
-    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-    const url = new URL(`${this.config.baseUrl}${normalizedPath}`);
+    const url = new URL(this.config.baseUrl);
+    url.pathname = `/${path.replace(/^\/+/, "")}`;
 
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -197,6 +264,7 @@ export class HttpClient {
     const init: RequestInit = {
       method: options.method,
       headers,
+      redirect: "error",
     };
 
     if (options.body !== undefined && options.method !== "GET") {
@@ -204,51 +272,89 @@ export class HttpClient {
       init.body = JSON.stringify(options.body);
     }
 
-    if (this.shouldAutoIdempotency(options, headers)) {
+    if (options.idempotencyKey !== undefined) {
+      headers[IDEMPOTENCY_HEADER.toLowerCase()] = options.idempotencyKey;
+    } else if (this.shouldAutoIdempotency(options)) {
       headers[IDEMPOTENCY_HEADER.toLowerCase()] = generateIdempotencyKey(
         this.config.idempotency.prefix,
       );
     }
 
-    return init;
+    Object.freeze(headers);
+    return Object.freeze(init);
   }
 
-  private shouldAutoIdempotency(
-    options: RequestOptions,
-    headers: Record<string, string>,
-  ): boolean {
-    if (!options.autoIdempotency) return false;
+  private shouldAutoIdempotency(options: RequestOptions): boolean {
+    if (!(options.execution?.idempotency ?? options.autoIdempotency)) return false;
     if (!this.config.idempotency.autoGenerate) return false;
-    if (options.method !== "POST") return false;
-    return headers[IDEMPOTENCY_HEADER.toLowerCase()] === undefined;
+    return options.method === "POST";
+  }
+
+  private buildExecutionRecord(
+    options: RequestOptions,
+    url: string,
+    init: RequestInit,
+  ): HttpExecutionRecord {
+    const headers = init.headers as Record<string, string>;
+    const key = headers[IDEMPOTENCY_HEADER.toLowerCase()];
+    return Object.freeze({
+      url,
+      init,
+      operationId: options.execution?.operationId ?? options.operationId,
+      routeTemplate: options.execution
+        ? OPERATION_DESCRIPTORS[options.execution.operationId].path
+        : options.path,
+      retryMode: options.execution?.retryMode ?? options.retryMode,
+      idempotency: createIdempotencyExecutionRecord(options.execution?.idempotency ?? null, key),
+    });
+  }
+
+  private buildAttemptEvent(
+    execution: HttpExecutionRecord,
+    options: RequestOptions,
+    attempt: number,
+  ): import("./telemetry.js").RequestEvent {
+    return Object.freeze({
+      operationId: execution.operationId,
+      method: options.method,
+      routeTemplate: execution.routeTemplate,
+      attempt,
+    });
+  }
+
+  private isRetryAllowed(execution: HttpExecutionRecord): boolean {
+    if (execution.retryMode === "never") return false;
+    if (execution.retryMode !== "idempotency_key") return true;
+    return execution.idempotency.key !== undefined;
   }
 
   private async parseResponse<T>(
     response: Response,
+    idempotency: IdempotencyExecutionRecord,
     requestIdFromHeader?: string,
   ): Promise<T> {
-    const requestId =
-      requestIdFromHeader ?? response.headers.get(REQUEST_ID_HEADER) ?? undefined;
+    const requestId = requestIdFromHeader ?? response.headers.get(REQUEST_ID_HEADER) ?? undefined;
 
     if (response.status === 204 || response.status === 205) {
       if (response.ok) return undefined as T;
     }
 
     const rawText = await response.text();
-    const parsed = rawText.length > 0 ? safeJsonParse(rawText) : null;
+    const parsed = rawText.length > 0 ? safeJsonParse(rawText) : undefined;
 
     if (!response.ok) {
       throw createApiError({
         status: response.status,
-        body: (parsed ?? rawText ?? null) as ApiErrorBody | string | null,
+        body: (parsed?.ok ? parsed.value : rawText) as ApiErrorBody | string | null,
         requestId,
         headers: headersToRecord(response.headers),
+        idempotency,
       });
     }
 
-    if (parsed === null) {
-      // 2xx with empty body → return undefined.
-      if (rawText.length === 0) return undefined as T;
+    if (rawText.length === 0) return undefined as T;
+
+    if (!parsed?.ok) {
       // 2xx with non-JSON body is suspicious (typically an HTML error page
       // from a misconfigured load balancer or a captive-portal redirect).
       // Surface it as a transport-layer parse error rather than as an
@@ -258,58 +364,37 @@ export class HttpClient {
         status: response.status,
         body: rawText,
         requestId,
+        cause: parsed!.error,
       });
     }
 
-    if (typeof parsed === "object" && parsed !== null) {
-      // Attach observability metadata non-enumerably so it doesn't
-      // change the shape of typed responses but is still available
-      // for logging / tracing.
-      if (requestId) {
-        Object.defineProperty(parsed, "_requestId", {
-          value: requestId,
-          enumerable: false,
-          configurable: true,
-          writable: false,
-        });
-      }
-      const replayed = response.headers.get("idempotent-replayed");
-      if (replayed !== null) {
-        // The server emits `Idempotent-Replayed: true` on a 2xx response
-        // when the result is a cached replay of a prior idempotent
-        // request. Surfacing this lets callers decide whether to treat
-        // the response as a true new-side-effect or a confirmation that
-        // the side-effect already happened.
-        Object.defineProperty(parsed, "_idempotentReplayed", {
-          value: replayed === "true",
-          enumerable: false,
-          configurable: true,
-          writable: false,
-        });
-      }
-    }
-
-    return parsed as T;
+    return parsed.value as T;
   }
 
   private linkAbortSignal(
     userSignal: AbortSignal | undefined,
     timeoutMs: number,
-  ): { signal: AbortSignal; cleanup: () => void; timedOut: boolean } {
+  ): LinkedAbortSignal {
     const controller = new AbortController();
-    let timedOut = false;
+    let source: AbortSource | undefined;
 
-    const onUserAbort = () => controller.abort(userSignal?.reason);
+    const abort = (nextSource: AbortSource, reason?: unknown) => {
+      // The first cancellation source wins. In particular, a timeout that
+      // fires after caller cancellation must not relabel the public error.
+      if (controller.signal.aborted) return;
+      source = nextSource;
+      controller.abort(reason);
+    };
+    const onUserAbort = () => abort("caller", userSignal?.reason);
     if (userSignal) {
-      if (userSignal.aborted) controller.abort(userSignal.reason);
+      if (userSignal.aborted) abort("caller", userSignal.reason);
       else userSignal.addEventListener("abort", onUserAbort, { once: true });
     }
 
     const timer =
-      timeoutMs > 0
+      timeoutMs > 0 && !controller.signal.aborted
         ? setTimeout(() => {
-            timedOut = true;
-            controller.abort();
+            abort("timeout");
           }, timeoutMs)
         : null;
 
@@ -319,11 +404,56 @@ export class HttpClient {
         if (timer) clearTimeout(timer);
         if (userSignal) userSignal.removeEventListener("abort", onUserAbort);
       },
-      get timedOut() {
-        return timedOut;
+      get source() {
+        return source;
       },
     };
   }
+
+  private throwIfAttemptAborted(
+    controller: LinkedAbortSignal,
+    options: RequestOptions,
+    phase: AttemptPhase,
+  ): void {
+    if (controller.signal.aborted) {
+      throw this.createAttemptAbortError(controller, options, phase, controller.signal.reason);
+    }
+  }
+
+  private createAttemptAbortError(
+    controller: LinkedAbortSignal,
+    options: RequestOptions,
+    phase: AttemptPhase,
+    cause?: unknown,
+  ): AhaSendAbortError | AhaSendTimeoutError {
+    if (controller.source === "timeout") {
+      const bodyRead = phase === "during body read" ? " response body read" : "";
+      return new AhaSendTimeoutError(
+        `Request${bodyRead} to ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms`,
+        cause,
+      );
+    }
+    const bodyRead = phase === "during body read" ? " during body read" : "";
+    return new AhaSendAbortError(`Request aborted${bodyRead}`, cause);
+  }
+}
+
+type AbortSource = "caller" | "timeout";
+type AttemptPhase = "before fetch" | "during fetch" | "during body read";
+
+interface LinkedAbortSignal {
+  readonly signal: AbortSignal;
+  readonly source: AbortSource | undefined;
+  cleanup(): void;
+}
+
+interface HttpExecutionRecord {
+  readonly url: string;
+  readonly init: RequestInit;
+  readonly operationId: OperationId | undefined;
+  readonly routeTemplate: string;
+  readonly retryMode: RetryMode | undefined;
+  readonly idempotency: IdempotencyExecutionRecord;
 }
 
 function lowercaseHeaders(headers?: Record<string, string>): Record<string, string> {
@@ -341,11 +471,11 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return out;
 }
 
-function safeJsonParse(text: string): unknown {
+function safeJsonParse(text: string): { ok: true; value: unknown } | { ok: false; error: unknown } {
   try {
-    return JSON.parse(text);
-  } catch {
-    return null;
+    return { ok: true, value: JSON.parse(text) };
+  } catch (error) {
+    return { ok: false, error };
   }
 }
 
@@ -355,26 +485,14 @@ function extractRequestId(err: unknown): string | undefined {
   return typeof candidate === "string" ? candidate : undefined;
 }
 
-/**
- * Read the observability metadata attached non-enumerably by the
- * transport layer on successful responses. Returns `{}` if the response
- * is not an object or carries no metadata.
- *
- * Example:
- * ```ts
- * const msg = await client.messages.send({ ... });
- * const { requestId, idempotentReplayed } = getResponseMetadata(msg);
- * ```
- */
-export function getResponseMetadata(
-  response: unknown,
-): { requestId?: string; idempotentReplayed?: boolean } {
-  if (typeof response !== "object" || response === null) return {};
-  const r = response as { _requestId?: string; _idempotentReplayed?: boolean };
-  const out: { requestId?: string; idempotentReplayed?: boolean } = {};
-  if (typeof r._requestId === "string") out.requestId = r._requestId;
-  if (typeof r._idempotentReplayed === "boolean") out.idempotentReplayed = r._idempotentReplayed;
-  return out;
+function extractStatus(err: unknown): number | undefined {
+  if (typeof err !== "object" || err === null) return undefined;
+  const candidate = (err as { status?: unknown }).status;
+  return typeof candidate === "number" ? candidate : undefined;
+}
+
+function elapsedSince(startedAt: number | undefined): number {
+  return startedAt === undefined ? 0 : Date.now() - startedAt;
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { HttpClient } from "../http.js";
+import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
@@ -59,9 +59,9 @@ export interface UpdateRouteRequest {
   enabled?: boolean;
 }
 
-export interface ListRoutesParams extends PaginationParams {
+export type ListRoutesParams = PaginationParams & {
   domain?: string;
-}
+};
 
 /**
  * Manage inbound routes — rules that deliver received email to your
@@ -70,68 +70,96 @@ export interface ListRoutesParams extends PaginationParams {
  * `WebhookVerifier` from `@ahasend/sdk/webhooks`.
  */
 export class RoutesClient {
-  constructor(
-    private readonly http: HttpClient,
-    private readonly accountId: UUID,
-  ) {}
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
 
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
+
+  /**
+   * Fetch one page of routes.
+   *
+   * Authorization requires `routes:read:all`, or `routes:read:{domain}` with
+   * its matching `domain` query filter.
+   */
   list(
     params: ListRoutesParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Route>> {
-    return this.http.request<PaginatedResponse<Route>>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes`,
-      query: params as Record<string, unknown>,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<PaginatedResponse<Route>>(
+      "getRoutes",
+      {
+        path: { account_id: this.#accountId },
+        query: params,
+      },
+      forwardOptions(options),
+    );
   }
 
   iterate(
     params: ListRoutesParams = {},
     options: RequestOptions = {},
   ): AsyncGenerator<Route, void, undefined> {
-    return paginate<Route, ListRoutesParams>(
-      (p) => this.list(p, options),
-      params,
+    return paginate<Route, ListRoutesParams>((p) => this.list(p, options), params);
+  }
+
+  /**
+   * Create a route.
+   *
+   * Authorization requires `routes:write:all` or `routes:write:{domain}`
+   * matching the domain in `recipient`.
+   *
+   * The response is the only time the route signing `secret` is exposed.
+   */
+  create(body: CreateRouteRequest, options: IdempotencyRequestOptions = {}): Promise<CreatedRoute> {
+    return this.#operations.execute<CreatedRoute>(
+      "createRoute",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
     );
   }
 
-  create(body: CreateRouteRequest, options: IdempotencyRequestOptions = {}): Promise<CreatedRoute> {
-    return this.http.request<CreatedRoute>({
-      method: "POST",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes`,
-      body,
-      ...forwardWithIdempotency(options),
-    });
-  }
-
+  /**
+   * Fetch a route.
+   *
+   * Authorization requires `routes:read:all` or `routes:read:{domain}` matching
+   * the route's `recipient` domain.
+   */
   get(routeId: UUID, options: RequestOptions = {}): Promise<Route> {
-    return this.http.request<Route>({
-      method: "GET",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes/${encodeURIComponent(routeId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<Route>(
+      "getRoute",
+      { path: { account_id: this.#accountId, route_id: routeId } },
+      forwardOptions(options),
+    );
   }
 
-  update(
-    routeId: UUID,
-    body: UpdateRouteRequest,
-    options: RequestOptions = {},
-  ): Promise<Route> {
-    return this.http.request<Route>({
-      method: "PUT",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes/${encodeURIComponent(routeId)}`,
-      body,
-      ...forwardOptions(options),
-    });
+  /**
+   * Update a route.
+   *
+   * Authorization requires `routes:write:all`, or `routes:write:{domain}` for
+   * both the existing and replacement `recipient` domains.
+   */
+  update(routeId: UUID, body: UpdateRouteRequest, options: RequestOptions = {}): Promise<Route> {
+    return this.#operations.execute<Route>(
+      "updateRoute",
+      { path: { account_id: this.#accountId, route_id: routeId }, body },
+      forwardOptions(options),
+    );
   }
 
+  /**
+   * Delete a route.
+   *
+   * Authorization requires `routes:delete:all` or `routes:delete:{domain}`
+   * matching the route's `recipient` domain.
+   */
   delete(routeId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.http.request<SuccessResponse>({
-      method: "DELETE",
-      path: `/v2/accounts/${encodeURIComponent(this.accountId)}/routes/${encodeURIComponent(routeId)}`,
-      ...forwardOptions(options),
-    });
+    return this.#operations.execute<SuccessResponse>(
+      "deleteRoute",
+      { path: { account_id: this.#accountId, route_id: routeId } },
+      forwardOptions(options),
+    );
   }
 }

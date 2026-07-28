@@ -1,18 +1,16 @@
 export {
-  AhaSendWebhookVerificationError,
   DEFAULT_TOLERANCE_SECONDS,
+  MAX_WEBHOOK_BODY_BYTES,
   WEBHOOK_ID_HEADER,
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TIMESTAMP_HEADER,
   WebhookVerifier,
 } from "./verifier.js";
 export type { WebhookVerifierOptions } from "./verifier.js";
+export type { WebhookVerificationReason } from "./verifier.js";
+export { AhaSendWebhookVerificationError } from "../errors.js";
 
-export {
-  expressWebhookHandler,
-  fastifyWebhookHandler,
-  nextRouteHandler,
-} from "./adapters.js";
+export { expressWebhookHandler, fastifyWebhookHandler, nextRouteHandler } from "./adapters.js";
 export type {
   ExpressHandler,
   FastifyHandler,
@@ -20,6 +18,10 @@ export type {
   NextHandler,
   NodeStyleRequest,
   NodeStyleResponse,
+  WebhookAdapter,
+  WebhookAdapterErrorContext,
+  WebhookAdapterErrorStage,
+  WebhookAdapterOptions,
 } from "./adapters.js";
 
 export { isKnownWebhookEvent, isKnownWebhookEventType } from "./events.js";
@@ -35,6 +37,7 @@ export type {
   MessageFailedEvent,
   MessageOpenedEvent,
   MessageReceptionEvent,
+  MessageRoutingEvent,
   MessageSuppressedEvent,
   MessageTransientErrorEvent,
   RouteAttachment,
@@ -43,6 +46,8 @@ export type {
   SuppressionCreatedEvent,
   SuppressionEventData,
   UnknownWebhookEvent,
+  CanonicalWebhookEventType,
+  DeprecatedWebhookEventType,
   WebhookEnvelope,
   WebhookEvent,
   WebhookEventType,

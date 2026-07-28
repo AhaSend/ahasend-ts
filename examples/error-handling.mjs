@@ -31,7 +31,7 @@ try {
   } else if (err instanceof AhaSendConnectionError) {
     console.log("network problem:", err.message);
   } else if (err instanceof AhaSendAPIError) {
-    console.log(`API error ${err.status}:`, err.body);
+    console.log(`API error ${err.status}; request-id=${err.requestId ?? "n/a"}`);
   } else {
     throw err; // not an SDK error — rethrow
   }

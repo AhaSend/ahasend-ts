@@ -1,35 +1,59 @@
-import type { RequestOptions } from "../types/common.js";
-
-export interface IdempotencyRequestOptions extends RequestOptions {
-  idempotencyKey?: string;
-}
+import type { IdempotencyRequestOptions, RequestOptions } from "../types/common.js";
+import { assertRequestOptions } from "../config.js";
+export type { IdempotencyRequestOptions } from "../types/common.js";
 
 interface ForwardedOptions {
-  signal?: AbortSignal;
-  headers?: Record<string, string>;
-  autoIdempotency?: true;
+  readonly signal?: AbortSignal;
+  readonly headers?: Record<string, string>;
+  readonly idempotencyKey?: string;
+}
+
+/** Build a public facade whose methods and getters remain bound to private resource state. */
+export function createFrozenFacade<T extends object>(resource: T): Readonly<T> {
+  const facade: Record<PropertyKey, unknown> = {};
+  const prototype = Object.getPrototypeOf(resource) as object | null;
+
+  if (prototype) {
+    for (const key of Reflect.ownKeys(prototype)) {
+      if (key === "constructor") continue;
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, key);
+      const descriptorValue: unknown = descriptor?.value;
+      const boundGetter = descriptor?.get?.bind(resource);
+      if (typeof descriptorValue === "function") {
+        const method = descriptorValue as (...args: unknown[]) => unknown;
+        Object.defineProperty(facade, key, {
+          value: method.bind(resource),
+          writable: false,
+          enumerable: false,
+          configurable: false,
+        });
+      } else if (boundGetter !== undefined) {
+        Object.defineProperty(facade, key, {
+          get: boundGetter,
+          enumerable: false,
+          configurable: false,
+        });
+      }
+    }
+  }
+
+  return Object.freeze(facade) as Readonly<T>;
 }
 
 export function forwardOptions(options: RequestOptions = {}): ForwardedOptions {
-  const out: ForwardedOptions = {};
-  if (options.signal) out.signal = options.signal;
-  if (options.headers) out.headers = options.headers;
-  return out;
+  assertRequestOptions(options);
+  return Object.freeze({
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.headers ? { headers: Object.freeze({ ...options.headers }) } : {}),
+  });
 }
 
-/**
- * For the 9 spec-documented idempotency endpoints. Sets `autoIdempotency`
- * so the HTTP layer will inject an `Idempotency-Key` when the caller has
- * not supplied one; everything else (e.g. `domains.checkDns()`) opts out
- * by using `forwardOptions()` instead.
- */
-export function forwardWithIdempotency(
-  options: IdempotencyRequestOptions = {},
-): ForwardedOptions {
-  const base = forwardOptions(options);
-  base.autoIdempotency = true;
-  if (options.idempotencyKey) {
-    base.headers = { ...(base.headers ?? {}), "Idempotency-Key": options.idempotencyKey };
-  }
-  return base;
+/** Validate and freeze idempotency-aware request options for executor dispatch. */
+export function forwardWithIdempotency(options: IdempotencyRequestOptions = {}): ForwardedOptions {
+  assertRequestOptions(options, true);
+  return Object.freeze({
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.headers ? { headers: Object.freeze({ ...options.headers }) } : {}),
+    ...(options.idempotencyKey !== undefined ? { idempotencyKey: options.idempotencyKey } : {}),
+  });
 }

@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveConfig } from "../src/config.js";
+import { AhaSendAbortError } from "../src/errors.js";
+import { HttpClient } from "../src/http.js";
 import {
   DEFAULT_RATE_LIMIT_CONFIG,
   RateLimiter,
@@ -7,219 +10,272 @@ import {
 } from "../src/rate-limit.js";
 
 describe("detectCategory", () => {
-  it("classifies GET /v2/ping as general", () => {
-    expect(detectCategory("GET", "/v2/ping")).toBe("general");
-  });
-
-  it("classifies POST .../messages as sendMessage", () => {
-    expect(detectCategory("POST", "/v2/accounts/abc/messages")).toBe("sendMessage");
-  });
-
-  it("classifies POST .../messages/{id}/cancel as general (path has /messages/)", () => {
-    expect(detectCategory("POST", "/v2/accounts/abc/messages/m1/cancel")).toBe("general");
-  });
-
-  it("classifies GET .../messages as general (not POST)", () => {
-    expect(detectCategory("GET", "/v2/accounts/abc/messages")).toBe("general");
-  });
-
-  it("classifies any /statistics/ path as statistics", () => {
-    expect(detectCategory("GET", "/v2/accounts/abc/statistics/deliverability")).toBe(
-      "statistics",
-    );
-    expect(detectCategory("GET", "/v2/accounts/abc/statistics/bounce")).toBe("statistics");
-  });
-
-  it("classifies domain create as general", () => {
-    expect(detectCategory("POST", "/v2/accounts/abc/domains")).toBe("general");
+  it("uses the statistics tier only for statistics paths", () => {
+    expect(detectCategory("GET", "/v2/accounts/abc/statistics/deliverability")).toBe("statistics");
+    expect(detectCategory("POST", "/v2/accounts/abc/messages")).toBe("standard");
+    expect(detectCategory("GET", "/v2/ping")).toBe("standard");
   });
 });
 
 describe("resolveRateLimitConfig", () => {
-  it("returns defaults when no override is provided", () => {
+  it("is default-off with the documented standard and statistics tiers", () => {
     expect(resolveRateLimitConfig()).toEqual(DEFAULT_RATE_LIMIT_CONFIG);
+    expect(DEFAULT_RATE_LIMIT_CONFIG).toEqual({
+      enabled: false,
+      standard: { requestsPerSecond: 100, burst: 200, enabled: true },
+      statistics: { requestsPerSecond: 1, burst: 1, enabled: true },
+    });
   });
 
-  it("preserves the master switch when overriding individual categories", () => {
-    const r = resolveRateLimitConfig({ statistics: { requestsPerSecond: 5 } });
-    expect(r.enabled).toBe(true);
-    expect(r.statistics.requestsPerSecond).toBe(5);
-    expect(r.statistics.burst).toBe(1);
-    expect(r.general).toEqual(DEFAULT_RATE_LIMIT_CONFIG.general);
-  });
-
-  it("disables master switch when requested", () => {
-    expect(resolveRateLimitConfig({ enabled: false }).enabled).toBe(false);
+  it("merges category overrides without enabling pacing", () => {
+    const resolved = resolveRateLimitConfig({ statistics: { requestsPerSecond: 0.5 } });
+    expect(resolved.enabled).toBe(false);
+    expect(resolved.statistics).toEqual({ requestsPerSecond: 0.5, burst: 1, enabled: true });
+    expect(resolved.standard).toEqual(DEFAULT_RATE_LIMIT_CONFIG.standard);
   });
 });
 
 describe("RateLimiter", () => {
-  it("permits up to `burst` tokens without waiting", async () => {
-    let now = 0;
-    const limiter = new RateLimiter(
-      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 5 } }),
-      () => now,
-    );
-
-    const start = Date.now();
-    await Promise.all(Array.from({ length: 5 }, () => limiter.acquire("GET", "/x")));
-    const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(50);
+  beforeEach(() => {
+    vi.useFakeTimers();
   });
 
-  it("blocks once the bucket is exhausted, then refills as time passes", async () => {
-    let now = 1_000_000;
-    const limiter = new RateLimiter(
-      resolveRateLimitConfig({ general: { requestsPerSecond: 100, burst: 1 } }),
-      () => now,
-    );
-
-    await limiter.acquire("GET", "/x");
-    expect(limiter.available("general")).toBeLessThan(1);
-
-    now += 1000;
-    expect(limiter.available("general")).toBeGreaterThanOrEqual(1);
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("master enabled=false bypasses all categories", async () => {
+  it("bypasses all buckets until pacing is explicitly enabled", async () => {
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({ standard: { requestsPerSecond: 1, burst: 1 } }),
+    );
+
+    await Promise.all(Array.from({ length: 20 }, () => limiter.acquire("GET", "/v2/ping")));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("paces a deterministic FIFO queue and bounds tokens at the burst", async () => {
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
-        enabled: false,
-        general: { requestsPerSecond: 0, burst: 0 },
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
       }),
     );
-    const start = Date.now();
-    await Promise.all(Array.from({ length: 50 }, () => limiter.acquire("GET", "/x")));
-    expect(Date.now() - start).toBeLessThan(100);
+    const completed: number[] = [];
+
+    const acquisitions = [1, 2, 3].map((id) =>
+      limiter.acquire("GET", "/v2/ping").then(() => completed.push(id)),
+    );
+    await Promise.resolve();
+    expect(completed).toEqual([1]);
+    expect(vi.getTimerCount()).toBe(1);
+    expect(limiter.available("standard")).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(completed).toEqual([1, 2]);
+    expect(vi.getTimerCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.all(acquisitions);
+    expect(completed).toEqual([1, 2, 3]);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(limiter.available("standard")).toBe(1);
   });
 
-  it("category enabled=false bypasses that category only", async () => {
+  it("removes an aborted acquisition from the queue immediately", async () => {
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
-        general: { requestsPerSecond: 0, burst: 0, enabled: false },
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
       }),
     );
-    const start = Date.now();
-    await Promise.all(Array.from({ length: 50 }, () => limiter.acquire("GET", "/x")));
-    expect(Date.now() - start).toBeLessThan(100);
+    await limiter.acquire("GET", "/v2/ping");
+
+    const controller = new AbortController();
+    const cancelled = limiter.acquire("GET", "/v2/ping", controller.signal);
+    const next = limiter.acquire("GET", "/v2/ping");
+    controller.abort("caller stopped waiting");
+
+    await expect(cancelled).rejects.toBeInstanceOf(AhaSendAbortError);
+    expect(vi.getTimerCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await next;
   });
 
-  it("setLimit updates rate and clamps tokens to new burst", () => {
-    let now = 1_000_000;
-    const limiter = new RateLimiter(
-      resolveRateLimitConfig({ general: { requestsPerSecond: 10, burst: 100 } }),
-      () => now,
+  it("does not spend the per-attempt timeout while queued for pacing", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
-    expect(limiter.available("general")).toBe(100);
-    limiter.setLimit("general", 5, 10);
-    expect(limiter.available("general")).toBeLessThanOrEqual(10);
+    const client = new HttpClient(
+      resolveConfig({
+        apiKey: "test-key",
+        fetch,
+        timeoutMs: 100,
+        retry: { enabled: false },
+        rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+      }),
+    );
+
+    await client.request({ method: "GET", path: "/v2/ping" });
+    const queued = client.request({ method: "GET", path: "/v2/ping" });
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(900);
+    await queued;
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("setEnabled toggles the master switch", async () => {
+  it("preserves caller cancellation while a transport request waits for a token", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const client = new HttpClient(
+      resolveConfig({
+        apiKey: "test-key",
+        fetch,
+        retry: { enabled: false },
+        rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+      }),
+    );
+    await client.request({ method: "GET", path: "/v2/ping" });
+
+    const controller = new AbortController();
+    const queued = client.request({ method: "GET", path: "/v2/ping", signal: controller.signal });
+    controller.abort("caller stopped waiting");
+
+    await expect(queued).rejects.toBeInstanceOf(AhaSendAbortError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an already-aborted acquisition without entering the queue", async () => {
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({ enabled: true, standard: { burst: 1 } }),
+    );
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(limiter.acquire("GET", "/v2/ping", controller.signal)).rejects.toBeInstanceOf(
+      AhaSendAbortError,
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("releases queued acquisitions when master pacing is disabled", async () => {
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
-        general: { requestsPerSecond: 0.001, burst: 1 },
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
       }),
     );
-    await limiter.acquire("GET", "/x");
+    await limiter.acquire("GET", "/v2/ping");
+    const queued = [limiter.acquire("GET", "/v2/ping"), limiter.acquire("GET", "/v2/ping")];
+    expect(vi.getTimerCount()).toBe(1);
+
     limiter.setEnabled(false);
-    const start = Date.now();
-    await limiter.acquire("GET", "/x");
-    expect(Date.now() - start).toBeLessThan(50);
+    await Promise.all(queued);
+    expect(vi.getTimerCount()).toBe(0);
+    await limiter.acquire("GET", "/v2/ping");
+
+    limiter.setEnabled(true);
+    await limiter.acquire("GET", "/v2/ping");
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("recordResponseHeaders reduces tokens to match server-reported remaining", async () => {
-    let now = 1_000_000;
-    const limiter = new RateLimiter(
-      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 100 } }),
-      () => now,
-    );
-    expect(limiter.available("general")).toBe(100);
-
-    limiter.recordResponseHeaders("GET", "/x", { "x-ratelimit-remaining": "5" });
-    expect(limiter.available("general")).toBeLessThanOrEqual(5);
-  });
-
-  it("recordResponseHeaders honours the standardised RateLimit-Remaining header too", () => {
-    let now = 1_000_000;
-    const limiter = new RateLimiter(
-      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 100 } }),
-      () => now,
-    );
-
-    limiter.recordResponseHeaders("GET", "/x", { "ratelimit-remaining": "3" });
-    expect(limiter.available("general")).toBeLessThanOrEqual(3);
-  });
-
-  it("recordResponseHeaders never inflates tokens above the local count", () => {
-    let now = 1_000_000;
-    const limiter = new RateLimiter(
-      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 10 } }),
-      () => now,
-    );
-
-    limiter.recordResponseHeaders("GET", "/x", { "x-ratelimit-remaining": "9999" });
-    expect(limiter.available("general")).toBeLessThanOrEqual(10);
-  });
-
-  it("recordResponseHeaders is a no-op when the response has no rate-limit header", () => {
-    const limiter = new RateLimiter(
-      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 100 } }),
-    );
-    const before = limiter.available("general");
-    limiter.recordResponseHeaders("GET", "/x", { "content-type": "application/json" });
-    expect(limiter.available("general")).toBe(before);
-  });
-
-  it("recordResponseHeaders accepts a Headers instance", () => {
-    let now = 1_000_000;
-    const limiter = new RateLimiter(
-      resolveRateLimitConfig({ general: { requestsPerSecond: 1, burst: 50 } }),
-      () => now,
-    );
-    const headers = new Headers({ "x-ratelimit-remaining": "7" });
-    limiter.recordResponseHeaders("GET", "/x", headers);
-    expect(limiter.available("general")).toBeLessThanOrEqual(7);
-  });
-
-  it("recordResponseHeaders applies to the right category by method+path", () => {
-    let now = 1_000_000;
+  it("disables one category without releasing another category's queue", async () => {
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
-        general: { requestsPerSecond: 1, burst: 100 },
-        sendMessage: { requestsPerSecond: 1, burst: 100 },
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
+        statistics: { requestsPerSecond: 1, burst: 1 },
       }),
-      () => now,
     );
+    await Promise.all([
+      limiter.acquire("GET", "/v2/ping"),
+      limiter.acquire("GET", "/v2/accounts/a/statistics/bounce"),
+    ]);
+    const standard = limiter.acquire("GET", "/v2/ping");
+    const statistics = limiter.acquire("GET", "/v2/accounts/a/statistics/bounce");
+    expect(vi.getTimerCount()).toBe(2);
 
-    limiter.recordResponseHeaders(
-      "POST",
-      "/v2/accounts/abc/messages",
-      { "x-ratelimit-remaining": "2" },
-    );
-    expect(limiter.available("sendMessage")).toBeLessThanOrEqual(2);
-    expect(limiter.available("general")).toBe(100);
+    limiter.setCategoryEnabled("standard", false);
+    await standard;
+    expect(vi.getTimerCount()).toBe(1);
+
+    let statisticsComplete = false;
+    void statistics.then(() => {
+      statisticsComplete = true;
+    });
+    await Promise.resolve();
+    expect(statisticsComplete).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    await statistics;
   });
 
-  it("serializes concurrent acquires (no over-spending)", async () => {
-    let now = 1_000_000;
+  it("reschedules queued work when a category limit changes", async () => {
     const limiter = new RateLimiter(
-      resolveRateLimitConfig({ general: { requestsPerSecond: 1000, burst: 3 } }),
-      () => now,
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
+      }),
+    );
+    await limiter.acquire("GET", "/v2/ping");
+    const queued = limiter.acquire("GET", "/v2/ping");
+    expect(vi.getTimerCount()).toBe(1);
+
+    limiter.setLimit("standard", 2, 1);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await queued;
+  });
+
+  it("ignores remaining-like response headers returned by the transport", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "ratelimit-remaining": "0",
+          "x-rate-limit-remaining": "0",
+          "x-ratelimit-remaining": "0",
+        },
+      }),
+    );
+    const client = new HttpClient(
+      resolveConfig({
+        apiKey: "test-key",
+        fetch,
+        rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 10 } },
+      }),
     );
 
-    // 3 burst tokens — start 5 parallel acquires; the bucket should never go negative
-    let satisfied = 0;
-    const promises = Array.from({ length: 5 }, () =>
-      limiter.acquire("GET", "/x").then(() => satisfied++),
-    );
-    await new Promise((r) => setTimeout(r, 10));
-    expect(satisfied).toBeGreaterThanOrEqual(3);
-    expect(satisfied).toBeLessThanOrEqual(5);
+    await client.request({ method: "GET", path: "/v2/ping" });
+    expect(client.rateLimiter.available("standard")).toBeGreaterThan(8);
+  });
 
-    // Advance time enough to refill remaining tokens, then await all
-    now += 10_000;
-    await Promise.all(promises);
-    expect(satisfied).toBe(5);
+  it("propagates an unexpected clock failure to every queued acquisition", async () => {
+    const sleep = vi.fn().mockRejectedValue(new Error("clock failed"));
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
+      }),
+      { now: () => performance.now(), sleep },
+    );
+    await limiter.acquire("GET", "/v2/ping");
+
+    const queued = [limiter.acquire("GET", "/v2/ping"), limiter.acquire("GET", "/v2/ping")];
+    await expect(Promise.all(queued)).rejects.toThrow("clock failed");
   });
 });

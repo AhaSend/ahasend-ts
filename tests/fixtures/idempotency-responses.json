@@ -1,0 +1,113 @@
+{
+  "classifications": [
+    {
+      "name": "ordinary duplicate conflict",
+      "status": 409,
+      "headers": {},
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "conflict_error",
+      "retryable": false
+    },
+    {
+      "name": "stored duplicate conflict replay",
+      "status": 409,
+      "headers": { "idempotent-replayed": "true" },
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "conflict_error",
+      "retryable": false
+    },
+    {
+      "name": "in-progress execution",
+      "status": 409,
+      "headers": { "idempotent-replayed": "false", "retry-after": "2" },
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "idempotency_conflict_error",
+      "retryable": true,
+      "retryAfterSeconds": 2
+    },
+    {
+      "name": "malformed in-progress execution",
+      "status": 409,
+      "headers": { "idempotent-replayed": "false", "retry-after": "1.5" },
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "conflict_error",
+      "retryable": false
+    },
+    {
+      "name": "unkeyed lookalike conflict",
+      "status": 409,
+      "headers": { "idempotent-replayed": "false", "retry-after": "2" },
+      "eligible": true,
+      "keyed": false,
+      "expectedCode": "conflict_error",
+      "retryable": false
+    },
+    {
+      "name": "payload mismatch",
+      "status": 422,
+      "headers": {},
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "idempotency_mismatch_error",
+      "retryable": false
+    },
+    {
+      "name": "replay-marked validation failure",
+      "status": 422,
+      "headers": { "idempotent-replayed": "true" },
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "unprocessable_entity_error",
+      "retryable": false
+    },
+    {
+      "name": "retry-marked validation failure",
+      "status": 422,
+      "headers": { "retry-after": "2" },
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "unprocessable_entity_error",
+      "retryable": false
+    },
+    {
+      "name": "ineligible validation failure",
+      "status": 422,
+      "headers": {},
+      "eligible": false,
+      "keyed": true,
+      "expectedCode": "unprocessable_entity_error",
+      "retryable": false
+    },
+    {
+      "name": "permission failure with lifecycle-looking message",
+      "status": 403,
+      "headers": { "idempotent-replayed": "false", "retry-after": "2" },
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "permission_error",
+      "retryable": false
+    },
+    {
+      "name": "released server failure",
+      "status": 503,
+      "headers": {},
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "server_error",
+      "retryable": true
+    },
+    {
+      "name": "no failed-key tombstone",
+      "status": 412,
+      "headers": {},
+      "eligible": true,
+      "keyed": true,
+      "expectedCode": "api_error",
+      "retryable": false
+    }
+  ]
+}
