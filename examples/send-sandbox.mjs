@@ -31,9 +31,8 @@ try {
     sandbox_result: "deliver", // deliver | bounce | defer | fail | suppress
     tags: ["sdk-smoketest"],
   });
-  console.log("✓ send accepted:", JSON.stringify(res, null, 2));
+  console.log(`✓ sandbox send accepted for ${res.data.length} recipient(s)`);
 } catch (err) {
   console.error("✗ send failed:", err.name, err.status ?? "", err.message);
-  if (err.body) console.error("body:", JSON.stringify(err.body, null, 2));
   process.exit(1);
 }

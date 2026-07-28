@@ -1,0 +1,386 @@
+{
+  "payloads": {
+    "apiKeyRead": {
+      "object": "api_key",
+      "id": "11111111-1111-4111-8111-111111111111",
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z",
+      "last_used_at": null,
+      "account_id": "22222222-2222-4222-8222-222222222222",
+      "label": "Production",
+      "public_key": "aha-pk-public",
+      "scopes": [],
+      "ip_allow_list": []
+    },
+    "apiKeyCreated": {
+      "object": "api_key",
+      "id": "11111111-1111-4111-8111-111111111111",
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z",
+      "last_used_at": null,
+      "account_id": "22222222-2222-4222-8222-222222222222",
+      "label": "Production",
+      "public_key": "aha-pk-public",
+      "secret_key": "aha-sk-one-time-secret",
+      "scopes": [],
+      "ip_allow_list": []
+    }
+  },
+  "componentCases": [
+    {
+      "id": "required-nullable-present-null-canary",
+      "schema": "APIKey",
+      "valid": true,
+      "value": {
+        "object": "api_key",
+        "id": "11111111-1111-4111-8111-111111111111",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+        "last_used_at": null,
+        "account_id": "22222222-2222-4222-8222-222222222222",
+        "label": "Production",
+        "public_key": "aha-pk-public",
+        "scopes": [],
+        "ip_allow_list": []
+      }
+    },
+    {
+      "id": "required-nullable-omitted",
+      "schema": "APIKey",
+      "valid": false,
+      "value": {
+        "object": "api_key",
+        "id": "11111111-1111-4111-8111-111111111111",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+        "account_id": "22222222-2222-4222-8222-222222222222",
+        "label": "Production",
+        "public_key": "aha-pk-public",
+        "scopes": [],
+        "ip_allow_list": []
+      }
+    },
+    {
+      "id": "required-nullable-wrong-type-canary",
+      "schema": "APIKey",
+      "valid": false,
+      "value": {
+        "object": "api_key",
+        "id": "11111111-1111-4111-8111-111111111111",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+        "last_used_at": 0,
+        "account_id": "22222222-2222-4222-8222-222222222222",
+        "label": "Production",
+        "public_key": "aha-pk-public",
+        "scopes": [],
+        "ip_allow_list": []
+      }
+    },
+    {
+      "id": "optional-non-null-omitted",
+      "schema": "CreateDomainRequest",
+      "valid": true,
+      "value": {
+        "domain": "example.com"
+      }
+    },
+    {
+      "id": "optional-non-null-present",
+      "schema": "CreateDomainRequest",
+      "valid": true,
+      "value": {
+        "domain": "example.com",
+        "tracking_subdomain": "click"
+      }
+    },
+    {
+      "id": "optional-non-null-null",
+      "schema": "CreateDomainRequest",
+      "valid": false,
+      "value": {
+        "domain": "example.com",
+        "tracking_subdomain": null
+      }
+    },
+    {
+      "id": "ip-list-unchanged-omitted",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "label": "Renamed"
+      }
+    },
+    {
+      "id": "ip-list-unchanged-null",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "label": "Renamed",
+        "ip_allow_list": null
+      }
+    },
+    {
+      "id": "ip-list-clear-empty",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "ip_allow_list": []
+      }
+    },
+    {
+      "id": "ip-list-replace-non-empty",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "ip_allow_list": ["203.0.113.0/24"]
+      }
+    },
+    {
+      "id": "ip-list-null-is-not-an-update",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": false,
+      "value": {
+        "ip_allow_list": null
+      }
+    },
+    {
+      "id": "webhook-global-domains-omitted",
+      "schema": "CreateWebhookRequest",
+      "valid": true,
+      "value": {
+        "name": "Events",
+        "url": "https://example.com/webhook",
+        "scope": "global"
+      }
+    },
+    {
+      "id": "webhook-global-domains-null",
+      "schema": "CreateWebhookRequest",
+      "valid": true,
+      "value": {
+        "name": "Events",
+        "url": "https://example.com/webhook",
+        "scope": "global",
+        "domains": null
+      }
+    },
+    {
+      "id": "webhook-global-domains-empty",
+      "schema": "CreateWebhookRequest",
+      "valid": true,
+      "value": {
+        "name": "Events",
+        "url": "https://example.com/webhook",
+        "scope": "global",
+        "domains": []
+      }
+    },
+    {
+      "id": "webhook-scoped-domains-present-canary",
+      "schema": "CreateWebhookRequest",
+      "valid": true,
+      "value": {
+        "name": "Events",
+        "url": "https://example.com/webhook",
+        "scope": "scoped",
+        "domains": ["example.com"]
+      }
+    },
+    {
+      "id": "webhook-scoped-domains-omitted-canary",
+      "schema": "CreateWebhookRequest",
+      "valid": false,
+      "value": {
+        "name": "Events",
+        "url": "https://example.com/webhook",
+        "scope": "scoped"
+      }
+    },
+    {
+      "id": "webhook-scoped-domains-null",
+      "schema": "CreateWebhookRequest",
+      "valid": false,
+      "value": {
+        "name": "Events",
+        "url": "https://example.com/webhook",
+        "scope": "scoped",
+        "domains": null
+      }
+    },
+    {
+      "id": "webhook-scoped-domains-empty-canary",
+      "schema": "CreateWebhookRequest",
+      "valid": false,
+      "value": {
+        "name": "Events",
+        "url": "https://example.com/webhook",
+        "scope": "scoped",
+        "domains": []
+      }
+    },
+    {
+      "id": "smtp-global-domains-omitted",
+      "schema": "CreateSMTPCredentialRequest",
+      "valid": true,
+      "value": {
+        "name": "Production",
+        "scope": "global"
+      }
+    },
+    {
+      "id": "smtp-global-domains-null",
+      "schema": "CreateSMTPCredentialRequest",
+      "valid": true,
+      "value": {
+        "name": "Production",
+        "scope": "global",
+        "domains": null
+      }
+    },
+    {
+      "id": "smtp-global-domains-empty",
+      "schema": "CreateSMTPCredentialRequest",
+      "valid": true,
+      "value": {
+        "name": "Production",
+        "scope": "global",
+        "domains": []
+      }
+    },
+    {
+      "id": "smtp-scoped-domains-present",
+      "schema": "CreateSMTPCredentialRequest",
+      "valid": true,
+      "value": {
+        "name": "Production",
+        "scope": "scoped",
+        "domains": ["example.com"]
+      }
+    },
+    {
+      "id": "smtp-scoped-domains-omitted",
+      "schema": "CreateSMTPCredentialRequest",
+      "valid": false,
+      "value": {
+        "name": "Production",
+        "scope": "scoped"
+      }
+    },
+    {
+      "id": "smtp-scoped-domains-null",
+      "schema": "CreateSMTPCredentialRequest",
+      "valid": false,
+      "value": {
+        "name": "Production",
+        "scope": "scoped",
+        "domains": null
+      }
+    },
+    {
+      "id": "smtp-scoped-domains-empty",
+      "schema": "CreateSMTPCredentialRequest",
+      "valid": false,
+      "value": {
+        "name": "Production",
+        "scope": "scoped",
+        "domains": []
+      }
+    }
+  ],
+  "apiKeySecrets": {
+    "creationOperations": ["createAPIKey", "createSubAccountAPIKey"],
+    "nonCreationOperations": [
+      "getAPIKeys",
+      "getAPIKey",
+      "updateAPIKey",
+      "listSubAccountAPIKeys",
+      "getSubAccountAPIKey",
+      "updateSubAccountAPIKey"
+    ],
+    "responseCases": [
+      {
+        "operationId": "createAPIKey",
+        "status": "201",
+        "payload": "apiKeyCreated",
+        "valid": true
+      },
+      {
+        "operationId": "createAPIKey",
+        "status": "201",
+        "payload": "apiKeyRead",
+        "valid": false
+      },
+      {
+        "operationId": "createSubAccountAPIKey",
+        "status": "201",
+        "payload": "apiKeyCreated",
+        "valid": true
+      },
+      {
+        "operationId": "createSubAccountAPIKey",
+        "status": "201",
+        "payload": "apiKeyRead",
+        "valid": false
+      },
+      {
+        "operationId": "getAPIKey",
+        "status": "200",
+        "payload": "apiKeyRead",
+        "valid": true
+      },
+      {
+        "operationId": "getSubAccountAPIKey",
+        "status": "200",
+        "payload": "apiKeyRead",
+        "valid": true
+      },
+      {
+        "operationId": "updateAPIKey",
+        "status": "200",
+        "payload": "apiKeyRead",
+        "valid": true
+      },
+      {
+        "operationId": "updateSubAccountAPIKey",
+        "status": "200",
+        "payload": "apiKeyRead",
+        "valid": true
+      }
+    ]
+  },
+  "authorizationAlternatives": {
+    "deleteDomain": ["domains:delete:{domain}", "domains:delete:all"],
+    "getMessages": ["messages:read:all", "messages:read:{domain}"],
+    "createMessage": ["messages:send:all", "messages:send:{domain}"],
+    "createConversationMessage": ["messages:send:all", "messages:send:{domain}"],
+    "getMessage": ["messages:read:all", "messages:read:{domain}"],
+    "cancelMessage": ["messages:cancel:all", "messages:cancel:{domain}"],
+    "getRoutes": ["routes:read:all", "routes:read:{domain}"],
+    "createRoute": ["routes:write:all", "routes:write:{domain}"],
+    "getRoute": ["routes:read:all", "routes:read:{domain}"],
+    "updateRoute": ["routes:write:all", "routes:write:{domain}"],
+    "deleteRoute": ["routes:delete:all", "routes:delete:{domain}"],
+    "getWebhooks": ["webhooks:read:all", "webhooks:read:{domain}"],
+    "createWebhook": ["webhooks:write:all", "webhooks:write:{domain}"],
+    "getWebhook": ["webhooks:read:all", "webhooks:read:{domain}"],
+    "updateWebhook": ["webhooks:write:all", "webhooks:write:{domain}"],
+    "deleteWebhook": ["webhooks:delete:all", "webhooks:delete:{domain}"],
+    "getSMTPCredentials": ["smtp-credentials:read:all", "smtp-credentials:read:{domain}"],
+    "createSMTPCredential": ["smtp-credentials:write:all", "smtp-credentials:write:{domain}"],
+    "getSMTPCredential": ["smtp-credentials:read:all", "smtp-credentials:read:{domain}"],
+    "deleteSMTPCredential": ["smtp-credentials:delete:all", "smtp-credentials:delete:{domain}"],
+    "getDeliverabilityStatistics": [
+      "statistics-transactional:read:all",
+      "statistics-transactional:read:{domain}"
+    ],
+    "getBounceStatistics": [
+      "statistics-transactional:read:all",
+      "statistics-transactional:read:{domain}"
+    ],
+    "getDeliveryTimeStatistics": [
+      "statistics-transactional:read:all",
+      "statistics-transactional:read:{domain}"
+    ]
+  }
+}

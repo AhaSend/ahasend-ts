@@ -42,9 +42,6 @@ try {
   const event = verifier.parse(headers, body);
   console.log("✓ verified webhook signature");
   console.log(`  type: ${event.type}`);
-  if (event.type === "message.delivered") {
-    console.log(`  recipient: ${event.data.recipient}  subject: ${event.data.subject}`);
-  }
 } catch (err) {
   console.error("✗ verification failed:", err.name, err.reason ?? "", err.message);
   process.exit(1);

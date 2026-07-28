@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ahasend.com/schemas/candidate-manifest.schema.json",
+  "title": "AhaSend SDK release candidate manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "commit",
+    "sourceReportSha256",
+    "contractSha256",
+    "captureSha256",
+    "keysSha256",
+    "rendererReportSha256",
+    "profileSha256",
+    "tarballSha256"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sourceReportSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "contractSha256": {
+      "$ref": "#/definitions/contracts"
+    },
+    "captureSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "keysSha256": {
+      "$ref": "#/definitions/keys"
+    },
+    "rendererReportSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "profileSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "tarballSha256": {
+      "$ref": "#/definitions/sha256"
+    }
+  },
+  "definitions": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contracts.lock.json", "openapi.yaml", "webhooks.yaml"],
+      "properties": {
+        "contracts.lock.json": { "$ref": "#/definitions/sha256" },
+        "openapi.yaml": { "$ref": "#/definitions/sha256" },
+        "webhooks.yaml": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "keys": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contracts/webhooks/captured/keys/configured-webhook.key",
+        "contracts/webhooks/captured/keys/route.key"
+      ],
+      "properties": {
+        "contracts/webhooks/captured/keys/configured-webhook.key": {
+          "$ref": "#/definitions/sha256"
+        },
+        "contracts/webhooks/captured/keys/route.key": {
+          "$ref": "#/definitions/sha256"
+        }
+      }
+    }
+  }
+}

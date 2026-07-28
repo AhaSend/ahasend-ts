@@ -3,11 +3,12 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",
+    "skipLibCheck": false,
     // Tests mock the global fetch and need its DOM-side types
     // (RequestInfo, Request, Response, Headers). DOM is added here for
     // the test typecheck only — production src stays Node-only.
-    "lib": ["ES2022", "DOM"]
+    "lib": ["ES2023", "DOM"]
   },
   "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "tests/package"]
 }

@@ -1,265 +1,604 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createHash, createHmac } from "node:crypto";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createRequire } from "node:module";
+import yaml from "js-yaml";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AhaSendClient } from "../../src/index.js";
-import { WebhookVerifier } from "../../src/webhooks/index.js";
-import { createHmac } from "node:crypto";
 
-const PRISM_PORT = 4011;
-const ACCOUNT_ID = "00000000-0000-0000-0000-000000000000";
+const ACCOUNT_ID = "00000000-0000-4000-8000-000000000001";
+const RESOURCE_ID = "00000000-0000-4000-8000-000000000002";
+const DOMAIN = "example.test";
+const API_KEY = "aha-sk-integration-test";
+const repositoryRoot = process.cwd();
+const requireFromRepository = createRequire(import.meta.url);
 
-// Integration tests spawn @stoplight/prism-cli via npx, which needs
-// network + a local Node install. `npm test` should be offline-clean,
-// so gate this whole suite behind an explicit env flag. CI / pre-tag
-// runs flip RUN_INTEGRATION=1 to exercise it.
-const RUN = process.env.RUN_INTEGRATION === "1";
-const itIntegration = RUN ? it : it.skip;
-const describeIntegration = RUN ? describe : describe.skip;
+type UnknownRecord = Record<string, unknown>;
+type InstalledConstructor = new (options: UnknownRecord) => object;
 
-let prismProc: ChildProcess | undefined;
-let baseUrl = "";
-
-async function specPath(): Promise<string> {
-  const path = resolve(process.cwd(), "openapi.yaml");
-  try {
-    await stat(path);
-    return path;
-  } catch {
-    throw new Error(
-      `Local openapi.yaml not found at ${path}. Integration tests now load the spec from the repository, not GitHub.`,
-    );
-  }
+interface InstalledSdk {
+  readonly AhaSendClient: InstalledConstructor;
 }
 
-async function waitForPrism(port: number, timeoutMs: number): Promise<void> {
-  const url = `http://127.0.0.1:${port}/v2/ping`;
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(url, {
-        headers: { authorization: "Bearer aha-sk-integration-test" },
-      });
-      if (res.ok) return;
-    } catch {
-      // not yet listening
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`Prism did not become ready within ${timeoutMs}ms`);
+interface InstalledWebhooks {
+  readonly WebhookVerifier: new (secret: string) => object;
 }
 
-beforeAll(async () => {
-  if (!RUN) return;
-  const path = await specPath();
-  const isWindows = process.platform === "win32";
-  prismProc = spawn(
-    "npx",
-    ["-y", "@stoplight/prism-cli@5", "mock", path, "-p", String(PRISM_PORT)],
-    { stdio: "ignore", shell: isWindows },
-  );
-
-  prismProc.on("error", (err) => {
-    // eslint-disable-next-line no-console
-    console.error("[integration] failed to spawn prism:", err);
-  });
-
-  await waitForPrism(PRISM_PORT, 90_000);
-  baseUrl = `http://127.0.0.1:${PRISM_PORT}`;
-}, 120_000);
-
-afterAll(() => {
-  if (prismProc && !prismProc.killed) {
-    prismProc.kill();
-  }
-});
-
-function makeClient(): AhaSendClient {
-  return new AhaSendClient({
-    apiKey: "aha-sk-integration-test",
-    accountId: ACCOUNT_ID,
-    baseUrl,
-    retry: { enabled: false },
-  });
+interface OperationCase {
+  readonly operationId: string;
+  readonly target: readonly string[];
+  readonly method: string;
+  readonly args?: readonly unknown[];
 }
 
-describeIntegration("Integration: SDK against Prism mock", () => {
-  it("ping returns a typed envelope", async () => {
-    const res = await makeClient().ping();
-    expect(res).toHaveProperty("message");
-  });
+interface OpenAPIDocument {
+  readonly paths: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+}
 
-  it("messages.send returns a typed SendMessageResponse", async () => {
-    const res = await makeClient().messages.send({
-      from: { email: "sender@example.com" },
-      recipients: [{ email: "to@example.com" }],
-      subject: "integration",
-      text_content: "hello",
-      sandbox: true,
-    });
-    expect(res.object).toBe("list");
-    expect(Array.isArray(res.data)).toBe(true);
-  });
+interface SpecOperation {
+  readonly operationId: string;
+  readonly httpMethod: string;
+  readonly pathTemplate: string;
+}
 
-  it("messages.list returns a paginated response", async () => {
-    const res = await makeClient().messages.list({ limit: 5 });
-    expect(res.object).toBe("list");
-    expect(typeof res.pagination.has_more).toBe("boolean");
-  });
+interface ObservedRequest {
+  readonly httpMethod: string;
+  readonly pathname: string;
+}
 
-  it("domains.list returns a paginated response", async () => {
-    const res = await makeClient().domains.list();
-    expect(res.object).toBe("list");
-    expect(Array.isArray(res.data)).toBe(true);
-  });
+const PAGINATION = { limit: 5 };
+const STATISTICS = {
+  from_time: "2026-04-01T00:00:00Z",
+  to_time: "2026-04-30T00:00:00Z",
+  sender_domain: DOMAIN,
+  group_by: "day",
+};
 
-  it("apiKeys.list returns a paginated response", async () => {
-    const res = await makeClient().apiKeys.list();
-    expect(res.data.length).toBeGreaterThanOrEqual(0);
-  });
-
-  it("suppressions.list returns a paginated response", async () => {
-    const res = await makeClient().suppressions.list();
-    expect(res.object).toBe("list");
-  });
-
-  it("routes.list returns a paginated response", async () => {
-    const res = await makeClient().routes.list();
-    expect(res.object).toBe("list");
-  });
-
-  it("accounts.get returns the account", async () => {
-    const res = await makeClient().accounts.get();
-    expect(res).toHaveProperty("id");
-    expect(res).toHaveProperty("owner_id");
-  });
-
-  it("smtpCredentials.list returns a paginated response", async () => {
-    const res = await makeClient().smtpCredentials.list();
-    expect(res.object).toBe("list");
-  });
-
-  it("statistics.deliverability returns a list envelope", async () => {
-    const res = await makeClient().statistics.deliverability({
-      from_time: "2026-04-01T00:00:00Z",
-      to_time: "2026-04-30T00:00:00Z",
-      group_by: "day",
-    });
-    expect(res.object).toBe("list");
-    expect(Array.isArray(res.data)).toBe(true);
-  });
-
-  it("messages.iterate yields items via the async generator", async () => {
-    const got: unknown[] = [];
-    for await (const msg of makeClient().messages.iterate({ limit: 2 })) {
-      got.push(msg);
-      if (got.length >= 1) break;
-    }
-    expect(got.length).toBeGreaterThanOrEqual(0);
-  });
-
-  // Coverage for methods that the original Phase 2 integration test skipped
-  // — every one of these was identified as broken in the external review
-  // (wrong verb, wrong path, or invented field). Each test here proves the
-  // fixed SDK now reaches a real spec endpoint end-to-end.
-
-  it("messages.cancel hits DELETE /messages/{id}/cancel", async () => {
-    const res = await makeClient().messages.cancel("msg_integration_1");
-    expect(res).toHaveProperty("message");
-  });
-
-  it("webhooks.list reaches the account-scoped /webhooks endpoint", async () => {
-    const res = await makeClient().webhooks.list({ limit: 5 });
-    expect(res.object).toBe("list");
-  });
-
-  it("webhooks.create / get / update / delete round-trip", async () => {
-    const c = makeClient();
-    const created = await c.webhooks.create({
-      name: "integration",
-      url: "https://hooks.example/aha",
+const OPERATION_CASES = [
+  operation("ping", [], "ping"),
+  operation("getAPIKeys", ["apiKeys"], "list", [PAGINATION]),
+  operation("createAPIKey", ["apiKeys"], "create", [
+    { label: "Integration key", scopes: ["messages:send:all"] },
+  ]),
+  operation("getAPIKey", ["apiKeys"], "get", [RESOURCE_ID]),
+  operation("updateAPIKey", ["apiKeys"], "update", [RESOURCE_ID, { label: "Updated key" }]),
+  operation("deleteAPIKey", ["apiKeys"], "delete", [RESOURCE_ID]),
+  operation("getDomains", ["domains"], "list", [{ dns_valid: true, ...PAGINATION }]),
+  operation("createDomain", ["domains"], "create", [{ domain: DOMAIN }]),
+  operation("getDomain", ["domains"], "get", [DOMAIN]),
+  operation("updateDomain", ["domains"], "update", [DOMAIN, { tracking_subdomain: "track" }]),
+  operation("deleteDomain", ["domains"], "delete", [DOMAIN]),
+  operation("checkDomainDNS", ["domains"], "checkDns", [DOMAIN]),
+  operation("getMessages", ["messages"], "list", [
+    { status: "Delivered", sender: `sender@${DOMAIN}`, ...PAGINATION },
+  ]),
+  operation("createMessage", ["messages"], "send", [
+    {
+      from: { email: `sender@${DOMAIN}` },
+      recipients: [{ email: `recipient@${DOMAIN}` }],
+      subject: "Integration message",
+      text_content: "Hello from the packed SDK",
+    },
+  ]),
+  operation("createConversationMessage", ["messages"], "sendConversation", [
+    {
+      from: { email: `sender@${DOMAIN}` },
+      to: [{ email: `recipient@${DOMAIN}` }],
+      subject: "Integration conversation",
+      text_content: "Hello from the packed SDK",
+    },
+  ]),
+  operation("getMessage", ["messages"], "get", [RESOURCE_ID]),
+  operation("cancelMessage", ["messages"], "cancel", [RESOURCE_ID]),
+  operation("getAccount", ["accounts"], "get"),
+  operation("updateAccount", ["accounts"], "update", [{ name: "Integration account" }]),
+  operation("getAccountMembers", ["accounts"], "listMembers"),
+  operation("addAccountMember", ["accounts"], "addMember", [
+    { email: `member@${DOMAIN}`, role: "Developer" },
+  ]),
+  operation("removeAccountMember", ["accounts"], "removeMember", [RESOURCE_ID]),
+  operation("listSubAccounts", ["subAccounts"], "list", [PAGINATION]),
+  operation("createSubAccount", ["subAccounts"], "create", [
+    { name: "Integration child", website: `child.${DOMAIN}` },
+  ]),
+  operation("getSubAccountsUsage", ["subAccounts"], "usage"),
+  operation("getSubAccount", ["subAccounts"], "get", [RESOURCE_ID]),
+  operation("updateSubAccount", ["subAccounts"], "update", [
+    RESOURCE_ID,
+    { name: "Updated child" },
+  ]),
+  operation("deleteSubAccount", ["subAccounts"], "delete", [RESOURCE_ID]),
+  operation("suspendSubAccount", ["subAccounts"], "suspend", [
+    RESOURCE_ID,
+    { reason: "Integration suspension" },
+  ]),
+  operation("unsuspendSubAccount", ["subAccounts"], "unsuspend", [RESOURCE_ID]),
+  operation("listSubAccountAPIKeys", ["subAccounts", "apiKeys"], "list", [RESOURCE_ID, PAGINATION]),
+  operation("createSubAccountAPIKey", ["subAccounts", "apiKeys"], "create", [
+    RESOURCE_ID,
+    { label: "Integration child key", scopes: ["messages:send:all"] },
+  ]),
+  operation("getSubAccountAPIKey", ["subAccounts", "apiKeys"], "get", [RESOURCE_ID, RESOURCE_ID]),
+  operation("updateSubAccountAPIKey", ["subAccounts", "apiKeys"], "update", [
+    RESOURCE_ID,
+    RESOURCE_ID,
+    { label: "Updated child key" },
+  ]),
+  operation("deleteSubAccountAPIKey", ["subAccounts", "apiKeys"], "delete", [
+    RESOURCE_ID,
+    RESOURCE_ID,
+  ]),
+  operation("getSuppressions", ["suppressions"], "list", [
+    { domain: DOMAIN, email: `blocked@${DOMAIN}`, ...PAGINATION },
+  ]),
+  operation("createSuppression", ["suppressions"], "create", [
+    { email: `blocked@${DOMAIN}`, expires_at: "2027-01-01T00:00:00Z" },
+  ]),
+  operation("deleteSuppression", ["suppressions"], "delete", [
+    { email: `blocked@${DOMAIN}`, domain: DOMAIN },
+  ]),
+  operation("deleteAllSuppressions", ["suppressions"], "wipe", [{ domain: DOMAIN }]),
+  operation("getRoutes", ["routes"], "list", [{ domain: DOMAIN, ...PAGINATION }]),
+  operation("createRoute", ["routes"], "create", [
+    {
+      name: "Integration route",
+      url: "https://hooks.example.test/inbound",
+      recipient: `support@${DOMAIN}`,
+    },
+  ]),
+  operation("getRoute", ["routes"], "get", [RESOURCE_ID]),
+  operation("updateRoute", ["routes"], "update", [RESOURCE_ID, { name: "Updated route" }]),
+  operation("deleteRoute", ["routes"], "delete", [RESOURCE_ID]),
+  operation("getWebhooks", ["webhooks"], "list", [
+    { enabled: true, on_delivered: true, ...PAGINATION },
+  ]),
+  operation("createWebhook", ["webhooks"], "create", [
+    {
+      name: "Integration webhook",
+      url: "https://hooks.example.test/ahasend",
       scope: "global",
       on_delivered: true,
-    });
-    expect(created.object).toBe("webhook");
-    const got = await c.webhooks.get(created.id);
-    expect(got.object).toBe("webhook");
-    const updated = await c.webhooks.update(created.id, { enabled: false });
-    expect(updated.object).toBe("webhook");
-    const deleted = await c.webhooks.delete(created.id);
-    expect(deleted).toHaveProperty("message");
-  });
+    },
+  ]),
+  operation("getWebhook", ["webhooks"], "get", [RESOURCE_ID]),
+  operation("updateWebhook", ["webhooks"], "update", [RESOURCE_ID, { name: "Updated webhook" }]),
+  operation("deleteWebhook", ["webhooks"], "delete", [RESOURCE_ID]),
+  operation("getSMTPCredentials", ["smtpCredentials"], "list", [PAGINATION]),
+  operation("createSMTPCredential", ["smtpCredentials"], "create", [
+    { name: "Integration SMTP", scope: "global" },
+  ]),
+  operation("getSMTPCredential", ["smtpCredentials"], "get", [RESOURCE_ID]),
+  operation("deleteSMTPCredential", ["smtpCredentials"], "delete", [RESOURCE_ID]),
+  operation("getDeliverabilityStatistics", ["statistics"], "deliverability", [STATISTICS]),
+  operation("getBounceStatistics", ["statistics"], "bounces", [STATISTICS]),
+  operation("getDeliveryTimeStatistics", ["statistics"], "deliveryTimes", [STATISTICS]),
+] as const satisfies readonly OperationCase[];
 
-  it("suppressions.delete sends email/domain query params (per spec)", async () => {
-    const res = await makeClient().suppressions.delete({
-      email: "blocked@example.com",
-      domain: "example.com",
-    });
-    expect(res).toHaveProperty("message");
-  });
+const SPEC_OPERATIONS = loadSpecOperations();
 
-  it("suppressions.wipe DELETEs /suppressions/all", async () => {
-    const res = await makeClient().suppressions.wipe();
-    expect(res).toHaveProperty("message");
-  });
+let consumerDirectory: string | undefined;
+let prismProcess: ChildProcess | undefined;
+let prismOutput = "";
+let baseUrl = "";
+let installedSdk: InstalledSdk;
+let installedWebhooks: InstalledWebhooks;
+let resolvedPackageEntry = "";
+let resolvedWebhooksEntry = "";
 
-  it("statistics.bounces hits /statistics/transactional/bounce (singular)", async () => {
-    const res = await makeClient().statistics.bounces({
-      from_time: "2026-04-01T00:00:00Z",
-      to_time: "2026-04-30T00:00:00Z",
-    });
-    expect(res.object).toBe("list");
-  });
+beforeAll(async () => {
+  const tarball = verifiedTarball();
+  consumerDirectory = installTarball(tarball);
+  ({
+    sdk: installedSdk,
+    webhooks: installedWebhooks,
+    packageEntry: resolvedPackageEntry,
+    webhooksEntry: resolvedWebhooksEntry,
+  } = loadInstalledPackage(consumerDirectory));
 
-  it("statistics.deliveryTimes hits /statistics/transactional/delivery-time (singular)", async () => {
-    const res = await makeClient().statistics.deliveryTimes({
-      from_time: "2026-04-01T00:00:00Z",
-      to_time: "2026-04-30T00:00:00Z",
-    });
-    expect(res.object).toBe("list");
-  });
+  const port = await availablePort();
+  prismProcess = startPrism(port);
+  baseUrl = `http://127.0.0.1:${port}`;
+  await waitForPrism(prismProcess, `${baseUrl}/v2/ping`, 60_000);
+}, 120_000);
 
-  it("accounts.addMember + listMembers + removeMember lifecycle", async () => {
-    const c = makeClient();
-    const added = await c.accounts.addMember({
-      email: "newhire@example.com",
-      role: "Developer",
-    });
-    expect(added).toHaveProperty("user_id");
-    const members = await c.accounts.listMembers();
-    expect(members.object).toBe("list");
-    const removed = await c.accounts.removeMember(added.user_id);
-    expect(removed).toHaveProperty("message");
-  });
+afterAll(async () => {
+  await stopProcess(prismProcess);
+  if (consumerDirectory !== undefined) {
+    rmSync(consumerDirectory, { recursive: true, force: true });
+  }
+});
 
-  it("routes.create no longer requires the (formerly-invented) `domain` field", async () => {
-    const created = await makeClient().routes.create({
-      name: "integration-route",
-      url: "https://hooks.example/inbound",
-      recipient: "support@example.com",
-    });
-    expect(created.object).toBe("route");
+describe("installed package boundary", () => {
+  it("resolves both public entry points from the clean consumer", () => {
+    expect(resolvedPackageEntry).toContain(
+      join("node_modules", "@ahasend", "sdk", "dist", "index.cjs"),
+    );
+    expect(resolvedWebhooksEntry).toContain(
+      join("node_modules", "@ahasend", "sdk", "dist", "webhooks", "index.cjs"),
+    );
+    expect(resolvedPackageEntry).not.toContain(join(repositoryRoot, "src"));
+    expect(resolvedWebhooksEntry).not.toContain(join(repositoryRoot, "src"));
   });
 });
 
-describe("Integration: WebhookVerifier (offline — runs unconditionally)", () => {
-  it("round-trips a signed payload locally with a raw-string secret", () => {
-    const secret = "aha-whsec-integration-secret";
-    const verifier = new WebhookVerifier(secret);
+describe("enforcing Prism", () => {
+  it("rejects an intentionally invalid SDK-shaped request", async () => {
+    const response = await fetch(`${baseUrl}/v2/accounts/${ACCOUNT_ID}/messages`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${API_KEY}`,
+        "content-type": "application/json",
+        "idempotency-key": "integration-invalid-request",
+      },
+      body: "{}",
+    });
 
+    expect(response.status).toBe(422);
+  });
+});
+
+describe("packed SDK operation contract", () => {
+  it("covers every operation declared by openapi.yaml exactly once", () => {
+    const operationIds = [...SPEC_OPERATIONS.keys()];
+
+    expect(OPERATION_CASES).toHaveLength(56);
+    expect(new Set(OPERATION_CASES.map(({ operationId }) => operationId)).size).toBe(56);
+    expect(OPERATION_CASES.map(({ operationId }) => operationId).sort()).toEqual(
+      operationIds.sort(),
+    );
+  });
+
+  it.each(OPERATION_CASES)("$operationId", async ({ operationId, target, method, args = [] }) => {
+    const observedRequests: ObservedRequest[] = [];
+    const forwardingFetch: typeof fetch = async (input, init) => {
+      observedRequests.push(observeRequest(input, init));
+      return await globalThis.fetch(input, init);
+    };
+    const client = new installedSdk.AhaSendClient({
+      apiKey: API_KEY,
+      accountId: ACCOUNT_ID,
+      baseUrl,
+      fetch: forwardingFetch,
+      retry: { enabled: false },
+    });
+
+    await expect(callMethod(client, target, method, args)).resolves.toBeDefined();
+    expect(observedRequests).toHaveLength(1);
+
+    const expectedOperation = SPEC_OPERATIONS.get(operationId);
+    const observedRequest = observedRequests[0];
+    if (expectedOperation === undefined || observedRequest === undefined) {
+      throw new Error(`Missing OpenAPI contract or observed request for ${operationId}.`);
+    }
+    expect(observedRequest.httpMethod).toBe(expectedOperation.httpMethod);
+    expect(pathMatchesTemplate(observedRequest.pathname, expectedOperation.pathTemplate)).toBe(
+      true,
+    );
+  });
+});
+
+describe("packed webhooks subpath", () => {
+  it("verifies a signed payload through the installed subpath", () => {
+    const secret = "aha-whsec-integration-secret";
+    const verifier = new installedWebhooks.WebhookVerifier(secret);
     const id = "msg_it_1";
-    const ts = Math.floor(Date.now() / 1000);
+    const timestamp = Math.floor(Date.now() / 1000);
     const body = JSON.stringify({
       type: "message.delivered",
+      webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
       timestamp: new Date().toISOString(),
-      data: { id, account_id: ACCOUNT_ID, event: "delivered", from: "a@b", recipient: "c@d", subject: "hi", message_id_header: "<x>" },
+      data: {
+        id,
+        account_id: ACCOUNT_ID,
+        event: "on_delivered",
+        from: "sender@example.test",
+        recipient: "recipient@example.test",
+        subject: "Integration",
+        message_id_header: "<integration@example.test>",
+      },
     });
-    const sig = `v1,${createHmac("sha256", Buffer.from(secret, "utf-8")).update(`${id}.${ts}.${body}`).digest("base64")}`;
+    const signature = `v1,${createHmac("sha256", Buffer.from(secret, "utf8"))
+      .update(`${id}.${timestamp}.${body}`)
+      .digest("base64")}`;
 
-    const event = verifier.parse(
-      { "webhook-id": id, "webhook-timestamp": String(ts), "webhook-signature": sig },
+    const event = callMethod(verifier, [], "parse", [
+      {
+        "webhook-id": id,
+        "webhook-timestamp": String(timestamp),
+        "webhook-signature": signature,
+      },
       body,
-    );
-    expect(event.type).toBe("message.delivered");
+    ]);
+    expect(event).toMatchObject({ type: "message.delivered" });
   });
 });
+
+function operation(
+  operationId: string,
+  target: readonly string[],
+  method: string,
+  args?: readonly unknown[],
+): OperationCase {
+  return args === undefined
+    ? { operationId, target, method }
+    : { operationId, target, method, args };
+}
+
+function loadSpecOperations(): ReadonlyMap<string, SpecOperation> {
+  const source = readFileSync(resolve(repositoryRoot, "openapi.yaml"), "utf8");
+  const document = yaml.load(source) as OpenAPIDocument;
+  const operations = new Map<string, SpecOperation>();
+
+  for (const [pathTemplate, pathItem] of Object.entries(document.paths)) {
+    for (const [method, candidate] of Object.entries(pathItem)) {
+      if (!["get", "post", "put", "delete"].includes(method) || !isRecord(candidate)) continue;
+      const operationId = candidate["operationId"];
+      if (typeof operationId !== "string") continue;
+      operations.set(operationId, {
+        operationId,
+        httpMethod: method.toUpperCase(),
+        pathTemplate,
+      });
+    }
+  }
+
+  return operations;
+}
+
+function observeRequest(input: string | URL | Request, init?: RequestInit): ObservedRequest {
+  const request = input instanceof Request ? input : undefined;
+  const url = input instanceof Request ? new URL(input.url) : new URL(input);
+  return {
+    httpMethod: (init?.method ?? request?.method ?? "GET").toUpperCase(),
+    pathname: url.pathname,
+  };
+}
+
+function pathMatchesTemplate(pathname: string, pathTemplate: string): boolean {
+  const actualSegments = pathname.split("/");
+  const templateSegments = pathTemplate.split("/");
+  return (
+    actualSegments.length === templateSegments.length &&
+    templateSegments.every(
+      (segment, index) =>
+        (/^\{[^{}]+\}$/.test(segment) && actualSegments[index] !== "") ||
+        segment === actualSegments[index],
+    )
+  );
+}
+
+function requiredEnvironment(name: "SDK_TARBALL" | "SDK_TARBALL_SHA256"): string {
+  const value = process.env[name];
+  if (value === undefined || value.trim() === "") {
+    throw new Error(`${name} is required for installed-package integration tests.`);
+  }
+  return value;
+}
+
+function verifiedTarball(): string {
+  const suppliedPath = requiredEnvironment("SDK_TARBALL");
+  const expectedChecksum = requiredEnvironment("SDK_TARBALL_SHA256").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expectedChecksum)) {
+    throw new Error("SDK_TARBALL_SHA256 must be a 64-character hexadecimal SHA-256 digest.");
+  }
+
+  const tarball = resolve(repositoryRoot, suppliedPath);
+  if (!statSync(tarball).isFile()) {
+    throw new Error(`SDK_TARBALL is not a file: ${tarball}`);
+  }
+
+  const actualChecksum = createHash("sha256").update(readFileSync(tarball)).digest("hex");
+  if (actualChecksum !== expectedChecksum) {
+    throw new Error(
+      `SDK tarball checksum mismatch: expected ${expectedChecksum}, received ${actualChecksum}.`,
+    );
+  }
+  return tarball;
+}
+
+function installTarball(tarball: string): string {
+  const directory = mkdtempSync(join(tmpdir(), "ahasend-sdk-consumer-"));
+  writeFileSync(
+    join(directory, "package.json"),
+    JSON.stringify({ name: "ahasend-sdk-integration-consumer", private: true, type: "module" }),
+  );
+
+  const npmExecutable = process.env.npm_execpath;
+  const command = npmExecutable === undefined ? "npm" : process.execPath;
+  const args =
+    npmExecutable === undefined
+      ? ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarball]
+      : [
+          npmExecutable,
+          "install",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund",
+          "--package-lock=false",
+          tarball,
+        ];
+  const result = spawnSync(command, args, {
+    cwd: directory,
+    encoding: "utf8",
+    env: { ...process.env, SCARF_ANALYTICS: "false" },
+  });
+
+  if (result.error !== undefined) {
+    rmSync(directory, { recursive: true, force: true });
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    rmSync(directory, { recursive: true, force: true });
+    throw new Error(`Failed to install SDK tarball:\n${result.stdout}${result.stderr}`);
+  }
+  return directory;
+}
+
+function loadInstalledPackage(directory: string): {
+  readonly sdk: InstalledSdk;
+  readonly webhooks: InstalledWebhooks;
+  readonly packageEntry: string;
+  readonly webhooksEntry: string;
+} {
+  const requireFromConsumer = createRequire(join(directory, "package.json"));
+  const packageEntry = realpathSync(requireFromConsumer.resolve("@ahasend/sdk"));
+  const webhooksEntry = realpathSync(requireFromConsumer.resolve("@ahasend/sdk/webhooks"));
+  assertConsumerResolution(directory, packageEntry);
+  assertConsumerResolution(directory, webhooksEntry);
+
+  const sdkModule = record(requireFromConsumer("@ahasend/sdk"), "@ahasend/sdk");
+  const webhookModule = record(
+    requireFromConsumer("@ahasend/sdk/webhooks"),
+    "@ahasend/sdk/webhooks",
+  );
+  const clientConstructor = sdkModule["AhaSendClient"];
+  const verifierConstructor = webhookModule["WebhookVerifier"];
+  if (typeof clientConstructor !== "function" || typeof verifierConstructor !== "function") {
+    throw new TypeError("The installed package does not expose its documented constructors.");
+  }
+
+  return {
+    sdk: { AhaSendClient: clientConstructor as InstalledConstructor },
+    webhooks: {
+      WebhookVerifier: verifierConstructor as InstalledWebhooks["WebhookVerifier"],
+    },
+    packageEntry,
+    webhooksEntry,
+  };
+}
+
+function assertConsumerResolution(directory: string, entry: string): void {
+  const consumerRoot = realpathSync(directory);
+  const pathFromConsumer = relative(consumerRoot, entry);
+  if (
+    pathFromConsumer === "" ||
+    pathFromConsumer.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
+    pathFromConsumer === ".." ||
+    isAbsolute(pathFromConsumer)
+  ) {
+    throw new Error(`Installed-package integration resolved outside its clean consumer: ${entry}`);
+  }
+}
+
+function record(value: unknown, label: string): UnknownRecord {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) {
+    throw new TypeError(`${label} is not an object.`);
+  }
+  return value as UnknownRecord;
+}
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null;
+}
+
+function callMethod(
+  root: object,
+  target: readonly string[],
+  method: string,
+  args: readonly unknown[],
+): unknown {
+  let receiver: object = root;
+  for (const segment of target) {
+    receiver = record(receiver, segment);
+    const next = receiver[segment as keyof typeof receiver];
+    receiver = record(next, segment);
+  }
+
+  const callable = record(receiver, method)[method];
+  if (typeof callable !== "function") {
+    throw new TypeError(`${[...target, method].join(".")} is not callable.`);
+  }
+  return Reflect.apply(callable, receiver, args);
+}
+
+async function availablePort(): Promise<number> {
+  return await new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        reject(new Error("Unable to allocate a Prism port."));
+        return;
+      }
+      server.close((error) => {
+        if (error === undefined) resolvePort(address.port);
+        else reject(error);
+      });
+    });
+  });
+}
+
+function startPrism(port: number): ChildProcess {
+  const prismPackage = requireFromRepository.resolve("@stoplight/prism-cli/package.json");
+  const manifest = JSON.parse(readFileSync(prismPackage, "utf8")) as {
+    readonly bin?: string | Readonly<Record<string, string>>;
+  };
+  const relativeBin =
+    typeof manifest.bin === "string" ? manifest.bin : (manifest.bin?.["prism"] ?? undefined);
+  if (relativeBin === undefined) {
+    throw new Error("@stoplight/prism-cli does not declare its prism executable.");
+  }
+
+  const child = spawn(
+    process.execPath,
+    [
+      resolve(dirname(prismPackage), relativeBin),
+      "mock",
+      resolve(repositoryRoot, "openapi.yaml"),
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(port),
+      "--errors",
+    ],
+    {
+      cwd: repositoryRoot,
+      env: { ...process.env, NO_COLOR: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  child.stdout?.on("data", (chunk: Buffer | string) => {
+    prismOutput += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk: Buffer | string) => {
+    prismOutput += chunk.toString();
+  });
+  return child;
+}
+
+async function waitForPrism(
+  child: ChildProcess,
+  readinessUrl: string,
+  timeoutMs: number,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (child.exitCode !== null) {
+      throw new Error(`Prism exited before becoming ready (${child.exitCode}):\n${prismOutput}`);
+    }
+    try {
+      const response = await fetch(readinessUrl, {
+        headers: { authorization: `Bearer ${API_KEY}` },
+      });
+      if (response.ok) return;
+    } catch {
+      // The local process has not started listening yet.
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`Prism did not become ready within ${timeoutMs}ms:\n${prismOutput}`);
+}
+
+async function stopProcess(child: ChildProcess | undefined): Promise<void> {
+  if (child === undefined || child.exitCode !== null) return;
+  child.kill("SIGTERM");
+  await Promise.race([
+    new Promise<void>((resolveExit) => child.once("exit", () => resolveExit())),
+    new Promise<void>((resolveTimeout) => setTimeout(resolveTimeout, 5_000)),
+  ]);
+  if (child.exitCode === null) child.kill("SIGKILL");
+}

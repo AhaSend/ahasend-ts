@@ -1,0 +1,299 @@
+{
+  "today": "2026-07-24",
+  "reports": {
+    "clean": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {},
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 0
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
+    },
+    "production": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "production-package": {
+          "name": "production-package",
+          "severity": "critical",
+          "isDirect": true,
+          "via": [
+            {
+              "source": 1000001,
+              "name": "production-package",
+              "dependency": "production-package",
+              "title": "Production package compromise",
+              "url": "https://github.com/advisories/GHSA-prod-test",
+              "severity": "critical",
+              "cwe": ["CWE-506"],
+              "cvss": {
+                "score": 10,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+              },
+              "range": "<2.0.0"
+            }
+          ],
+          "effects": [],
+          "range": "<2.0.0",
+          "nodes": ["node_modules/production-package"],
+          "fixAvailable": true
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 1,
+          "total": 1
+        },
+        "dependencies": {
+          "prod": 2,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 11
+        }
+      }
+    },
+    "directDevelopment": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "direct-development-tool": {
+          "name": "direct-development-tool",
+          "severity": "low",
+          "isDirect": true,
+          "via": [
+            {
+              "source": 1000002,
+              "name": "direct-development-tool",
+              "dependency": "direct-development-tool",
+              "title": "Direct development tool issue",
+              "url": "https://github.com/advisories/GHSA-direct-test",
+              "severity": "low",
+              "cwe": ["CWE-400"],
+              "cvss": {
+                "score": 3.1,
+                "vectorString": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:N/I:N/A:L"
+              },
+              "range": "<3.0.0"
+            }
+          ],
+          "effects": [],
+          "range": "<3.0.0",
+          "nodes": ["node_modules/direct-development-tool"],
+          "fixAvailable": true
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 1,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 1
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
+    },
+    "transitiveModerate": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "transitive-development-tool": {
+          "name": "transitive-development-tool",
+          "severity": "moderate",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1000003,
+              "name": "transitive-development-tool",
+              "dependency": "transitive-development-tool",
+              "title": "Transitive development tool issue",
+              "url": "https://github.com/advisories/GHSA-transitive-test",
+              "severity": "moderate",
+              "cwe": ["CWE-400"],
+              "cvss": {
+                "score": 5.3,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+              },
+              "range": "<4.0.0"
+            }
+          ],
+          "effects": [],
+          "range": "<4.0.0",
+          "nodes": ["node_modules/parent/node_modules/transitive-development-tool"],
+          "fixAvailable": false
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 1,
+          "high": 0,
+          "critical": 0,
+          "total": 1
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
+    },
+    "transitiveHigh": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "transitive-development-tool": {
+          "name": "transitive-development-tool",
+          "severity": "high",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1000003,
+              "name": "transitive-development-tool",
+              "dependency": "transitive-development-tool",
+              "title": "Escalated transitive development tool issue",
+              "url": "https://github.com/advisories/GHSA-transitive-test",
+              "severity": "high",
+              "cwe": ["CWE-400"],
+              "cvss": {
+                "score": 7.5,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+              },
+              "range": "<4.0.0"
+            }
+          ],
+          "effects": [],
+          "range": "<4.0.0",
+          "nodes": ["node_modules/parent/node_modules/transitive-development-tool"],
+          "fixAvailable": false
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 1,
+          "critical": 0,
+          "total": 1
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
+    }
+  },
+  "exceptionSets": {
+    "none": {
+      "version": 1,
+      "exceptions": []
+    },
+    "allowed": {
+      "version": 1,
+      "exceptions": [
+        {
+          "id": "transitive-development-tool-1000003",
+          "packageName": "transitive-development-tool",
+          "severity": "moderate",
+          "range": "<4.0.0",
+          "via": [1000003],
+          "reviewedOn": "2026-07-01",
+          "expiresOn": "2026-10-01",
+          "reason": "The vulnerable path is confined to local development tooling."
+        }
+      ]
+    },
+    "expired": {
+      "version": 1,
+      "exceptions": [
+        {
+          "id": "transitive-development-tool-1000003",
+          "packageName": "transitive-development-tool",
+          "severity": "moderate",
+          "range": "<4.0.0",
+          "via": [1000003],
+          "reviewedOn": "2026-04-01",
+          "expiresOn": "2026-07-24",
+          "reason": "The vulnerable path was confined to local development tooling."
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "clean report",
+      "fullReport": "clean",
+      "productionReport": "clean",
+      "exceptions": "none",
+      "expectedError": null
+    },
+    {
+      "name": "production advisory",
+      "fullReport": "production",
+      "productionReport": "production",
+      "exceptions": "none",
+      "expectedError": "Production advisories are forbidden"
+    },
+    {
+      "name": "direct development advisory",
+      "fullReport": "directDevelopment",
+      "productionReport": "clean",
+      "exceptions": "none",
+      "expectedError": "Direct development advisories are forbidden"
+    },
+    {
+      "name": "allowed transitive development advisory",
+      "fullReport": "transitiveModerate",
+      "productionReport": "clean",
+      "exceptions": "allowed",
+      "expectedError": null
+    },
+    {
+      "name": "expired transitive development exception",
+      "fullReport": "transitiveModerate",
+      "productionReport": "clean",
+      "exceptions": "expired",
+      "expectedError": "expired on 2026-07-24"
+    },
+    {
+      "name": "escalated transitive development advisory",
+      "fullReport": "transitiveHigh",
+      "productionReport": "clean",
+      "exceptions": "allowed",
+      "expectedError": "non-eligible severity high"
+    }
+  ]
+}

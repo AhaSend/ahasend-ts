@@ -1,424 +1,762 @@
 /**
- * Spec-conformance test.
+ * Facade contract matrix.
  *
- * Parses the canonical AhaSend OpenAPI spec at the repository root and
- * asserts that every public resource method on `AhaSendClient` issues a
- * request whose (HTTP verb, URL-path template) is a real operation in
- * the spec. Catches:
- *
- *   - wrong verb (`POST` vs `DELETE`),
- *   - wrong path (`/wipe` vs `/all`, `/bounces` vs `/bounce`),
- *   - invented path segments (e.g. `/domains/{domain}/webhooks`),
- *   - methods that have no corresponding spec operation at all.
- *
- * Failure messages include the offending verb+path and the closest
- * spec entries, so reviewers can read the diff without opening the
- * spec.
+ * The expected facade and method names below are deliberately handwritten.
+ * Generated profile and descriptor values are the actual side of the
+ * comparison; openapi.yaml supplies the independent HTTP contract.
  */
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import yaml from "js-yaml";
-import { beforeAll, describe, expect, it, vi } from "vitest";
-import { AhaSendClient } from "../src/client.js";
-
-type Op = { verb: string; path: string };
-let specOps: Set<string>;
+import { beforeAll, describe, expect, it } from "vitest";
+import type { AhaSendClient } from "../src/client.js";
+import type { OperationId, RetryMode } from "../src/generated/operations.js";
+import { OPERATION_DESCRIPTORS } from "../src/generated/operations.js";
+import type { OperationProfileMapping } from "../src/generated/operation-profile.js";
+import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
+import type { IdempotencyRequestOptions, RequestOptions } from "../src/types/common.js";
+import type { ResourceCall } from "./helpers/resource-call.js";
+import { captureFetch, makeClient } from "./helpers/resource-call.js";
 
 const SPEC_PATH = resolve(process.cwd(), "openapi.yaml");
+const ACCOUNT_PATH = "/v2/accounts/acc_1";
+const CONTRACT_HEADER = "matrix-options";
+const IDEMPOTENCY_KEY = "matrix-idempotency-key";
 
-const SENTINELS = {
-  ACCOUNT_ID: "00000000-0000-0000-0000-aaaaaaaaaaaa",
-  MESSAGE_ID: "msg-sentinel-id",
-  KEY_ID: "key-sentinel-id",
-  DOMAIN: "sentinel.example.test",
-  WEBHOOK_ID: "wh-sentinel-id",
-  SUPPRESSION_ID: "sup-sentinel-id",
-  ROUTE_ID: "route-sentinel-id",
-  USER_ID: "user-sentinel-id",
-  CREDENTIAL_ID: "cred-sentinel-id",
+const IDS = {
+  key: "key/id",
+  domain: "mail/example.test",
+  message: "message/id",
+  user: "user/id",
+  subAccount: "sub/id",
+  webhook: "webhook/id",
+  route: "route/id",
+  smtpCredential: "smtp/id",
 } as const;
 
-const SUBSTITUTIONS: Array<[string, string]> = [
-  [SENTINELS.ACCOUNT_ID, "{account_id}"],
-  [SENTINELS.MESSAGE_ID, "{message_id}"],
-  [SENTINELS.KEY_ID, "{key_id}"],
-  [SENTINELS.DOMAIN, "{domain}"],
-  [SENTINELS.WEBHOOK_ID, "{webhook_id}"],
-  [SENTINELS.SUPPRESSION_ID, "{suppression_id}"],
-  [SENTINELS.ROUTE_ID, "{route_id}"],
-  [SENTINELS.USER_ID, "{user_id}"],
-  [SENTINELS.CREDENTIAL_ID, "{smtp_credential_id}"],
-];
+const REQUEST_OPTIONS: RequestOptions = {
+  headers: { "x-contract-test": CONTRACT_HEADER },
+};
+const IDEMPOTENCY_OPTIONS: IdempotencyRequestOptions = {
+  ...REQUEST_OPTIONS,
+  idempotencyKey: IDEMPOTENCY_KEY,
+};
 
-interface OpenAPIDoc {
-  paths: Record<string, Record<string, unknown>>;
+const PAGINATION_QUERY = { limit: "17", after: "matrix-cursor" } as const;
+const PAGINATION_PARAMS = { limit: 17, after: "matrix-cursor" } as const;
+const STATISTICS_PARAMS = {
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-01-02T00:00:00Z",
+  sender_domain: "example.test",
+  group_by: "day",
+} as const;
+
+interface OpenAPIParameter {
+  readonly $ref?: string;
+  readonly name?: string;
+  readonly in?: string;
+  readonly required?: boolean;
 }
 
+interface OpenAPIOperation {
+  readonly operationId: string;
+  readonly parameters?: readonly OpenAPIParameter[];
+  readonly requestBody?: {
+    readonly required?: boolean;
+    readonly content?: Readonly<Record<string, { readonly schema?: unknown }>>;
+  };
+  readonly responses: Readonly<
+    Record<
+      string,
+      {
+        readonly content?: Readonly<Record<string, { readonly schema?: unknown }>>;
+      }
+    >
+  >;
+  readonly security?: readonly Readonly<Record<string, readonly string[]>>[];
+}
+
+interface OpenAPIDocument {
+  readonly security?: readonly Readonly<Record<string, readonly string[]>>[];
+  readonly paths: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+}
+
+interface SpecOperation {
+  readonly httpMethod: "GET" | "POST" | "PUT" | "DELETE";
+  readonly path: string;
+  readonly operation: OpenAPIOperation;
+}
+
+interface ExpectedInput {
+  readonly path: string;
+  readonly query?: Readonly<Record<string, string>>;
+  readonly body?: unknown;
+}
+
+interface Invocation {
+  readonly result: Promise<unknown>;
+  readonly input: ExpectedInput;
+}
+
+interface PrimaryMatrixRow {
+  readonly operationId: OperationId;
+  readonly facade: string;
+  readonly method: string;
+  readonly invoke: (client: AhaSendClient) => Invocation;
+}
+
+interface IteratorMatrixRow {
+  readonly operationId: OperationId;
+  readonly facade: string;
+  readonly method: "iterate";
+  readonly invoke: (client: AhaSendClient) => Invocation;
+}
+
+let specDocument: OpenAPIDocument;
+let specOperations: ReadonlyMap<string, SpecOperation>;
+
 beforeAll(() => {
-  const raw = readFileSync(SPEC_PATH, "utf-8");
-  const doc = yaml.load(raw) as OpenAPIDoc;
-  specOps = new Set();
-  for (const [path, ops] of Object.entries(doc.paths)) {
-    for (const verb of ["get", "post", "put", "patch", "delete"]) {
-      if (verb in ops) specOps.add(`${verb.toUpperCase()} ${path}`);
-    }
+  specDocument = yaml.load(readFileSync(SPEC_PATH, "utf8")) as OpenAPIDocument;
+  const entries = collectSpecOperations(specDocument);
+  specOperations = new Map(entries.map((entry) => [entry.operation.operationId, entry]));
+});
+
+const PRIMARY_MATRIX = [
+  primary("ping", "client", "ping", (client) => ({
+    result: client.ping(REQUEST_OPTIONS),
+    input: { path: "/v2/ping" },
+  })),
+  primary("getAPIKeys", "apiKeys", "list", (client) => ({
+    result: client.apiKeys.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/api-keys`, query: PAGINATION_QUERY },
+  })),
+  primary("createAPIKey", "apiKeys", "create", (client) => {
+    const body = {
+      label: "matrix",
+      scopes: ["messages:send:all"] as [string, ...string[]],
+    };
+    return {
+      result: client.apiKeys.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/api-keys`, body },
+    };
+  }),
+  primary("getAPIKey", "apiKeys", "get", (client) => ({
+    result: client.apiKeys.get(IDS.key, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/api-keys/key%2Fid` },
+  })),
+  primary("updateAPIKey", "apiKeys", "update", (client) => {
+    const body = { label: "updated" };
+    return {
+      result: client.apiKeys.update(IDS.key, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/api-keys/key%2Fid`, body },
+    };
+  }),
+  primary("deleteAPIKey", "apiKeys", "delete", (client) => ({
+    result: client.apiKeys.delete(IDS.key, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/api-keys/key%2Fid` },
+  })),
+  primary("getDomains", "domains", "list", (client) => ({
+    result: client.domains.list({ ...PAGINATION_PARAMS, dns_valid: true }, REQUEST_OPTIONS),
+    input: {
+      path: `${ACCOUNT_PATH}/domains`,
+      query: { dns_valid: "true", ...PAGINATION_QUERY },
+    },
+  })),
+  primary("createDomain", "domains", "create", (client) => {
+    const body = { domain: "example.test" };
+    return {
+      result: client.domains.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/domains`, body },
+    };
+  }),
+  primary("getDomain", "domains", "get", (client) => ({
+    result: client.domains.get(IDS.domain, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/domains/mail%2Fexample.test` },
+  })),
+  primary("updateDomain", "domains", "update", (client) => {
+    const body = { tracking_subdomain: "track" };
+    return {
+      result: client.domains.update(IDS.domain, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/domains/mail%2Fexample.test`, body },
+    };
+  }),
+  primary("deleteDomain", "domains", "delete", (client) => ({
+    result: client.domains.delete(IDS.domain, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/domains/mail%2Fexample.test` },
+  })),
+  primary("checkDomainDNS", "domains", "checkDns", (client) => ({
+    result: client.domains.checkDns(IDS.domain, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/domains/mail%2Fexample.test/check-dns` },
+  })),
+  primary("getMessages", "messages", "list", (client) => ({
+    result: client.messages.list(
+      { ...PAGINATION_PARAMS, status: "Delivered", sender: "sender@example.test" },
+      REQUEST_OPTIONS,
+    ),
+    input: {
+      path: `${ACCOUNT_PATH}/messages`,
+      query: {
+        status: "Delivered",
+        sender: "sender@example.test",
+        ...PAGINATION_QUERY,
+      },
+    },
+  })),
+  primary("createMessage", "messages", "send", (client) => {
+    const body = {
+      from: { email: "sender@example.test" },
+      recipients: [{ email: "recipient@example.test" }] as const,
+      subject: "Matrix",
+    };
+    return {
+      result: client.messages.send(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/messages`, body },
+    };
+  }),
+  primary("createConversationMessage", "messages", "sendConversation", (client) => {
+    const body = {
+      from: { email: "sender@example.test" },
+      to: [{ email: "recipient@example.test" }] as const,
+      subject: "Matrix conversation",
+    };
+    return {
+      result: client.messages.sendConversation(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/messages/conversation`, body },
+    };
+  }),
+  primary("getMessage", "messages", "get", (client) => ({
+    result: client.messages.get(IDS.message, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/messages/message%2Fid` },
+  })),
+  primary("cancelMessage", "messages", "cancel", (client) => ({
+    result: client.messages.cancel(IDS.message, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/messages/message%2Fid/cancel` },
+  })),
+  primary("getAccount", "accounts", "get", (client) => ({
+    result: client.accounts.get(REQUEST_OPTIONS),
+    input: { path: ACCOUNT_PATH },
+  })),
+  primary("updateAccount", "accounts", "update", (client) => {
+    const body = { name: "Matrix account" };
+    return {
+      result: client.accounts.update(body, REQUEST_OPTIONS),
+      input: { path: ACCOUNT_PATH, body },
+    };
+  }),
+  primary("getAccountMembers", "accounts", "listMembers", (client) => ({
+    result: client.accounts.listMembers(REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/members` },
+  })),
+  primary("addAccountMember", "accounts", "addMember", (client) => {
+    const body = { email: "member@example.test", role: "Developer" as const };
+    return {
+      result: client.accounts.addMember(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/members`, body },
+    };
+  }),
+  primary("removeAccountMember", "accounts", "removeMember", (client) => ({
+    result: client.accounts.removeMember(IDS.user, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/members/user%2Fid` },
+  })),
+  primary("listSubAccounts", "subAccounts", "list", (client) => ({
+    result: client.subAccounts.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts`, query: PAGINATION_QUERY },
+  })),
+  primary("createSubAccount", "subAccounts", "create", (client) => {
+    const body = { name: "Matrix child", website: "child.example.test" };
+    return {
+      result: client.subAccounts.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/sub-accounts`, body },
+    };
+  }),
+  primary("getSubAccountsUsage", "subAccounts", "usage", (client) => ({
+    result: client.subAccounts.usage(REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/usage` },
+  })),
+  primary("getSubAccount", "subAccounts", "get", (client) => ({
+    result: client.subAccounts.get(IDS.subAccount, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid` },
+  })),
+  primary("updateSubAccount", "subAccounts", "update", (client) => {
+    const body = { name: "Updated child" };
+    return {
+      result: client.subAccounts.update(IDS.subAccount, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid`, body },
+    };
+  }),
+  primary("deleteSubAccount", "subAccounts", "delete", (client) => ({
+    result: client.subAccounts.delete(IDS.subAccount, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid` },
+  })),
+  primary("suspendSubAccount", "subAccounts", "suspend", (client) => {
+    const body = { reason: "Matrix suspension" };
+    return {
+      result: client.subAccounts.suspend(IDS.subAccount, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/suspend`, body },
+    };
+  }),
+  primary("unsuspendSubAccount", "subAccounts", "unsuspend", (client) => ({
+    result: client.subAccounts.unsuspend(IDS.subAccount, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/unsuspend` },
+  })),
+  primary("listSubAccountAPIKeys", "subAccounts.apiKeys", "list", (client) => ({
+    result: client.subAccounts.apiKeys.list(IDS.subAccount, PAGINATION_PARAMS, REQUEST_OPTIONS),
+    input: {
+      path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys`,
+      query: PAGINATION_QUERY,
+    },
+  })),
+  primary("createSubAccountAPIKey", "subAccounts.apiKeys", "create", (client) => {
+    const body = {
+      label: "Matrix child key",
+      scopes: ["messages:send:all"] as [string, ...string[]],
+    };
+    return {
+      result: client.subAccounts.apiKeys.create(IDS.subAccount, body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys`, body },
+    };
+  }),
+  primary("getSubAccountAPIKey", "subAccounts.apiKeys", "get", (client) => ({
+    result: client.subAccounts.apiKeys.get(IDS.subAccount, IDS.key, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys/key%2Fid` },
+  })),
+  primary("updateSubAccountAPIKey", "subAccounts.apiKeys", "update", (client) => {
+    const body = { label: "Updated child key" };
+    return {
+      result: client.subAccounts.apiKeys.update(IDS.subAccount, IDS.key, body, REQUEST_OPTIONS),
+      input: {
+        path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys/key%2Fid`,
+        body,
+      },
+    };
+  }),
+  primary("deleteSubAccountAPIKey", "subAccounts.apiKeys", "delete", (client) => ({
+    result: client.subAccounts.apiKeys.delete(IDS.subAccount, IDS.key, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys/key%2Fid` },
+  })),
+  primary("getSuppressions", "suppressions", "list", (client) => ({
+    result: client.suppressions.list(
+      { ...PAGINATION_PARAMS, domain: "example.test", email: "blocked@example.test" },
+      REQUEST_OPTIONS,
+    ),
+    input: {
+      path: `${ACCOUNT_PATH}/suppressions`,
+      query: {
+        domain: "example.test",
+        email: "blocked@example.test",
+        ...PAGINATION_QUERY,
+      },
+    },
+  })),
+  primary("createSuppression", "suppressions", "create", (client) => {
+    const body = {
+      email: "blocked@example.test",
+      expires_at: "2027-01-01T00:00:00Z",
+    };
+    return {
+      result: client.suppressions.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/suppressions`, body },
+    };
+  }),
+  primary("deleteSuppression", "suppressions", "delete", (client) => ({
+    result: client.suppressions.delete(
+      { email: "blocked@example.test", domain: "example.test" },
+      REQUEST_OPTIONS,
+    ),
+    input: {
+      path: `${ACCOUNT_PATH}/suppressions`,
+      query: { email: "blocked@example.test", domain: "example.test" },
+    },
+  })),
+  primary("deleteAllSuppressions", "suppressions", "wipe", (client) => ({
+    result: client.suppressions.wipe({ domain: "example.test" }, REQUEST_OPTIONS),
+    input: {
+      path: `${ACCOUNT_PATH}/suppressions/all`,
+      query: { domain: "example.test" },
+    },
+  })),
+  primary("getRoutes", "routes", "list", (client) => ({
+    result: client.routes.list({ ...PAGINATION_PARAMS, domain: "example.test" }, REQUEST_OPTIONS),
+    input: {
+      path: `${ACCOUNT_PATH}/routes`,
+      query: { domain: "example.test", ...PAGINATION_QUERY },
+    },
+  })),
+  primary("createRoute", "routes", "create", (client) => {
+    const body = {
+      name: "Matrix route",
+      url: "https://example.test/route",
+      recipient: "inbound@example.test",
+    };
+    return {
+      result: client.routes.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/routes`, body },
+    };
+  }),
+  primary("getRoute", "routes", "get", (client) => ({
+    result: client.routes.get(IDS.route, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/routes/route%2Fid` },
+  })),
+  primary("updateRoute", "routes", "update", (client) => {
+    const body = { name: "Updated route" };
+    return {
+      result: client.routes.update(IDS.route, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/routes/route%2Fid`, body },
+    };
+  }),
+  primary("deleteRoute", "routes", "delete", (client) => ({
+    result: client.routes.delete(IDS.route, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/routes/route%2Fid` },
+  })),
+  primary("getWebhooks", "webhooks", "list", (client) => ({
+    result: client.webhooks.list(
+      { ...PAGINATION_PARAMS, enabled: true, on_delivered: true },
+      REQUEST_OPTIONS,
+    ),
+    input: {
+      path: `${ACCOUNT_PATH}/webhooks`,
+      query: { enabled: "true", on_delivered: "true", ...PAGINATION_QUERY },
+    },
+  })),
+  primary("createWebhook", "webhooks", "create", (client) => {
+    const body = {
+      name: "Matrix webhook",
+      url: "https://example.test/webhook",
+      scope: "global" as const,
+    };
+    return {
+      result: client.webhooks.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/webhooks`, body },
+    };
+  }),
+  primary("getWebhook", "webhooks", "get", (client) => ({
+    result: client.webhooks.get(IDS.webhook, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/webhooks/webhook%2Fid` },
+  })),
+  primary("updateWebhook", "webhooks", "update", (client) => {
+    const body = { name: "Updated webhook" };
+    return {
+      result: client.webhooks.update(IDS.webhook, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/webhooks/webhook%2Fid`, body },
+    };
+  }),
+  primary("deleteWebhook", "webhooks", "delete", (client) => ({
+    result: client.webhooks.delete(IDS.webhook, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/webhooks/webhook%2Fid` },
+  })),
+  primary("getSMTPCredentials", "smtpCredentials", "list", (client) => ({
+    result: client.smtpCredentials.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/smtp-credentials`, query: PAGINATION_QUERY },
+  })),
+  primary("createSMTPCredential", "smtpCredentials", "create", (client) => {
+    const body = { name: "Matrix SMTP", scope: "global" as const };
+    return {
+      result: client.smtpCredentials.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/smtp-credentials`, body },
+    };
+  }),
+  primary("getSMTPCredential", "smtpCredentials", "get", (client) => ({
+    result: client.smtpCredentials.get(IDS.smtpCredential, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/smtp-credentials/smtp%2Fid` },
+  })),
+  primary("deleteSMTPCredential", "smtpCredentials", "delete", (client) => ({
+    result: client.smtpCredentials.delete(IDS.smtpCredential, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/smtp-credentials/smtp%2Fid` },
+  })),
+  primary("getDeliverabilityStatistics", "statistics", "deliverability", (client) => ({
+    result: client.statistics.deliverability(STATISTICS_PARAMS, REQUEST_OPTIONS),
+    input: {
+      path: `${ACCOUNT_PATH}/statistics/transactional/deliverability`,
+      query: STATISTICS_PARAMS,
+    },
+  })),
+  primary("getBounceStatistics", "statistics", "bounces", (client) => ({
+    result: client.statistics.bounces(STATISTICS_PARAMS, REQUEST_OPTIONS),
+    input: {
+      path: `${ACCOUNT_PATH}/statistics/transactional/bounce`,
+      query: STATISTICS_PARAMS,
+    },
+  })),
+  primary("getDeliveryTimeStatistics", "statistics", "deliveryTimes", (client) => ({
+    result: client.statistics.deliveryTimes(STATISTICS_PARAMS, REQUEST_OPTIONS),
+    input: {
+      path: `${ACCOUNT_PATH}/statistics/transactional/delivery-time`,
+      query: STATISTICS_PARAMS,
+    },
+  })),
+] as const satisfies readonly PrimaryMatrixRow[];
+
+const ITERATOR_MATRIX = [
+  iterator("getAPIKeys", "apiKeys", (client) => ({
+    result: client.apiKeys.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
+    input: { path: `${ACCOUNT_PATH}/api-keys`, query: PAGINATION_QUERY },
+  })),
+  iterator("getDomains", "domains", (client) => ({
+    result: client.domains
+      .iterate({ ...PAGINATION_PARAMS, dns_valid: true }, REQUEST_OPTIONS)
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/domains`,
+      query: { dns_valid: "true", ...PAGINATION_QUERY },
+    },
+  })),
+  iterator("getMessages", "messages", (client) => ({
+    result: client.messages
+      .iterate({ ...PAGINATION_PARAMS, status: "Delivered" }, REQUEST_OPTIONS)
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/messages`,
+      query: { status: "Delivered", ...PAGINATION_QUERY },
+    },
+  })),
+  iterator("listSubAccounts", "subAccounts", (client) => ({
+    result: client.subAccounts.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts`, query: PAGINATION_QUERY },
+  })),
+  iterator("listSubAccountAPIKeys", "subAccounts.apiKeys", (client) => ({
+    result: client.subAccounts.apiKeys
+      .iterate(IDS.subAccount, PAGINATION_PARAMS, REQUEST_OPTIONS)
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys`,
+      query: PAGINATION_QUERY,
+    },
+  })),
+  iterator("getSuppressions", "suppressions", (client) => ({
+    result: client.suppressions
+      .iterate({ ...PAGINATION_PARAMS, domain: "example.test" }, REQUEST_OPTIONS)
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/suppressions`,
+      query: { domain: "example.test", ...PAGINATION_QUERY },
+    },
+  })),
+  iterator("getRoutes", "routes", (client) => ({
+    result: client.routes
+      .iterate({ ...PAGINATION_PARAMS, domain: "example.test" }, REQUEST_OPTIONS)
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/routes`,
+      query: { domain: "example.test", ...PAGINATION_QUERY },
+    },
+  })),
+  iterator("getWebhooks", "webhooks", (client) => ({
+    result: client.webhooks
+      .iterate({ ...PAGINATION_PARAMS, enabled: true }, REQUEST_OPTIONS)
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/webhooks`,
+      query: { enabled: "true", ...PAGINATION_QUERY },
+    },
+  })),
+  iterator("getSMTPCredentials", "smtpCredentials", (client) => ({
+    result: client.smtpCredentials.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
+    input: { path: `${ACCOUNT_PATH}/smtp-credentials`, query: PAGINATION_QUERY },
+  })),
+] as const satisfies readonly IteratorMatrixRow[];
+
+describe("Facade operation conformance matrix", () => {
+  it("accounts for exactly 56 primary operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(56);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(56);
+    expect(OPERATION_PROFILE.operations).toHaveLength(56);
+    expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
+  });
+
+  for (const row of PRIMARY_MATRIX) {
+    it(`${row.facade}.${row.method} -> ${row.operationId}`, async () => {
+      await expectMatrixRow(row, OPERATION_PROFILE.operations);
+    });
   }
 });
 
-function templateFor(actualPath: string): string {
-  let out = actualPath;
-  for (const [sentinel, placeholder] of SUBSTITUTIONS) {
-    out = out.split(sentinel).join(placeholder);
-  }
-  return out;
-}
-
-function captureClient(): { client: AhaSendClient; calls: Op[] } {
-  const calls: Op[] = [];
-  const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(typeof input === "string" ? input : input.toString());
-    calls.push({
-      verb: (init?.method ?? "GET").toUpperCase(),
-      path: templateFor(url.pathname),
-    });
-    return new Response(
-      JSON.stringify({
-        object: "list",
-        data: [],
-        pagination: { has_more: false },
-        message: "ok",
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
+describe("Facade iterator conformance matrix", () => {
+  it("accounts for exactly nine iterator aliases", () => {
+    expect(ITERATOR_MATRIX).toHaveLength(9);
+    expect(new Set(ITERATOR_MATRIX.map(({ facade, method }) => `${facade}.${method}`)).size).toBe(
+      9,
     );
-  }) as unknown as typeof fetch;
-
-  const client = new AhaSendClient({
-    apiKey: "aha-sk-conformance",
-    accountId: SENTINELS.ACCOUNT_ID,
-    baseUrl: "https://api.test",
-    retry: { enabled: false },
-    fetch: fetchImpl,
+    expect(OPERATION_PROFILE.iterators).toHaveLength(9);
+    expect(profileShape(OPERATION_PROFILE.iterators)).toEqual(profileShape(ITERATOR_MATRIX));
   });
 
-  return { client, calls };
+  for (const row of ITERATOR_MATRIX) {
+    it(`${row.facade}.${row.method} -> ${row.operationId}`, async () => {
+      await expectMatrixRow(row, OPERATION_PROFILE.iterators);
+    });
+  }
+});
+
+describe("Generated operation inventory", () => {
+  it("maps every OpenAPI operation to one descriptor and primary facade row", () => {
+    const operationIds = [...specOperations.keys()];
+    expect(operationIds).toHaveLength(56);
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
+    expect(PRIMARY_MATRIX.map(({ operationId }) => operationId)).toEqual(operationIds);
+  });
+});
+
+function primary(
+  operationId: OperationId,
+  facade: string,
+  method: string,
+  invoke: (client: AhaSendClient) => Invocation,
+): PrimaryMatrixRow {
+  return { operationId, facade, method, invoke };
 }
 
-function expectMatchesSpec(call: Op): void {
-  const key = `${call.verb} ${call.path}`;
-  if (specOps.has(key)) return;
-  const samePathOps = Array.from(specOps).filter((k) => k.endsWith(call.path));
-  const samePrefix = Array.from(specOps)
-    .filter((k) => k.split(" ")[1]!.startsWith(call.path.split("/{")[0]!))
-    .slice(0, 6);
-  const hint =
-    samePathOps.length > 0
-      ? `Other verbs defined for this path: ${samePathOps.join(", ")}`
-      : `Closest spec paths: ${samePrefix.join(", ") || "(none)"}`;
-  throw new Error(
-    `SDK called \`${key}\` which is not defined in openapi.yaml. ${hint}`,
+function iterator(
+  operationId: OperationId,
+  facade: string,
+  invoke: (client: AhaSendClient) => Invocation,
+): IteratorMatrixRow {
+  return { operationId, facade, method: "iterate", invoke };
+}
+
+function profileShape(
+  mappings: readonly Pick<OperationProfileMapping, "operationId" | "facade" | "method">[],
+): Array<Pick<OperationProfileMapping, "operationId" | "facade" | "method">> {
+  return mappings.map(({ operationId, facade, method }) => ({ operationId, facade, method }));
+}
+
+async function expectMatrixRow(
+  row: PrimaryMatrixRow | IteratorMatrixRow,
+  profile: readonly OperationProfileMapping[],
+): Promise<void> {
+  const mapping = profile.find(
+    ({ facade, method }) => facade === row.facade && method === row.method,
+  );
+  expect(mapping, `${row.facade}.${row.method}`).toEqual({
+    operationId: row.operationId,
+    facade: row.facade,
+    method: row.method,
+  });
+
+  const spec = specOperations.get(row.operationId);
+  expect(spec, row.operationId).toBeDefined();
+  const descriptor = OPERATION_DESCRIPTORS[row.operationId];
+  const parameters = spec!.operation.parameters ?? [];
+  const idempotency = parameters.some(
+    ({ $ref }) => $ref === "#/components/parameters/IdempotencyKey",
+  );
+
+  expect(descriptor.method, row.operationId).toBe(spec!.httpMethod);
+  expect(descriptor.path, row.operationId).toBe(spec!.path);
+  expect(pathParameterNames(descriptor.path), row.operationId).toEqual(
+    parameters.filter((parameter) => parameter.in === "path").map(({ name }) => name),
+  );
+  expect(descriptor.query, row.operationId).toEqual(
+    parameters
+      .filter((parameter) => parameter.in === "query")
+      .map(({ name, required }) => ({ name, required: required === true })),
+  );
+  expect(descriptor.body, row.operationId).toEqual(requestBodyFact(spec!.operation));
+  expect(descriptor.success, row.operationId).toEqual(successFacts(spec!.operation));
+  expect(descriptor.idempotency, row.operationId).toBe(idempotency);
+  expect(descriptor.retry, row.operationId).toBe(expectedRetryMode(spec!.httpMethod, idempotency));
+  expect(descriptor.security, row.operationId).toEqual(
+    (spec!.operation.security ?? specDocument.security ?? []).map(
+      (requirement) => requirement["BearerAuth"] ?? [],
+    ),
+  );
+
+  const { fetch, calls } = captureFetch(
+    () =>
+      new Response(
+        JSON.stringify({
+          object: "list",
+          data: [],
+          pagination: { has_more: false },
+          message: "ok",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+  );
+  const invocation = row.invoke(makeClient(fetch));
+  await invocation.result;
+  expect(calls).toHaveLength(1);
+  expectSerializedInput(
+    calls[0]!,
+    invocation.input,
+    row.operationId,
+    descriptor.method,
+    idempotency,
   );
 }
 
-describe("Spec conformance — every SDK method maps to a real OpenAPI operation", () => {
-  it("client.ping()", async () => {
-    const { client, calls } = captureClient();
-    await client.ping();
-    expect(calls[0]).toBeDefined();
-    expectMatchesSpec(calls[0]!);
-  });
+function expectSerializedInput(
+  call: ResourceCall,
+  input: ExpectedInput,
+  operationId: OperationId,
+  method: SpecOperation["httpMethod"],
+  idempotency: boolean,
+): void {
+  const url = new URL(call.url);
+  expect(call.operationId).toBe(operationId);
+  expect(call.method).toBe(method);
+  expect(url.pathname).toBe(input.path);
+  expect(Object.fromEntries(url.searchParams)).toEqual(input.query ?? {});
+  expect(call.body).toBe(input.body === undefined ? undefined : JSON.stringify(input.body));
+  expect(call.headers["x-contract-test"]).toBe(CONTRACT_HEADER);
+  if (idempotency) {
+    expect(call.headers["idempotency-key"]).toBe(IDEMPOTENCY_KEY);
+  } else {
+    expect(call.headers).not.toHaveProperty("idempotency-key");
+  }
+}
 
-  describe("messages", () => {
-    it("send", async () => {
-      const { client, calls } = captureClient();
-      await client.messages.send({
-        from: { email: "a@b.com" },
-        recipients: [{ email: "x@y.com" }],
-        subject: "x",
+function collectSpecOperations(document: OpenAPIDocument): SpecOperation[] {
+  const entries: SpecOperation[] = [];
+  for (const [path, pathItem] of Object.entries(document.paths)) {
+    for (const method of ["get", "post", "put", "delete"] as const) {
+      const operation = pathItem[method] as OpenAPIOperation | undefined;
+      if (operation === undefined) continue;
+      entries.push({
+        httpMethod: method.toUpperCase() as SpecOperation["httpMethod"],
+        path,
+        operation,
       });
-      expectMatchesSpec(calls[0]!);
-    });
+    }
+  }
+  return entries;
+}
 
-    it("sendConversation", async () => {
-      const { client, calls } = captureClient();
-      await client.messages.sendConversation({
-        from: { email: "a@b.com" },
-        to: [{ email: "x@y.com" }],
-        subject: "x",
-      });
-      expectMatchesSpec(calls[0]!);
-    });
+function pathParameterNames(path: string): string[] {
+  return [...path.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]!);
+}
 
-    it("list", async () => {
-      const { client, calls } = captureClient();
-      await client.messages.list();
-      expectMatchesSpec(calls[0]!);
-    });
+function schemaName(schema: unknown): string | null {
+  if (schema === null || typeof schema !== "object" || Array.isArray(schema)) return null;
+  const reference = (schema as Record<string, unknown>)["$ref"];
+  return typeof reference === "string" && reference.startsWith("#/components/schemas/")
+    ? reference.slice("#/components/schemas/".length)
+    : "inline";
+}
 
-    it("get", async () => {
-      const { client, calls } = captureClient();
-      await client.messages.get(SENTINELS.MESSAGE_ID);
-      expectMatchesSpec(calls[0]!);
-    });
+function requestBodyFact(
+  operation: OpenAPIOperation,
+): { required: boolean; schema: string | null } | null {
+  if (operation.requestBody === undefined) return null;
+  return {
+    required: operation.requestBody.required === true,
+    schema: schemaName(operation.requestBody.content?.["application/json"]?.schema),
+  };
+}
 
-    it("cancel", async () => {
-      const { client, calls } = captureClient();
-      await client.messages.cancel(SENTINELS.MESSAGE_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-  });
+function successFacts(
+  operation: OpenAPIOperation,
+): Array<{ status: number; schema: string | null }> {
+  return Object.entries(operation.responses)
+    .filter(([status]) => /^2\d\d$/.test(status))
+    .map(([status, response]) => ({
+      status: Number(status),
+      schema: schemaName(response.content?.["application/json"]?.schema),
+    }));
+}
 
-  describe("domains", () => {
-    it("list", async () => {
-      const { client, calls } = captureClient();
-      await client.domains.list();
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("create", async () => {
-      const { client, calls } = captureClient();
-      await client.domains.create({ domain: "x.com" });
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("get", async () => {
-      const { client, calls } = captureClient();
-      await client.domains.get(SENTINELS.DOMAIN);
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("update", async () => {
-      const { client, calls } = captureClient();
-      await client.domains.update(SENTINELS.DOMAIN, {});
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("delete", async () => {
-      const { client, calls } = captureClient();
-      await client.domains.delete(SENTINELS.DOMAIN);
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("checkDns", async () => {
-      const { client, calls } = captureClient();
-      await client.domains.checkDns(SENTINELS.DOMAIN);
-      expectMatchesSpec(calls[0]!);
-    });
-  });
-
-  describe("apiKeys", () => {
-    it("list", async () => {
-      const { client, calls } = captureClient();
-      await client.apiKeys.list();
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("create", async () => {
-      const { client, calls } = captureClient();
-      await client.apiKeys.create({ label: "x", scopes: ["a"] });
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("get", async () => {
-      const { client, calls } = captureClient();
-      await client.apiKeys.get(SENTINELS.KEY_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("update", async () => {
-      const { client, calls } = captureClient();
-      await client.apiKeys.update(SENTINELS.KEY_ID, {});
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("delete", async () => {
-      const { client, calls } = captureClient();
-      await client.apiKeys.delete(SENTINELS.KEY_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-  });
-
-  describe("webhooks", () => {
-    it("list", async () => {
-      const { client, calls } = captureClient();
-      await client.webhooks.list();
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("create", async () => {
-      const { client, calls } = captureClient();
-      await client.webhooks.create({
-        name: "x",
-        url: "https://x",
-        scope: "global",
-      });
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("get", async () => {
-      const { client, calls } = captureClient();
-      await client.webhooks.get(SENTINELS.WEBHOOK_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("update", async () => {
-      const { client, calls } = captureClient();
-      await client.webhooks.update(SENTINELS.WEBHOOK_ID, {});
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("delete", async () => {
-      const { client, calls } = captureClient();
-      await client.webhooks.delete(SENTINELS.WEBHOOK_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-  });
-
-  describe("statistics", () => {
-    const params = {
-      from_time: "2026-01-01T00:00:00Z",
-      to_time: "2026-01-02T00:00:00Z",
-    };
-
-    it("deliverability", async () => {
-      const { client, calls } = captureClient();
-      await client.statistics.deliverability(params);
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("bounces", async () => {
-      const { client, calls } = captureClient();
-      await client.statistics.bounces(params);
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("deliveryTimes", async () => {
-      const { client, calls } = captureClient();
-      await client.statistics.deliveryTimes(params);
-      expectMatchesSpec(calls[0]!);
-    });
-  });
-
-  describe("suppressions", () => {
-    it("list", async () => {
-      const { client, calls } = captureClient();
-      await client.suppressions.list();
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("create", async () => {
-      const { client, calls } = captureClient();
-      await client.suppressions.create({
-        email: "x@y.com",
-        expires_at: "2027-01-01T00:00:00Z",
-      });
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("delete", async () => {
-      const { client, calls } = captureClient();
-      await client.suppressions.delete({ email: "x@y.com" });
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("wipe", async () => {
-      const { client, calls } = captureClient();
-      await client.suppressions.wipe();
-      expectMatchesSpec(calls[0]!);
-    });
-  });
-
-  describe("routes", () => {
-    it("list", async () => {
-      const { client, calls } = captureClient();
-      await client.routes.list();
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("create", async () => {
-      const { client, calls } = captureClient();
-      await client.routes.create({
-        name: "r",
-        url: "https://x",
-        recipient: "x@y.com",
-      });
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("get", async () => {
-      const { client, calls } = captureClient();
-      await client.routes.get(SENTINELS.ROUTE_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("update", async () => {
-      const { client, calls } = captureClient();
-      await client.routes.update(SENTINELS.ROUTE_ID, {});
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("delete", async () => {
-      const { client, calls } = captureClient();
-      await client.routes.delete(SENTINELS.ROUTE_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-  });
-
-  describe("accounts", () => {
-    it("get", async () => {
-      const { client, calls } = captureClient();
-      await client.accounts.get();
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("update", async () => {
-      const { client, calls } = captureClient();
-      await client.accounts.update({});
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("listMembers", async () => {
-      const { client, calls } = captureClient();
-      await client.accounts.listMembers();
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("addMember", async () => {
-      const { client, calls } = captureClient();
-      await client.accounts.addMember({ email: "x@y.com", role: "Developer" });
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("removeMember", async () => {
-      const { client, calls } = captureClient();
-      await client.accounts.removeMember(SENTINELS.USER_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-  });
-
-  describe("smtpCredentials", () => {
-    it("list", async () => {
-      const { client, calls } = captureClient();
-      await client.smtpCredentials.list();
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("create", async () => {
-      const { client, calls } = captureClient();
-      await client.smtpCredentials.create({ name: "c", scope: "global" });
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("get", async () => {
-      const { client, calls } = captureClient();
-      await client.smtpCredentials.get(SENTINELS.CREDENTIAL_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-
-    it("delete", async () => {
-      const { client, calls } = captureClient();
-      await client.smtpCredentials.delete(SENTINELS.CREDENTIAL_ID);
-      expectMatchesSpec(calls[0]!);
-    });
-  });
-});
+function expectedRetryMode(method: SpecOperation["httpMethod"], idempotency: boolean): RetryMode {
+  if (method === "GET") return "safe";
+  if (method === "PUT" || method === "DELETE") return "idempotent";
+  return idempotency ? "idempotency_key" : "never";
+}

@@ -1,6 +1,7 @@
 // Telemetry hooks: observe every request, response, retry, and error
 // the SDK makes. Wire these to your logger / metrics / tracing system.
-// Hooks that throw are swallowed — they can never break a request.
+// Hooks run asynchronously; throws and returned-promise rejections are
+// swallowed, so telemetry can never break or delay a request.
 //
 // Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars.
 // Run:  node examples/telemetry.mjs
@@ -11,14 +12,20 @@ const client = new AhaSendClient({
   ...optionsFromEnv(),
   accountId: process.env.AHASEND_ACCOUNT_ID,
   hooks: {
-    onRequest: (e) => console.log(`→ ${e.method} ${e.path} (attempt ${e.attempt})`),
+    onRequest: (e) => console.log(`→ ${e.method} ${e.routeTemplate} (attempt ${e.attempt})`),
     onResponse: (e) =>
       console.log(
-        `← ${e.method} ${e.path} ${e.status} in ${e.durationMs}ms` +
+        `← ${e.method} ${e.routeTemplate} ${e.status} in ${e.durationMs}ms` +
           (e.requestId ? `  request-id=${e.requestId}` : ""),
       ),
-    onRetry: (e) => console.log(`↻ retrying ${e.path} in ${e.delayMs}ms (attempt ${e.attempt} failed)`),
-    onError: (e) => console.log(`✗ ${e.method} ${e.path} attempt ${e.attempt}: ${e.error?.name}`),
+    onRetry: (e) =>
+      console.log(`↻ retrying ${e.routeTemplate} in ${e.delayMs}ms (attempt ${e.attempt} failed)`),
+    onError: (e) =>
+      console.log(
+        `✗ ${e.method} ${e.routeTemplate} attempt ${e.attempt}: ${
+          e.error instanceof Error ? e.error.name : "unknown"
+        }`,
+      ),
   },
 });
 

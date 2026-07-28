@@ -1,17 +1,31 @@
 src/
 tests/
 examples/
+config/
+contracts/
+contracts/webhooks/captured/keys/
+etc/
+scripts/
+security/
 coverage/
 node_modules/
+.github/
+.betterborg-task/
 
 breif.md
 chat.md
 CLAUDE.md
 research.md
 
+contracts.lock.json
+eslint.config.mjs
+openapi.yaml
+webhooks.yaml
 tsconfig.json
+tsconfig.tests.json
 tsup.config.ts
 vitest.config.ts
+vitest.integration.config.ts
 .eslintrc*
 .prettierrc*
 .editorconfig

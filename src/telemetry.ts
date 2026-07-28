@@ -1,38 +1,36 @@
+import type { OperationId } from "./generated/operations.js";
+
 export interface RequestEvent {
+  /** Generated OpenAPI operation identity, when the request uses a known operation. */
+  operationId: OperationId | undefined;
   method: string;
-  path: string;
-  url: string;
+  /** OpenAPI route template. Path parameters are never expanded with caller values. */
+  routeTemplate: string;
   attempt: number;
 }
 
-export interface ResponseEvent {
-  method: string;
-  path: string;
-  url: string;
+export interface ResponseEvent extends RequestEvent {
   status: number;
   durationMs: number;
-  attempt: number;
   /** AhaSend's `x-request-id`, when the server returned one. */
   requestId?: string;
 }
 
-export interface RetryEvent {
-  method: string;
-  path: string;
-  url: string;
-  attempt: number;
+export interface RetryEvent extends RequestEvent {
   delayMs: number;
+  durationMs: number;
   error: unknown;
+  /** HTTP status from the failed response, when a response was received. */
+  status?: number;
   /** AhaSend's `x-request-id` from the failed response, when present. */
   requestId?: string;
 }
 
-export interface ErrorEvent {
-  method: string;
-  path: string;
-  url: string;
-  attempt: number;
+export interface ErrorEvent extends RequestEvent {
+  durationMs: number;
   error: unknown;
+  /** HTTP status from the failed response, when a response was received. */
+  status?: number;
   /** AhaSend's `x-request-id` from the failed response, when present. */
   requestId?: string;
 }
@@ -51,11 +49,19 @@ export type ResolvedTelemetryHooks = Required<{
 const NOOP = () => {};
 
 export function resolveTelemetryHooks(hooks?: TelemetryHooks): ResolvedTelemetryHooks {
+  // Snapshot the callback references once. Re-reading a caller-owned hook
+  // container during a request would let later mutation (including a throwing
+  // property accessor) escape the telemetry isolation boundary.
+  const onRequest = hooks?.onRequest?.bind(undefined);
+  const onResponse = hooks?.onResponse?.bind(undefined);
+  const onRetry = hooks?.onRetry?.bind(undefined);
+  const onError = hooks?.onError?.bind(undefined);
+
   return {
-    onRequest: hooks?.onRequest ?? NOOP,
-    onResponse: hooks?.onResponse ?? NOOP,
-    onRetry: hooks?.onRetry ?? NOOP,
-    onError: hooks?.onError ?? NOOP,
+    onRequest: (event) => deferCall(onRequest, event),
+    onResponse: (event) => deferCall(onResponse, event),
+    onRetry: (event) => deferCall(onRetry, event),
+    onError: (event) => deferCall(onError, event),
   };
 }
 
@@ -67,28 +73,39 @@ export function resolveTelemetryHooks(hooks?: TelemetryHooks): ResolvedTelemetry
 export function composeHooks(...hookSets: Array<TelemetryHooks | undefined>): TelemetryHooks {
   const sets = hookSets.filter((h): h is TelemetryHooks => h !== undefined);
   if (sets.length === 0) return {};
-  if (sets.length === 1) return sets[0]!;
+  const onRequestHooks = sets.map((set) => set.onRequest?.bind(undefined));
+  const onResponseHooks = sets.map((set) => set.onResponse?.bind(undefined));
+  const onRetryHooks = sets.map((set) => set.onRetry?.bind(undefined));
+  const onErrorHooks = sets.map((set) => set.onError?.bind(undefined));
 
   return {
     onRequest: (event) => {
-      for (const set of sets) safeCall(set.onRequest, event);
+      for (const hook of onRequestHooks) safeCall(hook, event);
     },
     onResponse: (event) => {
-      for (const set of sets) safeCall(set.onResponse, event);
+      for (const hook of onResponseHooks) safeCall(hook, event);
     },
     onRetry: (event) => {
-      for (const set of sets) safeCall(set.onRetry, event);
+      for (const hook of onRetryHooks) safeCall(hook, event);
     },
     onError: (event) => {
-      for (const set of sets) safeCall(set.onError, event);
+      for (const hook of onErrorHooks) safeCall(hook, event);
     },
   };
+}
+
+function deferCall<T>(fn: ((event: T) => void) | undefined, event: T): void {
+  if (!fn) return;
+  queueMicrotask(() => safeCall(fn, event));
 }
 
 function safeCall<T>(fn: ((event: T) => void) | undefined, event: T): void {
   if (!fn) return;
   try {
-    fn(event);
+    // A callback typed as returning void may still return a Promise in TypeScript.
+    // Observe that promise solely to prevent a rejected hook from becoming unhandled.
+    const result: unknown = fn(event);
+    if (result) void Promise.resolve(result).catch(NOOP);
   } catch {
     // hooks must never throw into the request pipeline
   }
@@ -109,18 +126,18 @@ export function debugConsoleHooks(out?: (msg: string) => void): TelemetryHooks {
   };
 
   return {
-    onRequest: (e) => write(`[ahasend] -> ${e.method} ${e.path} (attempt ${e.attempt})`),
+    onRequest: (e) => write(`[ahasend] -> ${e.method} ${e.routeTemplate} (attempt ${e.attempt})`),
     onResponse: (e) =>
       write(
-        `[ahasend] <- ${e.method} ${e.path} ${e.status} (${e.durationMs}ms, attempt ${e.attempt})`,
+        `[ahasend] <- ${e.method} ${e.routeTemplate} ${e.status} (${e.durationMs}ms, attempt ${e.attempt})`,
       ),
     onError: (e) =>
       write(
-        `[ahasend] !! ${e.method} ${e.path} attempt ${e.attempt}: ${describeError(e.error)}`,
+        `[ahasend] !! ${e.method} ${e.routeTemplate} attempt ${e.attempt}: ${describeError(e.error)}`,
       ),
     onRetry: (e) =>
       write(
-        `[ahasend] ?? ${e.method} ${e.path} retrying after ${e.delayMs}ms (attempt ${e.attempt} failed: ${describeError(e.error)})`,
+        `[ahasend] ?? ${e.method} ${e.routeTemplate} retrying after ${e.delayMs}ms (attempt ${e.attempt} failed: ${describeError(e.error)})`,
       ),
   };
 }

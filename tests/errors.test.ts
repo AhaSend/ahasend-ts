@@ -1,19 +1,36 @@
-import { describe, expect, it } from "vitest";
+import { inspect } from "node:util";
+import { describe, expect, it, vi } from "vitest";
+import { AhaSendClient } from "../src/client.js";
+import * as errors from "../src/errors.js";
 import {
+  AhaSendAbortError,
   AhaSendAPIError,
   AhaSendAuthenticationError,
   AhaSendBadRequestError,
   AhaSendConflictError,
+  AhaSendConfigurationError,
+  AhaSendConnectionError,
+  AhaSendError,
   AhaSendIdempotencyConflictError,
   AhaSendIdempotencyMismatchError,
-  AhaSendIdempotencyPreconditionFailedError,
   AhaSendNotFoundError,
   AhaSendPermissionError,
   AhaSendRateLimitError,
+  AhaSendResponseParseError,
   AhaSendServerError,
+  AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
+  AhaSendWebhookVerificationError,
   createApiError,
+  isAhaSendError,
 } from "../src/errors.js";
+import { AhaSendWebhookVerificationError as WebhookEntryError } from "../src/webhooks/index.js";
+import { createIdempotencyExecutionRecord } from "../src/idempotency.js";
+
+const ELIGIBLE_KEYED = createIdempotencyExecutionRecord(
+  Object.freeze({ completion: "automatic" }),
+  "stable-key",
+);
 
 describe("createApiError", () => {
   it("maps 400 to AhaSendBadRequestError", () => {
@@ -32,15 +49,44 @@ describe("createApiError", () => {
     expect(err).not.toBeInstanceOf(AhaSendIdempotencyMismatchError);
   });
 
-  it("maps 422 with Idempotent-Replayed header to AhaSendIdempotencyMismatchError", () => {
+  it("maps headerless 422 only for an eligible keyed execution", () => {
     const err = createApiError({
       status: 422,
       body: { message: "payload mismatch" },
-      headers: { "idempotent-replayed": "false" },
+      idempotency: ELIGIBLE_KEYED,
     });
     expect(err).toBeInstanceOf(AhaSendIdempotencyMismatchError);
     expect(err).toBeInstanceOf(AhaSendUnprocessableEntityError);
     expect(err).not.toBeInstanceOf(AhaSendBadRequestError);
+  });
+
+  it.each([
+    ["a replay header", { "idempotent-replayed": "true" }],
+    ["a retry header", { "retry-after": "3" }],
+  ])("keeps eligible keyed 422 responses with %s generic", (_name, headers) => {
+    const err = createApiError({
+      status: 422,
+      body: { message: "wording is irrelevant" },
+      headers,
+      idempotency: ELIGIBLE_KEYED,
+    });
+
+    expect(err.constructor).toBe(AhaSendUnprocessableEntityError);
+    expect(err).not.toBeInstanceOf(AhaSendIdempotencyMismatchError);
+  });
+
+  it("keeps keyed-ineligible and eligible-unkeyed 422 responses generic", () => {
+    const keyedIneligible = createIdempotencyExecutionRecord(null, "stable-key");
+    const eligibleUnkeyed = createIdempotencyExecutionRecord(
+      Object.freeze({ completion: "automatic" }),
+      undefined,
+    );
+
+    for (const idempotency of [keyedIneligible, eligibleUnkeyed]) {
+      expect(
+        createApiError({ status: 422, body: { message: "changed" }, idempotency }),
+      ).toBeInstanceOf(AhaSendUnprocessableEntityError);
+    }
   });
 
   it("maps generic 409 to AhaSendConflictError (e.g. duplicate domain)", () => {
@@ -49,20 +95,61 @@ describe("createApiError", () => {
     expect(err).not.toBeInstanceOf(AhaSendIdempotencyConflictError);
   });
 
-  it("maps 409 with Idempotent-Replayed header to AhaSendIdempotencyConflictError", () => {
+  it("maps the complete eligible 409 in-progress tuple", () => {
     const err = createApiError({
       status: 409,
       body: { message: "in progress" },
-      headers: { "idempotent-replayed": "false" },
+      headers: { "idempotent-replayed": "false", "retry-after": "3" },
+      idempotency: ELIGIBLE_KEYED,
     });
     expect(err).toBeInstanceOf(AhaSendIdempotencyConflictError);
     expect(err).toBeInstanceOf(AhaSendConflictError);
+    expect((err as AhaSendIdempotencyConflictError).retryAfterSeconds).toBe(3);
   });
 
-  it("maps 412 to AhaSendIdempotencyPreconditionFailedError (original failed)", () => {
+  it.each([
+    ["missing replay header", { "retry-after": "3" }],
+    ["wrong replay value", { "idempotent-replayed": "true", "retry-after": "3" }],
+    ["missing delay", { "idempotent-replayed": "false" }],
+    ["zero delay", { "idempotent-replayed": "false", "retry-after": "0" }],
+    ["negative delay", { "idempotent-replayed": "false", "retry-after": "-1" }],
+    ["fractional delay", { "idempotent-replayed": "false", "retry-after": "1.5" }],
+    ["space-prefixed delay", { "idempotent-replayed": "false", "retry-after": " 1" }],
+    ["unsafe integer delay", { "idempotent-replayed": "false", "retry-after": "9007199254740992" }],
+    [
+      "date delay",
+      { "idempotent-replayed": "false", "retry-after": "Wed, 21 Oct 2037 07:28:00 GMT" },
+    ],
+  ])("keeps 409 generic with %s", (_name, headers) => {
+    const err = createApiError({
+      status: 409,
+      body: { message: "arbitrary conflict text" },
+      headers,
+      idempotency: ELIGIBLE_KEYED,
+    });
+    expect(err.constructor).toBe(AhaSendConflictError);
+  });
+
+  it("keeps the exact in-progress headers generic without eligible keyed context", () => {
+    const headers = { "idempotent-replayed": "false", "retry-after": "3" };
+    expect(createApiError({ status: 409, body: null, headers }).constructor).toBe(
+      AhaSendConflictError,
+    );
+    expect(
+      createApiError({
+        status: 409,
+        body: null,
+        headers,
+        idempotency: createIdempotencyExecutionRecord(null, "stable-key"),
+      }).constructor,
+    ).toBe(AhaSendConflictError);
+  });
+
+  it("does not define a special 412 class or mapping", () => {
     const err = createApiError({ status: 412, body: { message: "original failed" } });
-    expect(err).toBeInstanceOf(AhaSendIdempotencyPreconditionFailedError);
+    expect(err.constructor).toBe(AhaSendAPIError);
     expect(err.status).toBe(412);
+    expect(errors).not.toHaveProperty("AhaSendIdempotencyPreconditionFailedError");
   });
 
   it("maps 401 to AhaSendAuthenticationError", () => {
@@ -91,6 +178,77 @@ describe("createApiError", () => {
     expect((err as AhaSendRateLimitError).retryAfterSeconds).toBe(12);
   });
 
+  it.each([
+    "Fri, 02 Jan 2026 00:00:00 GMT",
+    "Friday, 02-Jan-26 00:00:00 GMT",
+    "Fri Jan  2 00:00:00 2026",
+    "Thu, 01 Jan 2026 23:59:60 GMT",
+  ])("parses RFC 9110 HTTP-date form %j", (retryAfter) => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 0, 1));
+    const err = createApiError({
+      status: 429,
+      body: null,
+      headers: { "retry-after": retryAfter },
+    }) as AhaSendRateLimitError;
+
+    expect(err.retryAfterSeconds).toBe(86_400);
+    now.mockRestore();
+  });
+
+  it("applies the RFC 850 rollover at the exact 50-year timestamp boundary", () => {
+    const currentTime = Date.UTC(2026, 6, 22);
+    const now = vi.spyOn(Date, "now").mockReturnValue(currentTime);
+
+    const atBoundary = createApiError({
+      status: 429,
+      body: null,
+      headers: { "retry-after": "Wednesday, 22-Jul-76 00:00:00 GMT" },
+    }) as AhaSendRateLimitError;
+    const overBoundary = createApiError({
+      status: 429,
+      body: null,
+      headers: { "retry-after": "Thursday, 23-Jul-76 00:00:00 GMT" },
+    }) as AhaSendRateLimitError;
+
+    expect(atBoundary.retryAfterSeconds).toBe((Date.UTC(2076, 6, 22) - currentTime) / 1000);
+    expect(overBoundary.retryAfterSeconds).toBeUndefined();
+    now.mockRestore();
+  });
+
+  it.each([
+    "0",
+    "-1",
+    "1.5",
+    "not-a-delay",
+    "2099-12-31",
+    "Sun, 31 Feb 2099 00:00:00 GMT",
+    "Fri, 31 Dec 2099 23:59:59 GMT",
+    "Thu, 31 Dec 2099 23:59:59 UTC",
+    "Thu, 01 Jan 2026 23:59:61 GMT",
+    "Thursday, 31-Dec-99 23:59:59 GMT",
+  ])("treats malformed or nonpositive Retry-After %j as absent", (retryAfter) => {
+    const err = createApiError({
+      status: 429,
+      body: null,
+      headers: { "retry-after": retryAfter },
+    }) as AhaSendRateLimitError;
+    expect(err.retryAfterSeconds).toBeUndefined();
+  });
+
+  it("does not use messages to alter 403, 409, or 422 classification", () => {
+    for (const message of ["in progress", "payload mismatch", "completely changed"]) {
+      expect(createApiError({ status: 403, body: { message } })).toBeInstanceOf(
+        AhaSendPermissionError,
+      );
+      expect(createApiError({ status: 409, body: { message } }).constructor).toBe(
+        AhaSendConflictError,
+      );
+      expect(createApiError({ status: 422, body: { message } }).constructor).toBe(
+        AhaSendUnprocessableEntityError,
+      );
+    }
+  });
+
   it("maps 500 to AhaSendServerError", () => {
     const err = createApiError({ status: 500, body: { message: "boom" } });
     expect(err).toBeInstanceOf(AhaSendServerError);
@@ -117,5 +275,122 @@ describe("createApiError", () => {
     });
     expect(err.requestId).toBe("req_abc");
     expect(err.headers["x-request-id"]).toBe("req_abc");
+  });
+});
+
+describe("AhaSend error contract", () => {
+  const apiParams = { status: 400, message: "failed", body: null };
+
+  it.each([
+    [new AhaSendError("failed"), "ahasend_error"],
+    [new AhaSendConfigurationError("failed"), "configuration_error"],
+    [new AhaSendConnectionError("failed"), "connection_error"],
+    [new AhaSendAbortError(), "abort_error"],
+    [new AhaSendTimeoutError(), "timeout_error"],
+    [new AhaSendResponseParseError({ status: 200, body: "invalid" }), "response_parse_error"],
+    [new AhaSendAPIError(apiParams), "api_error"],
+    [new AhaSendAuthenticationError(apiParams), "authentication_error"],
+    [new AhaSendPermissionError(apiParams), "permission_error"],
+    [new AhaSendNotFoundError(apiParams), "not_found_error"],
+    [new AhaSendBadRequestError(apiParams), "bad_request_error"],
+    [new AhaSendConflictError(apiParams), "conflict_error"],
+    [new AhaSendIdempotencyConflictError(apiParams), "idempotency_conflict_error"],
+    [new AhaSendUnprocessableEntityError(apiParams), "unprocessable_entity_error"],
+    [new AhaSendIdempotencyMismatchError(apiParams), "idempotency_mismatch_error"],
+    [new AhaSendRateLimitError(apiParams), "rate_limit_error"],
+    [new AhaSendServerError(apiParams), "server_error"],
+    [new AhaSendWebhookVerificationError("signature_mismatch"), "webhook_verification_error"],
+  ])("assigns stable code %s", (error, code) => {
+    expect(error.code).toBe(code);
+    expect(isAhaSendError(error)).toBe(true);
+  });
+
+  it("does not let direct base errors impersonate subtype codes", () => {
+    const error = new AhaSendError("failed", "server_error");
+
+    expect(error.code).toBe("ahasend_error");
+    expect(error.cause).toBe("server_error");
+  });
+
+  it("uses a global brand without accepting ordinary Error objects", () => {
+    const brandedFromAnotherModule = {
+      [Symbol.for("@ahasend/sdk.error")]: true,
+      code: "api_error",
+    };
+
+    expect(isAhaSendError(brandedFromAnotherModule)).toBe(true);
+    expect(isAhaSendError(new Error("failed"))).toBe(false);
+    expect(isAhaSendError(null)).toBe(false);
+  });
+
+  it("preserves applicable causes as non-enumerable properties", () => {
+    const cause = new Error("socket included a secret-token");
+    const connection = new AhaSendConnectionError("network failed", cause);
+    const configuration = new AhaSendConfigurationError("bad option", cause);
+
+    expect(connection.cause).toBe(cause);
+    expect(configuration.cause).toBe(cause);
+    expect(Object.keys(connection)).not.toContain("cause");
+    expect(Object.keys(configuration)).not.toContain("cause");
+  });
+
+  it("keeps diagnostics readable but redacts serialization and inspection", () => {
+    const cause = new Error("cause-secret");
+    const error = new AhaSendIdempotencyConflictError({
+      status: 409,
+      message: "request failed",
+      body: { message: "request failed", details: "body-secret" },
+      requestId: "request-id",
+      headers: { "idempotency-key": "header-secret" },
+      cause,
+    });
+
+    expect(error.body).toEqual({ message: "request failed", details: "body-secret" });
+    expect(error.headers["idempotency-key"]).toBe("header-secret");
+    expect(error.cause).toBe(cause);
+    expect(Object.keys(error)).toEqual([]);
+
+    const json = JSON.stringify(error);
+    const rendered = inspect(error);
+    for (const secret of ["body-secret", "header-secret", "cause-secret"]) {
+      expect(json).not.toContain(secret);
+      expect(rendered).not.toContain(secret);
+    }
+    expect(JSON.parse(json)).toEqual({
+      name: "AhaSendIdempotencyConflictError",
+      code: "idempotency_conflict_error",
+      message: "request failed",
+      status: 409,
+      requestId: "request-id",
+      body: "[REDACTED]",
+      headers: "[REDACTED]",
+      cause: "[REDACTED]",
+    });
+  });
+
+  it("does not expose rejected base URL credentials in messages or safe renderings", () => {
+    const username = "credential-user";
+    const password = "credential-secret";
+    let error: unknown;
+
+    try {
+      new AhaSendClient({
+        apiKey: "aha-sk-test",
+        accountId: "account-id",
+        baseUrl: `https://${username}:${password}@example.com`,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(AhaSendConfigurationError);
+    for (const rendered of [String(error), JSON.stringify(error), inspect(error)]) {
+      expect(rendered).not.toContain(username);
+      expect(rendered).not.toContain(password);
+    }
+  });
+
+  it("shares the webhook error constructor between the core source and webhook entry", () => {
+    expect(WebhookEntryError).toBe(AhaSendWebhookVerificationError);
   });
 });

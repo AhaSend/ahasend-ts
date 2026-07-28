@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "valid": [
+    {
+      "name": "object keys are sorted recursively",
+      "value": {
+        "z": 3,
+        "a": {
+          "two": 2,
+          "one": 1
+        },
+        "m": true
+      },
+      "canonical": "{\"a\":{\"one\":1,\"two\":2},\"m\":true,\"z\":3}",
+      "sha256": "6d842cbc4ebb89aacbd3b060a080c6152c13c3843437d03ed56a245bcd6394f7"
+    },
+    {
+      "name": "array order is preserved while contained objects are sorted",
+      "value": [
+        3,
+        1,
+        2,
+        {
+          "b": "second",
+          "a": "first"
+        }
+      ],
+      "canonical": "[3,1,2,{\"a\":\"first\",\"b\":\"second\"}]",
+      "sha256": "79a9881f0dc0fb53ee995d81a6569dabc9ab5afba3014a88a8be4c8e0b8c8c5f"
+    }
+  ],
+  "rejections": [
+    {
+      "name": "non-finite number",
+      "source": "{\"value\":1e400}",
+      "error": "non-finite"
+    },
+    {
+      "name": "digest self-reference",
+      "source": "{\"name\":\"artifact\",\"digest\":\"pending\"}",
+      "error": "self-digest"
+    },
+    {
+      "name": "sha256 self-reference",
+      "source": "{\"name\":\"artifact\",\"sha256\":\"pending\"}",
+      "error": "self-digest"
+    }
+  ]
+}

@@ -9,7 +9,7 @@
 // Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID + AHASEND_FROM_EMAIL.
 // Run:  node examples/idempotency.mjs
 
-import { AhaSendClient, IdempotencyKeyBuilder } from "../dist/index.js";
+import { AhaSendClient } from "../dist/index.js";
 
 const fromEmail = process.env.AHASEND_FROM_EMAIL;
 if (!fromEmail) {
@@ -19,7 +19,7 @@ if (!fromEmail) {
 
 const client = AhaSendClient.fromEnv();
 
-// Pattern 1 — key derived from your own stable ID:
+// Derive the key from your own stable ID:
 const orderId = "order-12345";
 const send = () =>
   client.messages.send(
@@ -45,9 +45,3 @@ try {
   console.error("✗ send failed:", err.name, err.status ?? "", err.message);
   process.exit(1);
 }
-
-// Pattern 2 — builder for a family of related operations:
-const builder = new IdempotencyKeyBuilder(`onboard-${orderId}`);
-console.log("welcome key:    ", builder.withSuffix("welcome"));
-console.log("verify key:     ", builder.withSuffix("verify"));
-console.log("first next():   ", builder.next());

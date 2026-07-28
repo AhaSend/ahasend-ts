@@ -1,3 +1,53 @@
+import type { IdempotencyExecutionRecord } from "./idempotency.js";
+
+const AHASEND_ERROR_BRAND = Symbol.for("@ahasend/sdk.error");
+const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");
+const REDACTED = "[REDACTED]" as const;
+const HTTP_MONTHS: readonly string[] = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+const HTTP_SHORT_WEEKDAYS: readonly string[] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const HTTP_LONG_WEEKDAYS: readonly string[] = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+export type AhaSendErrorCode =
+  | "ahasend_error"
+  | "configuration_error"
+  | "connection_error"
+  | "abort_error"
+  | "timeout_error"
+  | "response_parse_error"
+  | "api_error"
+  | "authentication_error"
+  | "permission_error"
+  | "not_found_error"
+  | "bad_request_error"
+  | "conflict_error"
+  | "idempotency_conflict_error"
+  | "unprocessable_entity_error"
+  | "idempotency_mismatch_error"
+  | "rate_limit_error"
+  | "server_error"
+  | "webhook_verification_error";
+
 export interface ApiErrorBody {
   message?: string;
   code?: string;
@@ -5,72 +55,136 @@ export interface ApiErrorBody {
   [key: string]: unknown;
 }
 
-/** Base class for every error this SDK throws. */
-export class AhaSendError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AhaSendError";
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
+export interface SerializedAhaSendError {
+  name: string;
+  code: AhaSendErrorCode;
+  message: string;
+  status?: number;
+  requestId?: string;
+  retryAfterSeconds?: number;
+  reason?: string;
+  body?: typeof REDACTED;
+  headers?: typeof REDACTED;
+  cause?: typeof REDACTED;
 }
 
-/**
- * Network-level failure — DNS, connection refused/reset, or an aborted
- * request. The request may or may not have reached the server; safe to
- * retry only if the operation is idempotent. The SDK retries these
- * automatically (idempotency key preserved).
- */
-export class AhaSendConnectionError extends AhaSendError {
-  public override readonly cause: unknown;
+export type WebhookVerificationReason =
+  | "missing_webhook_id"
+  | "missing_webhook_timestamp"
+  | "missing_webhook_signature"
+  | "invalid_timestamp"
+  | "timestamp_outside_tolerance"
+  | "signature_mismatch"
+  | "invalid_json"
+  | "invalid_payload"
+  | "invalid_event"
+  | "body_too_large";
+
+/** Base class for every error this SDK throws. */
+export class AhaSendError extends Error {
+  public readonly code!: AhaSendErrorCode;
 
   constructor(message: string, cause?: unknown) {
     super(message);
-    this.name = "AhaSendConnectionError";
-    this.cause = cause;
+    Object.setPrototypeOf(this, new.target.prototype);
+    defineHidden(this, "name", new.target.name);
+    defineHidden(this, "code", "ahasend_error");
+    defineHidden(this, AHASEND_ERROR_BRAND, true);
+    if (cause !== undefined) defineHidden(this, "cause", cause);
+  }
+
+  toJSON(): SerializedAhaSendError {
+    const serialized: SerializedAhaSendError = {
+      name: this.name,
+      code: this.code,
+      message: this.message,
+    };
+    copySafeNumber(this, serialized, "status");
+    copySafeString(this, serialized, "requestId");
+    copySafeNumber(this, serialized, "retryAfterSeconds");
+    copySafeString(this, serialized, "reason");
+    if ("body" in this) serialized.body = REDACTED;
+    if ("headers" in this) serialized.headers = REDACTED;
+    if ("cause" in this) serialized.cause = REDACTED;
+    return serialized;
+  }
+
+  [INSPECT_CUSTOM](): SerializedAhaSendError {
+    return this.toJSON();
   }
 }
 
-/** The configured `timeout` elapsed before the response (headers + body) completed. */
+/** Safely identifies SDK errors across duplicate ESM/CJS package instances. */
+export function isAhaSendError(value: unknown): value is AhaSendError {
+  if (typeof value !== "object" || value === null) return false;
+  try {
+    return (value as { [AHASEND_ERROR_BRAND]?: unknown })[AHASEND_ERROR_BRAND] === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Invalid SDK construction, environment, or per-request configuration. */
+export class AhaSendConfigurationError extends AhaSendError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+    defineHidden(this, "code", "configuration_error");
+  }
+}
+
+/** Network-level failure such as DNS, connection refusal, or connection reset. */
+export class AhaSendConnectionError extends AhaSendError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+    defineHidden(this, "code", "connection_error");
+  }
+}
+
+/** A caller-provided AbortSignal cancelled SDK work in any execution phase. */
+export class AhaSendAbortError extends AhaSendError {
+  constructor(message = "Request aborted", cause?: unknown) {
+    super(message, cause);
+    defineHidden(this, "code", "abort_error");
+  }
+}
+
+/** The per-attempt `timeoutMs` elapsed during fetch or response-body reading. */
 export class AhaSendTimeoutError extends AhaSendConnectionError {
   constructor(message = "Request timed out", cause?: unknown) {
     super(message, cause);
-    this.name = "AhaSendTimeoutError";
+    defineHidden(this, "code", "timeout_error");
   }
 }
 
-/**
- * Raised when the server returned a 2xx status but the response body
- * could not be parsed as JSON (typical of a misconfigured load balancer
- * serving an HTML 200 page). Surfaces as a transport-layer error so
- * that `catch (AhaSendAPIError)` blocks looking for 5xx responses don't
- * inadvertently swallow it.
- */
+/** A 2xx response body could not be parsed as JSON. */
 export class AhaSendResponseParseError extends AhaSendError {
-  public readonly status: number;
-  public readonly body: string;
+  public readonly status!: number;
+  public readonly body!: string;
   public readonly requestId: string | undefined;
 
-  constructor(params: { status: number; body: string; requestId?: string | undefined }) {
+  constructor(params: {
+    status: number;
+    body: string;
+    requestId?: string | undefined;
+    cause?: unknown;
+  }) {
     super(
       `AhaSend: HTTP ${params.status} response body could not be parsed as JSON.`,
+      params.cause,
     );
-    this.name = "AhaSendResponseParseError";
-    this.status = params.status;
-    this.body = params.body;
-    this.requestId = params.requestId;
+    defineHidden(this, "code", "response_parse_error");
+    defineHidden(this, "status", params.status);
+    defineHidden(this, "body", params.body);
+    defineHidden(this, "requestId", params.requestId);
   }
 }
 
-/**
- * Base class for any non-2xx HTTP response from the AhaSend API.
- * Carries the `status`, parsed error `body`, response `headers`, and
- * the server's `x-request-id` (quote it in support requests).
- */
+/** Base class for any non-2xx HTTP response from the AhaSend API. */
 export class AhaSendAPIError extends AhaSendError {
-  public readonly status: number;
-  public readonly body: ApiErrorBody | string | null;
+  public readonly status!: number;
+  public readonly body!: ApiErrorBody | string | null;
   public readonly requestId: string | undefined;
-  public readonly headers: Record<string, string>;
+  public readonly headers!: Record<string, string>;
 
   constructor(params: {
     status: number;
@@ -78,133 +192,113 @@ export class AhaSendAPIError extends AhaSendError {
     body: ApiErrorBody | string | null;
     requestId?: string | undefined;
     headers?: Record<string, string>;
+    cause?: unknown;
   }) {
-    super(params.message);
-    this.name = "AhaSendAPIError";
-    this.status = params.status;
-    this.body = params.body;
-    this.requestId = params.requestId;
-    this.headers = params.headers ?? {};
+    super(params.message, params.cause);
+    defineHidden(this, "code", "api_error");
+    defineHidden(this, "status", params.status);
+    defineHidden(this, "body", params.body);
+    defineHidden(this, "requestId", params.requestId);
+    defineHidden(this, "headers", params.headers ?? {});
   }
 }
+
+type APIErrorParams = ConstructorParameters<typeof AhaSendAPIError>[0];
 
 /** 401 — missing or invalid API key. Not retried. */
 export class AhaSendAuthenticationError extends AhaSendAPIError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+  constructor(params: APIErrorParams) {
     super(params);
-    this.name = "AhaSendAuthenticationError";
+    defineHidden(this, "code", "authentication_error");
   }
 }
 
-/** 403 — the API key lacks the required scope for this operation. Not retried. */
+/** 403 — the API key lacks the required scope. Not retried. */
 export class AhaSendPermissionError extends AhaSendAPIError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+  constructor(params: APIErrorParams) {
     super(params);
-    this.name = "AhaSendPermissionError";
+    defineHidden(this, "code", "permission_error");
   }
 }
 
-/** 404 — the resource does not exist (or belongs to another account). Not retried. */
+/** 404 — the resource does not exist. Not retried. */
 export class AhaSendNotFoundError extends AhaSendAPIError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+  constructor(params: APIErrorParams) {
     super(params);
-    this.name = "AhaSendNotFoundError";
+    defineHidden(this, "code", "not_found_error");
   }
 }
 
-/** 400 — malformed request. Inspect `body` for field-level details. Not retried. */
+/** 400 — malformed request. Not retried. */
 export class AhaSendBadRequestError extends AhaSendAPIError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+  constructor(params: APIErrorParams) {
     super(params);
-    this.name = "AhaSendBadRequestError";
+    defineHidden(this, "code", "bad_request_error");
   }
 }
 
-/**
- * Generic 409 Conflict — used for non-idempotency conflicts such as
- * "domain already exists". When the response carries an
- * `Idempotent-Replayed` header, the more specific
- * `AhaSendIdempotencyConflictError` subclass is raised instead.
- */
+/** Generic 409 Conflict. */
 export class AhaSendConflictError extends AhaSendAPIError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+  constructor(params: APIErrorParams) {
     super(params);
-    this.name = "AhaSendConflictError";
+    defineHidden(this, "code", "conflict_error");
   }
 }
 
-/**
- * 409 Conflict raised specifically because an Idempotency-Key matched a
- * request that is still in progress on the server.
- */
+/** 409 Conflict for an idempotent request still in progress. */
 export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+  public readonly retryAfterSeconds: number | undefined;
+
+  constructor(params: APIErrorParams & { retryAfterSeconds?: number | undefined }) {
     super(params);
-    this.name = "AhaSendIdempotencyConflictError";
+    defineHidden(this, "code", "idempotency_conflict_error");
+    defineHidden(this, "retryAfterSeconds", params.retryAfterSeconds);
   }
 }
 
-/**
- * 412 — the original request that used this Idempotency-Key failed, so
- * the key cannot be replayed. Generate a fresh key and resubmit.
- */
-export class AhaSendIdempotencyPreconditionFailedError extends AhaSendAPIError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
-    super(params);
-    this.name = "AhaSendIdempotencyPreconditionFailedError";
-  }
-}
-
-/**
- * Generic 422 Unprocessable Entity — used for validation failures.
- *
- * Extends `AhaSendAPIError` directly (not `AhaSendBadRequestError`) so
- * that `catch (AhaSendBadRequestError)` cannot silently swallow a 422.
- * `AhaSendIdempotencyMismatchError` is raised instead when the response
- * carries an `Idempotent-Replayed` header.
- */
+/** Generic 422 validation failure. */
 export class AhaSendUnprocessableEntityError extends AhaSendAPIError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+  constructor(params: APIErrorParams) {
     super(params);
-    this.name = "AhaSendUnprocessableEntityError";
+    defineHidden(this, "code", "unprocessable_entity_error");
   }
 }
 
-/**
- * 422 raised specifically because an Idempotency-Key was reused with a
- * different request body than the original.
- */
+/** 422 for an idempotency key reused with a different request body. */
 export class AhaSendIdempotencyMismatchError extends AhaSendUnprocessableEntityError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+  constructor(params: APIErrorParams) {
     super(params);
-    this.name = "AhaSendIdempotencyMismatchError";
+    defineHidden(this, "code", "idempotency_mismatch_error");
   }
 }
 
-/**
- * 429 — rate limited. The SDK retries automatically, honouring the
- * server's `Retry-After`; you only see this error after retries are
- * exhausted. `retryAfterSeconds` carries the server's hint when present.
- */
+/** 429 after retries are exhausted. */
 export class AhaSendRateLimitError extends AhaSendAPIError {
   public readonly retryAfterSeconds: number | undefined;
 
-  constructor(
-    params: ConstructorParameters<typeof AhaSendAPIError>[0] & {
-      retryAfterSeconds?: number | undefined;
-    },
-  ) {
+  constructor(params: APIErrorParams & { retryAfterSeconds?: number | undefined }) {
     super(params);
-    this.name = "AhaSendRateLimitError";
-    this.retryAfterSeconds = params.retryAfterSeconds;
+    defineHidden(this, "code", "rate_limit_error");
+    defineHidden(this, "retryAfterSeconds", params.retryAfterSeconds);
   }
 }
 
-/** 5xx — AhaSend server error. Retried automatically with backoff. */
+/** 5xx after retries are exhausted. */
 export class AhaSendServerError extends AhaSendAPIError {
-  constructor(params: ConstructorParameters<typeof AhaSendAPIError>[0]) {
+  constructor(params: APIErrorParams) {
     super(params);
-    this.name = "AhaSendServerError";
+    defineHidden(this, "code", "server_error");
+  }
+}
+
+/** Standard-Webhooks signature, timestamp, or payload verification failure. */
+export class AhaSendWebhookVerificationError extends AhaSendError {
+  public readonly reason!: WebhookVerificationReason;
+
+  constructor(reason: WebhookVerificationReason, message?: string, cause?: unknown) {
+    super(message ?? `Webhook verification failed: ${reason}`, cause);
+    defineHidden(this, "code", "webhook_verification_error");
+    defineHidden(this, "reason", reason);
   }
 }
 
@@ -213,25 +307,34 @@ export function createApiError(params: {
   body: ApiErrorBody | string | null;
   requestId?: string | undefined;
   headers?: Record<string, string>;
+  idempotency?: IdempotencyExecutionRecord;
+  cause?: unknown;
 }): AhaSendAPIError {
   const message = extractMessage(params.body) ?? `AhaSend API error (HTTP ${params.status})`;
   const base = { ...params, message };
-
-  const isIdempotencyReplay =
-    params.headers?.["idempotent-replayed"] !== undefined;
+  const eligibleKeyedExecution =
+    params.idempotency?.eligible === true && params.idempotency.key !== undefined;
 
   if (params.status === 400) return new AhaSendBadRequestError(base);
   if (params.status === 401) return new AhaSendAuthenticationError(base);
   if (params.status === 403) return new AhaSendPermissionError(base);
   if (params.status === 404) return new AhaSendNotFoundError(base);
   if (params.status === 409) {
-    return isIdempotencyReplay
-      ? new AhaSendIdempotencyConflictError(base)
-      : new AhaSendConflictError(base);
+    const retryAfterSeconds = parsePositiveIntegerRetryAfter(params.headers?.["retry-after"]);
+    if (
+      eligibleKeyedExecution &&
+      params.headers?.["idempotent-replayed"] === "false" &&
+      retryAfterSeconds !== undefined
+    ) {
+      return new AhaSendIdempotencyConflictError({ ...base, retryAfterSeconds });
+    }
+    return new AhaSendConflictError(base);
   }
-  if (params.status === 412) return new AhaSendIdempotencyPreconditionFailedError(base);
   if (params.status === 422) {
-    return isIdempotencyReplay
+    const hasLifecycleHeader =
+      params.headers?.["idempotent-replayed"] !== undefined ||
+      params.headers?.["retry-after"] !== undefined;
+    return eligibleKeyedExecution && !hasLifecycleHeader
       ? new AhaSendIdempotencyMismatchError(base)
       : new AhaSendUnprocessableEntityError(base);
   }
@@ -250,27 +353,161 @@ function extractMessage(body: ApiErrorBody | string | null): string | undefined 
   return undefined;
 }
 
-/**
- * Sane ceiling on `Retry-After`. Real production rate-limits don't ask
- * clients to sleep for hours; clamping to one hour blocks
- * `Retry-After: 1e308` style abuse from causing the SDK to sleep
- * effectively forever, while still respecting legitimate long backoffs.
- */
-const MAX_RETRY_AFTER_SECONDS = 60 * 60;
-
 function parseRetryAfter(value: string | undefined): number | undefined {
   if (!value) return undefined;
-  // RFC 9110 §10.2.3 allows two forms: delta-seconds (an integer count
-  // of seconds) or an HTTP-date.
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return clampRetryAfter(seconds);
-  const date = Date.parse(value);
-  if (!Number.isNaN(date)) {
-    return clampRetryAfter(Math.max(0, Math.ceil((date - Date.now()) / 1000)));
+  const seconds = parsePositiveIntegerRetryAfter(value);
+  if (seconds !== undefined) return seconds;
+  const now = Date.now();
+  const date = parseHttpDate(value, now);
+  if (date !== undefined) {
+    const dateSeconds = Math.ceil((date - now) / 1000);
+    return Number.isSafeInteger(dateSeconds) && dateSeconds > 0 ? dateSeconds : undefined;
   }
   return undefined;
 }
 
-function clampRetryAfter(seconds: number): number {
-  return Math.min(seconds, MAX_RETRY_AFTER_SECONDS);
+function parsePositiveIntegerRetryAfter(value: string | undefined): number | undefined {
+  if (value === undefined || !/^\d+$/.test(value)) return undefined;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : undefined;
+}
+
+/** Parse the three HTTP-date forms required by RFC 9110 without Date.parse's permissive extensions. */
+function parseHttpDate(value: string, now: number): number | undefined {
+  const imfFixdate =
+    /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), ([0-9]{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) ([0-9]{2}):([0-9]{2}):([0-9]{2}) GMT$/.exec(
+      value,
+    );
+  if (imfFixdate) {
+    return validatedHttpDate(
+      Number(imfFixdate[4]),
+      monthIndex(imfFixdate[3]),
+      Number(imfFixdate[2]),
+      Number(imfFixdate[5]),
+      Number(imfFixdate[6]),
+      Number(imfFixdate[7]),
+      weekdayIndex(imfFixdate[1], HTTP_SHORT_WEEKDAYS),
+    );
+  }
+
+  const rfc850Date =
+    /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), ([0-9]{2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-([0-9]{2}) ([0-9]{2}):([0-9]{2}):([0-9]{2}) GMT$/.exec(
+      value,
+    );
+  if (rfc850Date) {
+    const currentYear = new Date(now).getUTCFullYear();
+    let year = Math.floor(currentYear / 100) * 100 + Number(rfc850Date[4]);
+    const candidate = httpDateTimestamp(
+      year,
+      monthIndex(rfc850Date[3]),
+      Number(rfc850Date[2]),
+      Number(rfc850Date[5]),
+      Number(rfc850Date[6]),
+      Number(rfc850Date[7]),
+    );
+    const rolloverBoundary = new Date(now);
+    rolloverBoundary.setUTCFullYear(currentYear + 50);
+    if (candidate > rolloverBoundary.getTime()) year -= 100;
+    return validatedHttpDate(
+      year,
+      monthIndex(rfc850Date[3]),
+      Number(rfc850Date[2]),
+      Number(rfc850Date[5]),
+      Number(rfc850Date[6]),
+      Number(rfc850Date[7]),
+      weekdayIndex(rfc850Date[1], HTTP_LONG_WEEKDAYS),
+    );
+  }
+
+  const asctimeDate =
+    /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:([0-9]{2})| ([0-9])) ([0-9]{2}):([0-9]{2}):([0-9]{2}) ([0-9]{4})$/.exec(
+      value,
+    );
+  if (!asctimeDate) return undefined;
+  return validatedHttpDate(
+    Number(asctimeDate[8]),
+    monthIndex(asctimeDate[2]),
+    Number(asctimeDate[3] ?? asctimeDate[4]),
+    Number(asctimeDate[5]),
+    Number(asctimeDate[6]),
+    Number(asctimeDate[7]),
+    weekdayIndex(asctimeDate[1], HTTP_SHORT_WEEKDAYS),
+  );
+}
+
+function monthIndex(value: string | undefined): number {
+  return value === undefined ? -1 : HTTP_MONTHS.indexOf(value);
+}
+
+function weekdayIndex(value: string | undefined, weekdays: readonly string[]): number {
+  return value === undefined ? -1 : weekdays.indexOf(value);
+}
+
+function validatedHttpDate(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  weekday: number,
+): number | undefined {
+  if (second > 60) return undefined;
+  const normalizedSecond = Math.min(second, 59);
+  const date = new Date(0);
+  date.setUTCFullYear(year, month, day);
+  date.setUTCHours(hour, minute, normalizedSecond, 0);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month ||
+    date.getUTCDate() !== day ||
+    date.getUTCHours() !== hour ||
+    date.getUTCMinutes() !== minute ||
+    date.getUTCSeconds() !== normalizedSecond ||
+    date.getUTCDay() !== weekday
+  ) {
+    return undefined;
+  }
+  return date.getTime() + (second === 60 ? 1000 : 0);
+}
+
+function httpDateTimestamp(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): number {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month, day);
+  date.setUTCHours(hour, minute, Math.min(second, 59), 0);
+  return date.getTime() + (second === 60 ? 1000 : 0);
+}
+
+function defineHidden(target: object, key: PropertyKey, value: unknown): void {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: false,
+    writable: false,
+    value,
+  });
+}
+
+function copySafeString(
+  source: object,
+  target: SerializedAhaSendError,
+  key: "requestId" | "reason",
+): void {
+  const value = (source as Record<typeof key, unknown>)[key];
+  if (typeof value === "string") target[key] = value;
+}
+
+function copySafeNumber(
+  source: object,
+  target: SerializedAhaSendError,
+  key: "status" | "retryAfterSeconds",
+): void {
+  const value = (source as Record<typeof key, unknown>)[key];
+  if (typeof value === "number") target[key] = value;
 }

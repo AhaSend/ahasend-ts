@@ -8,12 +8,12 @@ npm run build
 
 ## Setup — environment variables
 
-```bash
-# Windows (PowerShell)
+```powershell
 $env:AHASEND_API_KEY="aha-sk-your-64-char-key"
 $env:AHASEND_ACCOUNT_ID="your-account-uuid"
+```
 
-# macOS / Linux
+```bash
 export AHASEND_API_KEY="aha-sk-your-64-char-key"
 export AHASEND_ACCOUNT_ID="your-account-uuid"
 ```
@@ -23,27 +23,35 @@ Get these from the [AhaSend dashboard](https://dashboard.ahasend.com).
 ## Examples (in recommended order)
 
 ### 1. `ping.mjs` — safest first test
+
 Hits `GET /v2/ping`. Only confirms auth works and the SDK can reach the API.
+
 ```bash
 node examples/ping.mjs
 ```
 
 ### 2. `list-domains.mjs` — read-only
+
 Lists your sending domains.
+
 ```bash
 node examples/list-domains.mjs
 ```
 
 ### 3. `list-api-keys.mjs` — read-only
+
 Lists API keys on the account.
+
 ```bash
 node examples/list-api-keys.mjs
 ```
 
 ### 4. `send-sandbox.mjs` — exercise the send flow without delivering
+
 Uses AhaSend's sandbox mode (`sandbox: true`). The API validates the request and returns a normal response, but no email is actually sent.
 
 `AHASEND_FROM_EMAIL` is required and must be on a **verified sending domain** on your account — sandbox mode does not bypass domain validation.
+
 ```bash
 export AHASEND_FROM_EMAIL="sender@your-verified-domain.com"
 node examples/send-sandbox.mjs
@@ -51,14 +59,50 @@ node examples/send-sandbox.mjs
 
 ### 5. Feature examples
 
-| Script | Shows |
-|---|---|
-| `iterate.mjs` | Async pagination — `for await (const msg of client.messages.iterate(...))` |
-| `idempotency.mjs` | Explicit idempotency keys + `IdempotencyKeyBuilder` (sandbox send, run twice with same key) |
-| `telemetry.mjs` | `onRequest` / `onResponse` / `onRetry` / `onError` hooks for logging and metrics |
-| `error-handling.mjs` | Branching on the typed error classes (`AhaSendNotFoundError`, `AhaSendRateLimitError`, …) |
-| `webhook-express.mjs` | Express webhook endpoint via the bundled adapter (needs `npm install express`) |
-| `verify-webhook.mjs` | Offline HMAC sign + verify round-trip — runs without any credentials |
+| Script                       | Shows                                                                                                             |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `iterate.mjs`                | Async pagination — `for await (const msg of client.messages.iterate(...))`                                        |
+| `idempotency.mjs`            | Explicit stable idempotency key reuse (sandbox send, run twice with the same key)                                 |
+| `telemetry.mjs`              | `onRequest` / `onResponse` / `onRetry` / `onError` hooks for logging and metrics                                  |
+| `error-handling.mjs`         | Branching on the typed error classes (`AhaSendNotFoundError`, `AhaSendRateLimitError`, …)                         |
+| `webhook-express.mjs`        | Express webhook endpoint with application-owned, durable `webhook-id` deduplication (needs `npm install express`) |
+| `next-webhook-route.mjs`     | Next.js App Router webhook route with explicit Node.js runtime and durable deduplication boundary                 |
+| `verify-webhook.mjs`         | Offline HMAC sign + verify round-trip — runs without any credentials                                              |
+| `update-api-key-ip-list.mjs` | Guarded replacement of an API key IP allow-list                                                                   |
+| `bootstrap-subaccount.mjs`   | Guarded child-account and child-key bootstrap without printing the one-time secret                                |
+
+---
+
+## Guarded mutations
+
+The IP-list and subaccount bootstrap examples refuse to run unless
+`AHASEND_ALLOW_MUTATIONS=1` is set. Review the target IDs, allow-list, scopes,
+and output file before opting in. In particular, an IP-list change can remove
+access for other workloads even when the API's self-lockout check allows it.
+
+```bash
+export AHASEND_ALLOW_MUTATIONS="1"
+export AHASEND_API_KEY_ID="key-uuid"
+export AHASEND_IP_ALLOW_LIST="203.0.113.0/24,198.51.100.7"
+node examples/update-api-key-ip-list.mjs
+```
+
+The bootstrap example writes the one-time child key to a new mode-0600 file.
+It fails instead of overwriting an existing file and never writes the secret
+to stdout or stderr.
+
+```bash
+export AHASEND_ALLOW_MUTATIONS="1"
+export AHASEND_SUBACCOUNT_NAME="Example subsidiary"
+export AHASEND_SUBACCOUNT_WEBSITE="subsidiary.example.com"
+export AHASEND_CHILD_SECRET_FILE="./child-api-key.secret"
+node examples/bootstrap-subaccount.mjs
+```
+
+Move that file into your secret manager promptly and securely remove the local
+copy. If key creation or file persistence fails after the child account is
+created, inspect the child account before retrying; do not blindly repeat the
+bootstrap.
 
 ---
 
