@@ -104,6 +104,24 @@
       }
     },
     {
+      "id": "api-key-scopes-non-empty",
+      "schema": "CreateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "label": "Production",
+        "scopes": ["messages:send:all"]
+      }
+    },
+    {
+      "id": "api-key-scopes-empty",
+      "schema": "CreateAPIKeyRequest",
+      "valid": false,
+      "value": {
+        "label": "Production",
+        "scopes": []
+      }
+    },
+    {
       "id": "ip-list-unchanged-omitted",
       "schema": "UpdateAPIKeyRequest",
       "valid": true,

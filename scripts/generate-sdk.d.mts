@@ -6,6 +6,12 @@ export const PRIMARY_OPERATION_MAPPINGS: readonly OperationMapping[];
 export const ITERATOR_MAPPINGS: readonly OperationMapping[];
 export const AUTHORIZATION_REGISTRY: Readonly<Record<string, OpenApiRecord>>;
 
+export function dereferenceResponse(document: OpenApiRecord, value: unknown): OpenApiRecord;
+export function schemaType(
+  schemaValue: unknown,
+  level?: number,
+  enclosingSchemaValue?: unknown,
+): string;
 export function validateOperationProfile(document: unknown, profile: unknown): void;
 export function validateAuthorizationRegistry(
   document: unknown,
