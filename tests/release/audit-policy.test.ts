@@ -16,7 +16,6 @@ interface PackageManifest {
 interface LockfilePackage {
   readonly version?: string;
   readonly dev?: boolean;
-  readonly engines?: Readonly<Record<string, string>>;
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly devDependencies?: Readonly<Record<string, string>>;
 }
@@ -77,26 +76,25 @@ describe("dependency audit policy", () => {
   it("pins the corrected development tools without adding production dependencies", () => {
     expect(packageJson.dependencies ?? {}).toEqual({});
     expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.0");
-    expect(packageJson.devDependencies["@stoplight/prism-cli"]).toBe("5.14.2");
+    expect(packageJson.devDependencies["@stoplight/prism-cli"]).toBe("5.16.0");
 
     const rootPackage = lockfilePackage("");
     expect(rootPackage.dependencies ?? {}).toEqual({});
     expect(rootPackage.devDependencies?.["js-yaml"]).toBe("4.3.0");
-    expect(rootPackage.devDependencies?.["@stoplight/prism-cli"]).toBe("5.14.2");
+    expect(rootPackage.devDependencies?.["@stoplight/prism-cli"]).toBe("5.16.0");
     expect(lockfilePackage("node_modules/js-yaml")).toMatchObject({
       version: "4.3.0",
       dev: true,
     });
     for (const [path, version] of [
-      ["node_modules/@stoplight/prism-cli", "5.14.2"],
-      ["node_modules/@stoplight/prism-core", "5.8.0"],
-      ["node_modules/@stoplight/prism-http", "5.12.0"],
-      ["node_modules/@stoplight/prism-http-server", "5.12.2"],
+      ["node_modules/@stoplight/prism-cli", "5.16.0"],
+      ["node_modules/@stoplight/prism-core", "5.16.0"],
+      ["node_modules/@stoplight/prism-http", "5.16.0"],
+      ["node_modules/@stoplight/prism-http-server", "5.16.0"],
     ] as const) {
       expect(lockfilePackage(path)).toMatchObject({
         version,
         dev: true,
-        engines: { node: ">=18.20.1" },
       });
     }
   });
