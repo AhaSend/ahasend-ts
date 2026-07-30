@@ -3040,13 +3040,13 @@ export interface SuspendSubAccountRequest {
 // @public (undocumented)
 export interface TelemetryHooks {
     // (undocumented)
-    onError?(event: ErrorEvent): void;
+    onError?(event: ErrorEvent): void | Promise<void>;
     // (undocumented)
-    onRequest?(event: RequestEvent): void;
+    onRequest?(event: RequestEvent): void | Promise<void>;
     // (undocumented)
-    onResponse?(event: ResponseEvent): void;
+    onResponse?(event: ResponseEvent): void | Promise<void>;
     // (undocumented)
-    onRetry?(event: RetryEvent): void;
+    onRetry?(event: RetryEvent): void | Promise<void>;
 }
 
 // @public
