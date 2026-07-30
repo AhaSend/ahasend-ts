@@ -1,7 +1,12 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
 import type { ClientOptions } from "../src/config.js";
-import { DEFAULT_BASE_URL, optionsFromEnv, resolveConfig } from "../src/config.js";
+import {
+  DEFAULT_BASE_URL,
+  MAX_TIMER_DELAY_MS,
+  optionsFromEnv,
+  resolveConfig,
+} from "../src/config.js";
 
 describe("resolveConfig", () => {
   it("requires an apiKey", () => {
@@ -180,6 +185,53 @@ describe("resolveConfig", () => {
   });
 
   it.each([
+    ["below", MAX_TIMER_DELAY_MS - 1],
+    ["at", MAX_TIMER_DELAY_MS],
+  ])("accepts a constructor timeout %s the timer maximum", (_position, timeoutMs) => {
+    expect(resolveConfig({ apiKey: "aha-sk-test", timeoutMs }).timeoutMs).toBe(timeoutMs);
+  });
+
+  it.each([
+    ["timeoutMs", { timeoutMs: MAX_TIMER_DELAY_MS + 1 }],
+    [
+      "retry.baseDelayMs",
+      {
+        retry: {
+          baseDelayMs: MAX_TIMER_DELAY_MS + 1,
+          maxDelayMs: MAX_TIMER_DELAY_MS + 1,
+        },
+      },
+    ],
+    ["retry.maxDelayMs", { retry: { maxDelayMs: MAX_TIMER_DELAY_MS + 1 } }],
+  ])("rejects constructor %s above the timer maximum before fetch", (_name, invalid) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+
+    expect(
+      () =>
+        new AhaSendClient({
+          apiKey: "aha-sk-test",
+          accountId: "account-id",
+          fetch: fetchImpl,
+          ...invalid,
+        }),
+    ).toThrow(/2147483647 milliseconds/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["below", MAX_TIMER_DELAY_MS - 1],
+    ["at", MAX_TIMER_DELAY_MS],
+  ])("accepts retry delays %s the timer maximum", (_position, delayMs) => {
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      retry: { baseDelayMs: delayMs, maxDelayMs: delayMs },
+    });
+
+    expect(resolved.retry.baseDelayMs).toBe(delayMs);
+    expect(resolved.retry.maxDelayMs).toBe(delayMs);
+  });
+
+  it.each([
     ["timeoutMs", { timeoutMs: 0 }],
     ["timeoutMs", { timeoutMs: Number.POSITIVE_INFINITY }],
     ["debug", { debug: "true" }],
@@ -347,12 +399,43 @@ describe("optionsFromEnv", () => {
     expect(options.baseUrl).toBe("http://localhost:4010");
   });
 
-  it("converts AHASEND_TIMEOUT seconds to milliseconds", () => {
-    const options = optionsFromEnv({
-      AHASEND_API_KEY: "aha-sk-test",
-      AHASEND_TIMEOUT: "5",
-    });
-    expect(options.timeoutMs).toBe(5000);
+  it.each([
+    ["below", "2147482.647", MAX_TIMER_DELAY_MS - 1000],
+    ["at", "2147483.647", MAX_TIMER_DELAY_MS],
+    ["above", "2147483.648", undefined],
+  ])(
+    "validates AHASEND_TIMEOUT %s the timer maximum",
+    (_position, timeoutSeconds, expectedTimeoutMs) => {
+      const readOptions = () =>
+        optionsFromEnv({
+          AHASEND_API_KEY: "aha-sk-test",
+          AHASEND_TIMEOUT: timeoutSeconds,
+        });
+
+      if (expectedTimeoutMs === undefined) {
+        expect(readOptions).toThrow(/2147483647 milliseconds/);
+      } else {
+        expect(readOptions().timeoutMs).toBe(expectedTimeoutMs);
+      }
+    },
+  );
+
+  it("rejects AHASEND_TIMEOUT above the timer maximum before fetch", () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      expect(() =>
+        AhaSendClient.fromEnv({
+          AHASEND_API_KEY: "aha-sk-test",
+          AHASEND_ACCOUNT_ID: "account-id",
+          AHASEND_TIMEOUT: "2147483.648",
+        }),
+      ).toThrow(/2147483647 milliseconds/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("parses AHASEND_DEBUG truthy values", () => {
