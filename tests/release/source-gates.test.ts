@@ -154,6 +154,80 @@ function mutateFixture(
   return { reportSource: source, reportSidecar: sidecar };
 }
 
+function candidateRunnerFixture(
+  sourceBindings: SourceBindings,
+  packResult: unknown,
+  packFiles: readonly string[] = ["ahasend-sdk-0.1.0.tgz"],
+) {
+  const directory = mkdtempSync(join(tmpdir(), "ahasend-candidate-test-"));
+  temporaryDirectories.push(directory);
+  const outputDirectory = join(directory, "candidate");
+  const sourceReportPath = join(directory, "source-report.json");
+  const sourceSidecarPath = join(directory, "source-report.sha256");
+  const rendererReportPath = join(directory, "renderer-report.json");
+  const sourceReport = reportBytes(validReport(sourceBindings));
+  const handoffSource = readFileSync(resolve(repositoryRoot, "docs/renderer-handoff.json"));
+  const handoff = JSON.parse(handoffSource.toString("utf8")) as RendererHandoff;
+  const rendererReport = canonicalizeJson({
+    version: 1,
+    handoffDigest: sha256Hex(handoffSource),
+    restDigest: handoff.restDigest,
+    operations: handoff.operations.map(({ operationId, samples }) => ({
+      operationId,
+      tabs: samples,
+    })),
+  });
+  writeFileSync(sourceReportPath, sourceReport);
+  writeFileSync(sourceSidecarPath, `${sha256Hex(sourceReport)}\n`);
+  writeFileSync(rendererReportPath, rendererReport);
+
+  const npmCalls: string[][] = [];
+  const fakeTarball = Buffer.from("one candidate tarball", "utf8");
+  const runner: CandidateCommandRunner = (command, args) => {
+    if (command === "git" && args[0] === "rev-parse") return `${sourceBindings.commit}\n`;
+    if (command === "git" && args[0] === "status") return "?? .betterborg-task/task.md\n";
+    if (args.includes("build")) {
+      npmCalls.push([...args]);
+      return "";
+    }
+    if (args.includes("pack")) {
+      npmCalls.push([...args]);
+      const destination = args[args.indexOf("--pack-destination") + 1];
+      if (destination === undefined) throw new TypeError("Missing pack destination");
+      for (const filename of packFiles) {
+        writeFileSync(join(destination, filename), fakeTarball);
+      }
+      const output = JSON.stringify(packResult);
+      if (output === undefined) throw new TypeError("Pack result is not JSON serializable");
+      return output;
+    }
+    if (command === "tar" && args.at(-1)?.endsWith("operation-profile.json")) {
+      return sourceProfile;
+    }
+    if (command === "tar" && args.at(-1)?.endsWith("operation-profile.sha256")) {
+      return sourceProfileSidecar;
+    }
+    if (command === "tar" && args.at(-1)?.endsWith("dist/index.js")) {
+      return sourceOperationDescriptors;
+    }
+    throw new TypeError(`Unexpected command: ${command} ${args.join(" ")}`);
+  };
+
+  return {
+    createOptions: {
+      sourceReportPath,
+      sourceReportSidecarPath: sourceSidecarPath,
+      rendererReportPath,
+      outputDirectory,
+      runCommand: runner,
+    },
+    fakeTarball,
+    npmCalls,
+    rendererReport,
+    sourceReport,
+  };
+}
+
 afterAll(() => {
   for (const directory of temporaryDirectories) {
     rmSync(directory, { recursive: true, force: true });
@@ -494,76 +568,73 @@ describe("release candidate validation", () => {
     ).toThrow("requires a clean commit");
   });
 
-  it("constructs a linked candidate with exactly one build and one npm pack", async () => {
-    const sourceBindings = await readRepositorySourceBindings();
-    const directory = mkdtempSync(join(tmpdir(), "ahasend-candidate-test-"));
-    temporaryDirectories.push(directory);
-    const outputDirectory = join(directory, "candidate");
-    const sourceReportPath = join(directory, "source-report.json");
-    const sourceSidecarPath = join(directory, "source-report.sha256");
-    const rendererReportPath = join(directory, "renderer-report.json");
-    const sourceReport = reportBytes(validReport(sourceBindings));
-    const handoffSource = readFileSync(resolve(repositoryRoot, "docs/renderer-handoff.json"));
-    const handoff = JSON.parse(handoffSource.toString("utf8")) as RendererHandoff;
-    const rendererReport = canonicalizeJson({
-      version: 1,
-      handoffDigest: sha256Hex(handoffSource),
-      restDigest: handoff.restDigest,
-      operations: handoff.operations.map(({ operationId, samples }) => ({
-        operationId,
-        tabs: samples,
-      })),
+  for (const testCase of [
+    {
+      label: "npm 10/11 array JSON",
+      packResult: [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+    },
+    {
+      label: "npm 12 keyed-object JSON",
+      packResult: { "@ahasend/sdk": { filename: "ahasend-sdk-0.1.0.tgz" } },
+    },
+  ]) {
+    it(`constructs a linked candidate from ${testCase.label}`, async () => {
+      const sourceBindings = await readRepositorySourceBindings();
+      const fixture = candidateRunnerFixture(sourceBindings, testCase.packResult);
+      const result = await createCandidate(fixture.createOptions);
+
+      expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
+      expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(1);
+      expect(readFileSync(result.tarballPath)).toEqual(fixture.fakeTarball);
+      const manifestSource = readFileSync(result.manifestPath);
+      const manifestSidecar = readFileSync(result.manifestSidecarPath);
+      const manifest = JSON.parse(manifestSource.toString("utf8")) as CandidateBindings;
+      expect(manifest).not.toHaveProperty("manifestSha256");
+      expect(manifest.sourceReportSha256).toBe(sha256Hex(fixture.sourceReport));
+      expect(manifest.rendererReportSha256).toBe(sha256Hex(fixture.rendererReport));
+      expect(manifest.tarballSha256).toBe(sha256Hex(fixture.fakeTarball));
+      expect(manifestSidecar.toString("utf8")).toBe(`${sha256Hex(manifestSource)}\n`);
     });
-    writeFileSync(sourceReportPath, sourceReport);
-    writeFileSync(sourceSidecarPath, `${sha256Hex(sourceReport)}\n`);
-    writeFileSync(rendererReportPath, rendererReport);
+  }
 
-    const npmCalls: string[][] = [];
-    const fakeTarball = Buffer.from("one candidate tarball", "utf8");
-    const runner: CandidateCommandRunner = (command, args) => {
-      if (command === "git" && args[0] === "rev-parse") return `${sourceBindings.commit}\n`;
-      if (command === "git" && args[0] === "status") return "?? .betterborg-task/task.md\n";
-      if (args.includes("build")) {
-        npmCalls.push([...args]);
-        return "";
-      }
-      if (args.includes("pack")) {
-        npmCalls.push([...args]);
-        const destination = args[args.indexOf("--pack-destination") + 1];
-        if (destination === undefined) throw new TypeError("Missing pack destination");
-        writeFileSync(join(destination, "ahasend-sdk-0.1.0.tgz"), fakeTarball);
-        return JSON.stringify([{ filename: "ahasend-sdk-0.1.0.tgz" }]);
-      }
-      if (command === "tar" && args.at(-1)?.endsWith("operation-profile.json")) {
-        return sourceProfile;
-      }
-      if (command === "tar" && args.at(-1)?.endsWith("operation-profile.sha256")) {
-        return sourceProfileSidecar;
-      }
-      if (command === "tar" && args.at(-1)?.endsWith("dist/index.js")) {
-        return sourceOperationDescriptors;
-      }
-      throw new TypeError(`Unexpected command: ${command} ${args.join(" ")}`);
-    };
+  for (const testCase of [
+    {
+      label: "no package",
+      packResult: [],
+      packFiles: [],
+      expectedError: "exactly one package, received 0",
+    },
+    {
+      label: "multiple keyed packages",
+      packResult: {
+        "@ahasend/sdk": { filename: "ahasend-sdk-0.1.0.tgz" },
+        "other-package": { filename: "other-package-1.0.0.tgz" },
+      },
+      packFiles: ["ahasend-sdk-0.1.0.tgz", "other-package-1.0.0.tgz"],
+      expectedError: "exactly one package, received 2",
+    },
+    {
+      label: "a filename absent from the explicit pack destination",
+      packResult: [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+      packFiles: [],
+      expectedError: "existing tarball in the explicit pack destination",
+    },
+    {
+      label: "an unreported tarball in the explicit pack destination",
+      packResult: [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+      packFiles: ["ahasend-sdk-0.1.0.tgz", "unreported-1.0.0.tgz"],
+      expectedError: "exactly one npm pack tarball, received 2",
+    },
+  ]) {
+    it(`rejects npm pack output with ${testCase.label}`, async () => {
+      const sourceBindings = await readRepositorySourceBindings();
+      const fixture = candidateRunnerFixture(
+        sourceBindings,
+        testCase.packResult,
+        testCase.packFiles,
+      );
 
-    const result = await createCandidate({
-      sourceReportPath,
-      sourceReportSidecarPath: sourceSidecarPath,
-      rendererReportPath,
-      outputDirectory,
-      runCommand: runner,
+      await expect(createCandidate(fixture.createOptions)).rejects.toThrow(testCase.expectedError);
     });
-
-    expect(npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
-    expect(npmCalls.filter((args) => args.includes("pack"))).toHaveLength(1);
-    expect(readFileSync(result.tarballPath)).toEqual(fakeTarball);
-    const manifestSource = readFileSync(result.manifestPath);
-    const manifestSidecar = readFileSync(result.manifestSidecarPath);
-    const manifest = JSON.parse(manifestSource.toString("utf8")) as CandidateBindings;
-    expect(manifest).not.toHaveProperty("manifestSha256");
-    expect(manifest.sourceReportSha256).toBe(sha256Hex(sourceReport));
-    expect(manifest.rendererReportSha256).toBe(sha256Hex(rendererReport));
-    expect(manifest.tarballSha256).toBe(sha256Hex(fakeTarball));
-    expect(manifestSidecar.toString("utf8")).toBe(`${sha256Hex(manifestSource)}\n`);
-  });
+  }
 });

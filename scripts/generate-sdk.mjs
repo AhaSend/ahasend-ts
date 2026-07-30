@@ -1429,6 +1429,15 @@ function retryMode(method, idempotency) {
   return "never";
 }
 
+function parameterFact(parameter) {
+  const schema = assertRecord(parameter.schema, `parameter ${parameter.name} schema`);
+  return {
+    name: parameter.name,
+    required: parameter.required === true,
+    format: typeof schema.format === "string" ? schema.format : null,
+  };
+}
+
 function generateOperations(document, operations) {
   validateAuthorizationRegistry(document);
   const descriptors = {};
@@ -1437,13 +1446,15 @@ function generateOperations(document, operations) {
     const parameters = operationParameters(pathItem, entry.operation).map((parameter) =>
       dereferenceParameter(document, parameter),
     );
-    const query = parameters
-      .filter((parameter) => parameter.in === "query")
-      .map((parameter) => ({ name: parameter.name, required: parameter.required === true }));
+    const pathParameters = parameters
+      .filter((parameter) => parameter.in === "path")
+      .map(parameterFact);
+    const query = parameters.filter((parameter) => parameter.in === "query").map(parameterFact);
     const idempotency = parameters.some((parameter) => parameter.name === "Idempotency-Key");
     descriptors[entry.operationId] = {
       method: entry.method.toUpperCase(),
       path: entry.path,
+      pathParameters,
       query,
       body: bodyFact(entry.operation),
       success: successFacts(document, entry.operation),
@@ -1530,13 +1541,20 @@ export type ResourceAuthorizationRule = ResourceAuthorizationMetadata &
 export interface OperationDescriptor {
   readonly method: "GET" | "POST" | "PUT" | "DELETE";
   readonly path: string;
-  readonly query: readonly { readonly name: string; readonly required: boolean }[];
+  readonly pathParameters: readonly ParameterDescriptor[];
+  readonly query: readonly ParameterDescriptor[];
   readonly body: { readonly required: boolean; readonly schema: string } | null;
   readonly success: readonly { readonly status: number; readonly schema: string | null }[];
   readonly idempotency: boolean;
   readonly retry: RetryMode;
   readonly security: readonly (readonly string[])[];
   readonly resourceAuthorization: ResourceAuthorizationRule | null;
+}
+
+export interface ParameterDescriptor {
+  readonly name: string;
+  readonly required: boolean;
+  readonly format: string | null;
 }
 
 export const RESOURCE_AUTHORIZATION = ${JSON.stringify(AUTHORIZATION_REGISTRY, null, 2)} as const satisfies Readonly<

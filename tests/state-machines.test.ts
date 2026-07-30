@@ -83,10 +83,18 @@ describe("deterministic execution state machines", () => {
           jitter: false,
         },
         hooks: {
-          onRequest: ({ attempt }) => events.push(`request:${attempt}`),
-          onResponse: ({ attempt, status }) => events.push(`response:${attempt}:${status}`),
-          onError: ({ attempt, status }) => events.push(`error:${attempt}:${status}`),
-          onRetry: ({ attempt, delayMs }) => events.push(`retry:${attempt}:${delayMs}`),
+          onRequest: ({ attempt }) => {
+            events.push(`request:${attempt}`);
+          },
+          onResponse: ({ attempt, status }) => {
+            events.push(`response:${attempt}:${status}`);
+          },
+          onError: ({ attempt, status }) => {
+            events.push(`error:${attempt}:${status}`);
+          },
+          onRetry: ({ attempt, delayMs }) => {
+            events.push(`retry:${attempt}:${delayMs}`);
+          },
         },
       }),
     );
@@ -167,9 +175,15 @@ describe("deterministic execution state machines", () => {
         retry: { enabled: false },
         rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
         hooks: {
-          onRequest: ({ routeTemplate }) => events.push(`request:${routeTemplate}`),
-          onResponse: ({ routeTemplate }) => events.push(`response:${routeTemplate}`),
-          onError: ({ routeTemplate }) => events.push(`error:${routeTemplate}`),
+          onRequest: ({ routeTemplate }) => {
+            events.push(`request:${routeTemplate}`);
+          },
+          onResponse: ({ routeTemplate }) => {
+            events.push(`response:${routeTemplate}`);
+          },
+          onError: ({ routeTemplate }) => {
+            events.push(`error:${routeTemplate}`);
+          },
         },
       }),
     );

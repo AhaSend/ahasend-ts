@@ -4,8 +4,11 @@ import {
   WebhookVerifier,
   isKnownWebhookEvent,
   type AnyWebhookEvent,
+  type DomainDNSErrorEvent,
+  type MessageClickedEvent,
   type MessageDeliveredEvent,
   type MessageRoutingEvent,
+  type SuppressionCreatedEvent,
   type WebhookEvent,
   type WebhookVerificationReason,
 } from "../src/webhooks/index.js";
@@ -21,6 +24,8 @@ type ExpectedVerificationReason =
   | "invalid_payload"
   | "invalid_event"
   | "body_too_large";
+
+type IsOptional<T, K extends keyof T> = {} extends Pick<T, K> ? true : false;
 
 describe("webhook public types", () => {
   it("returns AnyWebhookEvent and narrows validated known payloads", () => {
@@ -44,6 +49,20 @@ describe("webhook public types", () => {
       }
     }
     expectTypeOf(assertNarrowing).parameter(0).toEqualTypeOf<AnyWebhookEvent>();
+  });
+
+  it("declares body webhook IDs optional and route IDs required", () => {
+    expectTypeOf<IsOptional<MessageDeliveredEvent, "webhook_id">>().toEqualTypeOf<true>();
+    expectTypeOf<IsOptional<MessageClickedEvent, "webhook_id">>().toEqualTypeOf<true>();
+    expectTypeOf<IsOptional<SuppressionCreatedEvent, "webhook_id">>().toEqualTypeOf<true>();
+    expectTypeOf<IsOptional<DomainDNSErrorEvent, "webhook_id">>().toEqualTypeOf<true>();
+    expectTypeOf<MessageDeliveredEvent["webhook_id"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<MessageClickedEvent["webhook_id"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<SuppressionCreatedEvent["webhook_id"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<DomainDNSErrorEvent["webhook_id"]>().toEqualTypeOf<string | undefined>();
+
+    expectTypeOf<IsOptional<MessageRoutingEvent, "route_id">>().toEqualTypeOf<false>();
+    expectTypeOf<MessageRoutingEvent["route_id"]>().toEqualTypeOf<string>();
   });
 
   it("exposes the exact closed verification-reason union", () => {

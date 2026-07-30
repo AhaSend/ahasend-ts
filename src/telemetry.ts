@@ -36,10 +36,10 @@ export interface ErrorEvent extends RequestEvent {
 }
 
 export interface TelemetryHooks {
-  onRequest?(event: RequestEvent): void;
-  onResponse?(event: ResponseEvent): void;
-  onRetry?(event: RetryEvent): void;
-  onError?(event: ErrorEvent): void;
+  onRequest?(event: RequestEvent): void | Promise<void>;
+  onResponse?(event: ResponseEvent): void | Promise<void>;
+  onRetry?(event: RetryEvent): void | Promise<void>;
+  onError?(event: ErrorEvent): void | Promise<void>;
 }
 
 export type ResolvedTelemetryHooks = Required<{
@@ -94,17 +94,16 @@ export function composeHooks(...hookSets: Array<TelemetryHooks | undefined>): Te
   };
 }
 
-function deferCall<T>(fn: ((event: T) => void) | undefined, event: T): void {
+function deferCall<T>(fn: ((event: T) => void | Promise<void>) | undefined, event: T): void {
   if (!fn) return;
   queueMicrotask(() => safeCall(fn, event));
 }
 
-function safeCall<T>(fn: ((event: T) => void) | undefined, event: T): void {
+function safeCall<T>(fn: ((event: T) => void | Promise<void>) | undefined, event: T): void {
   if (!fn) return;
   try {
-    // A callback typed as returning void may still return a Promise in TypeScript.
-    // Observe that promise solely to prevent a rejected hook from becoming unhandled.
-    const result: unknown = fn(event);
+    // Observe returned promises solely to prevent a rejected hook from becoming unhandled.
+    const result = fn(event);
     if (result) void Promise.resolve(result).catch(NOOP);
   } catch {
     // hooks must never throw into the request pipeline

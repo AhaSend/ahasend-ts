@@ -606,7 +606,6 @@ components:
       type: object
       required:
         - type
-        - webhook_id
         - timestamp
         - data
       properties:
@@ -701,6 +700,10 @@ components:
           enum:
             - message.clicked
           description: The event type
+        webhook_id:
+          type: string
+          description: The webhook ID (the same ID as returned by the [Create Webhook API](https://ahasend.com/docs/api-reference/webhooks/create-webhook))
+          format: uuid
         timestamp:
           type: string
           format: date-time
@@ -824,6 +827,10 @@ components:
           type: string
           enum: [suppression.created]
           description: The event type
+        webhook_id:
+          type: string
+          description: The webhook ID (the same ID as returned by the [Create Webhook API](https://ahasend.com/docs/api-reference/webhooks/create-webhook))
+          format: uuid
         timestamp:
           type: string
           format: date-time
@@ -869,7 +876,6 @@ components:
       required:
         - type
         - timestamp
-        - webhook_id
         - data
       properties:
         type:
@@ -960,8 +966,7 @@ components:
           description: Unique route message ID
         from:
           type: string
-          format: email
-          description: Sender email address
+          description: Sender mailbox text
         reply_to:
           type: string
           format: email

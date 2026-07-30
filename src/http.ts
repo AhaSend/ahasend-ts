@@ -35,7 +35,7 @@ export interface RequestOptions {
   idempotencyKey?: string;
   signal?: AbortSignal;
   /**
-   * Resource clients set this on the 9 spec-documented idempotency
+   * Resource clients set this on the 11 spec-documented idempotency
    * endpoints (every `create*` operation) so the transport layer will
    * inject an `Idempotency-Key` when the caller hasn't supplied one.
    * Other POSTs — notably `domains.checkDns()` and inbound webhook
@@ -102,7 +102,7 @@ export class HttpClient {
           options,
           () => {
             startedAt = Date.now();
-            hooks.onRequest(this.buildAttemptEvent(execution, options, attempt));
+            void hooks.onRequest(this.buildAttemptEvent(execution, options, attempt));
           },
           (response, requestId) => {
             const responseEvent: import("./telemetry.js").ResponseEvent = {
@@ -111,7 +111,7 @@ export class HttpClient {
               durationMs: elapsedSince(startedAt),
             };
             if (requestId) responseEvent.requestId = requestId;
-            hooks.onResponse(Object.freeze(responseEvent));
+            void hooks.onResponse(Object.freeze(responseEvent));
           },
         );
         return envelope;
@@ -127,7 +127,7 @@ export class HttpClient {
         };
         if (status !== undefined) errorEvent.status = status;
         if (requestId) errorEvent.requestId = requestId;
-        hooks.onError(Object.freeze(errorEvent));
+        void hooks.onError(Object.freeze(errorEvent));
         if (attempt === maxAttempts) throw err;
         if (!isRetryableError(err)) throw err;
         const delayMs = computeRetryDelayMs(err, attempt, retry);
@@ -139,7 +139,7 @@ export class HttpClient {
         };
         if (status !== undefined) retryEvent.status = status;
         if (requestId) retryEvent.requestId = requestId;
-        hooks.onRetry(Object.freeze(retryEvent));
+        void hooks.onRetry(Object.freeze(retryEvent));
         await sleep(delayMs, options.signal);
       }
     }

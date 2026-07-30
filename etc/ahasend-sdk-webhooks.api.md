@@ -55,7 +55,7 @@ interface components {
     schemas: {
         MessageWebhookPayload: {
             type: "message.reception" | "message.delivered" | "message.transient_error" | "message.failed" | "message.bounced" | "message.suppressed" | "message.opened" | "message.clicked";
-            webhook_id: string;
+            webhook_id?: string;
             timestamp: string;
             data: components["schemas"]["MessageWebhookData"];
         };
@@ -82,6 +82,7 @@ interface components {
         };
         MessageClickedWebhookPayload: {
             type: "message.clicked";
+            webhook_id?: string;
             timestamp: string;
             data: components["schemas"]["MessageClickedWebhookData"];
         };
@@ -112,6 +113,7 @@ interface components {
         };
         SuppressionWebhookPayload: {
             type: "suppression.created";
+            webhook_id?: string;
             timestamp: string;
             data: components["schemas"]["SuppressionWebhookData"];
         };
@@ -125,7 +127,7 @@ interface components {
         };
         DomainWebhookPayload: {
             type: "domain.dns_error";
-            webhook_id: string;
+            webhook_id?: string;
             timestamp: string;
             data: components["schemas"]["DomainWebhookData"];
         };

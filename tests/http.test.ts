@@ -909,7 +909,11 @@ describe("HttpClient retry behaviour", () => {
         return new Response("{}", { status: 200 });
       }),
       {
-        hooks: { onRetry: ({ delayMs }) => retryDelays.push(delayMs) },
+        hooks: {
+          onRetry: ({ delayMs }) => {
+            retryDelays.push(delayMs);
+          },
+        },
         retry: fastRetry,
       },
     );
