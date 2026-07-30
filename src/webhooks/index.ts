@@ -6,8 +6,7 @@ export {
   WEBHOOK_TIMESTAMP_HEADER,
   WebhookVerifier,
 } from "./verifier.js";
-export type { WebhookVerifierOptions } from "./verifier.js";
-export type { WebhookVerificationReason } from "./verifier.js";
+export type { WebhookVerificationReason, WebhookVerifierOptions } from "./verifier.js";
 export { AhaSendWebhookVerificationError } from "../errors.js";
 
 export { expressWebhookHandler, fastifyWebhookHandler, nextRouteHandler } from "./adapters.js";

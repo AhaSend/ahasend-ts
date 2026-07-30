@@ -1,16 +1,18 @@
 import { Buffer } from "node:buffer";
 import { createHmac } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   expressWebhookHandler,
   fastifyWebhookHandler,
   nextRouteHandler,
   type ExpressHandler,
+  type FastifyHandler,
+  type NextHandler,
   type WebhookAdapterErrorContext,
   type WebhookAdapterOptions,
 } from "../src/webhooks/adapters.js";
-import type { AnyWebhookEvent } from "../src/webhooks/events.js";
+import type { AnyWebhookEvent, MessageDeliveredEvent } from "../src/webhooks/events.js";
 import { WebhookVerifier } from "../src/webhooks/verifier.js";
 
 const SECRET = "aha-whsec-local-test-secret-please-rotate";
@@ -74,6 +76,43 @@ class MockFastifyReply {
     this.payload = payload;
   }
 }
+
+describe("webhook adapter handler declarations", () => {
+  it("require every public handler to accept AnyWebhookEvent", () => {
+    expectTypeOf<Parameters<ExpressHandler>[0]>().toEqualTypeOf<AnyWebhookEvent>();
+    expectTypeOf<Parameters<FastifyHandler>[0]>().toEqualTypeOf<AnyWebhookEvent>();
+    expectTypeOf<Parameters<NextHandler>[0]>().toEqualTypeOf<AnyWebhookEvent>();
+
+    const verifier = new WebhookVerifier(SECRET);
+    const expressHandler: ExpressHandler = () => {};
+    const fastifyHandler: FastifyHandler = () => {};
+    const nextHandler: NextHandler = () => new Response();
+
+    expect(expressWebhookHandler(verifier, expressHandler)).toBeTypeOf("function");
+    expect(fastifyWebhookHandler(verifier, fastifyHandler)).toBeTypeOf("function");
+    expect(nextRouteHandler(verifier, nextHandler)).toBeTypeOf("function");
+
+    if (false) {
+      const narrowExpressHandler = (_event: MessageDeliveredEvent) => {};
+      const narrowFastifyHandler = (_event: MessageDeliveredEvent) => {};
+      const narrowNextHandler = (_event: MessageDeliveredEvent) => new Response();
+
+      // @ts-expect-error handlers must narrow AnyWebhookEvent themselves
+      expressWebhookHandler(verifier, narrowExpressHandler);
+      // @ts-expect-error handlers must narrow AnyWebhookEvent themselves
+      fastifyWebhookHandler(verifier, narrowFastifyHandler);
+      // @ts-expect-error handlers must narrow AnyWebhookEvent themselves
+      nextRouteHandler(verifier, narrowNextHandler);
+
+      // @ts-expect-error adapter factories do not accept caller-selected event types
+      expressWebhookHandler<MessageDeliveredEvent>(verifier, expressHandler);
+      // @ts-expect-error adapter factories do not accept caller-selected event types
+      fastifyWebhookHandler<MessageDeliveredEvent>(verifier, fastifyHandler);
+      // @ts-expect-error adapter factories do not accept caller-selected event types
+      nextRouteHandler<MessageDeliveredEvent>(verifier, nextHandler);
+    }
+  });
+});
 
 describe("shared webhook adapter options", () => {
   it("are accepted as the trailing argument by all three factories", () => {

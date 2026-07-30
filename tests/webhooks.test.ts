@@ -25,6 +25,7 @@ import {
   AhaSendWebhookVerificationError,
   MAX_WEBHOOK_BODY_BYTES,
   WebhookVerifier,
+  createWebhookVerifierWithClock,
   type WebhookVerificationReason,
 } from "../src/webhooks/verifier.js";
 
@@ -489,9 +490,10 @@ describe("captured TypeScript verification results", () => {
         capture.fixtureId,
       ).toBe(capture.signature);
 
-      const verifier = new WebhookVerifier(key.toString("utf8"), {
-        nowMs: () => Number(capture.webhookTimestamp) * 1000,
-      });
+      const verifier = createWebhookVerifierWithClock(
+        key.toString("utf8"),
+        () => Number(capture.webhookTimestamp) * 1000,
+      );
       expect(() =>
         verifier.verify(
           {
@@ -513,9 +515,10 @@ describe("captured TypeScript verification results", () => {
       const otherCapture = manifest.captures[(index + 1) % manifest.captures.length]!;
       const otherKeyFile = readFileSync(resolve(ROOT, otherCapture.signingResource.keyPath));
       const otherKey = otherKeyFile.subarray(0, otherKeyFile.length - 1).toString("utf8");
-      const verifier = new WebhookVerifier(key, {
-        nowMs: () => Number(capture.webhookTimestamp) * 1000,
-      });
+      const verifier = createWebhookVerifierWithClock(
+        key,
+        () => Number(capture.webhookTimestamp) * 1000,
+      );
       const headers = {
         "webhook-id": capture.webhookId,
         "webhook-timestamp": capture.webhookTimestamp,
@@ -553,9 +556,10 @@ describe("captured TypeScript verification results", () => {
       ).toBe("signature_mismatch");
       expect(
         reasonFrom(() =>
-          new WebhookVerifier(otherKey, {
-            nowMs: () => Number(capture.webhookTimestamp) * 1000,
-          }).verify(headers, rawBody),
+          createWebhookVerifierWithClock(
+            otherKey,
+            () => Number(capture.webhookTimestamp) * 1000,
+          ).verify(headers, rawBody),
         ),
       ).toBe("signature_mismatch");
     }
@@ -684,9 +688,10 @@ describe("WebhookVerifier", () => {
       ).toBe(fixture.signature);
       expect(validateKnownWebhookEvent(payload), fixture.fixtureId).toBe(true);
 
-      const event = new WebhookVerifier(key.toString("utf8"), {
-        nowMs: () => Number(fixture.webhookTimestamp) * 1000,
-      }).parse(
+      const event = createWebhookVerifierWithClock(
+        key.toString("utf8"),
+        () => Number(fixture.webhookTimestamp) * 1000,
+      ).parse(
         {
           "webhook-id": fixture.webhookId,
           "webhook-timestamp": fixture.webhookTimestamp,
@@ -851,7 +856,7 @@ describe("WebhookVerifier", () => {
       .digest("base64");
     const expectedSignature = `v1,${expectedDigest}`;
 
-    const verifier = new WebhookVerifier(secret, { nowMs: () => timestamp * 1000 });
+    const verifier = createWebhookVerifierWithClock(secret, () => timestamp * 1000);
     expect(() =>
       verifier.verify(
         {
@@ -982,9 +987,7 @@ describe("WebhookVerifier", () => {
     const timestamp = "01784041401";
     const id = "msg-exact-timestamp";
     const body = "{}";
-    const verifier = new WebhookVerifier(SECRET, {
-      nowMs: () => Number(timestamp) * 1000,
-    });
+    const verifier = createWebhookVerifierWithClock(SECRET, () => Number(timestamp) * 1000);
     const headers = {
       "webhook-id": id,
       "webhook-timestamp": timestamp,
@@ -999,9 +1002,8 @@ describe("WebhookVerifier", () => {
 
   it("accepts the tolerance boundary and rejects ancient and future timestamps", () => {
     const nowSeconds = 1_800_000_000;
-    const verifier = new WebhookVerifier(SECRET, {
+    const verifier = createWebhookVerifierWithClock(SECRET, () => nowSeconds * 1000, {
       toleranceSeconds: 300,
-      nowMs: () => nowSeconds * 1000,
     });
     const body = "{}";
     for (const timestamp of [nowSeconds - 300, nowSeconds + 300]) {
@@ -1054,9 +1056,8 @@ describe("WebhookVerifier", () => {
   });
 
   it("accepts safe-integer timestamp endpoints before applying the time window", () => {
-    const verifier = new WebhookVerifier(SECRET, {
+    const verifier = createWebhookVerifierWithClock(SECRET, () => 0, {
       toleranceSeconds: Number.MAX_SAFE_INTEGER,
-      nowMs: () => 0,
     });
     const body = "{}";
     for (const timestamp of ["0", String(Number.MAX_SAFE_INTEGER)]) {
@@ -1094,7 +1095,7 @@ describe("WebhookVerifier", () => {
     const envelope = buildEnvelope(SECRET, validDelivery);
     for (const nowMs of [Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
       expect(() =>
-        new WebhookVerifier(SECRET, { nowMs: () => nowMs }).verify(envelope.headers, envelope.body),
+        createWebhookVerifierWithClock(SECRET, () => nowMs).verify(envelope.headers, envelope.body),
       ).toThrow(AhaSendConfigurationError);
     }
   });
@@ -1135,7 +1136,9 @@ describe("WebhookVerifier", () => {
   });
 
   it("keeps secret, tolerance, and clock state out of reflection", () => {
-    const verifier = new WebhookVerifier(SECRET, { nowMs: () => 0, toleranceSeconds: 1 });
+    const verifier = createWebhookVerifierWithClock(SECRET, () => 0, {
+      toleranceSeconds: 1,
+    });
     expect(Object.keys(verifier)).toEqual([]);
     expect(Reflect.ownKeys(verifier)).toEqual([]);
     expect(verifier).not.toHaveProperty("key");

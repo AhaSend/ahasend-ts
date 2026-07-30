@@ -199,13 +199,13 @@ export type DomainDNSErrorEvent = webhookEvents["domain.dns_error"];
 export type DomainEventData = components["schemas"]["DomainWebhookData"];
 
 // @public (undocumented)
-export type ExpressHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (event: T, req: NodeStyleRequest, res: NodeStyleResponse) => Promise<void> | void;
+export type ExpressHandler = (event: AnyWebhookEvent, req: NodeStyleRequest, res: NodeStyleResponse) => Promise<void> | void;
 
 // @public
-export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(verifier: WebhookVerifier, handler: ExpressHandler<T>, options?: WebhookAdapterOptions): (req: NodeStyleRequest, res: NodeStyleResponse, next: (error: unknown) => void) => Promise<void>;
+export function expressWebhookHandler(verifier: WebhookVerifier, handler: ExpressHandler, options?: WebhookAdapterOptions): (req: NodeStyleRequest, res: NodeStyleResponse, next: (error: unknown) => void) => Promise<void>;
 
 // @public (undocumented)
-export type FastifyHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (event: T, request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void> | void;
+export type FastifyHandler = (event: AnyWebhookEvent, request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void> | void;
 
 // @public
 export interface FastifyStyleReply {
@@ -218,7 +218,7 @@ export interface FastifyStyleReply {
 }
 
 // @public
-export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(verifier: WebhookVerifier, handler: FastifyHandler<T>, options?: WebhookAdapterOptions): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void>;
+export function fastifyWebhookHandler(verifier: WebhookVerifier, handler: FastifyHandler, options?: WebhookAdapterOptions): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void>;
 
 // @public (undocumented)
 type HeadersInput = Record<string, string | string[] | undefined> | Headers;
@@ -279,10 +279,10 @@ export type MessageSuppressedEvent = webhookEvents["message.suppressed"];
 export type MessageTransientErrorEvent = webhookEvents["message.transient_error"];
 
 // @public (undocumented)
-export type NextHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (event: T, request: Request) => Response | Promise<Response>;
+export type NextHandler = (event: AnyWebhookEvent, request: Request) => Response | Promise<Response>;
 
 // @public
-export function nextRouteHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(verifier: WebhookVerifier, handler: NextHandler<T>, options?: WebhookAdapterOptions): (request: Request) => Promise<Response>;
+export function nextRouteHandler(verifier: WebhookVerifier, handler: NextHandler, options?: WebhookAdapterOptions): (request: Request) => Promise<Response>;
 
 // @public
 export interface NodeStyleRequest {
@@ -464,7 +464,6 @@ export class WebhookVerifier {
 
 // @public (undocumented)
 export interface WebhookVerifierOptions {
-    nowMs?: () => number;
     // (undocumented)
     toleranceSeconds?: number;
 }

@@ -19,11 +19,6 @@ export const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
 
 export interface WebhookVerifierOptions {
   toleranceSeconds?: number;
-  /**
-   * Clock injection for deterministic verification. The result uses the same
-   * millisecond resolution as `Date.now()`.
-   */
-  nowMs?: () => number;
 }
 
 interface NormalizedHeaders {
@@ -34,11 +29,13 @@ interface NormalizedHeaders {
 
 type HeadersInput = Record<string, string | string[] | undefined> | Headers;
 type RawBody = string | Buffer;
+type Clock = () => number;
+
+const verifierClocks = new WeakMap<WebhookVerifier, Clock>();
 
 export class WebhookVerifier {
   readonly #key: Buffer;
   readonly #toleranceSeconds: number;
-  readonly #nowMs: () => number;
 
   constructor(secret: string, options: WebhookVerifierOptions = {}) {
     if (!secret || typeof secret !== "string") {
@@ -52,13 +49,8 @@ export class WebhookVerifier {
         "WebhookVerifier: toleranceSeconds must be a positive safe integer.",
       );
     }
-    if (options.nowMs !== undefined && typeof options.nowMs !== "function") {
-      throw new AhaSendConfigurationError("WebhookVerifier: nowMs must be a function.");
-    }
-
     this.#key = Buffer.from(secret, "utf-8");
     this.#toleranceSeconds = options.toleranceSeconds ?? DEFAULT_TOLERANCE_SECONDS;
-    this.#nowMs = options.nowMs ?? (() => Date.now());
   }
 
   verify(headers: HeadersInput, rawBody: RawBody): void {
@@ -66,7 +58,7 @@ export class WebhookVerifier {
     const { id, timestamp, signature } = extractHeaders(headers);
 
     const timestampSeconds = parseTimestamp(timestamp);
-    const nowMilliseconds = this.#nowMs();
+    const nowMilliseconds = (verifierClocks.get(this) ?? Date.now)();
     if (!Number.isFinite(nowMilliseconds) || !Number.isSafeInteger(nowMilliseconds)) {
       throw new AhaSendConfigurationError(
         "WebhookVerifier: nowMs must return a finite safe-integer millisecond timestamp.",
@@ -134,6 +126,20 @@ export class WebhookVerifier {
     }
     return parsed;
   }
+}
+
+/**
+ * Internal source-test seam. This is intentionally omitted from the public
+ * webhook entry point so consumers cannot replace the verifier clock.
+ */
+export function createWebhookVerifierWithClock(
+  secret: string,
+  nowMs: Clock,
+  options: WebhookVerifierOptions = {},
+): WebhookVerifier {
+  const verifier = new WebhookVerifier(secret, options);
+  verifierClocks.set(verifier, nowMs);
+  return verifier;
 }
 
 function assertBodySize(rawBody: RawBody): void {

@@ -51,20 +51,20 @@ export interface FastifyStyleReply {
   send(payload?: unknown): unknown;
 }
 
-export type ExpressHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
-  event: T,
+export type ExpressHandler = (
+  event: AnyWebhookEvent,
   req: NodeStyleRequest,
   res: NodeStyleResponse,
 ) => Promise<void> | void;
 
-export type FastifyHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
-  event: T,
+export type FastifyHandler = (
+  event: AnyWebhookEvent,
   request: NodeStyleRequest,
   reply: FastifyStyleReply,
 ) => Promise<void> | void;
 
-export type NextHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
-  event: T,
+export type NextHandler = (
+  event: AnyWebhookEvent,
   request: Request,
 ) => Response | Promise<Response>;
 
@@ -73,9 +73,9 @@ export type NextHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
  * if already populated by `express.raw()`), verifies the AhaSend signature,
  * parses the typed event, and dispatches to your handler.
  */
-export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
+export function expressWebhookHandler(
   verifier: WebhookVerifier,
-  handler: ExpressHandler<T>,
+  handler: ExpressHandler,
   options: WebhookAdapterOptions = {},
 ): (
   req: NodeStyleRequest,
@@ -116,7 +116,7 @@ export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
     }
 
     try {
-      await handler(event as T, req, res);
+      await handler(event, req, res);
       if (!res.writableEnded) {
         if (!res.statusCode) res.statusCode = 200;
         res.end();
@@ -131,9 +131,9 @@ export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
  * Fastify handler. Requires the route (or the global plugin) to be configured
  * with `rawBody: true` so that the request body is available unparsed.
  */
-export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
+export function fastifyWebhookHandler(
   verifier: WebhookVerifier,
-  handler: FastifyHandler<T>,
+  handler: FastifyHandler,
   options: WebhookAdapterOptions = {},
 ): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void> {
   const adapterOptions = normalizeOptions(options);
@@ -168,7 +168,7 @@ export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
     }
 
     try {
-      await handler(event as T, request, reply);
+      await handler(event, request, reply);
       if (!reply.sent) reply.code(200).send();
     } catch (error) {
       observeError(adapterOptions.onError, error, "fastify", "application");
@@ -178,9 +178,9 @@ export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
 }
 
 /** Next.js app-router route handler. */
-export function nextRouteHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
+export function nextRouteHandler(
   verifier: WebhookVerifier,
-  handler: NextHandler<T>,
+  handler: NextHandler,
   options: WebhookAdapterOptions = {},
 ): (request: Request) => Promise<Response> {
   const adapterOptions = normalizeOptions(options);
@@ -207,7 +207,7 @@ export function nextRouteHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
     }
 
     try {
-      return await handler(event as T, request);
+      return await handler(event, request);
     } catch (error) {
       observeError(adapterOptions.onError, error, "next", "application");
       throw error;

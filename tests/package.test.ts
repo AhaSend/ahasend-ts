@@ -102,6 +102,13 @@ describe("built package topology", () => {
     expect(esmRoot.isAhaSendError(cjsWebhookError)).toBe(true);
   });
 
+  it("keeps webhook signing and test-clock facilities out of both public module formats", () => {
+    for (const webhooks of [esmWebhooks, cjsWebhooks]) {
+      expect(webhooks).not.toHaveProperty("createWebhookVerifierWithClock");
+      expect(webhooks).not.toHaveProperty("sign");
+    }
+  });
+
   it("copies the operation profile and detached digest byte-for-byte", () => {
     const sourceProfile = readFileSync(
       resolve(repositoryRoot, "src/generated/operation-profile.json"),

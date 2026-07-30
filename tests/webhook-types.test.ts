@@ -1,4 +1,5 @@
-import { describe, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import * as publicWebhooks from "../src/webhooks/index.js";
 import {
   AhaSendWebhookVerificationError,
   WebhookVerifier,
@@ -11,6 +12,7 @@ import {
   type MessageRoutingEvent,
   type SuppressionCreatedEvent,
   type WebhookEvent,
+  type WebhookVerifierOptions,
   type WebhookVerificationReason,
 } from "../src/webhooks/index.js";
 
@@ -29,6 +31,23 @@ type ExpectedVerificationReason =
 type IsOptional<T, K extends keyof T> = {} extends Pick<T, K> ? true : false;
 
 describe("webhook public types", () => {
+  it("exposes only tolerance configuration and no test-clock or signing facilities", () => {
+    expectTypeOf<WebhookVerifierOptions>().toEqualTypeOf<{
+      toleranceSeconds?: number;
+    }>();
+    expect(publicWebhooks).not.toHaveProperty("createWebhookVerifierWithClock");
+    expect(publicWebhooks).not.toHaveProperty("sign");
+
+    if (false) {
+      // @ts-expect-error the public verifier clock is always Date.now
+      new WebhookVerifier("test-secret", { nowMs: () => 0 });
+      // @ts-expect-error the source-test clock factory is not a public entry-point export
+      publicWebhooks.createWebhookVerifierWithClock;
+      // @ts-expect-error webhook signing is verifier-internal
+      publicWebhooks.sign;
+    }
+  });
+
   it("returns AnyWebhookEvent and narrows validated known payloads", () => {
     const verifier = new WebhookVerifier("test-secret");
     expectTypeOf(verifier.parse).returns.toEqualTypeOf<AnyWebhookEvent>();
