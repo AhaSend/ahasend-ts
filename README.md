@@ -266,7 +266,8 @@ Next.js. It does not pull in the API client.
 The verifier needs the **raw request body** — the exact bytes AhaSend
 sent. If a JSON body parser runs first, signature verification is
 impossible. The adapters treat an already-parsed body as a setup error:
-Express passes it to `next`, Fastify throws it, and Next.js rejects it.
+Express passes it to `next`, Fastify returns an opaque 400 response, and
+Next.js rejects it.
 
 ```ts
 // Express 5.x — mount directly so the adapter reads and bounds the raw stream

@@ -89,7 +89,8 @@ const options = {
 };
 ```
 
-Invalid signatures and schemas receive an opaque 400 response. Oversized bodies receive an opaque 413. These expected verification outcomes do not expose details to the sender.
+Invalid signatures and schemas receive an opaque 400 response. Fastify also returns an opaque 400
+when a parsed body is present without captured `rawBody` bytes. Oversized bodies receive an opaque 413. These expected verification outcomes do not expose details to the sender.
 
 `onError` is observation-only: it is used for unexpected setup, stream, or application failures,
 is never awaited, and cannot mark an error handled. Observer throws and rejected promises are
