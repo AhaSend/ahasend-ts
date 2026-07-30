@@ -57,6 +57,9 @@ interface OpenAPIParameter {
   readonly name?: string;
   readonly in?: string;
   readonly required?: boolean;
+  readonly schema?: {
+    readonly format?: unknown;
+  };
 }
 
 interface OpenAPIOperation {
@@ -643,13 +646,11 @@ async function expectMatrixRow(
 
   expect(descriptor.method, row.operationId).toBe(spec!.httpMethod);
   expect(descriptor.path, row.operationId).toBe(spec!.path);
-  expect(pathParameterNames(descriptor.path), row.operationId).toEqual(
-    parameters.filter((parameter) => parameter.in === "path").map(({ name }) => name),
+  expect(descriptor.pathParameters, row.operationId).toEqual(
+    parameters.filter((parameter) => parameter.in === "path").map(parameterDescriptorFact),
   );
   expect(descriptor.query, row.operationId).toEqual(
-    parameters
-      .filter((parameter) => parameter.in === "query")
-      .map(({ name, required }) => ({ name, required: required === true })),
+    parameters.filter((parameter) => parameter.in === "query").map(parameterDescriptorFact),
   );
   expect(descriptor.body, row.operationId).toEqual(requestBodyFact(spec!.operation));
   expect(descriptor.success, row.operationId).toEqual(successFacts(spec!.operation));
@@ -722,8 +723,22 @@ function collectSpecOperations(document: OpenAPIDocument): SpecOperation[] {
   return entries;
 }
 
-function pathParameterNames(path: string): string[] {
-  return [...path.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]!);
+function parameterDescriptorFact(parameter: OpenAPIParameter): {
+  name: string;
+  required: boolean;
+  format: string | null;
+} {
+  return {
+    name: parameter.name!,
+    required: parameter.required === true,
+    format:
+      parameter.schema !== undefined &&
+      typeof parameter.schema === "object" &&
+      !Array.isArray(parameter.schema) &&
+      typeof parameter.schema.format === "string"
+        ? parameter.schema.format
+        : null,
+  };
 }
 
 function schemaName(schema: unknown): string | null {

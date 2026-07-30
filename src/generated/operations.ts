@@ -76,13 +76,20 @@ export type ResourceAuthorizationRule = ResourceAuthorizationMetadata &
 export interface OperationDescriptor {
   readonly method: "GET" | "POST" | "PUT" | "DELETE";
   readonly path: string;
-  readonly query: readonly { readonly name: string; readonly required: boolean }[];
+  readonly pathParameters: readonly ParameterDescriptor[];
+  readonly query: readonly ParameterDescriptor[];
   readonly body: { readonly required: boolean; readonly schema: string } | null;
   readonly success: readonly { readonly status: number; readonly schema: string | null }[];
   readonly idempotency: boolean;
   readonly retry: RetryMode;
   readonly security: readonly (readonly string[])[];
   readonly resourceAuthorization: ResourceAuthorizationRule | null;
+}
+
+export interface ParameterDescriptor {
+  readonly name: string;
+  readonly required: boolean;
+  readonly format: string | null;
 }
 
 export const RESOURCE_AUTHORIZATION = {
@@ -370,6 +377,7 @@ export const OPERATION_DESCRIPTORS = {
   ping: {
     method: "GET",
     path: "/v2/ping",
+    pathParameters: [],
     query: [],
     body: null,
     success: [
@@ -386,18 +394,28 @@ export const OPERATION_DESCRIPTORS = {
   getAPIKeys: {
     method: "GET",
     path: "/v2/accounts/{account_id}/api-keys",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "limit",
         required: false,
+        format: null,
       },
       {
         name: "after",
         required: false,
+        format: null,
       },
       {
         name: "before",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -415,6 +433,13 @@ export const OPERATION_DESCRIPTORS = {
   createAPIKey: {
     method: "POST",
     path: "/v2/accounts/{account_id}/api-keys",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -434,6 +459,18 @@ export const OPERATION_DESCRIPTORS = {
   getAPIKey: {
     method: "GET",
     path: "/v2/accounts/{account_id}/api-keys/{key_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "key_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -450,6 +487,18 @@ export const OPERATION_DESCRIPTORS = {
   updateAPIKey: {
     method: "PUT",
     path: "/v2/accounts/{account_id}/api-keys/{key_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "key_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -469,6 +518,18 @@ export const OPERATION_DESCRIPTORS = {
   deleteAPIKey: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/api-keys/{key_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "key_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -485,22 +546,33 @@ export const OPERATION_DESCRIPTORS = {
   getDomains: {
     method: "GET",
     path: "/v2/accounts/{account_id}/domains",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "dns_valid",
         required: false,
+        format: null,
       },
       {
         name: "limit",
         required: false,
+        format: null,
       },
       {
         name: "after",
         required: false,
+        format: null,
       },
       {
         name: "before",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -518,6 +590,13 @@ export const OPERATION_DESCRIPTORS = {
   createDomain: {
     method: "POST",
     path: "/v2/accounts/{account_id}/domains",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -537,6 +616,18 @@ export const OPERATION_DESCRIPTORS = {
   getDomain: {
     method: "GET",
     path: "/v2/accounts/{account_id}/domains/{domain}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "domain",
+        required: true,
+        format: "hostname",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -553,6 +644,18 @@ export const OPERATION_DESCRIPTORS = {
   updateDomain: {
     method: "PUT",
     path: "/v2/accounts/{account_id}/domains/{domain}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "domain",
+        required: true,
+        format: "hostname",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -572,6 +675,18 @@ export const OPERATION_DESCRIPTORS = {
   deleteDomain: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/domains/{domain}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "domain",
+        required: true,
+        format: "hostname",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -588,6 +703,18 @@ export const OPERATION_DESCRIPTORS = {
   checkDomainDNS: {
     method: "POST",
     path: "/v2/accounts/{account_id}/domains/{domain}/check-dns",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "domain",
+        required: true,
+        format: "hostname",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -604,50 +731,68 @@ export const OPERATION_DESCRIPTORS = {
   getMessages: {
     method: "GET",
     path: "/v2/accounts/{account_id}/messages",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "status",
         required: false,
+        format: null,
       },
       {
         name: "sender",
         required: false,
+        format: "email",
       },
       {
         name: "recipient",
         required: false,
+        format: "email",
       },
       {
         name: "subject",
         required: false,
+        format: null,
       },
       {
         name: "message_id_header",
         required: false,
+        format: null,
       },
       {
         name: "tags",
         required: false,
+        format: null,
       },
       {
         name: "from_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "to_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "limit",
         required: false,
+        format: null,
       },
       {
         name: "after",
         required: false,
+        format: null,
       },
       {
         name: "before",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -676,6 +821,13 @@ export const OPERATION_DESCRIPTORS = {
   createMessage: {
     method: "POST",
     path: "/v2/accounts/{account_id}/messages",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -705,6 +857,13 @@ export const OPERATION_DESCRIPTORS = {
   createConversationMessage: {
     method: "POST",
     path: "/v2/accounts/{account_id}/messages/conversation",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -734,6 +893,18 @@ export const OPERATION_DESCRIPTORS = {
   getMessage: {
     method: "GET",
     path: "/v2/accounts/{account_id}/messages/{message_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "message_id",
+        required: true,
+        format: null,
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -762,6 +933,18 @@ export const OPERATION_DESCRIPTORS = {
   cancelMessage: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/messages/{message_id}/cancel",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "message_id",
+        required: true,
+        format: null,
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -790,6 +973,13 @@ export const OPERATION_DESCRIPTORS = {
   getAccount: {
     method: "GET",
     path: "/v2/accounts/{account_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -806,6 +996,13 @@ export const OPERATION_DESCRIPTORS = {
   updateAccount: {
     method: "PUT",
     path: "/v2/accounts/{account_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -825,6 +1022,13 @@ export const OPERATION_DESCRIPTORS = {
   getAccountMembers: {
     method: "GET",
     path: "/v2/accounts/{account_id}/members",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -841,6 +1045,13 @@ export const OPERATION_DESCRIPTORS = {
   addAccountMember: {
     method: "POST",
     path: "/v2/accounts/{account_id}/members",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -860,6 +1071,18 @@ export const OPERATION_DESCRIPTORS = {
   removeAccountMember: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/members/{user_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "user_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -876,18 +1099,28 @@ export const OPERATION_DESCRIPTORS = {
   listSubAccounts: {
     method: "GET",
     path: "/v2/accounts/{account_id}/sub-accounts",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "limit",
         required: false,
+        format: null,
       },
       {
         name: "after",
         required: false,
+        format: null,
       },
       {
         name: "before",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -905,6 +1138,13 @@ export const OPERATION_DESCRIPTORS = {
   createSubAccount: {
     method: "POST",
     path: "/v2/accounts/{account_id}/sub-accounts",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -924,6 +1164,13 @@ export const OPERATION_DESCRIPTORS = {
   getSubAccountsUsage: {
     method: "GET",
     path: "/v2/accounts/{account_id}/sub-accounts/usage",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -940,6 +1187,18 @@ export const OPERATION_DESCRIPTORS = {
   getSubAccount: {
     method: "GET",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -956,6 +1215,18 @@ export const OPERATION_DESCRIPTORS = {
   updateSubAccount: {
     method: "PUT",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -975,6 +1246,18 @@ export const OPERATION_DESCRIPTORS = {
   deleteSubAccount: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -991,6 +1274,18 @@ export const OPERATION_DESCRIPTORS = {
   suspendSubAccount: {
     method: "POST",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/suspend",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -1010,6 +1305,18 @@ export const OPERATION_DESCRIPTORS = {
   unsuspendSubAccount: {
     method: "POST",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/unsuspend",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -1026,18 +1333,33 @@ export const OPERATION_DESCRIPTORS = {
   listSubAccountAPIKeys: {
     method: "GET",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "limit",
         required: false,
+        format: null,
       },
       {
         name: "after",
         required: false,
+        format: null,
       },
       {
         name: "before",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -1055,6 +1377,18 @@ export const OPERATION_DESCRIPTORS = {
   createSubAccountAPIKey: {
     method: "POST",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -1074,6 +1408,23 @@ export const OPERATION_DESCRIPTORS = {
   getSubAccountAPIKey: {
     method: "GET",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "key_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -1090,6 +1441,23 @@ export const OPERATION_DESCRIPTORS = {
   updateSubAccountAPIKey: {
     method: "PUT",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "key_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -1109,6 +1477,23 @@ export const OPERATION_DESCRIPTORS = {
   deleteSubAccountAPIKey: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "key_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -1125,34 +1510,48 @@ export const OPERATION_DESCRIPTORS = {
   getSuppressions: {
     method: "GET",
     path: "/v2/accounts/{account_id}/suppressions",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "domain",
         required: false,
+        format: null,
       },
       {
         name: "email",
         required: false,
+        format: "email",
       },
       {
         name: "from_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "to_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "limit",
         required: false,
+        format: null,
       },
       {
         name: "after",
         required: false,
+        format: null,
       },
       {
         name: "before",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -1170,6 +1569,13 @@ export const OPERATION_DESCRIPTORS = {
   createSuppression: {
     method: "POST",
     path: "/v2/accounts/{account_id}/suppressions",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -1189,14 +1595,23 @@ export const OPERATION_DESCRIPTORS = {
   deleteSuppression: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/suppressions",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "email",
         required: true,
+        format: "email",
       },
       {
         name: "domain",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -1214,10 +1629,18 @@ export const OPERATION_DESCRIPTORS = {
   deleteAllSuppressions: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/suppressions/all",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "domain",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -1235,22 +1658,33 @@ export const OPERATION_DESCRIPTORS = {
   getRoutes: {
     method: "GET",
     path: "/v2/accounts/{account_id}/routes",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "domain",
         required: false,
+        format: null,
       },
       {
         name: "limit",
         required: false,
+        format: null,
       },
       {
         name: "after",
         required: false,
+        format: null,
       },
       {
         name: "before",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -1278,6 +1712,13 @@ export const OPERATION_DESCRIPTORS = {
   createRoute: {
     method: "POST",
     path: "/v2/accounts/{account_id}/routes",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -1307,6 +1748,18 @@ export const OPERATION_DESCRIPTORS = {
   getRoute: {
     method: "GET",
     path: "/v2/accounts/{account_id}/routes/{route_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "route_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -1335,6 +1788,18 @@ export const OPERATION_DESCRIPTORS = {
   updateRoute: {
     method: "PUT",
     path: "/v2/accounts/{account_id}/routes/{route_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "route_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -1367,6 +1832,18 @@ export const OPERATION_DESCRIPTORS = {
   deleteRoute: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/routes/{route_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "route_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -1395,62 +1872,83 @@ export const OPERATION_DESCRIPTORS = {
   getWebhooks: {
     method: "GET",
     path: "/v2/accounts/{account_id}/webhooks",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "enabled",
         required: false,
+        format: null,
       },
       {
         name: "on_reception",
         required: false,
+        format: null,
       },
       {
         name: "on_delivered",
         required: false,
+        format: null,
       },
       {
         name: "on_transient_error",
         required: false,
+        format: null,
       },
       {
         name: "on_failed",
         required: false,
+        format: null,
       },
       {
         name: "on_bounced",
         required: false,
+        format: null,
       },
       {
         name: "on_suppressed",
         required: false,
+        format: null,
       },
       {
         name: "on_opened",
         required: false,
+        format: null,
       },
       {
         name: "on_clicked",
         required: false,
+        format: null,
       },
       {
         name: "on_suppression_created",
         required: false,
+        format: null,
       },
       {
         name: "on_dns_error",
         required: false,
+        format: null,
       },
       {
         name: "limit",
         required: false,
+        format: null,
       },
       {
         name: "after",
         required: false,
+        format: null,
       },
       {
         name: "before",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -1479,6 +1977,13 @@ export const OPERATION_DESCRIPTORS = {
   createWebhook: {
     method: "POST",
     path: "/v2/accounts/{account_id}/webhooks",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -1511,6 +2016,18 @@ export const OPERATION_DESCRIPTORS = {
   getWebhook: {
     method: "GET",
     path: "/v2/accounts/{account_id}/webhooks/{webhook_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "webhook_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -1539,6 +2056,18 @@ export const OPERATION_DESCRIPTORS = {
   updateWebhook: {
     method: "PUT",
     path: "/v2/accounts/{account_id}/webhooks/{webhook_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "webhook_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -1574,6 +2103,18 @@ export const OPERATION_DESCRIPTORS = {
   deleteWebhook: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/webhooks/{webhook_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "webhook_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -1602,18 +2143,28 @@ export const OPERATION_DESCRIPTORS = {
   getSMTPCredentials: {
     method: "GET",
     path: "/v2/accounts/{account_id}/smtp-credentials",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "limit",
         required: false,
+        format: null,
       },
       {
         name: "after",
         required: false,
+        format: null,
       },
       {
         name: "before",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -1642,6 +2193,13 @@ export const OPERATION_DESCRIPTORS = {
   createSMTPCredential: {
     method: "POST",
     path: "/v2/accounts/{account_id}/smtp-credentials",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: {
       required: true,
@@ -1674,6 +2232,18 @@ export const OPERATION_DESCRIPTORS = {
   getSMTPCredential: {
     method: "GET",
     path: "/v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "smtp_credential_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -1702,6 +2272,18 @@ export const OPERATION_DESCRIPTORS = {
   deleteSMTPCredential: {
     method: "DELETE",
     path: "/v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "smtp_credential_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [],
     body: null,
     success: [
@@ -1730,30 +2312,43 @@ export const OPERATION_DESCRIPTORS = {
   getDeliverabilityStatistics: {
     method: "GET",
     path: "/v2/accounts/{account_id}/statistics/transactional/deliverability",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "from_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "to_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "sender_domain",
         required: false,
+        format: null,
       },
       {
         name: "recipient_domains",
         required: false,
+        format: null,
       },
       {
         name: "tags",
         required: false,
+        format: null,
       },
       {
         name: "group_by",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -1781,30 +2376,43 @@ export const OPERATION_DESCRIPTORS = {
   getBounceStatistics: {
     method: "GET",
     path: "/v2/accounts/{account_id}/statistics/transactional/bounce",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "from_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "to_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "sender_domain",
         required: false,
+        format: null,
       },
       {
         name: "recipient_domains",
         required: false,
+        format: null,
       },
       {
         name: "tags",
         required: false,
+        format: null,
       },
       {
         name: "group_by",
         required: false,
+        format: null,
       },
     ],
     body: null,
@@ -1832,30 +2440,43 @@ export const OPERATION_DESCRIPTORS = {
   getDeliveryTimeStatistics: {
     method: "GET",
     path: "/v2/accounts/{account_id}/statistics/transactional/delivery-time",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
     query: [
       {
         name: "from_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "to_time",
         required: false,
+        format: "date-time",
       },
       {
         name: "sender_domain",
         required: false,
+        format: null,
       },
       {
         name: "recipient_domains",
         required: false,
+        format: null,
       },
       {
         name: "tags",
         required: false,
+        format: null,
       },
       {
         name: "group_by",
         required: false,
+        format: null,
       },
     ],
     body: null,
