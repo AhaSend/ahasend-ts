@@ -724,7 +724,7 @@ function conditionalType(schema, enclosingSchemaValue, level) {
   return `((${matching}) | (${alternate}))`;
 }
 
-function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
+export function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
   if (schemaValue === undefined) return "unknown";
   const schema = assertRecord(schemaValue, "schema");
   if (typeof schema.$ref === "string") return referenceType(schema.$ref);
@@ -766,7 +766,12 @@ function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
   if (schema.type === "string") return "string";
   if (schema.type === "integer" || schema.type === "number") return "number";
   if (schema.type === "boolean") return "boolean";
-  if (schema.type === "array") return `Array<${schemaType(schema.items, level + 1)}>`;
+  if (schema.type === "array") {
+    const itemType = schemaType(schema.items, level + 1);
+    return schema.minItems === 1
+      ? `readonly [${itemType}, ...Array<${itemType}>]`
+      : `Array<${itemType}>`;
+  }
 
   if (
     schema.type === "object" ||

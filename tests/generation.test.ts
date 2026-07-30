@@ -8,6 +8,7 @@ import {
   AUTHORIZATION_REGISTRY,
   dereferenceResponse,
   generateSdkArtifacts,
+  schemaType,
   validateAuthorizationRegistry,
   validateOperationProfile,
 } from "../scripts/generate-sdk.mjs";
@@ -144,7 +145,7 @@ describe("SDK artifact generation", () => {
       name: string;
       url: string;
       scope: "scoped";
-      domains: string[];
+      domains: [string];
     }>().toExtend<WireSchemas["CreateWebhookRequest"]>();
     expectTypeOf<{
       name: string;
@@ -159,12 +160,27 @@ describe("SDK artifact generation", () => {
     expectTypeOf<{
       name: string;
       scope: "scoped";
-      domains: string[];
+      domains: [string];
     }>().toExtend<WireSchemas["CreateSMTPCredentialRequest"]>();
     expectTypeOf<{
       name: string;
       scope: "global";
     }>().toExtend<WireSchemas["CreateSMTPCredentialRequest"]>();
+  });
+
+  it("emits readonly non-empty tuples for arrays with minItems one", () => {
+    expect(schemaType({ type: "array", items: { type: "string" }, minItems: 1 })).toBe(
+      "readonly [string, ...Array<string>]",
+    );
+    expect(schemaType({ type: "array", items: { type: "string" } })).toBe("Array<string>");
+
+    expectTypeOf<WireSchemas["CreateAPIKeyRequest"]["scopes"]>().toEqualTypeOf<
+      readonly [string, ...string[]]
+    >();
+    expectTypeOf<readonly [{ email: string }]>().toExtend<
+      WireSchemas["CreateMessageRequest"]["recipients"]
+    >();
+    expectTypeOf<readonly []>().not.toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
   });
 
   it("generates JSON bodies for referenced 409 and 422 operation responses", () => {
