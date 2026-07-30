@@ -147,6 +147,10 @@ export function fastifyWebhookHandler(
         completeFastify(reply, 413, adapterOptions.onError);
         return;
       }
+      if (error instanceof ParsedFastifyBodyError) {
+        completeFastify(reply, 400, adapterOptions.onError);
+        return;
+      }
       observeError(adapterOptions.onError, error, "fastify", "setup");
       throw error;
     }
@@ -221,6 +225,8 @@ interface NormalizedAdapterOptions {
 }
 
 class BodyTooLargeError extends Error {}
+
+class ParsedFastifyBodyError extends Error {}
 
 class NodeStreamError extends Error {
   constructor(readonly originalCause: unknown) {
@@ -317,6 +323,11 @@ function pickFastifyRawBody(request: NodeStyleRequest, maxBodyBytes: number): st
   if (typeof request.body === "string" || Buffer.isBuffer(request.body)) {
     assertBodyWithinLimit(request.body, maxBodyBytes);
     return request.body;
+  }
+  if (request.body !== undefined) {
+    throw new ParsedFastifyBodyError(
+      "Raw webhook body unavailable: enable Fastify raw-body capture.",
+    );
   }
   throw new Error("Raw webhook body unavailable: enable Fastify raw-body capture.");
 }

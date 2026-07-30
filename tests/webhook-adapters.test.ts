@@ -356,6 +356,19 @@ describe("fastifyWebhookHandler", () => {
     expect(reply.payload).toBeUndefined();
   });
 
+  it("returns opaque 400 without dispatching when a parsed body has no rawBody", async () => {
+    const handler = vi.fn();
+    const route = fastifyWebhookHandler(new WebhookVerifier(SECRET), handler);
+    const reply = new MockFastifyReply();
+
+    await route({ headers: signEnvelope(eventBody), body: JSON.parse(eventBody) }, reply);
+
+    expect(reply.status).toBe(400);
+    expect(reply.sent).toBe(true);
+    expect(reply.payload).toBeUndefined();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("enforces default and configured body ceilings", async () => {
     for (const [body, options] of [
       [Buffer.alloc(1_048_577), undefined],
