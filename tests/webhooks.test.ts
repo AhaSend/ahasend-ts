@@ -37,7 +37,13 @@ const ROOT = process.cwd();
 const OPENAPI_SOURCE = readFileSync(resolve(ROOT, "openapi.yaml"), "utf8");
 const WEBHOOK_SOURCE = readFileSync(resolve(ROOT, "webhooks.yaml"), "utf8");
 const CAPTURED_PATH = resolve(ROOT, "contracts/webhooks/captured");
+const SYNTHETIC_PATH = resolve(ROOT, "contracts/webhooks/synthetic");
 const OPTIONAL_WEBHOOK_ID = "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1";
+const IS_BOT_FIXTURE_EXPECTATIONS = new Map<string, boolean | "absent">([
+  ["message-opened-bot-true", true],
+  ["message-clicked-bot-false", false],
+  ["message-opened-bot-absent", "absent"],
+]);
 const CONFIGURED_WEBHOOK_BODIES = [
   {
     type: "message.delivered",
@@ -639,6 +645,65 @@ describe("WebhookVerifier", () => {
       for (const bodyPayload of [payload, { ...payload, webhook_id: OPTIONAL_WEBHOOK_ID }]) {
         const { headers, body } = buildEnvelope(SECRET, bodyPayload);
         expect(verifier.parse(headers, body)).toEqual(bodyPayload);
+      }
+    }
+  });
+
+  it("validates every signed synthetic body and preserves is_bot compatibility cases", () => {
+    const manifest = JSON.parse(readFileSync(resolve(SYNTHETIC_PATH, "manifest.json"), "utf8")) as {
+      fixtures: Array<{
+        fixtureId: string;
+        bodyPath: string;
+        rawBodySha256: string;
+        keyPath: string;
+        keySha256: string;
+        webhookId: string;
+        webhookTimestamp: string;
+        signature: string;
+        expectedResult: "valid";
+      }>;
+    };
+
+    expect(
+      manifest.fixtures
+        .map(({ fixtureId }) => fixtureId)
+        .filter((fixtureId) => IS_BOT_FIXTURE_EXPECTATIONS.has(fixtureId)),
+    ).toEqual([...IS_BOT_FIXTURE_EXPECTATIONS.keys()]);
+
+    for (const fixture of manifest.fixtures) {
+      const rawBody = readFileSync(resolve(ROOT, fixture.bodyPath));
+      const keyFile = readFileSync(resolve(ROOT, fixture.keyPath));
+      const key = keyFile.subarray(0, keyFile.length - 1);
+      const payload = JSON.parse(rawBody.toString("utf8")) as unknown;
+
+      expect(sha256Hex(rawBody), fixture.fixtureId).toBe(fixture.rawBodySha256);
+      expect(sha256Hex(key), fixture.fixtureId).toBe(fixture.keySha256);
+      expect(
+        sign(key.toString("utf8"), fixture.webhookId, fixture.webhookTimestamp, rawBody),
+        fixture.fixtureId,
+      ).toBe(fixture.signature);
+      expect(validateKnownWebhookEvent(payload), fixture.fixtureId).toBe(true);
+
+      const event = new WebhookVerifier(key.toString("utf8"), {
+        nowMs: () => Number(fixture.webhookTimestamp) * 1000,
+      }).parse(
+        {
+          "webhook-id": fixture.webhookId,
+          "webhook-timestamp": fixture.webhookTimestamp,
+          "webhook-signature": fixture.signature,
+        },
+        rawBody,
+      );
+      expect(event, fixture.fixtureId).toEqual(payload);
+
+      const expectedIsBot = IS_BOT_FIXTURE_EXPECTATIONS.get(fixture.fixtureId);
+      if (expectedIsBot !== undefined) {
+        const data = record(event.data);
+        if (expectedIsBot === "absent") {
+          expect(Object.hasOwn(data, "is_bot"), fixture.fixtureId).toBe(false);
+        } else {
+          expect(data["is_bot"], fixture.fixtureId).toBe(expectedIsBot);
+        }
       }
     }
   });

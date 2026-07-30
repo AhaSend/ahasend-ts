@@ -7,6 +7,7 @@ import {
   type DomainDNSErrorEvent,
   type MessageClickedEvent,
   type MessageDeliveredEvent,
+  type MessageOpenedEvent,
   type MessageRoutingEvent,
   type SuppressionCreatedEvent,
   type WebhookEvent,
@@ -63,6 +64,58 @@ describe("webhook public types", () => {
 
     expectTypeOf<IsOptional<MessageRoutingEvent, "route_id">>().toEqualTypeOf<false>();
     expectTypeOf<MessageRoutingEvent["route_id"]>().toEqualTypeOf<string>();
+  });
+
+  it("declares opened and clicked is_bot fields as optional booleans", () => {
+    expectTypeOf<IsOptional<MessageOpenedEvent["data"], "is_bot">>().toEqualTypeOf<true>();
+    expectTypeOf<MessageOpenedEvent["data"]["is_bot"]>().toEqualTypeOf<boolean | undefined>();
+    expectTypeOf<{
+      account_id: string;
+      event: "on_opened";
+      from: string;
+      recipient: string;
+      subject: string;
+      message_id_header: string;
+      id: string;
+    }>().toExtend<MessageOpenedEvent["data"]>();
+    expectTypeOf<{
+      account_id: string;
+      event: "on_opened";
+      from: string;
+      recipient: string;
+      subject: string;
+      message_id_header: string;
+      id: string;
+      is_bot: true;
+    }>().toExtend<MessageOpenedEvent["data"]>();
+
+    expectTypeOf<IsOptional<MessageClickedEvent["data"], "is_bot">>().toEqualTypeOf<true>();
+    expectTypeOf<MessageClickedEvent["data"]["is_bot"]>().toEqualTypeOf<boolean | undefined>();
+    expectTypeOf<{
+      account_id: string;
+      event: "on_clicked";
+      from: string;
+      recipient: string;
+      subject: string;
+      message_id_header: string;
+      url: string;
+      user_agent: string;
+      ip: string;
+      id: string;
+    }>().toExtend<MessageClickedEvent["data"]>();
+    expectTypeOf<{
+      account_id: string;
+      event: "on_clicked";
+      from: string;
+      recipient: string;
+      subject: string;
+      message_id_header: string;
+      url: string;
+      user_agent: string;
+      ip: string;
+      id: string;
+      is_bot: false;
+    }>().toExtend<MessageClickedEvent["data"]>();
   });
 
   it("exposes the exact closed verification-reason union", () => {
