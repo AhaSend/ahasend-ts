@@ -421,7 +421,7 @@ describe("captured webhook evidence", () => {
 
     await expect(validateWebhookEvidence(process.cwd())).resolves.toMatchObject({
       captureCount: 2,
-      syntheticCount: 1,
+      syntheticCount: 4,
     });
   });
 
@@ -625,7 +625,7 @@ describe("synthetic webhook fixtures", () => {
   it("validates independently and stays outside captured evidence", () => {
     const captures = capturedManifest.captures as JsonRecord[];
     const fixtures = syntheticManifest.fixtures as JsonRecord[];
-    expect(fixtures).toHaveLength(1);
+    expect(fixtures).toHaveLength(4);
     expect(captures.every((capture) => !(capture.bodyPath as string).includes("/synthetic/"))).toBe(
       true,
     );
