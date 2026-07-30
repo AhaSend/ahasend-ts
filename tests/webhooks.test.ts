@@ -37,6 +37,62 @@ const ROOT = process.cwd();
 const OPENAPI_SOURCE = readFileSync(resolve(ROOT, "openapi.yaml"), "utf8");
 const WEBHOOK_SOURCE = readFileSync(resolve(ROOT, "webhooks.yaml"), "utf8");
 const CAPTURED_PATH = resolve(ROOT, "contracts/webhooks/captured");
+const OPTIONAL_WEBHOOK_ID = "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1";
+const CONFIGURED_WEBHOOK_BODIES = [
+  {
+    type: "message.delivered",
+    timestamp: "2026-07-14T15:03:21.987654321Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      event: "on_delivered",
+      from: "sender@example.com",
+      recipient: "receiver@example.com",
+      subject: "Test",
+      message_id_header: "<delivery@example.com>",
+      id: "message-1",
+    },
+  },
+  {
+    type: "message.clicked",
+    timestamp: "2026-07-14T15:03:22Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      event: "on_clicked",
+      from: "sender@example.com",
+      recipient: "receiver@example.com",
+      subject: "Test",
+      message_id_header: "<clicked@example.com>",
+      url: "https://example.com/clicked",
+      user_agent: "AhaSend test",
+      ip: "192.0.2.1",
+      id: "message-2",
+    },
+  },
+  {
+    type: "suppression.created",
+    timestamp: "2026-07-14T15:03:23Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      recipient: "receiver@example.com",
+      created_at: "2026-07-14T15:03:23Z",
+      expires_at: "2026-08-13T15:03:23Z",
+      reason: "Too many hard bounces",
+      sending_domain: "example.com",
+    },
+  },
+  {
+    type: "domain.dns_error",
+    timestamp: "2026-07-14T15:03:24Z",
+    data: {
+      domain: "example.com",
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      spf_valid: true,
+      dkim_valid: false,
+      dmarc_valid: true,
+      dns_last_checked_at: "2026-07-14T15:03:24Z",
+    },
+  },
+] as const;
 
 function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -158,6 +214,16 @@ describe("generated webhook schema", () => {
     const withoutUrl = structuredClone(clicked);
     Reflect.deleteProperty(withoutUrl.data, "url");
     expect(validateKnownWebhookEvent(withoutUrl)).toBe(false);
+  });
+
+  it("accepts configured-webhook envelopes with absent or present body webhook IDs", () => {
+    for (const payload of CONFIGURED_WEBHOOK_BODIES) {
+      expect(validateKnownWebhookEvent(payload), `${payload.type} without webhook_id`).toBe(true);
+      expect(
+        validateKnownWebhookEvent({ ...payload, webhook_id: OPTIONAL_WEBHOOK_ID }),
+        `${payload.type} with webhook_id`,
+      ).toBe(true);
+    }
   });
 
   it("validates RFC 3339 date-times and the complete UUID format", () => {
@@ -295,6 +361,19 @@ describe("generated webhook schema", () => {
 
     expect(validateKnownWebhookEvent(routing)).toBe(true);
     expect(validateKnownWebhookEvent({ ...routing, type: "route.message" })).toBe(true);
+    for (const from of [
+      "sender@example.com",
+      "<sender@example.com>",
+      '"AhaSend Support" <sender@example.com>',
+      "Dörte Beispiel <sender@example.com>",
+    ]) {
+      expect(validateKnownWebhookEvent({ ...routing, data: { ...routing.data, from } }), from).toBe(
+        true,
+      );
+    }
+    const withoutRouteId = structuredClone(routing);
+    Reflect.deleteProperty(withoutRouteId, "route_id");
+    expect(validateKnownWebhookEvent(withoutRouteId)).toBe(false);
     expect(
       validateKnownWebhookEvent({
         ...routing,
@@ -550,6 +629,17 @@ describe("WebhookVerifier", () => {
     expect(isKnownWebhookEvent(event)).toBe(true);
     if (isKnownWebhookEvent(event) && event.type === "message.delivered") {
       expect(event.data.recipient).toBe("receiver@example.com");
+    }
+  });
+
+  it("parses signed configured-webhook bodies with absent or present webhook IDs", () => {
+    const verifier = new WebhookVerifier(SECRET);
+
+    for (const payload of CONFIGURED_WEBHOOK_BODIES) {
+      for (const bodyPayload of [payload, { ...payload, webhook_id: OPTIONAL_WEBHOOK_ID }]) {
+        const { headers, body } = buildEnvelope(SECRET, bodyPayload);
+        expect(verifier.parse(headers, body)).toEqual(bodyPayload);
+      }
     }
   });
 

@@ -44,7 +44,7 @@ const EVENT_SCHEMAS = {
 const SCHEMAS = {
   MessageWebhookPayload: {
     type: "object",
-    required: ["type", "webhook_id", "timestamp", "data"],
+    required: ["type", "timestamp", "data"],
     properties: {
       type: {
         type: "string",
@@ -185,6 +185,10 @@ const SCHEMAS = {
         type: "string",
         enum: ["message.clicked"],
       },
+      webhook_id: {
+        type: "string",
+        format: "uuid",
+      },
       timestamp: {
         type: "string",
         format: "date-time",
@@ -304,6 +308,10 @@ const SCHEMAS = {
         type: "string",
         enum: ["suppression.created"],
       },
+      webhook_id: {
+        type: "string",
+        format: "uuid",
+      },
       timestamp: {
         type: "string",
         format: "date-time",
@@ -343,7 +351,7 @@ const SCHEMAS = {
   },
   DomainWebhookPayload: {
     type: "object",
-    required: ["type", "timestamp", "webhook_id", "data"],
+    required: ["type", "timestamp", "data"],
     properties: {
       type: {
         type: "string",
@@ -435,7 +443,6 @@ const SCHEMAS = {
       },
       from: {
         type: "string",
-        format: "email",
       },
       reply_to: {
         type: "string",

@@ -3,7 +3,7 @@
 export const OPENAPI_SHA256 =
   "eb082902b8f8a01083638e44a52fb41e1a321ceeca17869cf819dafa34c75461" as const;
 export const WEBHOOK_SHA256 =
-  "cf98c7a0ea3cca3fa8b93c1d19440eb1a4eeafb33c8079373ed5083ecc77587b" as const;
+  "1254605be0a93729973e1fcc4db80091260d630adecfafdd1207747af3d8a5f8" as const;
 export const OPERATION_PROFILE_SHA256 =
   "295f7e16604a165ca2b6cc709b3c0fd3b2055fbefddd627b76d7810a9ae2bac3" as const;
 
