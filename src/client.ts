@@ -48,7 +48,7 @@ export interface PingResponse {
  * to keep the bearer key out of front-end bundles. One client maps to
  * one account; instantiate multiple clients for multi-account tooling.
  *
- * Retries (with backoff + `Retry-After`), three-bucket rate limiting,
+ * Retries (with backoff + `Retry-After`), opt-in two-bucket rate limiting,
  * and automatic idempotency keys on create operations are built in and
  * configurable via {@link AhaSendClientOptions}.
  */
