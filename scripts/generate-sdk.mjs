@@ -364,6 +364,34 @@ function schemaNameFromReference(reference) {
     : undefined;
 }
 
+function responseNameFromReference(reference) {
+  const prefix = "#/components/responses/";
+  return typeof reference === "string" && reference.startsWith(prefix)
+    ? reference.slice(prefix.length)
+    : undefined;
+}
+
+export function dereferenceResponse(document, value) {
+  let response = assertRecord(value, "operation response");
+  const references = new Set();
+  while (response.$ref !== undefined) {
+    const reference = response.$ref;
+    const name = responseNameFromReference(reference);
+    if (name === undefined) {
+      throw new TypeError(`Unsupported response reference ${JSON.stringify(reference)}`);
+    }
+    if (references.has(reference)) {
+      throw new TypeError(`Circular response reference ${JSON.stringify(reference)}`);
+    }
+    references.add(reference);
+    response = assertRecord(
+      assertRecord(assertRecord(document.components, "components").responses, "responses")[name],
+      name,
+    );
+  }
+  return response;
+}
+
 function operationParameters(pathItem, operation) {
   return [
     ...(Array.isArray(pathItem.parameters) ? pathItem.parameters : []),
@@ -816,7 +844,7 @@ function operationType(document, entry) {
   for (const [status, responseValue] of Object.entries(
     assertRecord(entry.operation.responses, "responses"),
   )) {
-    const response = assertRecord(responseValue, `${entry.operationId} response ${status}`);
+    const response = dereferenceResponse(document, responseValue);
     const content = response.content;
     if (content === undefined) lines.push(`      ${propertyName(status)}: { content?: never };`);
     else {
@@ -1371,13 +1399,13 @@ function bodyFact(operation) {
   };
 }
 
-function successFacts(operation) {
+function successFacts(document, operation) {
   const facts = [];
   for (const [status, responseValue] of Object.entries(
     assertRecord(operation.responses, "responses"),
   )) {
     if (!/^2\d\d$/.test(status)) continue;
-    const response = assertRecord(responseValue, `response ${status}`);
+    const response = dereferenceResponse(document, responseValue);
     const content = response.content;
     let schema = null;
     if (content !== undefined) {
@@ -1418,7 +1446,7 @@ function generateOperations(document, operations) {
       path: entry.path,
       query,
       body: bodyFact(entry.operation),
-      success: successFacts(entry.operation),
+      success: successFacts(document, entry.operation),
       idempotency,
       retry: retryMode(entry.method, idempotency),
       security: securityAlternatives(entry.operation, document),

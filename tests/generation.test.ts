@@ -6,6 +6,7 @@ import { digestJsonArtifact } from "../scripts/digest-artifact.mjs";
 import { collectOperations, parseOpenApi } from "../scripts/generate-contracts.mjs";
 import {
   AUTHORIZATION_REGISTRY,
+  dereferenceResponse,
   generateSdkArtifacts,
   validateAuthorizationRegistry,
   validateOperationProfile,
@@ -18,10 +19,11 @@ import {
 } from "../src/generated/contract-digests.js";
 import { OPERATION_DESCRIPTORS, RESOURCE_AUTHORIZATION } from "../src/generated/operations.js";
 import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
-import type { components } from "../src/generated/rest-types.js";
+import type { components, operations } from "../src/generated/rest-types.js";
 
 type JsonRecord = Record<string, unknown>;
 type WireSchemas = components["schemas"];
+type WireOperations = operations;
 
 const root = process.cwd();
 const openApiSource = readFileSync(resolve(root, "openapi.yaml"), "utf8");
@@ -134,6 +136,32 @@ describe("SDK artifact generation", () => {
       name: string;
       scope: "global";
     }>().toExtend<WireSchemas["CreateSMTPCredentialRequest"]>();
+  });
+
+  it("generates JSON bodies for referenced 409 and 422 operation responses", () => {
+    expectTypeOf<WireOperations["createAPIKey"]["responses"]["409"]["content"]>().toEqualTypeOf<{
+      "application/json": WireSchemas["ErrorResponse"];
+    }>();
+    expectTypeOf<WireOperations["createAPIKey"]["responses"]["422"]["content"]>().toEqualTypeOf<{
+      "application/json": WireSchemas["ErrorResponse"];
+    }>();
+  });
+
+  it("rejects cycles while traversing component response references", () => {
+    const cyclicDocument = {
+      components: {
+        responses: {
+          First: { $ref: "#/components/responses/Second" },
+          Second: { $ref: "#/components/responses/First" },
+        },
+      },
+    };
+
+    expect(() =>
+      dereferenceResponse(cyclicDocument, {
+        $ref: "#/components/responses/First",
+      }),
+    ).toThrow(/Circular response reference "#\/components\/responses\/First"/);
   });
 
   it("emits the eight closed resource-authorization rule shapes", () => {
