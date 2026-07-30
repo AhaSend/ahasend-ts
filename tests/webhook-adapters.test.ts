@@ -13,7 +13,7 @@ import {
   type WebhookAdapterOptions,
 } from "../src/webhooks/adapters.js";
 import type { AnyWebhookEvent, MessageDeliveredEvent } from "../src/webhooks/events.js";
-import { WebhookVerifier } from "../src/webhooks/verifier.js";
+import { MAX_WEBHOOK_BODY_BYTES, WebhookVerifier } from "../src/webhooks/verifier.js";
 
 const SECRET = "aha-whsec-local-test-secret-please-rotate";
 
@@ -129,9 +129,25 @@ describe("shared webhook adapter options", () => {
     expect(nextRouteHandler(verifier, vi.fn(), options)).toBeTypeOf("function");
   });
 
-  it("rejects non-positive and non-integer body limits consistently", () => {
+  it("accepts body limits from 1 through the fixed ceiling consistently", () => {
     const verifier = new WebhookVerifier(SECRET);
-    for (const maxBodyBytes of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const maxBodyBytes of [1, 1024, MAX_WEBHOOK_BODY_BYTES]) {
+      expect(() => expressWebhookHandler(verifier, vi.fn(), { maxBodyBytes })).not.toThrow();
+      expect(() => fastifyWebhookHandler(verifier, vi.fn(), { maxBodyBytes })).not.toThrow();
+      expect(() => nextRouteHandler(verifier, vi.fn(), { maxBodyBytes })).not.toThrow();
+    }
+  });
+
+  it("rejects non-integer, out-of-range, and ceiling-raising body limits consistently", () => {
+    const verifier = new WebhookVerifier(SECRET);
+    for (const maxBodyBytes of [
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      MAX_WEBHOOK_BODY_BYTES + 1,
+    ]) {
       expect(() => expressWebhookHandler(verifier, vi.fn(), { maxBodyBytes })).toThrow(TypeError);
       expect(() => fastifyWebhookHandler(verifier, vi.fn(), { maxBodyBytes })).toThrow(TypeError);
       expect(() => nextRouteHandler(verifier, vi.fn(), { maxBodyBytes })).toThrow(TypeError);
@@ -175,12 +191,12 @@ describe("expressWebhookHandler", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it("enforces the 1048576-byte default for preloaded bodies", async () => {
+  it("defaults to the fixed 30,000,000-byte ceiling for preloaded bodies", async () => {
     const middleware = expressWebhookHandler(new WebhookVerifier(SECRET), vi.fn());
     const res = new MockExpressRes();
     const next = vi.fn();
 
-    await middleware({ headers: {}, rawBody: Buffer.alloc(1_048_577) }, res, next);
+    await middleware({ headers: {}, rawBody: Buffer.alloc(MAX_WEBHOOK_BODY_BYTES + 1) }, res, next);
 
     expect(res.statusCode).toBe(413);
     expect(res.body).toBeUndefined();
@@ -371,7 +387,7 @@ describe("fastifyWebhookHandler", () => {
 
   it("enforces default and configured body ceilings", async () => {
     for (const [body, options] of [
-      [Buffer.alloc(1_048_577), undefined],
+      [Buffer.alloc(MAX_WEBHOOK_BODY_BYTES + 1), undefined],
       ["12345", { maxBodyBytes: 4 }],
     ] as const) {
       const route = fastifyWebhookHandler(new WebhookVerifier(SECRET), vi.fn(), options);
@@ -473,7 +489,7 @@ describe("nextRouteHandler", () => {
 
   it("enforces default and configured byte ceilings with opaque 413 responses", async () => {
     for (const [body, options] of [
-      [Buffer.alloc(1_048_577), undefined],
+      [Buffer.alloc(MAX_WEBHOOK_BODY_BYTES + 1), undefined],
       ["€€", { maxBodyBytes: 5 }],
     ] as const) {
       const route = nextRouteHandler(new WebhookVerifier(SECRET), vi.fn(), options);

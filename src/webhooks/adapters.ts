@@ -17,6 +17,10 @@ export interface WebhookAdapterErrorContext {
 
 /** Options shared by every framework adapter. */
 export interface WebhookAdapterOptions {
+  /**
+   * Maximum raw body bytes to buffer. Defaults to the fixed 30,000,000-byte
+   * verifier ceiling and may only narrow that ceiling.
+   */
   maxBodyBytes?: number;
   onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
 }
@@ -69,9 +73,11 @@ export type NextHandler = (
 ) => Response | Promise<Response>;
 
 /**
- * Express middleware. Captures the raw request body (or reuses `req.rawBody`
- * if already populated by `express.raw()`), verifies the AhaSend signature,
- * parses the typed event, and dispatches to your handler.
+ * Express middleware. Mount directly so it can buffer the unconsumed raw
+ * request stream. It can also reuse raw bytes already provided as a string or
+ * Buffer in `req.rawBody` or `req.body`; a parsed object cannot be verified.
+ * Verifies the AhaSend signature, parses the typed event, and dispatches to
+ * your handler.
  */
 export function expressWebhookHandler(
   verifier: WebhookVerifier,
@@ -128,8 +134,9 @@ export function expressWebhookHandler(
 }
 
 /**
- * Fastify handler. Requires the route (or the global plugin) to be configured
- * with `rawBody: true` so that the request body is available unparsed.
+ * Fastify handler. Requires the route (or the global plugin) to capture the
+ * authentic bytes in `request.rawBody`, typically by configuring
+ * `rawBody: true`. A parsed object in `request.body` is not a substitute.
  */
 export function fastifyWebhookHandler(
   verifier: WebhookVerifier,
@@ -236,8 +243,14 @@ class NodeStreamError extends Error {
 
 function normalizeOptions(options: WebhookAdapterOptions): NormalizedAdapterOptions {
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-  if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) {
-    throw new TypeError("maxBodyBytes must be a positive safe integer");
+  if (
+    !Number.isInteger(maxBodyBytes) ||
+    maxBodyBytes < 1 ||
+    maxBodyBytes > MAX_WEBHOOK_BODY_BYTES
+  ) {
+    throw new TypeError(
+      `maxBodyBytes must be an integer from 1 through ${String(MAX_WEBHOOK_BODY_BYTES)}`,
+    );
   }
   return { maxBodyBytes, onError: options.onError };
 }

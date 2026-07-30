@@ -15,7 +15,7 @@ export const WEBHOOK_TIMESTAMP_HEADER = "webhook-timestamp";
 export const WEBHOOK_SIGNATURE_HEADER = "webhook-signature";
 
 export const DEFAULT_TOLERANCE_SECONDS = 5 * 60;
-export const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
+export const MAX_WEBHOOK_BODY_BYTES = 30_000_000;
 
 export interface WebhookVerifierOptions {
   toleranceSeconds?: number;
