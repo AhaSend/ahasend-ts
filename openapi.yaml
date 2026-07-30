@@ -3787,6 +3787,7 @@ paths:
           description: Domain name
           schema:
             type: string
+            format: hostname
       security:
         - BearerAuth: ["domains:read"]
       x-code-samples:
@@ -3917,6 +3918,7 @@ paths:
           description: Domain name
           schema:
             type: string
+            format: hostname
       security:
         - BearerAuth: ["domains:write"]
       x-code-samples:
@@ -4064,6 +4066,7 @@ paths:
           description: Domain name
           schema:
             type: string
+            format: hostname
       security:
         - BearerAuth: ["domains:delete:{domain}"]
         - BearerAuth: ["domains:delete:all"]
@@ -4201,6 +4204,7 @@ paths:
           description: Domain name
           schema:
             type: string
+            format: hostname
       security:
         - BearerAuth: ["domains:write"]
       x-code-samples:
