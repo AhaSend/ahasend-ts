@@ -73,6 +73,35 @@ describe("SDK artifact generation", () => {
     expect(OPERATION_PROFILE.iterators).toHaveLength(9);
   });
 
+  it("preserves hostname metadata for every domain path parameter", () => {
+    const domainPathDescriptors = Object.entries(OPERATION_DESCRIPTORS)
+      .filter(([, descriptor]) => descriptor.path.includes("{domain}"))
+      .map(([operationId, descriptor]) => ({
+        operationId,
+        parameter: descriptor.pathParameters.find(({ name }) => name === "domain"),
+      }));
+
+    expect(domainPathDescriptors).toHaveLength(4);
+    expect(domainPathDescriptors).toEqual([
+      {
+        operationId: "getDomain",
+        parameter: { name: "domain", required: true, format: "hostname" },
+      },
+      {
+        operationId: "updateDomain",
+        parameter: { name: "domain", required: true, format: "hostname" },
+      },
+      {
+        operationId: "deleteDomain",
+        parameter: { name: "domain", required: true, format: "hostname" },
+      },
+      {
+        operationId: "checkDomainDNS",
+        parameter: { name: "domain", required: true, format: "hostname" },
+      },
+    ]);
+  });
+
   it("preserves inherited required fields in composed wire schemas", () => {
     expectTypeOf<{
       object: "message";

@@ -72,8 +72,8 @@ export interface DeliveryTimeStatisticsResponse {
  * Transactional sending analytics.
  *
  * Statistics endpoints are rate-limited far more aggressively than the
- * rest of the API (1 req/s vs 100 req/s) — the SDK's built-in limiter
- * paces these calls automatically.
+ * rest of the API (1 req/s vs 100 req/s). The SDK's opt-in limiter uses
+ * a dedicated statistics bucket to pace these calls when enabled.
  */
 export class StatisticsClient {
   readonly #operations: OperationExecutor;

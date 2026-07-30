@@ -35,7 +35,7 @@ export interface RequestOptions {
   idempotencyKey?: string;
   signal?: AbortSignal;
   /**
-   * Resource clients set this on the 9 spec-documented idempotency
+   * Resource clients set this on the 11 spec-documented idempotency
    * endpoints (every `create*` operation) so the transport layer will
    * inject an `Idempotency-Key` when the caller hasn't supplied one.
    * Other POSTs — notably `domains.checkDns()` and inbound webhook
