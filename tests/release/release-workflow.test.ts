@@ -7,6 +7,9 @@ const workflowSource = readFileSync(
   resolve(process.cwd(), ".github/workflows/release.yml"),
   "utf8",
 );
+const packageJson = JSON.parse(
+  readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
+) as Readonly<Record<string, unknown>>;
 const liveRunnerSource = readFileSync(
   resolve(process.cwd(), "scripts/run-live-acceptance.mjs"),
   "utf8",
@@ -42,7 +45,46 @@ function commands(job: unknown, label: string): string {
     .join("\n");
 }
 
+function expectAssertedNpmToolchain(job: unknown, label: string): void {
+  const steps = jobSteps(job, label);
+  const setupIndex = steps.findIndex((step) =>
+    String(step["uses"] ?? "").startsWith("actions/setup-node@"),
+  );
+  const install = steps[setupIndex + 1];
+  const verification = steps[setupIndex + 2];
+
+  expect(setupIndex, `${label} setup-node step`).toBeGreaterThanOrEqual(0);
+  expect(install, `${label} npm install step`).toMatchObject({
+    name: "Install asserted npm version",
+    run: "npm install --global npm@11.12.0",
+  });
+  expect(verification, `${label} npm version step`).toMatchObject({
+    name: "Verify asserted npm version",
+    run: 'test "$(npm --version)" = "11.12.0"',
+  });
+}
+
 describe("single-run release workflow", () => {
+  it("provisions the declared npm executable before every release job uses it", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+
+    expect(packageJson["packageManager"]).toBe("npm@11.12.0");
+    for (const jobName of [
+      "source-gate",
+      "candidate",
+      "artifact-gates",
+      "external-gates",
+      "live-gates",
+      "next-publish",
+      "registry-smoke",
+      "latest-promotion",
+      "github-release",
+      "release-compensation",
+    ]) {
+      expectAssertedNpmToolchain(jobs[jobName], jobName);
+    }
+  });
+
   it("starts from one final tag and advances through promotion before release", () => {
     const root = record(workflow, "workflow");
     const trigger = record(root["on"], "release trigger");
