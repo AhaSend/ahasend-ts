@@ -2898,9 +2898,9 @@ export interface PaginationMeta {
     // (undocumented)
     has_more: boolean;
     // (undocumented)
-    next_cursor?: string | null;
+    next_cursor?: string;
     // (undocumented)
-    previous_cursor?: string | null;
+    previous_cursor?: string;
 }
 
 // @public (undocumented)
