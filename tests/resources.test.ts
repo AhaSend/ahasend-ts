@@ -8,7 +8,7 @@ import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src
 import type { Account } from "../src/resources/accounts.js";
 // @ts-expect-error ListMembersParams is not part of the account resource surface.
 import type { ListMembersParams as RemovedListMembersParams } from "../src/resources/accounts.js";
-import type { Domain, ListDomainsParams } from "../src/resources/domains.js";
+import type { DNSRecord, Domain, ListDomainsParams } from "../src/resources/domains.js";
 // @ts-expect-error DomainRequestOptions was never released from the domain module.
 import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src/resources/domains.js";
 import type {
@@ -476,7 +476,14 @@ describe("MessagesClient", () => {
 });
 
 describe("DomainsClient", () => {
-  it("requires the nullable selector and keeps the request-options alias absent", () => {
+  it("matches authoritative Domain and DNSRecord response declarations", () => {
+    const dnsRecord: DNSRecord = {
+      type: "TXT",
+      host: "selector._domainkey.example.com",
+      content: "v=DKIM1; k=rsa; p=public-key",
+      required: true,
+      propagated: false,
+    };
     const domain: Domain = {
       object: "domain",
       id: "domain_1",
@@ -484,18 +491,32 @@ describe("DomainsClient", () => {
       updated_at: "2026-07-21T08:01:00Z",
       domain: "example.com",
       account_id: ACCOUNT_ID,
-      dns_records: [],
+      dns_records: [dnsRecord],
+      last_dns_check_at: null,
       dns_valid: true,
+      tracking_subdomain: null,
+      return_path_subdomain: null,
+      subscription_subdomain: null,
+      media_subdomain: null,
+      dkim_rotation_interval_days: null,
       dkim_selector: null,
+      rotation_ready: false,
+      dsn_recipient: null,
     };
-    const { dkim_selector: _selector, ...withoutSelector } = domain;
-    // @ts-expect-error dkim_selector is a required nullable response key.
-    const missingSelector: Domain = withoutSelector;
+    const { last_dns_check_at: _lastDnsCheckAt, ...withoutLastDnsCheckAt } = domain;
+    // @ts-expect-error last_dns_check_at is a required nullable response key.
+    const missingLastDnsCheckAt: Domain = withoutLastDnsCheckAt;
+    // @ts-expect-error rotation_ready is not nullable in the response schema.
+    const nullRotationReady: Domain = { ...domain, rotation_ready: null };
+    // @ts-expect-error DNS record labels are optional but cannot be null when present.
+    const nullDnsRecordLabel: DNSRecord = { ...dnsRecord, label: null };
 
-    expectTypeOf<Domain["dkim_selector"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Domain>().toEqualTypeOf<components["schemas"]["Domain"]>();
+    expectTypeOf<DNSRecord>().toEqualTypeOf<components["schemas"]["DNSRecord"]>();
     expectTypeOf<RemovedDomainRequestOptions>().toEqualTypeOf<RemovedDomainRequestOptions>();
-    expect(domain).toHaveProperty("dkim_selector", null);
-    void [missingSelector, _selector];
+    expect(domain.last_dns_check_at).toBeNull();
+    expect(dnsRecord).not.toHaveProperty("label");
+    void [missingLastDnsCheckAt, nullRotationReady, nullDnsRecordLabel, _lastDnsCheckAt];
   });
 
   it("create() dispatches createDomain with its body and idempotency key", async () => {

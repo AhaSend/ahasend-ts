@@ -220,6 +220,28 @@ describe("REST schema golden contracts", () => {
     expect(componentValidator(ajv, nullAbout.schema)(nullAbout.value)).toBe(false);
   });
 
+  it("enforces Domain and DNSRecord response requiredness and nullability", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const completeDomain = byId["domain-complete-nullable-fields-null"]!;
+    const missingLastDnsCheck = byId["domain-required-last-dns-check-omitted"]!;
+    const nullRotationReady = byId["domain-non-null-rotation-ready-null"]!;
+    const recordWithoutLabel = byId["dns-record-optional-label-omitted"]!;
+    const recordWithNullLabel = byId["dns-record-non-null-label-null"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, completeDomain.schema)(completeDomain.value)).toBe(true);
+    expect(componentValidator(ajv, missingLastDnsCheck.schema)(missingLastDnsCheck.value)).toBe(
+      false,
+    );
+    expect(componentValidator(ajv, nullRotationReady.schema)(nullRotationReady.value)).toBe(false);
+    expect(componentValidator(ajv, recordWithoutLabel.schema)(recordWithoutLabel.value)).toBe(true);
+    expect(componentValidator(ajv, recordWithNullLabel.schema)(recordWithNullLabel.value)).toBe(
+      false,
+    );
+  });
+
   it("enforces non-empty arrays where the authoritative schema declares minItems one", () => {
     const byId = Object.fromEntries(
       fixture.componentCases.map((testCase) => [testCase.id, testCase]),

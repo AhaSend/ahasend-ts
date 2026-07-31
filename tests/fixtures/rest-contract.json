@@ -93,6 +93,102 @@
       }
     },
     {
+      "id": "domain-complete-nullable-fields-null",
+      "schema": "Domain",
+      "valid": true,
+      "value": {
+        "object": "domain",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "domain": "example.com",
+        "account_id": "22222222-2222-4222-8222-222222222222",
+        "dns_records": [],
+        "last_dns_check_at": null,
+        "dns_valid": false,
+        "tracking_subdomain": null,
+        "return_path_subdomain": null,
+        "subscription_subdomain": null,
+        "media_subdomain": null,
+        "dkim_rotation_interval_days": null,
+        "dkim_selector": null,
+        "rotation_ready": false,
+        "dsn_recipient": null
+      }
+    },
+    {
+      "id": "domain-required-last-dns-check-omitted",
+      "schema": "Domain",
+      "valid": false,
+      "value": {
+        "object": "domain",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "domain": "example.com",
+        "account_id": "22222222-2222-4222-8222-222222222222",
+        "dns_records": [],
+        "dns_valid": false,
+        "tracking_subdomain": null,
+        "return_path_subdomain": null,
+        "subscription_subdomain": null,
+        "media_subdomain": null,
+        "dkim_rotation_interval_days": null,
+        "dkim_selector": null,
+        "rotation_ready": false,
+        "dsn_recipient": null
+      }
+    },
+    {
+      "id": "domain-non-null-rotation-ready-null",
+      "schema": "Domain",
+      "valid": false,
+      "value": {
+        "object": "domain",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "domain": "example.com",
+        "account_id": "22222222-2222-4222-8222-222222222222",
+        "dns_records": [],
+        "last_dns_check_at": null,
+        "dns_valid": false,
+        "tracking_subdomain": null,
+        "return_path_subdomain": null,
+        "subscription_subdomain": null,
+        "media_subdomain": null,
+        "dkim_rotation_interval_days": null,
+        "dkim_selector": null,
+        "rotation_ready": null,
+        "dsn_recipient": null
+      }
+    },
+    {
+      "id": "dns-record-optional-label-omitted",
+      "schema": "DNSRecord",
+      "valid": true,
+      "value": {
+        "type": "TXT",
+        "host": "selector._domainkey.example.com",
+        "content": "v=DKIM1; k=rsa; p=public-key",
+        "required": true,
+        "propagated": false
+      }
+    },
+    {
+      "id": "dns-record-non-null-label-null",
+      "schema": "DNSRecord",
+      "valid": false,
+      "value": {
+        "type": "TXT",
+        "label": null,
+        "host": "selector._domainkey.example.com",
+        "content": "v=DKIM1; k=rsa; p=public-key",
+        "required": true,
+        "propagated": false
+      }
+    },
+    {
       "id": "required-nullable-present-null-canary",
       "schema": "APIKey",
       "valid": true,

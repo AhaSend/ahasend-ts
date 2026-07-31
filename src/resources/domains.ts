@@ -20,7 +20,7 @@ export interface DNSRecord {
   content: string;
   required: boolean;
   propagated: boolean;
-  label?: string | null;
+  label?: string;
 }
 
 export interface Domain {
@@ -32,15 +32,15 @@ export interface Domain {
   account_id: UUID;
   dns_records: DNSRecord[];
   dns_valid: boolean;
-  last_dns_check_at?: ISODateTime | null;
-  tracking_subdomain?: string | null;
-  return_path_subdomain?: string | null;
-  subscription_subdomain?: string | null;
-  media_subdomain?: string | null;
-  dkim_rotation_interval_days?: number | null;
+  last_dns_check_at: ISODateTime | null;
+  tracking_subdomain: string | null;
+  return_path_subdomain: string | null;
+  subscription_subdomain: string | null;
+  media_subdomain: string | null;
+  dkim_rotation_interval_days: number | null;
   dkim_selector: string | null;
-  rotation_ready?: boolean;
-  dsn_recipient?: string | null;
+  rotation_ready: boolean;
+  dsn_recipient: string | null;
 }
 
 export type ListDomainsParams = PaginationParams & {
