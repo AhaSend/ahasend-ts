@@ -3149,32 +3149,33 @@ export type RetryStrategy = "exponential" | "linear" | "constant";
 // @public (undocumented)
 export interface Route {
     // (undocumented)
-    attachments?: boolean;
+    attachments: boolean;
     // (undocumented)
     created_at: ISODateTime;
     // (undocumented)
     enabled: boolean;
     // (undocumented)
-    error_count?: number;
+    error_count: number;
     // (undocumented)
-    errors_since_last_success?: number;
+    errors_since_last_success: number;
     // (undocumented)
-    group_by_message_id?: boolean;
+    group_by_message_id: boolean;
     // (undocumented)
-    headers?: boolean;
+    headers: boolean;
     // (undocumented)
     id: UUID;
     // (undocumented)
-    last_request_at?: ISODateTime | null;
+    last_request_at: ISODateTime | null;
     // (undocumented)
     name: string;
     // (undocumented)
     object: "route";
-    recipient?: string | null;
     // (undocumented)
-    strip_replies?: boolean;
+    recipient: string;
     // (undocumented)
-    success_count?: number;
+    strip_replies: boolean;
+    // (undocumented)
+    success_count: number;
     // (undocumented)
     updated_at: ISODateTime;
     // (undocumented)
@@ -3571,19 +3572,21 @@ export interface UpdateDomainRequest {
 // @public (undocumented)
 export interface UpdateRouteRequest {
     // (undocumented)
-    attachments?: boolean;
+    attachments?: boolean | null;
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | null;
     // (undocumented)
-    group_by_message_id?: boolean;
+    group_by_message_id?: boolean | null;
     // (undocumented)
-    headers?: boolean;
-    name?: string;
+    headers?: boolean | null;
+    // (undocumented)
+    name?: string | null;
     // (undocumented)
     recipient?: string | null;
     // (undocumented)
-    strip_replies?: boolean;
-    url?: string;
+    strip_replies?: boolean | null;
+    // (undocumented)
+    url?: string | null;
 }
 
 // Warning: (ae-forgotten-export) The symbol "SubAccountUpdateFields" needs to be exported by the entry point index.d.ts
