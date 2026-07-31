@@ -489,6 +489,7 @@ export interface CreateDomainRequest {
     dkim_private_key?: string;
     // (undocumented)
     dkim_rotation_interval_days?: number;
+    dkim_selector?: string | null;
     // (undocumented)
     domain: string;
     // (undocumented)
@@ -3570,6 +3571,7 @@ export type UpdateAPIKeyRequest = UpdateAPIKeyFields & ({
 export interface UpdateDomainRequest {
     // (undocumented)
     dkim_rotation_interval_days?: number;
+    dkim_selector?: string | null;
     // (undocumented)
     media_subdomain?: string;
     // (undocumented)

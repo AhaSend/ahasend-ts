@@ -15,7 +15,13 @@ import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src
 import type { Account } from "../src/resources/accounts.js";
 // @ts-expect-error ListMembersParams is not part of the account resource surface.
 import type { ListMembersParams as RemovedListMembersParams } from "../src/resources/accounts.js";
-import type { DNSRecord, Domain, ListDomainsParams } from "../src/resources/domains.js";
+import type {
+  CreateDomainRequest,
+  DNSRecord,
+  Domain,
+  ListDomainsParams,
+  UpdateDomainRequest,
+} from "../src/resources/domains.js";
 // @ts-expect-error DomainRequestOptions was never released from the domain module.
 import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src/resources/domains.js";
 import type {
@@ -536,6 +542,37 @@ describe("MessagesClient", () => {
 });
 
 describe("DomainsClient", () => {
+  it("models the distinct create, unchanged-update, and clear-update DKIM selector inputs", () => {
+    const createDefault: CreateDomainRequest = {
+      domain: "example.com",
+      dkim_selector: null,
+    };
+    const createCustom: CreateDomainRequest = {
+      domain: "example.com",
+      dkim_selector: "selector-1",
+    };
+    const updateUnchanged: UpdateDomainRequest = { dkim_selector: null };
+    const updateClearEmpty: UpdateDomainRequest = { dkim_selector: "" };
+    const updateClearWhitespace: UpdateDomainRequest = { dkim_selector: " \t " };
+    // @ts-expect-error DKIM selectors accept only strings or null.
+    const invalidCreate: CreateDomainRequest = { domain: "example.com", dkim_selector: 1 };
+    // @ts-expect-error DKIM selectors accept only strings or null.
+    const invalidUpdate: UpdateDomainRequest = { dkim_selector: false };
+
+    expectTypeOf<CreateDomainRequest>().toEqualTypeOf<
+      components["schemas"]["CreateDomainRequest"]
+    >();
+    expectTypeOf<UpdateDomainRequest>().toEqualTypeOf<
+      components["schemas"]["UpdateDomainRequest"]
+    >();
+    expect(createDefault.dkim_selector).toBeNull();
+    expect(createCustom.dkim_selector).toBe("selector-1");
+    expect(updateUnchanged.dkim_selector).toBeNull();
+    expect(updateClearEmpty.dkim_selector).toBe("");
+    expect(updateClearWhitespace.dkim_selector).toBe(" \t ");
+    void [invalidCreate, invalidUpdate];
+  });
+
   it("matches authoritative Domain and DNSRecord response declarations", () => {
     const dnsRecord: DNSRecord = {
       type: "TXT",
@@ -590,6 +627,15 @@ describe("DomainsClient", () => {
     expect(calls[0]!.body).toBe(JSON.stringify({ domain: "example.com" }));
     expect(calls[0]!.headers["idempotency-key"]).toBe("key-1");
     expect(calls[0]!.operationId).toBe("createDomain");
+  });
+
+  it("create() forwards a null DKIM selector as the no-override create input", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.domains.create({ domain: "example.com", dkim_selector: null });
+
+    expect(calls[0]!.body).toBe(JSON.stringify({ domain: "example.com", dkim_selector: null }));
   });
 
   it("list() dispatches getDomains with filters, limit, and one cursor", async () => {
@@ -659,6 +705,19 @@ describe("DomainsClient", () => {
     expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(calls[0]!.body).toBe(JSON.stringify({ tracking_subdomain: "track" }));
     expect(calls[0]!.operationId).toBe("updateDomain");
+  });
+
+  it.each([
+    ["null to leave the selector unchanged", null],
+    ["an empty string to clear the selector", ""],
+    ["whitespace to clear the selector", " \t "],
+  ])("update() forwards %s", async (_case, dkimSelector) => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.domains.update(HOSTNAME, { dkim_selector: dkimSelector });
+
+    expect(calls[0]!.body).toBe(JSON.stringify({ dkim_selector: dkimSelector }));
   });
 
   it("delete() dispatches deleteDomain", async () => {

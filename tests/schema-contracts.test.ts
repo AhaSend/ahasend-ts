@@ -242,6 +242,28 @@ describe("REST schema golden contracts", () => {
     );
   });
 
+  it("accepts the distinct create and update DKIM selector inputs", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const createDefault = byId["domain-create-dkim-selector-null"]!;
+    const updateUnchanged = byId["domain-update-dkim-selector-null"]!;
+    const updateClearEmpty = byId["domain-update-dkim-selector-empty"]!;
+    const updateClearWhitespace = byId["domain-update-dkim-selector-whitespace"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, createDefault.schema)(createDefault.value)).toBe(true);
+    expect(componentValidator(ajv, updateUnchanged.schema)(updateUnchanged.value)).toBe(true);
+    expect(componentValidator(ajv, updateClearEmpty.schema)(updateClearEmpty.value)).toBe(true);
+    expect(componentValidator(ajv, updateClearWhitespace.schema)(updateClearWhitespace.value)).toBe(
+      true,
+    );
+    expect(createDefault.value).toHaveProperty("dkim_selector", null);
+    expect(updateUnchanged.value).toHaveProperty("dkim_selector", null);
+    expect(updateClearEmpty.value).toHaveProperty("dkim_selector", "");
+    expect(updateClearWhitespace.value).toHaveProperty("dkim_selector", " \t ");
+  });
+
   it("enforces Route response requiredness and update nullability", () => {
     const byId = Object.fromEntries(
       fixture.componentCases.map((testCase) => [testCase.id, testCase]),
