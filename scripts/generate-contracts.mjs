@@ -932,6 +932,10 @@ function lockWithHashes(lock, openApiBytes, webhookBytes, evidence) {
 async function buildAndRunWebhookFixtures(root) {
   await execFileAsync(process.execPath, [resolve(root, "scripts/build.mjs")], {
     cwd: root,
+    env: {
+      ...process.env,
+      AHASEND_EXPECT_BUILD_ROOT: root,
+    },
     maxBuffer: 10 * 1024 * 1024,
   });
   const { stdout } = await execFileAsync(

@@ -6,9 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -91,28 +89,6 @@ function schema(name: string): JsonRecord {
 function webhookSchema(name: string): JsonRecord {
   const components = record(webhookDocument.components);
   return record(record(components.schemas)[name]);
-}
-
-function treeDigest(path: string): string | undefined {
-  if (!existsSync(path)) return undefined;
-  const digest = createHash("sha256");
-
-  const visit = (directory: string) => {
-    for (const name of readdirSync(directory).sort()) {
-      const entry = resolve(directory, name);
-      const relativePath = entry.slice(path.length + 1);
-      const stats = statSync(entry);
-      digest.update(relativePath);
-      if (stats.isDirectory()) {
-        visit(entry);
-      } else {
-        digest.update(readFileSync(entry));
-      }
-    }
-  };
-
-  visit(path);
-  return digest.digest("hex");
 }
 
 describe("REST contract normalization", () => {
@@ -460,8 +436,6 @@ describe("captured webhook evidence", () => {
 
   it("rebuilds public-verifier results in an isolated clean source tree", () => {
     const repositoryRoot = process.cwd();
-    const checkoutDist = resolve(repositoryRoot, "dist");
-    const checkoutDistBefore = treeDigest(checkoutDist);
     const temporaryRoot = mkdtempSync(join(tmpdir(), "ahasend-contract-check-"));
     const sourceEntries = [
       "contracts",
@@ -487,6 +461,18 @@ describe("captured webhook evidence", () => {
       const isolatedDist = resolve(temporaryRoot, "dist");
       expect(existsSync(isolatedDist)).toBe(false);
       expect(existsSync(resolve(temporaryRoot, ".git"))).toBe(false);
+
+      const rejectedMisdirectedBuild = spawnSync(process.execPath, ["scripts/build.mjs"], {
+        cwd: temporaryRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AHASEND_EXPECT_BUILD_ROOT: repositoryRoot,
+        },
+      });
+      expect(rejectedMisdirectedBuild.status).not.toBe(0);
+      expect(rejectedMisdirectedBuild.stderr).toContain("Refusing to build");
+      expect(existsSync(isolatedDist)).toBe(false);
 
       const check = spawnSync(process.execPath, ["scripts/generate-contracts.mjs", "--check"], {
         cwd: temporaryRoot,
@@ -548,8 +534,6 @@ describe("captured webhook evidence", () => {
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
-
-    expect(treeDigest(checkoutDist)).toBe(checkoutDistBefore);
   }, 60_000);
 
   it("enforces manifest.schema.json against the captured manifest", () => {

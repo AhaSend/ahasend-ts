@@ -241,7 +241,7 @@ const KNOWN_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.deliver
 type KnownWebhookEvent = webhookEvents[keyof webhookEvents];
 
 // @public (undocumented)
-export const MAX_WEBHOOK_BODY_BYTES: number;
+export const MAX_WEBHOOK_BODY_BYTES = 30000000;
 
 // @public (undocumented)
 export type MessageBouncedEvent = webhookEvents["message.bounced"];
@@ -396,7 +396,6 @@ export type WebhookAdapterErrorStage = "setup" | "stream" | "application";
 
 // @public
 export interface WebhookAdapterOptions {
-    // (undocumented)
     maxBodyBytes?: number;
     // (undocumented)
     onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
