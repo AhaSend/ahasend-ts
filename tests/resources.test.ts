@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import type { components } from "../src/generated/rest-types.js";
 import type { APIKey, APIKeyScope, CreatedAPIKey } from "../src/resources/api-keys.js";
 // @ts-expect-error APIKeyRequestOptions was never released from the API-key module.
 import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src/resources/api-keys.js";
@@ -71,7 +72,7 @@ describe("Pagination parameter declarations", () => {
 });
 
 describe("Account declarations", () => {
-  it("requires a nullable parent account identifier", () => {
+  it("matches authoritative response requiredness and nullability", () => {
     const account: Account = {
       object: "account",
       id: "acc_1",
@@ -79,14 +80,26 @@ describe("Account declarations", () => {
       created_at: "2026-07-21T08:00:00Z",
       updated_at: "2026-07-21T08:01:00Z",
       name: "Primary account",
+      website: "https://example.com",
+      about: "Primary transactional email account",
+      track_opens: true,
+      track_clicks: false,
+      reject_bad_recipients: true,
+      reject_mistyped_recipients: false,
+      message_metadata_retention: 30,
+      message_data_retention: 7,
       owner_id: "usr_1",
     };
-    const { parent_account_id: _parentAccountId, ...withoutParentAccountId } = account;
-    // @ts-expect-error parent_account_id is a required nullable response key.
-    const missingParentAccountId: Account = withoutParentAccountId;
+    const { website: _website, ...withoutWebsite } = account;
+    // @ts-expect-error website is a required response key.
+    const missingWebsite: Account = withoutWebsite;
+    // @ts-expect-error website is not nullable in the response schema.
+    const nullWebsite: Account = { ...account, website: null };
 
+    expectTypeOf<Account>().toEqualTypeOf<components["schemas"]["Account"]>();
     expect(account.parent_account_id).toBeNull();
-    void [missingParentAccountId, _parentAccountId];
+    expect(account.website).toBe("https://example.com");
+    void [missingWebsite, nullWebsite, _website];
   });
 
   it("does not expose the account-specific ListMembersParams alias", () => {

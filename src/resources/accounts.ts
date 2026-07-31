@@ -12,14 +12,14 @@ export interface Account {
   created_at: ISODateTime;
   updated_at: ISODateTime;
   name: string;
-  website?: string | null;
-  about?: string | null;
-  track_opens?: boolean;
-  track_clicks?: boolean;
-  reject_bad_recipients?: boolean;
-  reject_mistyped_recipients?: boolean;
-  message_metadata_retention?: number;
-  message_data_retention?: number;
+  website: string;
+  about: string;
+  track_opens: boolean;
+  track_clicks: boolean;
+  reject_bad_recipients: boolean;
+  reject_mistyped_recipients: boolean;
+  message_metadata_retention: number;
+  message_data_retention: number;
   owner_id: UUID;
 }
 
