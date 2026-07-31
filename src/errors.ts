@@ -49,10 +49,7 @@ export type AhaSendErrorCode =
   | "webhook_verification_error";
 
 export interface ApiErrorBody {
-  message?: string;
-  code?: string;
-  details?: unknown;
-  [key: string]: unknown;
+  message: string;
 }
 
 export interface SerializedAhaSendError {

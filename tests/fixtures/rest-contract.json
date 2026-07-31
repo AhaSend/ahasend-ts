@@ -189,6 +189,89 @@
       }
     },
     {
+      "id": "route-complete-last-request-null",
+      "schema": "Route",
+      "valid": true,
+      "value": {
+        "object": "route",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Inbound support",
+        "url": "https://example.com/routes/support",
+        "recipient": "support@example.com",
+        "attachments": true,
+        "headers": false,
+        "group_by_message_id": true,
+        "strip_replies": false,
+        "enabled": true,
+        "success_count": 42,
+        "error_count": 2,
+        "errors_since_last_success": 0,
+        "last_request_at": null
+      }
+    },
+    {
+      "id": "route-required-success-count-omitted",
+      "schema": "Route",
+      "valid": false,
+      "value": {
+        "object": "route",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Inbound support",
+        "url": "https://example.com/routes/support",
+        "recipient": "support@example.com",
+        "attachments": true,
+        "headers": false,
+        "group_by_message_id": true,
+        "strip_replies": false,
+        "enabled": true,
+        "error_count": 2,
+        "errors_since_last_success": 0,
+        "last_request_at": null
+      }
+    },
+    {
+      "id": "route-non-null-recipient-null",
+      "schema": "Route",
+      "valid": false,
+      "value": {
+        "object": "route",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Inbound support",
+        "url": "https://example.com/routes/support",
+        "recipient": null,
+        "attachments": true,
+        "headers": false,
+        "group_by_message_id": true,
+        "strip_replies": false,
+        "enabled": true,
+        "success_count": 42,
+        "error_count": 2,
+        "errors_since_last_success": 0,
+        "last_request_at": null
+      }
+    },
+    {
+      "id": "route-update-all-nullable-fields",
+      "schema": "UpdateRouteRequest",
+      "valid": true,
+      "value": {
+        "name": null,
+        "url": null,
+        "recipient": null,
+        "attachments": null,
+        "headers": null,
+        "group_by_message_id": null,
+        "strip_replies": null,
+        "enabled": null
+      }
+    },
+    {
       "id": "required-nullable-present-null-canary",
       "schema": "APIKey",
       "valid": true,

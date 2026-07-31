@@ -336,10 +336,14 @@ describe("AhaSend error contract", () => {
 
   it("keeps diagnostics readable but redacts serialization and inspection", () => {
     const cause = new Error("cause-secret");
+    const malformedWireBody: unknown = {
+      message: "request failed",
+      details: "body-secret",
+    };
     const error = new AhaSendIdempotencyConflictError({
       status: 409,
       message: "request failed",
-      body: { message: "request failed", details: "body-secret" },
+      body: malformedWireBody as errors.ApiErrorBody,
       requestId: "request-id",
       headers: { "idempotency-key": "header-secret" },
       cause,

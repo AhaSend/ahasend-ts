@@ -242,6 +242,24 @@ describe("REST schema golden contracts", () => {
     );
   });
 
+  it("enforces Route response requiredness and update nullability", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const complete = byId["route-complete-last-request-null"]!;
+    const missingSuccessCount = byId["route-required-success-count-omitted"]!;
+    const nullRecipient = byId["route-non-null-recipient-null"]!;
+    const nullableUpdate = byId["route-update-all-nullable-fields"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, complete.schema)(complete.value)).toBe(true);
+    expect(componentValidator(ajv, missingSuccessCount.schema)(missingSuccessCount.value)).toBe(
+      false,
+    );
+    expect(componentValidator(ajv, nullRecipient.schema)(nullRecipient.value)).toBe(false);
+    expect(componentValidator(ajv, nullableUpdate.schema)(nullableUpdate.value)).toBe(true);
+  });
+
   it("enforces non-empty arrays where the authoritative schema declares minItems one", () => {
     const byId = Object.fromEntries(
       fixture.componentCases.map((testCase) => [testCase.id, testCase]),
