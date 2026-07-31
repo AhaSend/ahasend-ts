@@ -7,15 +7,15 @@
 // @public (undocumented)
 export interface Account {
     // (undocumented)
-    about?: string | null;
+    about: string;
     // (undocumented)
     created_at: ISODateTime;
     // (undocumented)
     id: UUID;
     // (undocumented)
-    message_data_retention?: number;
+    message_data_retention: number;
     // (undocumented)
-    message_metadata_retention?: number;
+    message_metadata_retention: number;
     // (undocumented)
     name: string;
     // (undocumented)
@@ -25,17 +25,17 @@ export interface Account {
     // (undocumented)
     parent_account_id: UUID | null;
     // (undocumented)
-    reject_bad_recipients?: boolean;
+    reject_bad_recipients: boolean;
     // (undocumented)
-    reject_mistyped_recipients?: boolean;
+    reject_mistyped_recipients: boolean;
     // (undocumented)
-    track_clicks?: boolean;
+    track_clicks: boolean;
     // (undocumented)
-    track_opens?: boolean;
+    track_opens: boolean;
     // (undocumented)
     updated_at: ISODateTime;
     // (undocumented)
-    website?: string | null;
+    website: string;
 }
 
 // @public (undocumented)

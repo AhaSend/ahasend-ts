@@ -206,6 +206,20 @@ describe("REST schema golden contracts", () => {
     ]).toEqual([true, false, true, false]);
   });
 
+  it("enforces Account response requiredness and nullability", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const complete = byId["account-complete-parent-null"]!;
+    const missingWebsite = byId["account-required-website-omitted"]!;
+    const nullAbout = byId["account-non-null-about-null"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, complete.schema)(complete.value)).toBe(true);
+    expect(componentValidator(ajv, missingWebsite.schema)(missingWebsite.value)).toBe(false);
+    expect(componentValidator(ajv, nullAbout.schema)(nullAbout.value)).toBe(false);
+  });
+
   it("enforces non-empty arrays where the authoritative schema declares minItems one", () => {
     const byId = Object.fromEntries(
       fixture.componentCases.map((testCase) => [testCase.id, testCase]),
