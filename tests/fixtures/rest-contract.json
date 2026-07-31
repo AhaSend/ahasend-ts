@@ -366,6 +366,38 @@
       }
     },
     {
+      "id": "api-key-update-scopes-non-empty",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "scopes": ["domains:read"]
+      }
+    },
+    {
+      "id": "api-key-update-scopes-empty",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": false,
+      "value": {
+        "scopes": []
+      }
+    },
+    {
+      "id": "api-key-update-empty",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "api-key-update-null-only",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": false,
+      "value": {
+        "label": null,
+        "scopes": null,
+        "ip_allow_list": null
+      }
+    },
+    {
       "id": "message-recipient-inherited-name",
       "schema": "CreateSingleMessageResponse",
       "valid": true,

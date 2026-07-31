@@ -260,16 +260,32 @@ describe("REST schema golden contracts", () => {
     expect(componentValidator(ajv, nullableUpdate.schema)(nullableUpdate.value)).toBe(true);
   });
 
-  it("enforces non-empty arrays where the authoritative schema declares minItems one", () => {
+  it("enforces non-empty API-key scope arrays on create and update", () => {
     const byId = Object.fromEntries(
       fixture.componentCases.map((testCase) => [testCase.id, testCase]),
     );
-    const nonEmpty = byId["api-key-scopes-non-empty"]!;
-    const empty = byId["api-key-scopes-empty"]!;
+    const createNonEmpty = byId["api-key-scopes-non-empty"]!;
+    const createEmpty = byId["api-key-scopes-empty"]!;
+    const updateNonEmpty = byId["api-key-update-scopes-non-empty"]!;
+    const updateEmpty = byId["api-key-update-scopes-empty"]!;
     const ajv = schemaValidator();
 
-    expect(componentValidator(ajv, nonEmpty.schema)(nonEmpty.value)).toBe(true);
+    expect(componentValidator(ajv, createNonEmpty.schema)(createNonEmpty.value)).toBe(true);
+    expect(componentValidator(ajv, createEmpty.schema)(createEmpty.value)).toBe(false);
+    expect(componentValidator(ajv, updateNonEmpty.schema)(updateNonEmpty.value)).toBe(true);
+    expect(componentValidator(ajv, updateEmpty.schema)(updateEmpty.value)).toBe(false);
+  });
+
+  it("requires API-key updates to select at least one non-null field", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const empty = byId["api-key-update-empty"]!;
+    const nullOnly = byId["api-key-update-null-only"]!;
+    const ajv = schemaValidator();
+
     expect(componentValidator(ajv, empty.schema)(empty.value)).toBe(false);
+    expect(componentValidator(ajv, nullOnly.schema)(nullOnly.value)).toBe(false);
   });
 
   it("enforces inherited properties in required-only allOf overlays", () => {

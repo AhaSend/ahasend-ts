@@ -1,8 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import type { OperationRequestBodyById } from "../src/generated/operations.js";
 import type { components } from "../src/generated/rest-types.js";
-import type { APIKey, APIKeyScope, CreatedAPIKey } from "../src/resources/api-keys.js";
+import type {
+  APIKey,
+  APIKeyScope,
+  CreateAPIKeyRequest,
+  CreatedAPIKey,
+  UpdateAPIKeyRequest,
+} from "../src/resources/api-keys.js";
 // @ts-expect-error APIKeyRequestOptions was never released from the API-key module.
 import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src/resources/api-keys.js";
 import type { Account } from "../src/resources/accounts.js";
@@ -681,6 +688,45 @@ describe("DomainsClient", () => {
 });
 
 describe("APIKeysClient", () => {
+  it("requires readonly non-empty scopes and a concrete API-key update", () => {
+    const createScopes = ["messages:send:all"] as const;
+    const updateScopes = ["domains:read"] as const;
+    const create: CreateAPIKeyRequest = {
+      label: "CI",
+      scopes: createScopes,
+      ip_allow_list: ["203.0.113.0/24"] as const,
+    };
+    const update: UpdateAPIKeyRequest = { scopes: updateScopes };
+    const clearIPAllowList: UpdateAPIKeyRequest = { ip_allow_list: [] };
+    // @ts-expect-error API-key creation scopes must be non-empty.
+    const emptyCreateScopes: CreateAPIKeyRequest = { label: "CI", scopes: [] };
+    // @ts-expect-error API-key updates must select at least one field.
+    const emptyUpdate: UpdateAPIKeyRequest = {};
+    // @ts-expect-error Null-only fields do not select an API-key update.
+    const nullOnlyUpdate: UpdateAPIKeyRequest = {
+      label: null,
+      scopes: null,
+      ip_allow_list: null,
+    };
+    // @ts-expect-error Selected API-key scopes must be non-empty.
+    const emptyUpdateScopes: UpdateAPIKeyRequest = { scopes: [] };
+    if (false) {
+      // @ts-expect-error API-key creation scopes are readonly.
+      create.scopes.push("domains:read");
+      // @ts-expect-error API-key update scopes are readonly.
+      update.scopes?.push("domains:write");
+      // @ts-expect-error API-key request IP allow lists are readonly.
+      create.ip_allow_list?.push("198.51.100.7");
+    }
+
+    expect(create.scopes).toBe(createScopes);
+    expect(update.scopes).toBe(updateScopes);
+    expect(clearIPAllowList.ip_allow_list).toEqual([]);
+    expectTypeOf<CreateAPIKeyRequest>().toExtend<OperationRequestBodyById["createAPIKey"]>();
+    expectTypeOf<UpdateAPIKeyRequest>().toExtend<OperationRequestBodyById["updateAPIKey"]>();
+    void [emptyCreateScopes, emptyUpdate, nullOnlyUpdate, emptyUpdateScopes];
+  });
+
   it("requires response IP lists and scopes while exposing the secret only after create", () => {
     const scope: APIKeyScope = {
       id: "scope_1",

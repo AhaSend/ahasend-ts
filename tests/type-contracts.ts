@@ -697,7 +697,7 @@ type RefinementContracts = [
   >,
   Expect<Equal<SDK.CreateMessageRequest["attachments"], readonly SDK.Attachment[] | undefined>>,
   Expect<Equal<SDK.CreateMessageRequest["tags"], readonly string[] | undefined>>,
-  Expect<Equal<SDK.CreateAPIKeyRequest["scopes"], [string, ...string[]]>>,
+  Expect<Equal<SDK.CreateAPIKeyRequest["scopes"], SDK.NonEmptyArray<string>>>,
   Expect<
     Equal<
       Extract<SDK.CreateWebhookRequest, { scope: "scoped" }>["domains"],

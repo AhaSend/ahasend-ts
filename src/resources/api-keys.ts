@@ -2,6 +2,7 @@ import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   ISODateTime,
+  NonEmptyArray,
   PaginatedResponse,
   PaginationParams,
   RequestOptions,
@@ -63,15 +64,23 @@ export interface CreatedAPIKey extends APIKey {
 export interface CreateAPIKeyRequest {
   label: string;
   /** At least one scope is required by the API. */
-  scopes: [APIKeyScopeName, ...APIKeyScopeName[]];
-  ip_allow_list?: string[];
+  scopes: NonEmptyArray<APIKeyScopeName>;
+  ip_allow_list?: readonly string[];
 }
 
-export interface UpdateAPIKeyRequest {
+interface UpdateAPIKeyFields {
   label?: string | null;
-  scopes?: APIKeyScopeName[] | null;
-  ip_allow_list?: string[] | null;
+  scopes?: NonEmptyArray<APIKeyScopeName> | null;
+  ip_allow_list?: readonly string[] | null;
 }
+
+/** At least one field must select a non-null update value. */
+export type UpdateAPIKeyRequest = UpdateAPIKeyFields &
+  (
+    | { label: string }
+    | { scopes: NonEmptyArray<APIKeyScopeName> }
+    | { ip_allow_list: readonly string[] }
+  );
 
 /**
  * Manage API keys and their scopes. Scope strings follow
