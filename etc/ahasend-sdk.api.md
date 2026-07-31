@@ -435,10 +435,10 @@ export function composeHooks(...hookSets: Array<TelemetryHooks | undefined>): Te
 // @public (undocumented)
 export interface CreateAPIKeyRequest {
     // (undocumented)
-    ip_allow_list?: string[];
+    ip_allow_list?: readonly string[];
     // (undocumented)
     label: string;
-    scopes: [APIKeyScopeName, ...APIKeyScopeName[]];
+    scopes: NonEmptyArray<APIKeyScopeName>;
 }
 
 // @public (undocumented)
@@ -3546,14 +3546,25 @@ export interface UpdateAccountRequest {
 }
 
 // @public (undocumented)
-export interface UpdateAPIKeyRequest {
+interface UpdateAPIKeyFields {
     // (undocumented)
-    ip_allow_list?: string[] | null;
+    ip_allow_list?: readonly string[] | null;
     // (undocumented)
     label?: string | null;
     // (undocumented)
-    scopes?: APIKeyScopeName[] | null;
+    scopes?: NonEmptyArray<APIKeyScopeName> | null;
 }
+
+// Warning: (ae-forgotten-export) The symbol "UpdateAPIKeyFields" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type UpdateAPIKeyRequest = UpdateAPIKeyFields & ({
+    label: string;
+} | {
+    scopes: NonEmptyArray<APIKeyScopeName>;
+} | {
+    ip_allow_list: readonly string[];
+});
 
 // @public (undocumented)
 export interface UpdateDomainRequest {
