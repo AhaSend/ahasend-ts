@@ -752,7 +752,7 @@ export interface DNSRecord {
     // (undocumented)
     host: string;
     // (undocumented)
-    label?: string | null;
+    label?: string;
     // (undocumented)
     propagated: boolean;
     // (undocumented)
@@ -768,7 +768,7 @@ export interface Domain {
     // (undocumented)
     created_at: ISODateTime;
     // (undocumented)
-    dkim_rotation_interval_days?: number | null;
+    dkim_rotation_interval_days: number | null;
     // (undocumented)
     dkim_selector: string | null;
     // (undocumented)
@@ -778,23 +778,23 @@ export interface Domain {
     // (undocumented)
     domain: string;
     // (undocumented)
-    dsn_recipient?: string | null;
+    dsn_recipient: string | null;
     // (undocumented)
     id: UUID;
     // (undocumented)
-    last_dns_check_at?: ISODateTime | null;
+    last_dns_check_at: ISODateTime | null;
     // (undocumented)
-    media_subdomain?: string | null;
+    media_subdomain: string | null;
     // (undocumented)
     object: "domain";
     // (undocumented)
-    return_path_subdomain?: string | null;
+    return_path_subdomain: string | null;
     // (undocumented)
-    rotation_ready?: boolean;
+    rotation_ready: boolean;
     // (undocumented)
-    subscription_subdomain?: string | null;
+    subscription_subdomain: string | null;
     // (undocumented)
-    tracking_subdomain?: string | null;
+    tracking_subdomain: string | null;
     // (undocumented)
     updated_at: ISODateTime;
 }
