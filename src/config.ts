@@ -4,7 +4,7 @@ import { AhaSendConfigurationError } from "./errors.js";
 import type { RateLimitConfig, ResolvedRateLimitConfig } from "./rate-limit.js";
 import { resolveRateLimitConfig } from "./rate-limit.js";
 import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
-import { resolveRetryConfig } from "./retry.js";
+import { MAX_RETRIES, resolveRetryConfig } from "./retry.js";
 import type { ResolvedTelemetryHooks, TelemetryHooks } from "./telemetry.js";
 import { composeHooks, debugConsoleHooks, resolveTelemetryHooks } from "./telemetry.js";
 import type { IdempotencyRequestOptions, RequestOptions } from "./types/common.js";
@@ -201,11 +201,7 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
   const retry: RetryConfig = {};
   if (env.AHASEND_MAX_RETRIES !== undefined) {
     const maxRetries = parseFiniteNumber(env.AHASEND_MAX_RETRIES, "AHASEND_MAX_RETRIES");
-    if (!Number.isInteger(maxRetries) || maxRetries < 0) {
-      throw new AhaSendConfigurationError(
-        "AhaSend: `AHASEND_MAX_RETRIES` must be a non-negative integer.",
-      );
-    }
+    assertRetryCount(maxRetries, "AHASEND_MAX_RETRIES");
     retry.maxRetries = maxRetries;
   }
   if (Object.keys(retry).length > 0) {
@@ -361,7 +357,7 @@ function assertRetryConfig(config: unknown): void {
   assertOptionalBoolean(config.enabled, "retry.enabled");
   assertOptionalBoolean(config.jitter, "retry.jitter");
   if (config.maxRetries !== undefined) {
-    assertNonNegativeInteger(config.maxRetries, "retry.maxRetries");
+    assertRetryCount(config.maxRetries, "retry.maxRetries");
   }
   if (config.baseDelayMs !== undefined) {
     assertNonNegativeFiniteNumber(config.baseDelayMs, "retry.baseDelayMs");
@@ -504,9 +500,16 @@ function assertSupportedTimerDelay(value: number, name: string): void {
   }
 }
 
-function assertNonNegativeInteger(value: unknown, name: string): asserts value is number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a non-negative integer.`);
+function assertRetryCount(value: unknown, name: string): asserts value is number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > MAX_RETRIES
+  ) {
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` must be a safe integer from 0 through ${MAX_RETRIES}.`,
+    );
   }
 }
 

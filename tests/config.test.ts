@@ -7,6 +7,7 @@ import {
   optionsFromEnv,
   resolveConfig,
 } from "../src/config.js";
+import { MAX_RETRIES } from "../src/retry.js";
 
 describe("resolveConfig", () => {
   it("requires an apiKey", () => {
@@ -291,9 +292,33 @@ describe("resolveConfig", () => {
     ).toThrow(/owned|cannot be overridden/i);
   });
 
+  it.each([0, MAX_RETRIES])("accepts constructor maxRetries at the boundary: %d", (maxRetries) => {
+    expect(resolveConfig({ apiKey: "aha-sk-test", retry: { maxRetries } }).retry.maxRetries).toBe(
+      maxRetries,
+    );
+  });
+
   it.each([
-    ["negative retries", { maxRetries: -1 }],
-    ["fractional retries", { maxRetries: 1.5 }],
+    ["below range", -1],
+    ["above range", MAX_RETRIES + 1],
+    ["non-integer", 1.5],
+    ["unsafe integer", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects constructor maxRetries that is %s before fetch", (_case, maxRetries) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+
+    expect(
+      () =>
+        new AhaSendClient({
+          apiKey: "aha-sk-test",
+          accountId: "account-id",
+          fetch: fetchImpl,
+          retry: { maxRetries },
+        }),
+    ).toThrow(/retry\.maxRetries.*safe integer.*0.*20/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["negative base delay", { baseDelayMs: -1 }],
     ["infinite maximum delay", { maxDelayMs: Number.POSITIVE_INFINITY }],
     ["maximum below base", { baseDelayMs: 10, maxDelayMs: 5 }],
@@ -477,11 +502,44 @@ describe("optionsFromEnv", () => {
     expect(options.idempotency).toEqual({ autoGenerate: true, prefix: "staging" });
   });
 
+  it.each(["0", String(MAX_RETRIES)])(
+    "accepts AHASEND_MAX_RETRIES at the boundary: %s",
+    (maxRetries) => {
+      expect(
+        optionsFromEnv({
+          AHASEND_API_KEY: "aha-sk-test",
+          AHASEND_MAX_RETRIES: maxRetries,
+        }).retry,
+      ).toEqual({ maxRetries: Number(maxRetries) });
+    },
+  );
+
+  it.each([
+    ["below range", "-1"],
+    ["above range", String(MAX_RETRIES + 1)],
+    ["non-integer", "1.5"],
+    ["unsafe integer", "9007199254740992"],
+  ])("rejects AHASEND_MAX_RETRIES that is %s before fetch", (_case, maxRetries) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      expect(() =>
+        AhaSendClient.fromEnv({
+          AHASEND_API_KEY: "aha-sk-test",
+          AHASEND_ACCOUNT_ID: "account-id",
+          AHASEND_MAX_RETRIES: maxRetries,
+        }),
+      ).toThrow(/AHASEND_MAX_RETRIES.*safe integer.*0.*20/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each([
     ["AHASEND_TIMEOUT", { AHASEND_TIMEOUT: "0" }],
     ["AHASEND_TIMEOUT", { AHASEND_TIMEOUT: "not-a-number" }],
-    ["AHASEND_MAX_RETRIES", { AHASEND_MAX_RETRIES: "-1" }],
-    ["AHASEND_MAX_RETRIES", { AHASEND_MAX_RETRIES: "1.5" }],
     ["AHASEND_DEBUG", { AHASEND_DEBUG: "sometimes" }],
     ["AHASEND_ENABLE_RATE_LIMIT", { AHASEND_ENABLE_RATE_LIMIT: "" }],
     ["AHASEND_IDEMPOTENCY_AUTO_GENERATE", { AHASEND_IDEMPOTENCY_AUTO_GENERATE: "automatic" }],
