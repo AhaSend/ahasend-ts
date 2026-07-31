@@ -665,7 +665,7 @@ function referenceType(reference) {
   return name === undefined ? "unknown" : `components[\"schemas\"][${JSON.stringify(name)}]`;
 }
 
-function conditionalType(schema, enclosingSchemaValue, level) {
+function conditionalType(schema, enclosingSchemaValue, level, componentSchemasValue) {
   if (enclosingSchemaValue === undefined) {
     throw new TypeError("Conditional schema requires an enclosing schema");
   }
@@ -699,7 +699,7 @@ function conditionalType(schema, enclosingSchemaValue, level) {
     const indent = "  ".repeat(level + 1);
     const closingIndent = "  ".repeat(level);
     negatedFields.push(
-      `\n${indent}${propertyName(name)}${conditionRequired.has(name) ? "?" : ""}: Exclude<${schemaType(enclosingProperty, level + 1)}, ${JSON.stringify(propertyCondition.const)}>;\n${closingIndent}`,
+      `\n${indent}${propertyName(name)}${conditionRequired.has(name) ? "?" : ""}: Exclude<${schemaType(enclosingProperty, level + 1, undefined, componentSchemasValue)}, ${JSON.stringify(propertyCondition.const)}>;\n${closingIndent}`,
     );
   }
 
@@ -714,24 +714,74 @@ function conditionalType(schema, enclosingSchemaValue, level) {
     throw new TypeError("Conditional schema must constrain at least one property");
   }
 
-  const matching = `(${schemaType(condition, level + 1)}) & (${schemaType(thenSchema, level + 1)})`;
+  const matching = `(${schemaType(condition, level + 1, undefined, componentSchemasValue)}) & (${schemaType(thenSchema, level + 1, undefined, componentSchemasValue)})`;
   const alternate = negatedFields
     .map(
       (fields) =>
-        `({${fields}})${schema.else === undefined ? "" : ` & (${schemaType(schema.else, level + 1)})`}`,
+        `({${fields}})${schema.else === undefined ? "" : ` & (${schemaType(schema.else, level + 1, undefined, componentSchemasValue)})`}`,
     )
     .join(" | ");
   return `((${matching}) | (${alternate}))`;
 }
 
-export function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
+function schemaProperty(schemaValue, name, componentSchemas, visitedReferences) {
+  const schema = assertRecord(schemaValue, "allOf schema");
+  if (typeof schema.$ref === "string") {
+    if (visitedReferences.has(schema.$ref)) return undefined;
+    const schemaName = schemaNameFromReference(schema.$ref);
+    if (schemaName === undefined) return undefined;
+    const referencedSchema = componentSchemas[schemaName];
+    if (referencedSchema === undefined) return undefined;
+    return schemaProperty(
+      referencedSchema,
+      name,
+      componentSchemas,
+      new Set([...visitedReferences, schema.$ref]),
+    );
+  }
+
+  if (schema.properties !== undefined) {
+    const property = assertRecord(schema.properties, "allOf properties")[name];
+    if (property !== undefined) return property;
+  }
+  if (Array.isArray(schema.allOf)) {
+    return resolveAllOfPropertySchema(schema.allOf, name, componentSchemas, visitedReferences);
+  }
+  return undefined;
+}
+
+export function resolveAllOfPropertySchema(
+  schemaValues,
+  name,
+  componentSchemasValue = {},
+  visitedReferences = new Set(),
+) {
+  if (!Array.isArray(schemaValues)) throw new TypeError("allOf schemas must be an array");
+  if (typeof name !== "string") throw new TypeError("allOf property name must be a string");
+  const componentSchemas = assertRecord(componentSchemasValue, "component schemas");
+  for (const schemaValue of schemaValues) {
+    const property = schemaProperty(schemaValue, name, componentSchemas, visitedReferences);
+    if (property !== undefined) return property;
+  }
+  return undefined;
+}
+
+export function schemaType(
+  schemaValue,
+  level = 0,
+  enclosingSchemaValue,
+  componentSchemasValue = {},
+  inheritedSchemaValues = [],
+) {
   if (schemaValue === undefined) return "unknown";
   const schema = assertRecord(schemaValue, "schema");
+  const componentSchemas = assertRecord(componentSchemasValue, "component schemas");
   if (typeof schema.$ref === "string") return referenceType(schema.$ref);
   if (Array.isArray(schema.enum))
     return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
   if (schema.const !== undefined) return JSON.stringify(schema.const);
-  if (schema.if !== undefined) return conditionalType(schema, enclosingSchemaValue, level);
+  if (schema.if !== undefined)
+    return conditionalType(schema, enclosingSchemaValue, level, componentSchemas);
 
   const combinations = [
     ["allOf", " & "],
@@ -743,14 +793,23 @@ export function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
       const base = { ...schema };
       delete base[key];
       const combined = schema[key]
-        .map((part) => `(${schemaType(part, level + 1, key === "allOf" ? base : undefined)})`)
+        .map(
+          (part, index, parts) =>
+            `(${schemaType(
+              part,
+              level + 1,
+              key === "allOf" ? base : undefined,
+              componentSchemas,
+              key === "allOf" ? [base, ...parts.filter((_, partIndex) => partIndex !== index)] : [],
+            )})`,
+        )
         .join(separator);
       if (
         schema.type === "object" ||
         schema.properties !== undefined ||
         schema.additionalProperties !== undefined
       ) {
-        return `(${schemaType(base, level)}) & (${combined})`;
+        return `(${schemaType(base, level, undefined, componentSchemas)}) & (${combined})`;
       }
       return combined;
     }
@@ -758,7 +817,15 @@ export function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
 
   if (Array.isArray(schema.type)) {
     return schema.type
-      .map((type) => schemaType({ ...schema, type, enum: undefined }, level))
+      .map((type) =>
+        schemaType(
+          { ...schema, type, enum: undefined },
+          level,
+          undefined,
+          componentSchemas,
+          inheritedSchemaValues,
+        ),
+      )
       .filter((value, index, values) => values.indexOf(value) === index)
       .join(" | ");
   }
@@ -767,7 +834,7 @@ export function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
   if (schema.type === "integer" || schema.type === "number") return "number";
   if (schema.type === "boolean") return "boolean";
   if (schema.type === "array") {
-    const itemType = schemaType(schema.items, level + 1);
+    const itemType = schemaType(schema.items, level + 1, undefined, componentSchemas);
     return schema.minItems === 1
       ? `readonly [${itemType}, ...Array<${itemType}>]`
       : `Array<${itemType}>`;
@@ -792,12 +859,21 @@ export function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
       ...[...required].filter((name) => !Object.hasOwn(properties, name)),
     ];
     const fields = propertyNames.map((name) => {
-      const value = properties[name];
-      return `${indent}${propertyName(name)}${required.has(name) ? "" : "?"}: ${value === undefined ? "unknown" : schemaType(value, level + 1)};`;
+      const value =
+        properties[name] ??
+        resolveAllOfPropertySchema(inheritedSchemaValues, name, componentSchemas);
+      return `${indent}${propertyName(name)}${required.has(name) ? "" : "?"}: ${value === undefined ? "unknown" : schemaType(value, level + 1, undefined, componentSchemas)};`;
     });
     if (schema.additionalProperties === true) fields.push(`${indent}[key: string]: unknown;`);
     else if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) {
-      fields.push(`${indent}[key: string]: ${schemaType(schema.additionalProperties, level + 1)};`);
+      fields.push(
+        `${indent}[key: string]: ${schemaType(
+          schema.additionalProperties,
+          level + 1,
+          undefined,
+          componentSchemas,
+        )};`,
+      );
     }
     return fields.length === 0
       ? "Record<string, never>"
@@ -806,7 +882,7 @@ export function schemaType(schemaValue, level = 0, enclosingSchemaValue) {
   return "unknown";
 }
 
-function operationType(document, entry) {
+function operationType(document, entry, componentSchemas) {
   const pathItem = assertRecord(assertRecord(document.paths, "paths")[entry.path], entry.path);
   const parameters = operationParameters(pathItem, entry.operation)
     .map((parameter) => dereferenceParameter(document, parameter))
@@ -824,7 +900,7 @@ function operationType(document, entry) {
     if (values === undefined || values.length === 0) continue;
     const fields = values.map(
       (parameter) =>
-        `        ${propertyName(parameter.name)}${parameter.required === true ? "" : "?"}: ${schemaType(parameter.schema, 4)};`,
+        `        ${propertyName(parameter.name)}${parameter.required === true ? "" : "?"}: ${schemaType(parameter.schema, 4, undefined, componentSchemas)};`,
     );
     parameterFields.push(`      ${location}: {\n${fields.join("\n")}\n      };`);
   }
@@ -842,7 +918,7 @@ function operationType(document, entry) {
     const content = assertRecord(requestBody.content, `${entry.operationId}.requestBody.content`);
     const media = assertRecord(content[JSON_CONTENT_TYPE], `${entry.operationId} JSON body`);
     lines.push(
-      `    requestBody${requestBody.required === true ? "" : "?"}: { content: { \"application/json\": ${schemaType(media.schema, 3)} } };`,
+      `    requestBody${requestBody.required === true ? "" : "?"}: { content: { \"application/json\": ${schemaType(media.schema, 3, undefined, componentSchemas)} } };`,
     );
   }
   lines.push("    responses: {");
@@ -858,7 +934,7 @@ function operationType(document, entry) {
         "response JSON",
       );
       lines.push(
-        `      ${propertyName(status)}: { content: { \"application/json\": ${schemaType(media.schema, 4)} } };`,
+        `      ${propertyName(status)}: { content: { \"application/json\": ${schemaType(media.schema, 4, undefined, componentSchemas)} } };`,
       );
     }
   }
@@ -883,11 +959,11 @@ function generateRestTypes(document, operations) {
   }
   lines.push("}", "", "export interface components {", "  schemas: {");
   for (const [name, schema] of Object.entries(schemas)) {
-    lines.push(`    ${propertyName(name)}: ${schemaType(schema, 2)};`);
+    lines.push(`    ${propertyName(name)}: ${schemaType(schema, 2, undefined, schemas)};`);
   }
   lines.push("  };", "}", "", "export interface operations {");
   for (const entry of operations) {
-    lines.push(`  ${propertyName(entry.operationId)}: ${operationType(document, entry)};`);
+    lines.push(`  ${propertyName(entry.operationId)}: ${operationType(document, entry, schemas)};`);
   }
   lines.push("}", "");
   return lines.join("\n");
@@ -1086,7 +1162,7 @@ function generateWebhookTypes(document, webhookDigest) {
     "  schemas: {",
   ];
   for (const [name, schema] of Object.entries(schemas)) {
-    lines.push(`    ${propertyName(name)}: ${schemaType(schema, 2)};`);
+    lines.push(`    ${propertyName(name)}: ${schemaType(schema, 2, undefined, schemas)};`);
   }
   lines.push("  };", "}", "", "export interface webhookEvents {");
   for (const [eventType, schemaName] of entries) {

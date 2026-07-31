@@ -292,7 +292,7 @@ export interface components {
       object: "message";
       id: string | null;
       recipient: components["schemas"]["Recipient"] & {
-        name: unknown;
+        name: string;
       };
       status: "queued" | "scheduled" | "error";
       error: string | null;
@@ -426,12 +426,12 @@ export interface components {
       allocation_method: "proportional";
       allocation_note: string;
       parent: components["schemas"]["SubAccountUsageBreakdown"] & {
-        account_id: unknown;
+        account_id: string;
       };
       sub_accounts: Array<
         components["schemas"]["SubAccountUsageBreakdown"] & {
-          account_id: unknown;
-          name: unknown;
+          account_id: string;
+          name: string;
         }
       >;
       removed_sub_accounts: components["schemas"]["SubAccountUsageBreakdown"];

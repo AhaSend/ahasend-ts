@@ -8,6 +8,7 @@ import {
   AUTHORIZATION_REGISTRY,
   dereferenceResponse,
   generateSdkArtifacts,
+  resolveAllOfPropertySchema,
   schemaType,
   validateAuthorizationRegistry,
   validateOperationProfile,
@@ -106,33 +107,26 @@ describe("SDK artifact generation", () => {
   });
 
   it("preserves inherited required fields in composed wire schemas", () => {
-    expectTypeOf<{
-      object: "message";
-      id: null;
-      recipient: { email: string; name: string };
-      status: "queued";
-      error: null;
-    }>().toExtend<WireSchemas["CreateSingleMessageResponse"]>();
+    const schemas = (document["components"] as JsonRecord)["schemas"] as JsonRecord;
+    const inheritedName = resolveAllOfPropertySchema(
+      [{ $ref: "#/components/schemas/Recipient" }, { type: "object", required: ["name"] }],
+      "name",
+      schemas,
+    );
 
-    expectTypeOf<{
-      billing_period: { start: string; end: string };
-      currency: string;
-      allocation_method: "proportional";
-      allocation_note: string;
-      parent: {
-        account_id: string;
-        reception_count: number;
-        allocated_cost: number;
-      };
-      sub_accounts: Array<{
-        account_id: string;
-        name: string;
-        reception_count: number;
-        allocated_cost: number;
-      }>;
-      removed_sub_accounts: { reception_count: number; allocated_cost: number };
-      total: { reception_count: number; allocated_cost: number };
-    }>().toExtend<WireSchemas["SubAccountUsageResponse"]>();
+    expect(schemaType(inheritedName)).toBe("string");
+    expectTypeOf<
+      WireSchemas["CreateSingleMessageResponse"]["recipient"]["name"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<
+      WireSchemas["SubAccountUsageResponse"]["parent"]["account_id"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<
+      WireSchemas["SubAccountUsageResponse"]["sub_accounts"][number]["account_id"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<
+      WireSchemas["SubAccountUsageResponse"]["sub_accounts"][number]["name"]
+    >().toEqualTypeOf<string>();
   });
 
   it("requires domains for scoped webhook and SMTP credential requests", () => {
