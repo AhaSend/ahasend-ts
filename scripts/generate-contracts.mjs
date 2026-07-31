@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { createHmac } from "node:crypto";
+import { execFile } from "node:child_process";
 import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import Ajv from "ajv";
@@ -37,6 +39,8 @@ const GIT_COMMIT_PATTERN = /^[a-f0-9]{40}$/;
 const SIGNATURE_PATTERN = /^v1,[A-Za-z0-9+/]{43}=$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EVIDENCE_PATH = "contracts/webhooks/captured";
+const TYPESCRIPT_RESULTS_PATH = `${EVIDENCE_PATH}/typescript-results.json`;
+const TYPESCRIPT_RESULTS_SIDECAR_PATH = `${EVIDENCE_PATH}/typescript-results.sha256`;
 const SYNTHETIC_PATH = "contracts/webhooks/synthetic";
 const HEADER_RECORD_FORMAT =
   "webhook-id:{webhookId}\nwebhook-timestamp:{webhookTimestamp}\nwebhook-signature:{signature}\n";
@@ -53,6 +57,7 @@ const SECRET_CLASSIFICATIONS = new Map([
   [`${EVIDENCE_PATH}/keys/route.key`, "captured-route-signing-key"],
   [`${SYNTHETIC_PATH}/keys/configured-webhook.key`, "synthetic-test-signing-key"],
 ]);
+const execFileAsync = promisify(execFile);
 
 function assertRecord(value, location) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -916,9 +921,60 @@ function lockWithHashes(lock, openApiBytes, webhookBytes, evidence) {
       "webhooks.yaml": digestYamlArtifact(webhookBytes),
       [`${EVIDENCE_PATH}/manifest.json`]: evidence.manifestDigest,
       [`${EVIDENCE_PATH}/manifest.schema.json`]: evidence.schemaDigest,
+      [TYPESCRIPT_RESULTS_PATH]: evidence.typescriptResultsDigest,
+      [TYPESCRIPT_RESULTS_SIDECAR_PATH]: evidence.typescriptResultsSidecarDigest,
       [`${SYNTHETIC_PATH}/manifest.json`]: evidence.syntheticDigest,
       "security/secret-scan-allowlist.json": evidence.policyDigest,
     },
+  };
+}
+
+async function buildAndRunWebhookFixtures(root) {
+  await execFileAsync(process.execPath, [resolve(root, "scripts/build.mjs")], {
+    cwd: root,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [resolve(root, "scripts/run-webhook-fixture-results.mjs")],
+    {
+      cwd: root,
+      encoding: "buffer",
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  const resultsBytes = Buffer.from(stdout);
+  const results = assertRecord(
+    parseJson(resultsBytes.toString("utf8"), TYPESCRIPT_RESULTS_PATH),
+    "TypeScript webhook results",
+  );
+  const captures = assertArray(results.results, "TypeScript webhook result rows");
+  const manifest = assertRecord(
+    parseJson(
+      await readFile(resolve(root, EVIDENCE_PATH, "manifest.json"), "utf8"),
+      `${EVIDENCE_PATH}/manifest.json`,
+    ),
+    "Captured evidence manifest",
+  );
+  const expectedCaptures = assertArray(manifest.captures, "Captured evidence captures");
+  if (captures.length !== expectedCaptures.length) {
+    throw new TypeError("TypeScript webhook result count does not match captured evidence");
+  }
+  for (const [index, capture] of expectedCaptures.entries()) {
+    const row = assertRecord(captures[index], `TypeScript webhook results[${index}]`);
+    if (row.fixture !== capture.fixtureId || row.result !== capture.expectedResult) {
+      throw new TypeError(
+        `${capture.fixtureId} public verifier result ${JSON.stringify(row.result)} does not match ${JSON.stringify(capture.expectedResult)}`,
+      );
+    }
+  }
+  const resultsDigest = sha256Hex(resultsBytes);
+  const sidecarBytes = Buffer.from(`${resultsDigest}\n`, "utf8");
+  return {
+    resultsBytes,
+    sidecarBytes,
+    resultsDigest,
+    sidecarDigest: sha256Hex(sidecarBytes),
   };
 }
 
@@ -950,6 +1006,9 @@ async function run({ check }) {
   const inventory = collectContractInventory(document);
   assertInventoryMatches(inventory, lock.inventories);
   const evidence = await validateWebhookEvidence(root, { checkDigest: check });
+  const observed = await buildAndRunWebhookFixtures(root);
+  evidence.typescriptResultsDigest = observed.resultsDigest;
+  evidence.typescriptResultsSidecarDigest = observed.sidecarDigest;
 
   if (check) {
     validateCodeSamples(document);
@@ -959,8 +1018,20 @@ async function run({ check }) {
     assertLockedHash(lock, "webhooks.yaml", actualWebhookHash);
     assertLockedHash(lock, `${EVIDENCE_PATH}/manifest.json`, evidence.manifestDigest);
     assertLockedHash(lock, `${EVIDENCE_PATH}/manifest.schema.json`, evidence.schemaDigest);
+    assertLockedHash(lock, TYPESCRIPT_RESULTS_PATH, observed.resultsDigest);
+    assertLockedHash(lock, TYPESCRIPT_RESULTS_SIDECAR_PATH, observed.sidecarDigest);
     assertLockedHash(lock, `${SYNTHETIC_PATH}/manifest.json`, evidence.syntheticDigest);
     assertLockedHash(lock, "security/secret-scan-allowlist.json", evidence.policyDigest);
+    const [committedResults, committedSidecar] = await Promise.all([
+      readFile(resolve(root, TYPESCRIPT_RESULTS_PATH)),
+      readFile(resolve(root, TYPESCRIPT_RESULTS_SIDECAR_PATH)),
+    ]);
+    if (!committedResults.equals(observed.resultsBytes)) {
+      throw new TypeError("Built public verifier results drift from the committed artifact");
+    }
+    if (!committedSidecar.equals(observed.sidecarBytes)) {
+      throw new TypeError("Built public verifier result sidecar drift from the committed artifact");
+    }
     const normalized = injectNodeSamples(source, document);
     if (normalized !== source)
       throw new TypeError("openapi.yaml generated samples are not normalized");
@@ -987,6 +1058,8 @@ async function run({ check }) {
     writeFile(openApiPath, generatedBytes),
     writeFile(lockPath, canonicalizeJson(updatedLock)),
     writeFile(resolve(root, EVIDENCE_PATH, "manifest.sha256"), `${evidence.manifestDigest}\n`),
+    writeFile(resolve(root, TYPESCRIPT_RESULTS_PATH), observed.resultsBytes),
+    writeFile(resolve(root, TYPESCRIPT_RESULTS_SIDECAR_PATH), observed.sidecarBytes),
   ]);
   process.stdout.write(`Generated Node samples for ${inventory.operationIds.length} operations\n`);
 }

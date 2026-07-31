@@ -1,6 +1,17 @@
 import { spawnSync } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import yaml from "js-yaml";
@@ -80,6 +91,28 @@ function schema(name: string): JsonRecord {
 function webhookSchema(name: string): JsonRecord {
   const components = record(webhookDocument.components);
   return record(record(components.schemas)[name]);
+}
+
+function treeDigest(path: string): string | undefined {
+  if (!existsSync(path)) return undefined;
+  const digest = createHash("sha256");
+
+  const visit = (directory: string) => {
+    for (const name of readdirSync(directory).sort()) {
+      const entry = resolve(directory, name);
+      const relativePath = entry.slice(path.length + 1);
+      const stats = statSync(entry);
+      digest.update(relativePath);
+      if (stats.isDirectory()) {
+        visit(entry);
+      } else {
+        digest.update(readFileSync(entry));
+      }
+    }
+  };
+
+  visit(path);
+  return digest.digest("hex");
 }
 
 describe("REST contract normalization", () => {
@@ -424,6 +457,100 @@ describe("captured webhook evidence", () => {
       syntheticCount: 4,
     });
   });
+
+  it("rebuilds public-verifier results in an isolated clean source tree", () => {
+    const repositoryRoot = process.cwd();
+    const checkoutDist = resolve(repositoryRoot, "dist");
+    const checkoutDistBefore = treeDigest(checkoutDist);
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "ahasend-contract-check-"));
+    const sourceEntries = [
+      "contracts",
+      "scripts",
+      "security",
+      "src",
+      "contracts.lock.json",
+      "openapi.yaml",
+      "package.json",
+      "tsconfig.json",
+      "tsup.config.ts",
+      "webhooks.yaml",
+    ];
+
+    try {
+      for (const entry of sourceEntries) {
+        cpSync(resolve(repositoryRoot, entry), resolve(temporaryRoot, entry), {
+          recursive: true,
+        });
+      }
+      symlinkSync(resolve(repositoryRoot, "node_modules"), resolve(temporaryRoot, "node_modules"));
+
+      const isolatedDist = resolve(temporaryRoot, "dist");
+      expect(existsSync(isolatedDist)).toBe(false);
+      expect(existsSync(resolve(temporaryRoot, ".git"))).toBe(false);
+
+      const check = spawnSync(process.execPath, ["scripts/generate-contracts.mjs", "--check"], {
+        cwd: temporaryRoot,
+        encoding: "utf8",
+      });
+      expect(check.stderr).toBe("");
+      expect(check.status).toBe(0);
+      expect(existsSync(resolve(isolatedDist, "webhooks/index.js"))).toBe(true);
+      expect(
+        readFileSync(resolve(temporaryRoot, "contracts/webhooks/captured/typescript-results.json")),
+      ).toEqual(readFileSync(resolve(CAPTURED_PATH, "typescript-results.json")));
+      expect(
+        readFileSync(
+          resolve(temporaryRoot, "contracts/webhooks/captured/typescript-results.sha256"),
+        ),
+      ).toEqual(readFileSync(resolve(CAPTURED_PATH, "typescript-results.sha256")));
+
+      const manifestPath = resolve(temporaryRoot, "contracts/webhooks/captured/manifest.json");
+      const isolatedManifest = JSON.parse(readFileSync(manifestPath, "utf8")) as JsonRecord;
+      const routeCapture = (isolatedManifest.captures as JsonRecord[]).find(
+        ({ fixtureId }) => fixtureId === "route-message-routing",
+      );
+      if (routeCapture === undefined) throw new TypeError("Missing route capture");
+      const routeResource = record(routeCapture.signingResource);
+      const routeBodyPath = resolve(temporaryRoot, routeCapture.bodyPath as string);
+      const originalRouteBody = JSON.parse(readFileSync(routeBodyPath, "utf8")) as JsonRecord;
+      const routeKeyFile = readFileSync(resolve(temporaryRoot, routeResource.keyPath as string));
+      const routeKey = routeKeyFile.subarray(0, routeKeyFile.length - 1);
+
+      const observeChangedRoute = (body: JsonRecord) => {
+        const bodyBytes = Buffer.from(`${JSON.stringify(body)}\n`, "utf8");
+        routeCapture.rawBodySha256 = createHash("sha256").update(bodyBytes).digest("hex");
+        routeCapture.signature = `v1,${createHmac("sha256", routeKey)
+          .update(routeCapture.webhookId as string)
+          .update(".")
+          .update(routeCapture.webhookTimestamp as string)
+          .update(".")
+          .update(bodyBytes)
+          .digest("base64")}`;
+        writeFileSync(routeBodyPath, bodyBytes);
+        writeFileSync(manifestPath, `${JSON.stringify(isolatedManifest, null, 2)}\n`);
+        const result = spawnSync(process.execPath, ["scripts/run-webhook-fixture-results.mjs"], {
+          cwd: temporaryRoot,
+          encoding: "utf8",
+        });
+        expect(result.stderr).toBe("");
+        expect(result.status).toBe(0);
+        const observed = JSON.parse(result.stdout) as { results: JsonRecord[] };
+        return observed.results.find(({ fixture }) => fixture === routeCapture.fixtureId);
+      };
+
+      const withoutRouteId = structuredClone(originalRouteBody);
+      delete withoutRouteId.route_id;
+      expect(observeChangedRoute(withoutRouteId)).toMatchObject({ result: "invalid" });
+
+      const mismatchedRoute = structuredClone(originalRouteBody);
+      mismatchedRoute.route_id = "42f4ac91-55d8-4c73-93ad-0a675d0c324e";
+      expect(observeChangedRoute(mismatchedRoute)).toMatchObject({ result: "invalid" });
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+
+    expect(treeDigest(checkoutDist)).toBe(checkoutDistBefore);
+  }, 60_000);
 
   it("enforces manifest.schema.json against the captured manifest", () => {
     const changedVersionSchema = structuredClone(capturedSchema);
