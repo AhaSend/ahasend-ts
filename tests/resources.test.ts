@@ -24,6 +24,7 @@ import type {
   SMTPCredential,
   SMTPCredentialsClient,
 } from "../src/resources/smtp-credentials.js";
+import type { Route, UpdateRouteRequest } from "../src/resources/routes.js";
 import type { PaginationParams } from "../src/types/common.js";
 import { captureFetch, makeClient } from "./helpers/resource-call.js";
 
@@ -104,6 +105,58 @@ describe("Account declarations", () => {
 
   it("does not expose the account-specific ListMembersParams alias", () => {
     expectTypeOf<RemovedListMembersParams>().toEqualTypeOf<RemovedListMembersParams>();
+  });
+});
+
+describe("Route declarations", () => {
+  it("matches authoritative response requiredness and nullability", () => {
+    const route: Route = {
+      object: "route",
+      id: "route_1",
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      name: "Inbound support",
+      url: "https://example.com/routes/support",
+      recipient: "support@example.com",
+      attachments: true,
+      headers: false,
+      group_by_message_id: true,
+      strip_replies: false,
+      enabled: true,
+      success_count: 42,
+      error_count: 2,
+      errors_since_last_success: 0,
+      last_request_at: null,
+    };
+    const { success_count: _successCount, ...withoutSuccessCount } = route;
+    // @ts-expect-error success_count is a required response key.
+    const missingSuccessCount: Route = withoutSuccessCount;
+    // @ts-expect-error recipient is not nullable in the response schema.
+    const nullRecipient: Route = { ...route, recipient: null };
+
+    expectTypeOf<Route>().toEqualTypeOf<components["schemas"]["Route"]>();
+    expect(route.last_request_at).toBeNull();
+    expect(route.recipient).toBe("support@example.com");
+    void [missingSuccessCount, nullRecipient, _successCount];
+  });
+
+  it("accepts every nullable update field without widening other values", () => {
+    const clearable: UpdateRouteRequest = {
+      name: null,
+      url: null,
+      recipient: null,
+      attachments: null,
+      headers: null,
+      group_by_message_id: null,
+      strip_replies: null,
+      enabled: null,
+    };
+    // @ts-expect-error Route update fields retain their declared primitive types.
+    const invalidName: UpdateRouteRequest = { name: 42 };
+
+    expectTypeOf<UpdateRouteRequest>().toEqualTypeOf<components["schemas"]["UpdateRouteRequest"]>();
+    expect(Object.values(clearable).every((value) => value === null)).toBe(true);
+    void invalidName;
   });
 });
 
