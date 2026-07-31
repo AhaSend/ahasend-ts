@@ -138,12 +138,12 @@ export interface components {
     };
     CreateAPIKeyRequest: {
       label: string;
-      scopes: Array<string>;
+      scopes: readonly [string, ...Array<string>];
       ip_allow_list?: Array<string>;
     };
     UpdateAPIKeyRequest: {
       label?: string | null;
-      scopes?: Array<string> | null;
+      scopes?: readonly [string, ...Array<string>] | null;
       ip_allow_list?: Array<string> | null;
     } & (
       | {
@@ -244,7 +244,10 @@ export interface components {
     };
     CreateMessageRequest: {
       from: components["schemas"]["Address"];
-      recipients: Array<components["schemas"]["Recipient"]>;
+      recipients: readonly [
+        components["schemas"]["Recipient"],
+        ...Array<components["schemas"]["Recipient"]>,
+      ];
       reply_to?: components["schemas"]["Address"];
       subject: string;
       text_content?: string;
@@ -266,9 +269,9 @@ export interface components {
     };
     CreateConversationMessageRequest: {
       from: components["schemas"]["Address"];
-      to: Array<components["schemas"]["Address"]>;
-      cc?: Array<components["schemas"]["Address"]>;
-      bcc?: Array<components["schemas"]["Address"]>;
+      to: readonly [components["schemas"]["Address"], ...Array<components["schemas"]["Address"]>];
+      cc?: readonly [components["schemas"]["Address"], ...Array<components["schemas"]["Address"]>];
+      bcc?: readonly [components["schemas"]["Address"], ...Array<components["schemas"]["Address"]>];
       reply_to?: components["schemas"]["Address"];
       subject: string;
       text_content?: string;
@@ -289,7 +292,7 @@ export interface components {
       object: "message";
       id: string | null;
       recipient: components["schemas"]["Recipient"] & {
-        name: unknown;
+        name: string;
       };
       status: "queued" | "scheduled" | "error";
       error: string | null;
@@ -423,12 +426,12 @@ export interface components {
       allocation_method: "proportional";
       allocation_note: string;
       parent: components["schemas"]["SubAccountUsageBreakdown"] & {
-        account_id: unknown;
+        account_id: string;
       };
       sub_accounts: Array<
         components["schemas"]["SubAccountUsageBreakdown"] & {
-          account_id: unknown;
-          name: unknown;
+          account_id: string;
+          name: string;
         }
       >;
       removed_sub_accounts: components["schemas"]["SubAccountUsageBreakdown"];
@@ -584,7 +587,7 @@ export interface components {
       | ({
           scope: "scoped";
         } & {
-          domains: Array<string>;
+          domains: readonly [string, ...Array<string>];
         })
       | {
           scope?: Exclude<"global" | "scoped", "scoped">;
@@ -635,7 +638,7 @@ export interface components {
       | ({
           scope: "scoped";
         } & {
-          domains: Array<string>;
+          domains: readonly [string, ...Array<string>];
         })
       | {
           scope?: Exclude<"global" | "scoped", "scoped">;

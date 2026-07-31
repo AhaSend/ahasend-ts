@@ -104,6 +104,68 @@
       }
     },
     {
+      "id": "api-key-scopes-non-empty",
+      "schema": "CreateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "label": "Production",
+        "scopes": ["messages:send:all"]
+      }
+    },
+    {
+      "id": "api-key-scopes-empty",
+      "schema": "CreateAPIKeyRequest",
+      "valid": false,
+      "value": {
+        "label": "Production",
+        "scopes": []
+      }
+    },
+    {
+      "id": "message-recipient-inherited-name",
+      "schema": "CreateSingleMessageResponse",
+      "valid": true,
+      "value": {
+        "object": "message",
+        "id": null,
+        "recipient": {
+          "email": "user@example.com",
+          "name": "Example User"
+        },
+        "status": "queued",
+        "error": null
+      }
+    },
+    {
+      "id": "message-recipient-inherited-name-omitted",
+      "schema": "CreateSingleMessageResponse",
+      "valid": false,
+      "value": {
+        "object": "message",
+        "id": null,
+        "recipient": {
+          "email": "user@example.com"
+        },
+        "status": "queued",
+        "error": null
+      }
+    },
+    {
+      "id": "message-recipient-inherited-name-wrong-type",
+      "schema": "CreateSingleMessageResponse",
+      "valid": false,
+      "value": {
+        "object": "message",
+        "id": null,
+        "recipient": {
+          "email": "user@example.com",
+          "name": 42
+        },
+        "status": "queued",
+        "error": null
+      }
+    },
+    {
       "id": "ip-list-unchanged-omitted",
       "schema": "UpdateAPIKeyRequest",
       "valid": true,

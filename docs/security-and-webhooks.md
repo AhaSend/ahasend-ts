@@ -11,8 +11,8 @@ payload and makes verification impossible. Pass the dashboard secret literally, 
 
 `WebhookVerifier` validates the Standard-Webhooks HMAC-SHA256 signature, requires
 `webhook-id`, `webhook-timestamp`, and `webhook-signature`, and defaults to a 5-minute timestamp
-tolerance. Verification and the framework adapters reject bodies above 1,048,576 bytes by
-default.
+tolerance. Verification and the framework adapters have a fixed 30,000,000-byte body ceiling.
+Bodies above that ceiling receive an opaque 413 response from the adapters.
 
 Timestamp-window verification is not replay deduplication. It only rejects deliveries whose
 timestamp is outside the accepted window; the same correctly signed delivery can be presented
@@ -78,7 +78,7 @@ The Express 5.x, Fastify, and Next.js factories share trailing
 
 ```ts
 const options = {
-  maxBodyBytes: 1_048_576,
+  maxBodyBytes: 1_000_000,
   onError(error, context) {
     reportLocalFailure({
       name: error instanceof Error ? error.name : "unknown",
@@ -89,7 +89,23 @@ const options = {
 };
 ```
 
-Invalid signatures and schemas receive an opaque 400 response. Oversized bodies receive an opaque 413. These expected verification outcomes do not expose details to the sender.
+`maxBodyBytes` defaults to 30,000,000. It accepts only integer byte counts from 1 through
+30,000,000, so it can narrow the fixed verifier ceiling but can never raise it. Set the reverse
+proxy's request-body limit to the same value or lower and configure its rejection response to be
+opaque as well.
+
+Invalid signatures and schemas receive an opaque 400 response. Fastify also returns an opaque 400
+when a parsed body is present without captured `rawBody` bytes. Oversized bodies receive an opaque
+413 with no diagnostic body. These expected verification outcomes do not expose details to the
+sender.
+
+Every adapter buffers the complete raw request body before verification. JSON parsing can
+temporarily retain both the encoded body and a decoded string or parsed object, with additional
+framework and runtime overhead, so one maximum-sized request can consume materially more than
+30 MB of memory. Concurrent requests multiply that cost. Configure both request-size and
+concurrency limits at the reverse proxy, choose an application concurrency budget based on
+available memory, and narrow `maxBodyBytes` when your webhook payloads do not need the full
+ceiling.
 
 `onError` is observation-only: it is used for unexpected setup, stream, or application failures,
 is never awaited, and cannot mark an error handled. Observer throws and rejected promises are
@@ -106,8 +122,8 @@ original application error can still carry sensitive information.
 - Load API keys and webhook secrets from a secret manager; never ship them to a browser or edge
   bundle.
 - Serve webhook endpoints over HTTPS and preserve the raw body.
-- Apply a bounded request-body limit at the proxy and adapter; configure proxy failures to avoid
-  exposing diagnostics.
+- Apply request-body and concurrency limits at the reverse proxy, and narrow the adapter body
+  limit where possible; configure proxy failures to avoid exposing diagnostics.
 - Verify before any parsing-dependent or business side effect.
 - Atomically commit `webhook-id` and durable work, then process that work idempotently.
 - Return opaque failures and log only allow-listed metadata.

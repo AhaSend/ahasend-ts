@@ -206,6 +206,32 @@ describe("REST schema golden contracts", () => {
     ]).toEqual([true, false, true, false]);
   });
 
+  it("enforces non-empty arrays where the authoritative schema declares minItems one", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const nonEmpty = byId["api-key-scopes-non-empty"]!;
+    const empty = byId["api-key-scopes-empty"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, nonEmpty.schema)(nonEmpty.value)).toBe(true);
+    expect(componentValidator(ajv, empty.schema)(empty.value)).toBe(false);
+  });
+
+  it("enforces inherited properties in required-only allOf overlays", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const valid = byId["message-recipient-inherited-name"]!;
+    const missing = byId["message-recipient-inherited-name-omitted"]!;
+    const wrongType = byId["message-recipient-inherited-name-wrong-type"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, valid.schema)(valid.value)).toBe(true);
+    expect(componentValidator(ajv, missing.schema)(missing.value)).toBe(false);
+    expect(componentValidator(ajv, wrongType.schema)(wrongType.value)).toBe(false);
+  });
+
   it("requires one-time API-key secrets only on both creation responses", () => {
     const ajv = schemaValidator();
 

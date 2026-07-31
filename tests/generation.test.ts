@@ -8,6 +8,8 @@ import {
   AUTHORIZATION_REGISTRY,
   dereferenceResponse,
   generateSdkArtifacts,
+  resolveAllOfPropertySchema,
+  schemaType,
   validateAuthorizationRegistry,
   validateOperationProfile,
 } from "../scripts/generate-sdk.mjs";
@@ -18,6 +20,14 @@ import {
   WEBHOOK_SHA256,
 } from "../src/generated/contract-digests.js";
 import { OPERATION_DESCRIPTORS, RESOURCE_AUTHORIZATION } from "../src/generated/operations.js";
+import type {
+  OperationId,
+  OperationInputById,
+  OperationParametersById,
+  OperationRequestBodyById,
+  OperationSuccessById,
+  RequestInput,
+} from "../src/generated/operations.js";
 import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
 import type { components, operations } from "../src/generated/rest-types.js";
 
@@ -105,33 +115,26 @@ describe("SDK artifact generation", () => {
   });
 
   it("preserves inherited required fields in composed wire schemas", () => {
-    expectTypeOf<{
-      object: "message";
-      id: null;
-      recipient: { email: string; name: string };
-      status: "queued";
-      error: null;
-    }>().toExtend<WireSchemas["CreateSingleMessageResponse"]>();
+    const schemas = (document["components"] as JsonRecord)["schemas"] as JsonRecord;
+    const inheritedName = resolveAllOfPropertySchema(
+      [{ $ref: "#/components/schemas/Recipient" }, { type: "object", required: ["name"] }],
+      "name",
+      schemas,
+    );
 
-    expectTypeOf<{
-      billing_period: { start: string; end: string };
-      currency: string;
-      allocation_method: "proportional";
-      allocation_note: string;
-      parent: {
-        account_id: string;
-        reception_count: number;
-        allocated_cost: number;
-      };
-      sub_accounts: Array<{
-        account_id: string;
-        name: string;
-        reception_count: number;
-        allocated_cost: number;
-      }>;
-      removed_sub_accounts: { reception_count: number; allocated_cost: number };
-      total: { reception_count: number; allocated_cost: number };
-    }>().toExtend<WireSchemas["SubAccountUsageResponse"]>();
+    expect(schemaType(inheritedName)).toBe("string");
+    expectTypeOf<
+      WireSchemas["CreateSingleMessageResponse"]["recipient"]["name"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<
+      WireSchemas["SubAccountUsageResponse"]["parent"]["account_id"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<
+      WireSchemas["SubAccountUsageResponse"]["sub_accounts"][number]["account_id"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<
+      WireSchemas["SubAccountUsageResponse"]["sub_accounts"][number]["name"]
+    >().toEqualTypeOf<string>();
   });
 
   it("requires domains for scoped webhook and SMTP credential requests", () => {
@@ -144,7 +147,7 @@ describe("SDK artifact generation", () => {
       name: string;
       url: string;
       scope: "scoped";
-      domains: string[];
+      domains: [string];
     }>().toExtend<WireSchemas["CreateWebhookRequest"]>();
     expectTypeOf<{
       name: string;
@@ -159,12 +162,115 @@ describe("SDK artifact generation", () => {
     expectTypeOf<{
       name: string;
       scope: "scoped";
-      domains: string[];
+      domains: [string];
     }>().toExtend<WireSchemas["CreateSMTPCredentialRequest"]>();
     expectTypeOf<{
       name: string;
       scope: "global";
     }>().toExtend<WireSchemas["CreateSMTPCredentialRequest"]>();
+  });
+
+  it("emits readonly non-empty tuples for arrays with minItems one", () => {
+    expect(schemaType({ type: "array", items: { type: "string" }, minItems: 1 })).toBe(
+      "readonly [string, ...Array<string>]",
+    );
+    expect(schemaType({ type: "array", items: { type: "string" } })).toBe("Array<string>");
+
+    expectTypeOf<WireSchemas["CreateAPIKeyRequest"]["scopes"]>().toEqualTypeOf<
+      readonly [string, ...string[]]
+    >();
+    expectTypeOf<readonly [{ email: string }]>().toExtend<
+      WireSchemas["CreateMessageRequest"]["recipients"]
+    >();
+    expectTypeOf<readonly []>().not.toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
+  });
+
+  it("indexes parameters, request bodies, inputs, and successes for all 56 operations", () => {
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(56);
+    expectTypeOf<keyof OperationParametersById>().toEqualTypeOf<OperationId>();
+    expectTypeOf<keyof OperationRequestBodyById>().toEqualTypeOf<OperationId>();
+    expectTypeOf<keyof OperationInputById>().toEqualTypeOf<OperationId>();
+    expectTypeOf<keyof OperationSuccessById>().toEqualTypeOf<OperationId>();
+  });
+
+  it("normalizes recursive request inputs without changing object modifiers", () => {
+    type Normalized = RequestInput<{
+      readonly required: Array<{ values: string[] }>;
+      optional?: string[];
+    }>;
+    type Distributed = RequestInput<
+      { kind: "items"; values: Array<{ nested: number[] }> } | { kind: "count"; value: number }
+    >;
+
+    expectTypeOf<Normalized>().toEqualTypeOf<{
+      readonly required: readonly { values: readonly string[] }[];
+      optional?: readonly string[];
+    }>();
+    expectTypeOf<Distributed>().toEqualTypeOf<
+      | { kind: "items"; values: readonly { nested: readonly number[] }[] }
+      | { kind: "count"; value: number }
+    >();
+  });
+
+  it("accepts readonly arrays and preserves non-empty request tuple cardinality", () => {
+    type MessageBody = OperationRequestBodyById["createMessage"];
+
+    expectTypeOf<readonly [{ data: string; content_type: string; file_name: string }]>().toExtend<
+      NonNullable<MessageBody["attachments"]>
+    >();
+    expectTypeOf<readonly ["transactional", "welcome"]>().toExtend<
+      NonNullable<MessageBody["tags"]>
+    >();
+    expectTypeOf<readonly [{ email: string }]>().toExtend<MessageBody["recipients"]>();
+    expectTypeOf<readonly []>().not.toExtend<MessageBody["recipients"]>();
+
+    expectTypeOf<{
+      name: string;
+      url: string;
+      scope: "scoped";
+      domains: readonly [string];
+    }>().toExtend<OperationRequestBodyById["createWebhook"]>();
+    expectTypeOf<{
+      name: string;
+      url: string;
+      scope: "scoped";
+      domains: readonly [];
+    }>().not.toExtend<OperationRequestBodyById["createWebhook"]>();
+
+    expectTypeOf<{
+      name: string;
+      scope: "scoped";
+      domains: readonly [string];
+    }>().toExtend<OperationRequestBodyById["createSMTPCredential"]>();
+    expectTypeOf<{
+      name: string;
+      scope: "scoped";
+      domains: readonly [];
+    }>().not.toExtend<OperationRequestBodyById["createSMTPCredential"]>();
+  });
+
+  it("requires bodies only for body-bearing operation inputs", () => {
+    expectTypeOf<
+      OperationParametersById["createMessage"] & {
+        body: OperationRequestBodyById["createMessage"];
+      }
+    >().toExtend<OperationInputById["createMessage"]>();
+    expectTypeOf<OperationParametersById["createMessage"]>().not.toExtend<
+      OperationInputById["createMessage"]
+    >();
+    expectTypeOf<OperationParametersById["ping"]>().toExtend<OperationInputById["ping"]>();
+    expectTypeOf<OperationParametersById["ping"] & { body: Record<string, never> }>().not.toExtend<
+      OperationInputById["ping"]
+    >();
+  });
+
+  it("leaves success response arrays mutable wire types", () => {
+    expectTypeOf<OperationSuccessById["getMessages"]["data"]>().toEqualTypeOf<
+      Array<WireSchemas["MessageSummary"]>
+    >();
+    expectTypeOf<OperationSuccessById["getMessages"]["data"]>().not.toEqualTypeOf<
+      readonly WireSchemas["MessageSummary"][]
+    >();
   });
 
   it("generates JSON bodies for referenced 409 and 422 operation responses", () => {

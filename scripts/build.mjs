@@ -8,11 +8,18 @@ import { build } from "tsup";
 import { digestArtifactFile } from "./digest-artifact.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const expectedRepositoryRoot = process.env.AHASEND_EXPECT_BUILD_ROOT;
 const profileSource = resolve(repositoryRoot, "src/generated/operation-profile.json");
 const digestSource = resolve(repositoryRoot, "src/generated/operation-profile.sha256");
 const metadataDirectory = resolve(repositoryRoot, "dist/_metadata");
 const profileDestination = resolve(metadataDirectory, "operation-profile.json");
 const digestDestination = resolve(metadataDirectory, "operation-profile.sha256");
+
+if (expectedRepositoryRoot !== undefined && resolve(expectedRepositoryRoot) !== repositoryRoot) {
+  throw new Error(
+    `Refusing to build ${repositoryRoot}; expected build root ${resolve(expectedRepositoryRoot)}.`,
+  );
+}
 
 async function verifyMetadata(profilePath, digestPath) {
   const digestBytes = await readFile(digestPath);
