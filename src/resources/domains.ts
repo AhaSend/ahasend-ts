@@ -55,6 +55,8 @@ export interface CreateDomainRequest {
   subscription_subdomain?: string;
   media_subdomain?: string;
   dkim_rotation_interval_days?: number;
+  /** Custom selector; null, empty, or whitespace-only uses the default selector on create. */
+  dkim_selector?: string | null;
 }
 
 export interface UpdateDomainRequest {
@@ -63,6 +65,8 @@ export interface UpdateDomainRequest {
   subscription_subdomain?: string;
   media_subdomain?: string;
   dkim_rotation_interval_days?: number;
+  /** Null leaves the selector unchanged; empty or whitespace-only clears the current override. */
+  dkim_selector?: string | null;
 }
 
 /** Manage sending domains and their DNS verification state. */

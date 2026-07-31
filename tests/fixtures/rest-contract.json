@@ -189,6 +189,39 @@
       }
     },
     {
+      "id": "domain-create-dkim-selector-null",
+      "schema": "CreateDomainRequest",
+      "valid": true,
+      "value": {
+        "domain": "example.com",
+        "dkim_selector": null
+      }
+    },
+    {
+      "id": "domain-update-dkim-selector-null",
+      "schema": "UpdateDomainRequest",
+      "valid": true,
+      "value": {
+        "dkim_selector": null
+      }
+    },
+    {
+      "id": "domain-update-dkim-selector-empty",
+      "schema": "UpdateDomainRequest",
+      "valid": true,
+      "value": {
+        "dkim_selector": ""
+      }
+    },
+    {
+      "id": "domain-update-dkim-selector-whitespace",
+      "schema": "UpdateDomainRequest",
+      "valid": true,
+      "value": {
+        "dkim_selector": " \t "
+      }
+    },
+    {
       "id": "route-complete-last-request-null",
       "schema": "Route",
       "valid": true,
