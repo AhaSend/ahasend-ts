@@ -287,13 +287,7 @@ export class AhaSendUnprocessableEntityError extends AhaSendAPIError {
 // @public (undocumented)
 export interface ApiErrorBody {
     // (undocumented)
-    [key: string]: unknown;
-    // (undocumented)
-    code?: string;
-    // (undocumented)
-    details?: unknown;
-    // (undocumented)
-    message?: string;
+    message: string;
 }
 
 // @public (undocumented)
