@@ -2,7 +2,16 @@
 
 import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -458,24 +467,35 @@ function extractPackageFile(runCommand, tarballPath, packagePath, cwd) {
   return runCommand("tar", ["-xOf", tarballPath, `package/${packagePath}`], { cwd });
 }
 
-function parsePackResult(output) {
+async function parsePackResult(output, packDestination) {
   let value;
   try {
     value = JSON.parse(String(output));
   } catch (error) {
     throw new TypeError("npm pack did not return valid JSON.", { cause: error });
   }
-  if (!Array.isArray(value) || value.length !== 1) {
-    const count = Array.isArray(value) ? value.length : 0;
+  const results = Array.isArray(value)
+    ? value
+    : Object.values(requireObject(value, "npm pack result"));
+  if (results.length !== 1) {
+    const count = results.length;
     throw new TypeError(`npm pack must produce exactly one package, received ${count}.`);
   }
-  const result = requireObject(value[0], "npm pack result");
+  const result = requireObject(results[0], "npm pack result");
   if (
     typeof result.filename !== "string" ||
     basename(result.filename) !== result.filename ||
     !result.filename.endsWith(".tgz")
   ) {
     throw new TypeError("npm pack returned an invalid tarball filename.");
+  }
+  try {
+    await access(resolve(packDestination, result.filename), constants.F_OK);
+  } catch (error) {
+    throw new TypeError(
+      "npm pack result must identify an existing tarball in the explicit pack destination.",
+      { cause: error },
+    );
   }
   return result.filename;
 }
@@ -547,7 +567,7 @@ export async function createCandidate({
       ["pack", "--json", "--ignore-scripts", "--pack-destination", stagingDirectory],
       repositoryRoot,
     );
-    const tarballName = parsePackResult(packOutput);
+    const tarballName = await parsePackResult(packOutput, stagingDirectory);
     const tarballs = (await readdir(stagingDirectory)).filter((name) => name.endsWith(".tgz"));
     if (tarballs.length !== 1 || tarballs[0] !== tarballName) {
       throw new TypeError(

@@ -3,6 +3,7 @@ import { AhaSendClient } from "../src/client.js";
 import { resolveConfig } from "../src/config.js";
 import { HttpClient } from "../src/http.js";
 import { OperationExecutor } from "../src/operations.js";
+import { ACCOUNT_ID, HOSTNAME } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -27,7 +28,7 @@ function makeHttp(fetchImpl: FetchImpl): HttpClient {
 }
 
 describe("OperationExecutor", () => {
-  it("resolves generated paths and independently encodes every path value", async () => {
+  it("resolves generated paths with schema-valid path values", async () => {
     let seenUrl = "";
     const http = makeHttp(
       mockFetch((url) => {
@@ -40,14 +41,12 @@ describe("OperationExecutor", () => {
 
     await executor.execute("getDomain", {
       path: {
-        account_id: "account/sentinel",
-        domain: "mail/{sentinel}%example.com",
+        account_id: ACCOUNT_ID,
+        domain: HOSTNAME,
       },
     });
 
-    expect(new URL(seenUrl).pathname).toBe(
-      "/v2/accounts/account%2Fsentinel/domains/mail%2F%7Bsentinel%7D%25example.com",
-    );
+    expect(new URL(seenUrl).pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
         execution: {
@@ -74,7 +73,7 @@ describe("OperationExecutor", () => {
     const body = { domain: "example.com" };
 
     await executor.execute("createDomain", {
-      path: { account_id: "acc_1" },
+      path: { account_id: ACCOUNT_ID },
       query: { undeclared_sentinel: "must-not-be-sent" },
       body,
     });
@@ -83,7 +82,7 @@ describe("OperationExecutor", () => {
     expect(seenInit?.body).toBe(JSON.stringify(body));
     expect(request).toHaveBeenCalledWith({
       method: "POST",
-      path: "/v2/accounts/acc_1/domains",
+      path: `/v2/accounts/${ACCOUNT_ID}/domains`,
       body,
       execution: {
         operationId: "createDomain",
@@ -99,11 +98,11 @@ describe("OperationExecutor", () => {
     const executor = new OperationExecutor(http);
 
     await executor.execute("createDomain", {
-      path: { account_id: "acc_1" },
+      path: { account_id: ACCOUNT_ID },
       body: { domain: "example.com" },
     });
     await executor.execute("createAPIKey", {
-      path: { account_id: "acc_1" },
+      path: { account_id: ACCOUNT_ID },
       body: { label: "key", scopes: [] },
     });
 
@@ -131,7 +130,7 @@ describe("OperationExecutor", () => {
     );
 
     await executor.execute("deleteSuppression", {
-      path: { account_id: "acc_1" },
+      path: { account_id: ACCOUNT_ID },
       query: {
         email: "person+tag@example.com",
         domain: "example.com",
@@ -154,7 +153,7 @@ describe("OperationExecutor", () => {
 
     expect(() =>
       executor.execute("getDomain", {
-        path: { account_id: "acc_1" },
+        path: { account_id: ACCOUNT_ID },
       }),
     ).toThrow('Missing path parameter "domain" for getDomain');
     expect(transport).not.toHaveBeenCalled();
@@ -174,7 +173,7 @@ describe("OperationExecutor", () => {
 
     await expect(
       executor.execute("checkDomainDNS", {
-        path: { account_id: "acc_1", domain: "example.com" },
+        path: { account_id: ACCOUNT_ID, domain: HOSTNAME },
       }),
     ).rejects.toMatchObject({ status: 500 });
     expect(transport).toHaveBeenCalledTimes(1);
@@ -195,7 +194,7 @@ describe("OperationExecutor", () => {
 
     await expect(
       executor.execute("createDomain", {
-        path: { account_id: "acc_1" },
+        path: { account_id: ACCOUNT_ID },
         body: { domain: "example.com" },
       }),
     ).rejects.toMatchObject({ status: 500 });

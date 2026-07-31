@@ -28,6 +28,71 @@
   },
   "componentCases": [
     {
+      "id": "account-complete-parent-null",
+      "schema": "Account",
+      "valid": true,
+      "value": {
+        "object": "account",
+        "id": "22222222-2222-4222-8222-222222222222",
+        "parent_account_id": null,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Primary account",
+        "website": "https://example.com",
+        "about": "Primary transactional email account",
+        "track_opens": true,
+        "track_clicks": false,
+        "reject_bad_recipients": true,
+        "reject_mistyped_recipients": false,
+        "message_metadata_retention": 30,
+        "message_data_retention": 7,
+        "owner_id": "33333333-3333-4333-8333-333333333333"
+      }
+    },
+    {
+      "id": "account-required-website-omitted",
+      "schema": "Account",
+      "valid": false,
+      "value": {
+        "object": "account",
+        "id": "22222222-2222-4222-8222-222222222222",
+        "parent_account_id": null,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Primary account",
+        "about": "Primary transactional email account",
+        "track_opens": true,
+        "track_clicks": false,
+        "reject_bad_recipients": true,
+        "reject_mistyped_recipients": false,
+        "message_metadata_retention": 30,
+        "message_data_retention": 7,
+        "owner_id": "33333333-3333-4333-8333-333333333333"
+      }
+    },
+    {
+      "id": "account-non-null-about-null",
+      "schema": "Account",
+      "valid": false,
+      "value": {
+        "object": "account",
+        "id": "22222222-2222-4222-8222-222222222222",
+        "parent_account_id": null,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Primary account",
+        "website": "https://example.com",
+        "about": null,
+        "track_opens": true,
+        "track_clicks": false,
+        "reject_bad_recipients": true,
+        "reject_mistyped_recipients": false,
+        "message_metadata_retention": 30,
+        "message_data_retention": 7,
+        "owner_id": "33333333-3333-4333-8333-333333333333"
+      }
+    },
+    {
       "id": "required-nullable-present-null-canary",
       "schema": "APIKey",
       "valid": true,
@@ -101,6 +166,68 @@
       "value": {
         "domain": "example.com",
         "tracking_subdomain": null
+      }
+    },
+    {
+      "id": "api-key-scopes-non-empty",
+      "schema": "CreateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "label": "Production",
+        "scopes": ["messages:send:all"]
+      }
+    },
+    {
+      "id": "api-key-scopes-empty",
+      "schema": "CreateAPIKeyRequest",
+      "valid": false,
+      "value": {
+        "label": "Production",
+        "scopes": []
+      }
+    },
+    {
+      "id": "message-recipient-inherited-name",
+      "schema": "CreateSingleMessageResponse",
+      "valid": true,
+      "value": {
+        "object": "message",
+        "id": null,
+        "recipient": {
+          "email": "user@example.com",
+          "name": "Example User"
+        },
+        "status": "queued",
+        "error": null
+      }
+    },
+    {
+      "id": "message-recipient-inherited-name-omitted",
+      "schema": "CreateSingleMessageResponse",
+      "valid": false,
+      "value": {
+        "object": "message",
+        "id": null,
+        "recipient": {
+          "email": "user@example.com"
+        },
+        "status": "queued",
+        "error": null
+      }
+    },
+    {
+      "id": "message-recipient-inherited-name-wrong-type",
+      "schema": "CreateSingleMessageResponse",
+      "valid": false,
+      "value": {
+        "object": "message",
+        "id": null,
+        "recipient": {
+          "email": "user@example.com",
+          "name": 42
+        },
+        "status": "queued",
+        "error": null
       }
     },
     {

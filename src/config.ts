@@ -4,7 +4,7 @@ import { AhaSendConfigurationError } from "./errors.js";
 import type { RateLimitConfig, ResolvedRateLimitConfig } from "./rate-limit.js";
 import { resolveRateLimitConfig } from "./rate-limit.js";
 import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
-import { resolveRetryConfig } from "./retry.js";
+import { MAX_RETRIES, resolveRetryConfig } from "./retry.js";
 import type { ResolvedTelemetryHooks, TelemetryHooks } from "./telemetry.js";
 import { composeHooks, debugConsoleHooks, resolveTelemetryHooks } from "./telemetry.js";
 import type { IdempotencyRequestOptions, RequestOptions } from "./types/common.js";
@@ -12,6 +12,8 @@ import { DEFAULT_USER_AGENT } from "./version.js";
 
 export const DEFAULT_BASE_URL = "https://api.ahasend.com";
 export const DEFAULT_TIMEOUT_MS = 30_000;
+/** @internal Largest delay supported by Node.js timer APIs without coercion. */
+export const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export interface ClientOptions {
   apiKey: string;
@@ -108,6 +110,7 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   assertPositiveFiniteNumber(timeoutMs, "timeoutMs");
+  assertSupportedTimerDelay(timeoutMs, "timeoutMs");
 
   const userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
   assertNonEmptyString(userAgent, "userAgent");
@@ -172,6 +175,7 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
     }
     const timeoutMs = seconds * 1000;
     assertPositiveFiniteNumber(timeoutMs, "AHASEND_TIMEOUT");
+    assertSupportedTimerDelay(timeoutMs, "AHASEND_TIMEOUT");
     options.timeoutMs = timeoutMs;
   }
 
@@ -197,11 +201,7 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
   const retry: RetryConfig = {};
   if (env.AHASEND_MAX_RETRIES !== undefined) {
     const maxRetries = parseFiniteNumber(env.AHASEND_MAX_RETRIES, "AHASEND_MAX_RETRIES");
-    if (!Number.isInteger(maxRetries) || maxRetries < 0) {
-      throw new AhaSendConfigurationError(
-        "AhaSend: `AHASEND_MAX_RETRIES` must be a non-negative integer.",
-      );
-    }
+    assertRetryCount(maxRetries, "AHASEND_MAX_RETRIES");
     retry.maxRetries = maxRetries;
   }
   if (Object.keys(retry).length > 0) {
@@ -357,13 +357,15 @@ function assertRetryConfig(config: unknown): void {
   assertOptionalBoolean(config.enabled, "retry.enabled");
   assertOptionalBoolean(config.jitter, "retry.jitter");
   if (config.maxRetries !== undefined) {
-    assertNonNegativeInteger(config.maxRetries, "retry.maxRetries");
+    assertRetryCount(config.maxRetries, "retry.maxRetries");
   }
   if (config.baseDelayMs !== undefined) {
     assertNonNegativeFiniteNumber(config.baseDelayMs, "retry.baseDelayMs");
+    assertSupportedTimerDelay(config.baseDelayMs, "retry.baseDelayMs");
   }
   if (config.maxDelayMs !== undefined) {
     assertNonNegativeFiniteNumber(config.maxDelayMs, "retry.maxDelayMs");
+    assertSupportedTimerDelay(config.maxDelayMs, "retry.maxDelayMs");
   }
   if (config.strategy !== undefined && !RETRY_STRATEGIES.has(config.strategy as string)) {
     throw new AhaSendConfigurationError(
@@ -490,9 +492,24 @@ function assertNonNegativeFiniteNumber(value: unknown, name: string): asserts va
   }
 }
 
-function assertNonNegativeInteger(value: unknown, name: string): asserts value is number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a non-negative integer.`);
+function assertSupportedTimerDelay(value: number, name: string): void {
+  if (value > MAX_TIMER_DELAY_MS) {
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` must be less than or equal to ${MAX_TIMER_DELAY_MS} milliseconds.`,
+    );
+  }
+}
+
+function assertRetryCount(value: unknown, name: string): asserts value is number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > MAX_RETRIES
+  ) {
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` must be a safe integer from 0 through ${MAX_RETRIES}.`,
+    );
   }
 }
 

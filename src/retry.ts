@@ -10,6 +10,8 @@ import {
 
 export type RetryStrategy = "exponential" | "linear" | "constant";
 
+export const MAX_RETRIES = 20;
+
 export interface RetryConfig {
   enabled?: boolean;
   maxRetries?: number;

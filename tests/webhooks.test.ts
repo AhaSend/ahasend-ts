@@ -25,6 +25,7 @@ import {
   AhaSendWebhookVerificationError,
   MAX_WEBHOOK_BODY_BYTES,
   WebhookVerifier,
+  createWebhookVerifierWithClock,
   type WebhookVerificationReason,
 } from "../src/webhooks/verifier.js";
 
@@ -37,6 +38,68 @@ const ROOT = process.cwd();
 const OPENAPI_SOURCE = readFileSync(resolve(ROOT, "openapi.yaml"), "utf8");
 const WEBHOOK_SOURCE = readFileSync(resolve(ROOT, "webhooks.yaml"), "utf8");
 const CAPTURED_PATH = resolve(ROOT, "contracts/webhooks/captured");
+const SYNTHETIC_PATH = resolve(ROOT, "contracts/webhooks/synthetic");
+const OPTIONAL_WEBHOOK_ID = "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1";
+const IS_BOT_FIXTURE_EXPECTATIONS = new Map<string, boolean | "absent">([
+  ["message-opened-bot-true", true],
+  ["message-clicked-bot-false", false],
+  ["message-opened-bot-absent", "absent"],
+]);
+const CONFIGURED_WEBHOOK_BODIES = [
+  {
+    type: "message.delivered",
+    timestamp: "2026-07-14T15:03:21.987654321Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      event: "on_delivered",
+      from: "sender@example.com",
+      recipient: "receiver@example.com",
+      subject: "Test",
+      message_id_header: "<delivery@example.com>",
+      id: "message-1",
+    },
+  },
+  {
+    type: "message.clicked",
+    timestamp: "2026-07-14T15:03:22Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      event: "on_clicked",
+      from: "sender@example.com",
+      recipient: "receiver@example.com",
+      subject: "Test",
+      message_id_header: "<clicked@example.com>",
+      url: "https://example.com/clicked",
+      user_agent: "AhaSend test",
+      ip: "192.0.2.1",
+      id: "message-2",
+    },
+  },
+  {
+    type: "suppression.created",
+    timestamp: "2026-07-14T15:03:23Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      recipient: "receiver@example.com",
+      created_at: "2026-07-14T15:03:23Z",
+      expires_at: "2026-08-13T15:03:23Z",
+      reason: "Too many hard bounces",
+      sending_domain: "example.com",
+    },
+  },
+  {
+    type: "domain.dns_error",
+    timestamp: "2026-07-14T15:03:24Z",
+    data: {
+      domain: "example.com",
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      spf_valid: true,
+      dkim_valid: false,
+      dmarc_valid: true,
+      dns_last_checked_at: "2026-07-14T15:03:24Z",
+    },
+  },
+] as const;
 
 function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -158,6 +221,16 @@ describe("generated webhook schema", () => {
     const withoutUrl = structuredClone(clicked);
     Reflect.deleteProperty(withoutUrl.data, "url");
     expect(validateKnownWebhookEvent(withoutUrl)).toBe(false);
+  });
+
+  it("accepts configured-webhook envelopes with absent or present body webhook IDs", () => {
+    for (const payload of CONFIGURED_WEBHOOK_BODIES) {
+      expect(validateKnownWebhookEvent(payload), `${payload.type} without webhook_id`).toBe(true);
+      expect(
+        validateKnownWebhookEvent({ ...payload, webhook_id: OPTIONAL_WEBHOOK_ID }),
+        `${payload.type} with webhook_id`,
+      ).toBe(true);
+    }
   });
 
   it("validates RFC 3339 date-times and the complete UUID format", () => {
@@ -295,6 +368,19 @@ describe("generated webhook schema", () => {
 
     expect(validateKnownWebhookEvent(routing)).toBe(true);
     expect(validateKnownWebhookEvent({ ...routing, type: "route.message" })).toBe(true);
+    for (const from of [
+      "sender@example.com",
+      "<sender@example.com>",
+      '"AhaSend Support" <sender@example.com>',
+      "Dörte Beispiel <sender@example.com>",
+    ]) {
+      expect(validateKnownWebhookEvent({ ...routing, data: { ...routing.data, from } }), from).toBe(
+        true,
+      );
+    }
+    const withoutRouteId = structuredClone(routing);
+    Reflect.deleteProperty(withoutRouteId, "route_id");
+    expect(validateKnownWebhookEvent(withoutRouteId)).toBe(false);
     expect(
       validateKnownWebhookEvent({
         ...routing,
@@ -404,9 +490,10 @@ describe("captured TypeScript verification results", () => {
         capture.fixtureId,
       ).toBe(capture.signature);
 
-      const verifier = new WebhookVerifier(key.toString("utf8"), {
-        nowMs: () => Number(capture.webhookTimestamp) * 1000,
-      });
+      const verifier = createWebhookVerifierWithClock(
+        key.toString("utf8"),
+        () => Number(capture.webhookTimestamp) * 1000,
+      );
       expect(() =>
         verifier.verify(
           {
@@ -428,9 +515,10 @@ describe("captured TypeScript verification results", () => {
       const otherCapture = manifest.captures[(index + 1) % manifest.captures.length]!;
       const otherKeyFile = readFileSync(resolve(ROOT, otherCapture.signingResource.keyPath));
       const otherKey = otherKeyFile.subarray(0, otherKeyFile.length - 1).toString("utf8");
-      const verifier = new WebhookVerifier(key, {
-        nowMs: () => Number(capture.webhookTimestamp) * 1000,
-      });
+      const verifier = createWebhookVerifierWithClock(
+        key,
+        () => Number(capture.webhookTimestamp) * 1000,
+      );
       const headers = {
         "webhook-id": capture.webhookId,
         "webhook-timestamp": capture.webhookTimestamp,
@@ -468,9 +556,10 @@ describe("captured TypeScript verification results", () => {
       ).toBe("signature_mismatch");
       expect(
         reasonFrom(() =>
-          new WebhookVerifier(otherKey, {
-            nowMs: () => Number(capture.webhookTimestamp) * 1000,
-          }).verify(headers, rawBody),
+          createWebhookVerifierWithClock(
+            otherKey,
+            () => Number(capture.webhookTimestamp) * 1000,
+          ).verify(headers, rawBody),
         ),
       ).toBe("signature_mismatch");
     }
@@ -550,6 +639,77 @@ describe("WebhookVerifier", () => {
     expect(isKnownWebhookEvent(event)).toBe(true);
     if (isKnownWebhookEvent(event) && event.type === "message.delivered") {
       expect(event.data.recipient).toBe("receiver@example.com");
+    }
+  });
+
+  it("parses signed configured-webhook bodies with absent or present webhook IDs", () => {
+    const verifier = new WebhookVerifier(SECRET);
+
+    for (const payload of CONFIGURED_WEBHOOK_BODIES) {
+      for (const bodyPayload of [payload, { ...payload, webhook_id: OPTIONAL_WEBHOOK_ID }]) {
+        const { headers, body } = buildEnvelope(SECRET, bodyPayload);
+        expect(verifier.parse(headers, body)).toEqual(bodyPayload);
+      }
+    }
+  });
+
+  it("validates every signed synthetic body and preserves is_bot compatibility cases", () => {
+    const manifest = JSON.parse(readFileSync(resolve(SYNTHETIC_PATH, "manifest.json"), "utf8")) as {
+      fixtures: Array<{
+        fixtureId: string;
+        bodyPath: string;
+        rawBodySha256: string;
+        keyPath: string;
+        keySha256: string;
+        webhookId: string;
+        webhookTimestamp: string;
+        signature: string;
+        expectedResult: "valid";
+      }>;
+    };
+
+    expect(
+      manifest.fixtures
+        .map(({ fixtureId }) => fixtureId)
+        .filter((fixtureId) => IS_BOT_FIXTURE_EXPECTATIONS.has(fixtureId)),
+    ).toEqual([...IS_BOT_FIXTURE_EXPECTATIONS.keys()]);
+
+    for (const fixture of manifest.fixtures) {
+      const rawBody = readFileSync(resolve(ROOT, fixture.bodyPath));
+      const keyFile = readFileSync(resolve(ROOT, fixture.keyPath));
+      const key = keyFile.subarray(0, keyFile.length - 1);
+      const payload = JSON.parse(rawBody.toString("utf8")) as unknown;
+
+      expect(sha256Hex(rawBody), fixture.fixtureId).toBe(fixture.rawBodySha256);
+      expect(sha256Hex(key), fixture.fixtureId).toBe(fixture.keySha256);
+      expect(
+        sign(key.toString("utf8"), fixture.webhookId, fixture.webhookTimestamp, rawBody),
+        fixture.fixtureId,
+      ).toBe(fixture.signature);
+      expect(validateKnownWebhookEvent(payload), fixture.fixtureId).toBe(true);
+
+      const event = createWebhookVerifierWithClock(
+        key.toString("utf8"),
+        () => Number(fixture.webhookTimestamp) * 1000,
+      ).parse(
+        {
+          "webhook-id": fixture.webhookId,
+          "webhook-timestamp": fixture.webhookTimestamp,
+          "webhook-signature": fixture.signature,
+        },
+        rawBody,
+      );
+      expect(event, fixture.fixtureId).toEqual(payload);
+
+      const expectedIsBot = IS_BOT_FIXTURE_EXPECTATIONS.get(fixture.fixtureId);
+      if (expectedIsBot !== undefined) {
+        const data = record(event.data);
+        if (expectedIsBot === "absent") {
+          expect(Object.hasOwn(data, "is_bot"), fixture.fixtureId).toBe(false);
+        } else {
+          expect(data["is_bot"], fixture.fixtureId).toBe(expectedIsBot);
+        }
+      }
     }
   });
 
@@ -696,7 +856,7 @@ describe("WebhookVerifier", () => {
       .digest("base64");
     const expectedSignature = `v1,${expectedDigest}`;
 
-    const verifier = new WebhookVerifier(secret, { nowMs: () => timestamp * 1000 });
+    const verifier = createWebhookVerifierWithClock(secret, () => timestamp * 1000);
     expect(() =>
       verifier.verify(
         {
@@ -827,9 +987,7 @@ describe("WebhookVerifier", () => {
     const timestamp = "01784041401";
     const id = "msg-exact-timestamp";
     const body = "{}";
-    const verifier = new WebhookVerifier(SECRET, {
-      nowMs: () => Number(timestamp) * 1000,
-    });
+    const verifier = createWebhookVerifierWithClock(SECRET, () => Number(timestamp) * 1000);
     const headers = {
       "webhook-id": id,
       "webhook-timestamp": timestamp,
@@ -844,9 +1002,8 @@ describe("WebhookVerifier", () => {
 
   it("accepts the tolerance boundary and rejects ancient and future timestamps", () => {
     const nowSeconds = 1_800_000_000;
-    const verifier = new WebhookVerifier(SECRET, {
+    const verifier = createWebhookVerifierWithClock(SECRET, () => nowSeconds * 1000, {
       toleranceSeconds: 300,
-      nowMs: () => nowSeconds * 1000,
     });
     const body = "{}";
     for (const timestamp of [nowSeconds - 300, nowSeconds + 300]) {
@@ -899,9 +1056,8 @@ describe("WebhookVerifier", () => {
   });
 
   it("accepts safe-integer timestamp endpoints before applying the time window", () => {
-    const verifier = new WebhookVerifier(SECRET, {
+    const verifier = createWebhookVerifierWithClock(SECRET, () => 0, {
       toleranceSeconds: Number.MAX_SAFE_INTEGER,
-      nowMs: () => 0,
     });
     const body = "{}";
     for (const timestamp of ["0", String(Number.MAX_SAFE_INTEGER)]) {
@@ -939,7 +1095,7 @@ describe("WebhookVerifier", () => {
     const envelope = buildEnvelope(SECRET, validDelivery);
     for (const nowMs of [Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
       expect(() =>
-        new WebhookVerifier(SECRET, { nowMs: () => nowMs }).verify(envelope.headers, envelope.body),
+        createWebhookVerifierWithClock(SECRET, () => nowMs).verify(envelope.headers, envelope.body),
       ).toThrow(AhaSendConfigurationError);
     }
   });
@@ -980,7 +1136,9 @@ describe("WebhookVerifier", () => {
   });
 
   it("keeps secret, tolerance, and clock state out of reflection", () => {
-    const verifier = new WebhookVerifier(SECRET, { nowMs: () => 0, toleranceSeconds: 1 });
+    const verifier = createWebhookVerifierWithClock(SECRET, () => 0, {
+      toleranceSeconds: 1,
+    });
     expect(Object.keys(verifier)).toEqual([]);
     expect(Reflect.ownKeys(verifier)).toEqual([]);
     expect(verifier).not.toHaveProperty("key");

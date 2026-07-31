@@ -213,7 +213,7 @@ export class AhaSendAuthenticationError extends AhaSendAPIError {
   }
 }
 
-/** 403 — the API key lacks the required scope. Not retried. */
+/** 403 — the API key lacks the required scope or its IP allow list rejects the caller. Not retried. */
 export class AhaSendPermissionError extends AhaSendAPIError {
   constructor(params: APIErrorParams) {
     super(params);

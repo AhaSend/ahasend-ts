@@ -206,6 +206,46 @@ describe("REST schema golden contracts", () => {
     ]).toEqual([true, false, true, false]);
   });
 
+  it("enforces Account response requiredness and nullability", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const complete = byId["account-complete-parent-null"]!;
+    const missingWebsite = byId["account-required-website-omitted"]!;
+    const nullAbout = byId["account-non-null-about-null"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, complete.schema)(complete.value)).toBe(true);
+    expect(componentValidator(ajv, missingWebsite.schema)(missingWebsite.value)).toBe(false);
+    expect(componentValidator(ajv, nullAbout.schema)(nullAbout.value)).toBe(false);
+  });
+
+  it("enforces non-empty arrays where the authoritative schema declares minItems one", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const nonEmpty = byId["api-key-scopes-non-empty"]!;
+    const empty = byId["api-key-scopes-empty"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, nonEmpty.schema)(nonEmpty.value)).toBe(true);
+    expect(componentValidator(ajv, empty.schema)(empty.value)).toBe(false);
+  });
+
+  it("enforces inherited properties in required-only allOf overlays", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const valid = byId["message-recipient-inherited-name"]!;
+    const missing = byId["message-recipient-inherited-name-omitted"]!;
+    const wrongType = byId["message-recipient-inherited-name-wrong-type"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, valid.schema)(valid.value)).toBe(true);
+    expect(componentValidator(ajv, missing.schema)(missing.value)).toBe(false);
+    expect(componentValidator(ajv, wrongType.schema)(wrongType.value)).toBe(false);
+  });
+
   it("requires one-time API-key secrets only on both creation responses", () => {
     const ajv = schemaValidator();
 

@@ -17,6 +17,10 @@ export interface WebhookAdapterErrorContext {
 
 /** Options shared by every framework adapter. */
 export interface WebhookAdapterOptions {
+  /**
+   * Maximum raw body bytes to buffer. Defaults to the fixed 30,000,000-byte
+   * verifier ceiling and may only narrow that ceiling.
+   */
   maxBodyBytes?: number;
   onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
 }
@@ -51,31 +55,33 @@ export interface FastifyStyleReply {
   send(payload?: unknown): unknown;
 }
 
-export type ExpressHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
-  event: T,
+export type ExpressHandler = (
+  event: AnyWebhookEvent,
   req: NodeStyleRequest,
   res: NodeStyleResponse,
 ) => Promise<void> | void;
 
-export type FastifyHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
-  event: T,
+export type FastifyHandler = (
+  event: AnyWebhookEvent,
   request: NodeStyleRequest,
   reply: FastifyStyleReply,
 ) => Promise<void> | void;
 
-export type NextHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
-  event: T,
+export type NextHandler = (
+  event: AnyWebhookEvent,
   request: Request,
 ) => Response | Promise<Response>;
 
 /**
- * Express middleware. Captures the raw request body (or reuses `req.rawBody`
- * if already populated by `express.raw()`), verifies the AhaSend signature,
- * parses the typed event, and dispatches to your handler.
+ * Express middleware. Mount directly so it can buffer the unconsumed raw
+ * request stream. It can also reuse raw bytes already provided as a string or
+ * Buffer in `req.rawBody` or `req.body`; a parsed object cannot be verified.
+ * Verifies the AhaSend signature, parses the typed event, and dispatches to
+ * your handler.
  */
-export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
+export function expressWebhookHandler(
   verifier: WebhookVerifier,
-  handler: ExpressHandler<T>,
+  handler: ExpressHandler,
   options: WebhookAdapterOptions = {},
 ): (
   req: NodeStyleRequest,
@@ -116,7 +122,7 @@ export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
     }
 
     try {
-      await handler(event as T, req, res);
+      await handler(event, req, res);
       if (!res.writableEnded) {
         if (!res.statusCode) res.statusCode = 200;
         res.end();
@@ -128,12 +134,13 @@ export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
 }
 
 /**
- * Fastify handler. Requires the route (or the global plugin) to be configured
- * with `rawBody: true` so that the request body is available unparsed.
+ * Fastify handler. Requires the route (or the global plugin) to capture the
+ * authentic bytes in `request.rawBody`, typically by configuring
+ * `rawBody: true`. A parsed object in `request.body` is not a substitute.
  */
-export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
+export function fastifyWebhookHandler(
   verifier: WebhookVerifier,
-  handler: FastifyHandler<T>,
+  handler: FastifyHandler,
   options: WebhookAdapterOptions = {},
 ): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void> {
   const adapterOptions = normalizeOptions(options);
@@ -145,6 +152,10 @@ export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
     } catch (error) {
       if (error instanceof BodyTooLargeError) {
         completeFastify(reply, 413, adapterOptions.onError);
+        return;
+      }
+      if (error instanceof ParsedFastifyBodyError) {
+        completeFastify(reply, 400, adapterOptions.onError);
         return;
       }
       observeError(adapterOptions.onError, error, "fastify", "setup");
@@ -168,7 +179,7 @@ export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
     }
 
     try {
-      await handler(event as T, request, reply);
+      await handler(event, request, reply);
       if (!reply.sent) reply.code(200).send();
     } catch (error) {
       observeError(adapterOptions.onError, error, "fastify", "application");
@@ -178,9 +189,9 @@ export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
 }
 
 /** Next.js app-router route handler. */
-export function nextRouteHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
+export function nextRouteHandler(
   verifier: WebhookVerifier,
-  handler: NextHandler<T>,
+  handler: NextHandler,
   options: WebhookAdapterOptions = {},
 ): (request: Request) => Promise<Response> {
   const adapterOptions = normalizeOptions(options);
@@ -207,7 +218,7 @@ export function nextRouteHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
     }
 
     try {
-      return await handler(event as T, request);
+      return await handler(event, request);
     } catch (error) {
       observeError(adapterOptions.onError, error, "next", "application");
       throw error;
@@ -222,6 +233,8 @@ interface NormalizedAdapterOptions {
 
 class BodyTooLargeError extends Error {}
 
+class ParsedFastifyBodyError extends Error {}
+
 class NodeStreamError extends Error {
   constructor(readonly originalCause: unknown) {
     super("Webhook request stream failed", { cause: originalCause });
@@ -230,8 +243,14 @@ class NodeStreamError extends Error {
 
 function normalizeOptions(options: WebhookAdapterOptions): NormalizedAdapterOptions {
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-  if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) {
-    throw new TypeError("maxBodyBytes must be a positive safe integer");
+  if (
+    !Number.isInteger(maxBodyBytes) ||
+    maxBodyBytes < 1 ||
+    maxBodyBytes > MAX_WEBHOOK_BODY_BYTES
+  ) {
+    throw new TypeError(
+      `maxBodyBytes must be an integer from 1 through ${String(MAX_WEBHOOK_BODY_BYTES)}`,
+    );
   }
   return { maxBodyBytes, onError: options.onError };
 }
@@ -317,6 +336,11 @@ function pickFastifyRawBody(request: NodeStyleRequest, maxBodyBytes: number): st
   if (typeof request.body === "string" || Buffer.isBuffer(request.body)) {
     assertBodyWithinLimit(request.body, maxBodyBytes);
     return request.body;
+  }
+  if (request.body !== undefined) {
+    throw new ParsedFastifyBodyError(
+      "Raw webhook body unavailable: enable Fastify raw-body capture.",
+    );
   }
   throw new Error("Raw webhook body unavailable: enable Fastify raw-body capture.");
 }

@@ -5,7 +5,7 @@ import type { Server } from "node:http";
 import express, { type ErrorRequestHandler } from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { expressWebhookHandler } from "../src/webhooks/adapters.js";
-import { WebhookVerifier } from "../src/webhooks/verifier.js";
+import { MAX_WEBHOOK_BODY_BYTES, WebhookVerifier } from "../src/webhooks/verifier.js";
 
 const SECRET = "aha-whsec-express-integration-secret";
 const eventBody = JSON.stringify({
@@ -23,11 +23,15 @@ const eventBody = JSON.stringify({
   },
 });
 
-function signedHeaders(): Record<string, string> {
+function signedHeaders(body: string | Buffer = eventBody): Record<string, string> {
   const id = "msg_express_integration";
   const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = createHmac("sha256", Buffer.from(SECRET, "utf-8"))
-    .update(`${id}.${timestamp}.${eventBody}`)
+    .update(id)
+    .update(".")
+    .update(timestamp)
+    .update(".")
+    .update(body)
     .digest("base64");
   return {
     connection: "close",
@@ -52,21 +56,59 @@ afterEach(async () => {
 });
 
 describe("Express 5 webhook adapter integration", () => {
-  it("owns the opaque oversized-body response when mounted directly", async () => {
+  it("accepts exactly 30,000,000 bytes and owns the opaque over-limit response", async () => {
     const handler = vi.fn();
     const app = express();
     app.post("/webhook", expressWebhookHandler(new WebhookVerifier(SECRET), handler));
+    const baseUrl = await listen(app);
+    const atLimit = Buffer.from(eventBody.padEnd(MAX_WEBHOOK_BODY_BYTES, " "), "utf-8");
+
+    const accepted = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: signedHeaders(atLimit),
+      body: atLimit,
+    });
+
+    expect(accepted.status).toBe(200);
+    await expect(accepted.text()).resolves.toBe("");
+    expect(handler).toHaveBeenCalledOnce();
+
+    const overLimit = Buffer.alloc(MAX_WEBHOOK_BODY_BYTES + 1, 0x61);
+    const rejected = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: signedHeaders(overLimit),
+      body: overLimit,
+    });
+
+    expect(rejected.status).toBe(413);
+    expect(rejected.headers.get("content-type")).toBeNull();
+    await expect(rejected.text()).resolves.toBe("");
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("passes a consumed parsed Express body to terminal error middleware", async () => {
+    const handler = vi.fn();
+    const terminal = vi.fn<ErrorRequestHandler>((error, _request, response, _next) => {
+      expect(error).toBeInstanceOf(Error);
+      response.status(598).end();
+    });
+    const app = express();
+    app.post(
+      "/webhook",
+      express.json(),
+      expressWebhookHandler(new WebhookVerifier(SECRET), handler),
+    );
+    app.use(terminal);
     const baseUrl = await listen(app);
 
     const response = await fetch(`${baseUrl}/webhook`, {
       method: "POST",
       headers: signedHeaders(),
-      body: Buffer.alloc(1_048_577, 97),
+      body: eventBody,
     });
 
-    expect(response.status).toBe(413);
-    expect(response.headers.get("content-type")).toBeNull();
-    await expect(response.text()).resolves.toBe("");
+    expect(response.status).toBe(598);
+    expect(terminal).toHaveBeenCalledOnce();
     expect(handler).not.toHaveBeenCalled();
   });
 

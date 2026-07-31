@@ -6,6 +6,7 @@ import { resolveConfig } from "../src/config.js";
 import { AhaSendAbortError } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 import { OperationExecutor } from "../src/operations.js";
+import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -83,10 +84,18 @@ describe("deterministic execution state machines", () => {
           jitter: false,
         },
         hooks: {
-          onRequest: ({ attempt }) => events.push(`request:${attempt}`),
-          onResponse: ({ attempt, status }) => events.push(`response:${attempt}:${status}`),
-          onError: ({ attempt, status }) => events.push(`error:${attempt}:${status}`),
-          onRetry: ({ attempt, delayMs }) => events.push(`retry:${attempt}:${delayMs}`),
+          onRequest: ({ attempt }) => {
+            events.push(`request:${attempt}`);
+          },
+          onResponse: ({ attempt, status }) => {
+            events.push(`response:${attempt}:${status}`);
+          },
+          onError: ({ attempt, status }) => {
+            events.push(`error:${attempt}:${status}`);
+          },
+          onRetry: ({ attempt, delayMs }) => {
+            events.push(`retry:${attempt}:${delayMs}`);
+          },
         },
       }),
     );
@@ -98,7 +107,7 @@ describe("deterministic execution state machines", () => {
         domain: string;
       }>(
         "createDomain",
-        { path: { account_id: "acc_1" }, body },
+        { path: { account_id: ACCOUNT_ID }, body },
         { idempotencyKey: "execution-key" },
       )
       .withResponse();
@@ -120,17 +129,17 @@ describe("deterministic execution state machines", () => {
     expect(result.idempotentReplayed).toBe(true);
     expect(calls).toEqual([
       {
-        url: "https://api.test/v2/accounts/acc_1/domains",
+        url: `https://api.test/v2/accounts/${ACCOUNT_ID}/domains`,
         body: JSON.stringify(body),
         key: "execution-key",
       },
       {
-        url: "https://api.test/v2/accounts/acc_1/domains",
+        url: `https://api.test/v2/accounts/${ACCOUNT_ID}/domains`,
         body: JSON.stringify(body),
         key: "execution-key",
       },
       {
-        url: "https://api.test/v2/accounts/acc_1/domains",
+        url: `https://api.test/v2/accounts/${ACCOUNT_ID}/domains`,
         body: JSON.stringify(body),
         key: "execution-key",
       },
@@ -167,9 +176,15 @@ describe("deterministic execution state machines", () => {
         retry: { enabled: false },
         rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
         hooks: {
-          onRequest: ({ routeTemplate }) => events.push(`request:${routeTemplate}`),
-          onResponse: ({ routeTemplate }) => events.push(`response:${routeTemplate}`),
-          onError: ({ routeTemplate }) => events.push(`error:${routeTemplate}`),
+          onRequest: ({ routeTemplate }) => {
+            events.push(`request:${routeTemplate}`);
+          },
+          onResponse: ({ routeTemplate }) => {
+            events.push(`response:${routeTemplate}`);
+          },
+          onError: ({ routeTemplate }) => {
+            events.push(`error:${routeTemplate}`);
+          },
         },
       }),
     );
@@ -220,7 +235,7 @@ describe("deterministic execution state machines", () => {
     });
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       fetch,
       retry: { enabled: false },

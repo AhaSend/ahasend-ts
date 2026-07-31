@@ -7,15 +7,15 @@
 // @public (undocumented)
 export interface Account {
     // (undocumented)
-    about?: string | null;
+    about: string;
     // (undocumented)
     created_at: ISODateTime;
     // (undocumented)
     id: UUID;
     // (undocumented)
-    message_data_retention?: number;
+    message_data_retention: number;
     // (undocumented)
-    message_metadata_retention?: number;
+    message_metadata_retention: number;
     // (undocumented)
     name: string;
     // (undocumented)
@@ -25,17 +25,17 @@ export interface Account {
     // (undocumented)
     parent_account_id: UUID | null;
     // (undocumented)
-    reject_bad_recipients?: boolean;
+    reject_bad_recipients: boolean;
     // (undocumented)
-    reject_mistyped_recipients?: boolean;
+    reject_mistyped_recipients: boolean;
     // (undocumented)
-    track_clicks?: boolean;
+    track_clicks: boolean;
     // (undocumented)
-    track_opens?: boolean;
+    track_opens: boolean;
     // (undocumented)
     updated_at: ISODateTime;
     // (undocumented)
-    website?: string | null;
+    website: string;
 }
 
 // @public (undocumented)
@@ -1075,6 +1075,7 @@ const OPERATION_DESCRIPTORS: {
     readonly ping: {
         readonly method: "GET";
         readonly path: "/v2/ping";
+        readonly pathParameters: readonly [];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1089,15 +1090,23 @@ const OPERATION_DESCRIPTORS: {
     readonly getAPIKeys: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/api-keys";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "limit";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "after";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "before";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -1112,6 +1121,11 @@ const OPERATION_DESCRIPTORS: {
     readonly createAPIKey: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/api-keys";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1129,6 +1143,15 @@ const OPERATION_DESCRIPTORS: {
     readonly getAPIKey: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/api-keys/{key_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "key_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1143,6 +1166,15 @@ const OPERATION_DESCRIPTORS: {
     readonly updateAPIKey: {
         readonly method: "PUT";
         readonly path: "/v2/accounts/{account_id}/api-keys/{key_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "key_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1160,6 +1192,15 @@ const OPERATION_DESCRIPTORS: {
     readonly deleteAPIKey: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/api-keys/{key_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "key_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1174,18 +1215,27 @@ const OPERATION_DESCRIPTORS: {
     readonly getDomains: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/domains";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "dns_valid";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "limit";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "after";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "before";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -1200,6 +1250,11 @@ const OPERATION_DESCRIPTORS: {
     readonly createDomain: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/domains";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1217,6 +1272,15 @@ const OPERATION_DESCRIPTORS: {
     readonly getDomain: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/domains/{domain}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "domain";
+            readonly required: true;
+            readonly format: "hostname";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1231,6 +1295,15 @@ const OPERATION_DESCRIPTORS: {
     readonly updateDomain: {
         readonly method: "PUT";
         readonly path: "/v2/accounts/{account_id}/domains/{domain}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "domain";
+            readonly required: true;
+            readonly format: "hostname";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1248,6 +1321,15 @@ const OPERATION_DESCRIPTORS: {
     readonly deleteDomain: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/domains/{domain}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "domain";
+            readonly required: true;
+            readonly format: "hostname";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1262,6 +1344,15 @@ const OPERATION_DESCRIPTORS: {
     readonly checkDomainDNS: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/domains/{domain}/check-dns";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "domain";
+            readonly required: true;
+            readonly format: "hostname";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1276,39 +1367,55 @@ const OPERATION_DESCRIPTORS: {
     readonly getMessages: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/messages";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "status";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "sender";
             readonly required: false;
+            readonly format: "email";
         }, {
             readonly name: "recipient";
             readonly required: false;
+            readonly format: "email";
         }, {
             readonly name: "subject";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "message_id_header";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "tags";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "from_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "to_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "limit";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "after";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "before";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -1333,6 +1440,11 @@ const OPERATION_DESCRIPTORS: {
     readonly createMessage: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/messages";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1359,6 +1471,11 @@ const OPERATION_DESCRIPTORS: {
     readonly createConversationMessage: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/messages/conversation";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1385,6 +1502,15 @@ const OPERATION_DESCRIPTORS: {
     readonly getMessage: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/messages/{message_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "message_id";
+            readonly required: true;
+            readonly format: null;
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1410,6 +1536,15 @@ const OPERATION_DESCRIPTORS: {
     readonly cancelMessage: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/messages/{message_id}/cancel";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "message_id";
+            readonly required: true;
+            readonly format: null;
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1435,6 +1570,11 @@ const OPERATION_DESCRIPTORS: {
     readonly getAccount: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1449,6 +1589,11 @@ const OPERATION_DESCRIPTORS: {
     readonly updateAccount: {
         readonly method: "PUT";
         readonly path: "/v2/accounts/{account_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1466,6 +1611,11 @@ const OPERATION_DESCRIPTORS: {
     readonly getAccountMembers: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/members";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1480,6 +1630,11 @@ const OPERATION_DESCRIPTORS: {
     readonly addAccountMember: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/members";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1497,6 +1652,15 @@ const OPERATION_DESCRIPTORS: {
     readonly removeAccountMember: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/members/{user_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "user_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1511,15 +1675,23 @@ const OPERATION_DESCRIPTORS: {
     readonly listSubAccounts: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/sub-accounts";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "limit";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "after";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "before";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -1534,6 +1706,11 @@ const OPERATION_DESCRIPTORS: {
     readonly createSubAccount: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/sub-accounts";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1551,6 +1728,11 @@ const OPERATION_DESCRIPTORS: {
     readonly getSubAccountsUsage: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/usage";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1565,6 +1747,15 @@ const OPERATION_DESCRIPTORS: {
     readonly getSubAccount: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1579,6 +1770,15 @@ const OPERATION_DESCRIPTORS: {
     readonly updateSubAccount: {
         readonly method: "PUT";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1596,6 +1796,15 @@ const OPERATION_DESCRIPTORS: {
     readonly deleteSubAccount: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1610,6 +1819,15 @@ const OPERATION_DESCRIPTORS: {
     readonly suspendSubAccount: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/suspend";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1627,6 +1845,15 @@ const OPERATION_DESCRIPTORS: {
     readonly unsuspendSubAccount: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/unsuspend";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1641,15 +1868,27 @@ const OPERATION_DESCRIPTORS: {
     readonly listSubAccountAPIKeys: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "limit";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "after";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "before";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -1664,6 +1903,15 @@ const OPERATION_DESCRIPTORS: {
     readonly createSubAccountAPIKey: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1681,6 +1929,19 @@ const OPERATION_DESCRIPTORS: {
     readonly getSubAccountAPIKey: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "key_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1695,6 +1956,19 @@ const OPERATION_DESCRIPTORS: {
     readonly updateSubAccountAPIKey: {
         readonly method: "PUT";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "key_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1712,6 +1986,19 @@ const OPERATION_DESCRIPTORS: {
     readonly deleteSubAccountAPIKey: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "sub_account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "key_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1726,27 +2013,39 @@ const OPERATION_DESCRIPTORS: {
     readonly getSuppressions: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/suppressions";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "domain";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "email";
             readonly required: false;
+            readonly format: "email";
         }, {
             readonly name: "from_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "to_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "limit";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "after";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "before";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -1761,6 +2060,11 @@ const OPERATION_DESCRIPTORS: {
     readonly createSuppression: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/suppressions";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1778,12 +2082,19 @@ const OPERATION_DESCRIPTORS: {
     readonly deleteSuppression: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/suppressions";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "email";
             readonly required: true;
+            readonly format: "email";
         }, {
             readonly name: "domain";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -1798,9 +2109,15 @@ const OPERATION_DESCRIPTORS: {
     readonly deleteAllSuppressions: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/suppressions/all";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "domain";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -1815,18 +2132,27 @@ const OPERATION_DESCRIPTORS: {
     readonly getRoutes: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/routes";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "domain";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "limit";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "after";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "before";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -1850,6 +2176,11 @@ const OPERATION_DESCRIPTORS: {
     readonly createRoute: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/routes";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1876,6 +2207,15 @@ const OPERATION_DESCRIPTORS: {
     readonly getRoute: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/routes/{route_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "route_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1901,6 +2241,15 @@ const OPERATION_DESCRIPTORS: {
     readonly updateRoute: {
         readonly method: "PUT";
         readonly path: "/v2/accounts/{account_id}/routes/{route_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "route_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -1930,6 +2279,15 @@ const OPERATION_DESCRIPTORS: {
     readonly deleteRoute: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/routes/{route_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "route_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -1955,48 +2313,67 @@ const OPERATION_DESCRIPTORS: {
     readonly getWebhooks: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/webhooks";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "enabled";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_reception";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_delivered";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_transient_error";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_failed";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_bounced";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_suppressed";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_opened";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_clicked";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_suppression_created";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "on_dns_error";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "limit";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "after";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "before";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -2021,6 +2398,11 @@ const OPERATION_DESCRIPTORS: {
     readonly createWebhook: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/webhooks";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -2050,6 +2432,15 @@ const OPERATION_DESCRIPTORS: {
     readonly getWebhook: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/webhooks/{webhook_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "webhook_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -2075,6 +2466,15 @@ const OPERATION_DESCRIPTORS: {
     readonly updateWebhook: {
         readonly method: "PUT";
         readonly path: "/v2/accounts/{account_id}/webhooks/{webhook_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "webhook_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -2107,6 +2507,15 @@ const OPERATION_DESCRIPTORS: {
     readonly deleteWebhook: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/webhooks/{webhook_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "webhook_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -2132,15 +2541,23 @@ const OPERATION_DESCRIPTORS: {
     readonly getSMTPCredentials: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/smtp-credentials";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "limit";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "after";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "before";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -2165,6 +2582,11 @@ const OPERATION_DESCRIPTORS: {
     readonly createSMTPCredential: {
         readonly method: "POST";
         readonly path: "/v2/accounts/{account_id}/smtp-credentials";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: {
             readonly required: true;
@@ -2194,6 +2616,15 @@ const OPERATION_DESCRIPTORS: {
     readonly getSMTPCredential: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "smtp_credential_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -2219,6 +2650,15 @@ const OPERATION_DESCRIPTORS: {
     readonly deleteSMTPCredential: {
         readonly method: "DELETE";
         readonly path: "/v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }, {
+            readonly name: "smtp_credential_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [];
         readonly body: null;
         readonly success: readonly [{
@@ -2244,24 +2684,35 @@ const OPERATION_DESCRIPTORS: {
     readonly getDeliverabilityStatistics: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/statistics/transactional/deliverability";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "from_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "to_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "sender_domain";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "recipient_domains";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "tags";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "group_by";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -2285,24 +2736,35 @@ const OPERATION_DESCRIPTORS: {
     readonly getBounceStatistics: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/statistics/transactional/bounce";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "from_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "to_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "sender_domain";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "recipient_domains";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "tags";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "group_by";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -2326,24 +2788,35 @@ const OPERATION_DESCRIPTORS: {
     readonly getDeliveryTimeStatistics: {
         readonly method: "GET";
         readonly path: "/v2/accounts/{account_id}/statistics/transactional/delivery-time";
+        readonly pathParameters: readonly [{
+            readonly name: "account_id";
+            readonly required: true;
+            readonly format: "uuid";
+        }];
         readonly query: readonly [{
             readonly name: "from_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "to_time";
             readonly required: false;
+            readonly format: "date-time";
         }, {
             readonly name: "sender_domain";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "recipient_domains";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "tags";
             readonly required: false;
+            readonly format: null;
         }, {
             readonly name: "group_by";
             readonly required: false;
+            readonly format: null;
         }];
         readonly body: null;
         readonly success: readonly [{
@@ -3040,13 +3513,13 @@ export interface SuspendSubAccountRequest {
 // @public (undocumented)
 export interface TelemetryHooks {
     // (undocumented)
-    onError?(event: ErrorEvent): void;
+    onError?(event: ErrorEvent): void | Promise<void>;
     // (undocumented)
-    onRequest?(event: RequestEvent): void;
+    onRequest?(event: RequestEvent): void | Promise<void>;
     // (undocumented)
-    onResponse?(event: ResponseEvent): void;
+    onResponse?(event: ResponseEvent): void | Promise<void>;
     // (undocumented)
-    onRetry?(event: RetryEvent): void;
+    onRetry?(event: RetryEvent): void | Promise<void>;
 }
 
 // @public
