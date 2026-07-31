@@ -24,7 +24,13 @@ import type {
   SMTPCredentialsClient,
 } from "../src/resources/smtp-credentials.js";
 import type { PaginationParams } from "../src/types/common.js";
-import { captureFetch, makeClient } from "./helpers/resource-call.js";
+import {
+  ACCOUNT_ID,
+  API_KEY_ID,
+  captureFetch,
+  HOSTNAME,
+  makeClient,
+} from "./helpers/resource-call.js";
 
 describe("Resource helper boundary", () => {
   it("contains no generated route, path encoding, method, or transport idempotency policy", () => {
@@ -74,7 +80,7 @@ describe("Account declarations", () => {
   it("requires a nullable parent account identifier", () => {
     const account: Account = {
       object: "account",
-      id: "acc_1",
+      id: ACCOUNT_ID,
       parent_account_id: null,
       created_at: "2026-07-21T08:00:00Z",
       updated_at: "2026-07-21T08:01:00Z",
@@ -260,7 +266,7 @@ describe("MessagesClient", () => {
       open_count: 0,
       reference_message_id: null,
       domain_id: "domain_1",
-      account_id: "acc_1",
+      account_id: ACCOUNT_ID,
     };
     const message: Message = { ...summary, content: "raw message" };
     const { sent_at: _sentAt, ...withoutSentAt } = summary;
@@ -338,7 +344,7 @@ describe("MessagesClient", () => {
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.method).toBe("POST");
-    expect(call.url).toBe("https://api.test/v2/accounts/acc_1/messages");
+    expect(call.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages`);
     expect(call.body).toContain(`"recipients":[{"email":"x@y.com"}]`);
     expect(JSON.parse(call.body!)).toMatchObject({
       substitutions: { customer: { tier: "gold", preferences: ["email"] } },
@@ -365,7 +371,7 @@ describe("MessagesClient", () => {
       text_content: "hi",
     });
 
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/conversation");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages/conversation`);
     expect(calls[0]!.operationId).toBe("createConversationMessage");
   });
 
@@ -376,7 +382,7 @@ describe("MessagesClient", () => {
     await client.messages.list({ limit: 25, after: "next", status: "queued" });
 
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/messages");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/messages`);
     expect(url.searchParams.get("limit")).toBe("25");
     expect(url.searchParams.get("after")).toBe("next");
     expect(url.searchParams.has("before")).toBe(false);
@@ -411,7 +417,7 @@ describe("MessagesClient", () => {
             open_count: 1,
             reference_message_id: 42,
             domain_id: "domain_1",
-            account_id: "acc_1",
+            account_id: ACCOUNT_ID,
             content: "raw message",
           }),
           { headers: { "content-type": "application/json" } },
@@ -422,7 +428,9 @@ describe("MessagesClient", () => {
     const message = await client.messages.get("opaque/message:id");
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/opaque%2Fmessage%3Aid");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/opaque%2Fmessage%3Aid`,
+    );
     expect(calls[0]!.operationId).toBe("getMessage");
     expect(message).toMatchObject({
       created_at: "2026-07-21T08:00:00Z",
@@ -448,7 +456,7 @@ describe("MessagesClient", () => {
 
     expect(calls[0]!.method).toBe("DELETE");
     expect(calls[0]!.url).toBe(
-      "https://api.test/v2/accounts/acc_1/messages/opaque%2Fmessage%3Aid/cancel",
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/opaque%2Fmessage%3Aid/cancel`,
     );
     expect(calls[0]!.operationId).toBe("cancelMessage");
   });
@@ -462,7 +470,7 @@ describe("DomainsClient", () => {
       created_at: "2026-07-21T08:00:00Z",
       updated_at: "2026-07-21T08:01:00Z",
       domain: "example.com",
-      account_id: "acc_1",
+      account_id: ACCOUNT_ID,
       dns_records: [],
       dns_valid: true,
       dkim_selector: null,
@@ -484,7 +492,7 @@ describe("DomainsClient", () => {
     await client.domains.create({ domain: "example.com" }, { idempotencyKey: "key-1" });
 
     expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/domains`);
     expect(calls[0]!.body).toBe(JSON.stringify({ domain: "example.com" }));
     expect(calls[0]!.headers["idempotency-key"]).toBe("key-1");
     expect(calls[0]!.operationId).toBe("createDomain");
@@ -497,7 +505,7 @@ describe("DomainsClient", () => {
     await client.domains.list({ dns_valid: true, limit: 50, before: "previous" });
 
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/domains");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/domains`);
     expect(url.searchParams.get("dns_valid")).toBe("true");
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("before")).toBe("previous");
@@ -530,7 +538,7 @@ describe("DomainsClient", () => {
     expect(calls[0]!.operationId).toBe("getDomains");
   });
 
-  it("get() dispatches getDomain, encodes the domain, and preserves its selector", async () => {
+  it("get() dispatches getDomain with the hostname and preserves its selector", async () => {
     const { fetch, calls } = captureFetch(
       () =>
         new Response(JSON.stringify({ dkim_selector: null }), {
@@ -539,10 +547,10 @@ describe("DomainsClient", () => {
     );
     const client = makeClient(fetch);
 
-    const domain = await client.domains.get("example.com/path");
+    const domain = await client.domains.get(HOSTNAME);
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com%2Fpath");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(calls[0]!.operationId).toBe("getDomain");
     expect(domain).toHaveProperty("dkim_selector", null);
   });
@@ -551,10 +559,10 @@ describe("DomainsClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.domains.update("example.com/path", { tracking_subdomain: "track" });
+    await client.domains.update(HOSTNAME, { tracking_subdomain: "track" });
 
     expect(calls[0]!.method).toBe("PUT");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com%2Fpath");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(calls[0]!.body).toBe(JSON.stringify({ tracking_subdomain: "track" }));
     expect(calls[0]!.operationId).toBe("updateDomain");
   });
@@ -563,10 +571,10 @@ describe("DomainsClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.domains.delete("example.com");
+    await client.domains.delete(HOSTNAME);
 
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(calls[0]!.operationId).toBe("deleteDomain");
   });
 
@@ -574,10 +582,12 @@ describe("DomainsClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.domains.checkDns("example.com");
+    await client.domains.checkDns(HOSTNAME);
 
     expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com/check-dns");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}/check-dns`,
+    );
     expect(calls[0]!.headers).not.toHaveProperty("idempotency-key");
     expect(calls[0]!.operationId).toBe("checkDomainDNS");
   });
@@ -589,17 +599,17 @@ describe("APIKeysClient", () => {
       id: "scope_1",
       created_at: "2026-07-21T08:00:00Z",
       updated_at: "2026-07-21T08:01:00Z",
-      api_key_id: "key_1",
+      api_key_id: API_KEY_ID,
       scope: "messages:send:all",
       domain_id: null,
     };
     const apiKey: APIKey = {
       object: "api_key",
-      id: "key_1",
+      id: API_KEY_ID,
       created_at: "2026-07-21T08:00:00Z",
       updated_at: "2026-07-21T08:01:00Z",
       last_used_at: null,
-      account_id: "acc_1",
+      account_id: ACCOUNT_ID,
       label: "CI",
       public_key: "aha-pk-test",
       scopes: [scope],
@@ -643,7 +653,7 @@ describe("APIKeysClient", () => {
     );
 
     expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/api-keys`);
     expect(calls[0]!.body).toBe(
       JSON.stringify({
         label: "ci",
@@ -663,7 +673,7 @@ describe("APIKeysClient", () => {
     await client.apiKeys.list({ limit: 50, before: "previous" });
 
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/api-keys");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/api-keys`);
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("before")).toBe("previous");
     expect(url.searchParams.has("after")).toBe(false);
@@ -679,7 +689,7 @@ describe("APIKeysClient", () => {
             data: [
               {
                 object: "api_key",
-                id: "key_1",
+                id: API_KEY_ID,
                 scopes: [],
                 ip_allow_list: [],
               },
@@ -695,7 +705,7 @@ describe("APIKeysClient", () => {
 
     await expect(apiKeys.next()).resolves.toMatchObject({
       done: false,
-      value: { id: "key_1", scopes: [], ip_allow_list: [] },
+      value: { id: API_KEY_ID, scopes: [], ip_allow_list: [] },
     });
     await expect(apiKeys.next()).resolves.toEqual({ done: true, value: undefined });
     expect(calls).toHaveLength(1);
@@ -703,14 +713,14 @@ describe("APIKeysClient", () => {
     expect(calls[0]!.operationId).toBe("getAPIKeys");
   });
 
-  it("get() dispatches getAPIKey and encodes the key ID", async () => {
+  it("get() dispatches getAPIKey with the API-key ID", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.apiKeys.get("key/1");
+    await client.apiKeys.get(API_KEY_ID);
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys/key%2F1");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/api-keys/${API_KEY_ID}`);
     expect(calls[0]!.operationId).toBe("getAPIKey");
   });
 
@@ -718,14 +728,14 @@ describe("APIKeysClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.apiKeys.update("key/1", {
+    await client.apiKeys.update(API_KEY_ID, {
       label: null,
       scopes: ["domains:read"],
       ip_allow_list: [],
     });
 
     expect(calls[0]!.method).toBe("PUT");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys/key%2F1");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/api-keys/${API_KEY_ID}`);
     expect(calls[0]!.body).toBe(
       JSON.stringify({ label: null, scopes: ["domains:read"], ip_allow_list: [] }),
     );
@@ -736,10 +746,10 @@ describe("APIKeysClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.apiKeys.delete("key_1");
+    await client.apiKeys.delete(API_KEY_ID);
 
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys/key_1");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/api-keys/${API_KEY_ID}`);
     expect(calls[0]!.operationId).toBe("deleteAPIKey");
   });
 });
