@@ -8,6 +8,30 @@ import auditExceptions from "../../security/audit-exceptions.json";
 import auditPolicy from "../../security/audit-policy.json";
 import auditCases from "../fixtures/release/audit-cases.json";
 
+interface PackageManifest {
+  readonly dependencies?: Readonly<Record<string, string>>;
+  readonly devDependencies: Readonly<Record<string, string>>;
+}
+
+interface LockfilePackage {
+  readonly version?: string;
+  readonly dev?: boolean;
+  readonly engines?: Readonly<Record<string, string>>;
+  readonly dependencies?: Readonly<Record<string, string>>;
+  readonly devDependencies?: Readonly<Record<string, string>>;
+}
+
+interface PackageLock {
+  readonly packages: Readonly<Record<string, LockfilePackage>>;
+}
+
+const repositoryRoot = process.cwd();
+const packageJson = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
+) as PackageManifest;
+const packageLock = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "package-lock.json"), "utf8"),
+) as PackageLock;
 const reports = auditCases.reports as Record<string, unknown>;
 const exceptionSets = auditCases.exceptionSets as Record<string, unknown>;
 const temporaryDirectories: string[] = [];
@@ -15,6 +39,12 @@ const temporaryDirectories: string[] = [];
 function fixtureValue(fixtures: Record<string, unknown>, name: string): unknown {
   const value = fixtures[name];
   if (value === undefined) throw new TypeError(`Unknown audit fixture ${name}.`);
+  return value;
+}
+
+function lockfilePackage(path: string): LockfilePackage {
+  const value = packageLock.packages[path];
+  if (value === undefined) throw new TypeError(`Missing lockfile package ${path}.`);
   return value;
 }
 
@@ -43,6 +73,33 @@ describe("dependency audit policy", () => {
       }
     });
   }
+
+  it("pins the corrected development tools without adding production dependencies", () => {
+    expect(packageJson.dependencies ?? {}).toEqual({});
+    expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.0");
+    expect(packageJson.devDependencies["@stoplight/prism-cli"]).toBe("5.14.2");
+
+    const rootPackage = lockfilePackage("");
+    expect(rootPackage.dependencies ?? {}).toEqual({});
+    expect(rootPackage.devDependencies?.["js-yaml"]).toBe("4.3.0");
+    expect(rootPackage.devDependencies?.["@stoplight/prism-cli"]).toBe("5.14.2");
+    expect(lockfilePackage("node_modules/js-yaml")).toMatchObject({
+      version: "4.3.0",
+      dev: true,
+    });
+    for (const [path, version] of [
+      ["node_modules/@stoplight/prism-cli", "5.14.2"],
+      ["node_modules/@stoplight/prism-core", "5.8.0"],
+      ["node_modules/@stoplight/prism-http", "5.12.0"],
+      ["node_modules/@stoplight/prism-http-server", "5.12.2"],
+    ] as const) {
+      expect(lockfilePackage(path)).toMatchObject({
+        version,
+        dev: true,
+        engines: { node: ">=18.20.1" },
+      });
+    }
+  });
 
   it("keeps the committed exception register empty while the dependency graph is clean", () => {
     expect(auditExceptions).toEqual({ version: 1, exceptions: [] });

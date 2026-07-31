@@ -21,6 +21,7 @@ import {
 } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 import { OperationExecutor } from "../src/operations.js";
+import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -86,11 +87,11 @@ describe("HttpClient", () => {
 
     await client.request({
       method: "GET",
-      path: "/v2/accounts/acc_1/messages",
+      path: `/v2/accounts/${ACCOUNT_ID}/messages`,
       query: { limit: 10, after: "cursor", skip_me: undefined, also_skip: null, tag: "welcome" },
     });
 
-    expect(seenUrl).toContain("https://api.test/v2/accounts/acc_1/messages?");
+    expect(seenUrl).toContain(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages?`);
     expect(seenUrl).toContain("limit=10");
     expect(seenUrl).toContain("after=cursor");
     expect(seenUrl).toContain("tag=welcome");
@@ -161,7 +162,7 @@ describe("HttpClient", () => {
 
     await client.request({
       method: "POST",
-      path: "/v2/accounts/acc_1/domains",
+      path: `/v2/accounts/${ACCOUNT_ID}/domains`,
       body: { domain: "example.com" },
     });
 
@@ -700,7 +701,7 @@ describe("HttpClient response promises", () => {
       ),
     );
     const parameters = {
-      path: { account_id: "acc_1" },
+      path: { account_id: ACCOUNT_ID },
       body: { domain: "example.com" },
     };
     const options = { idempotencyKey: "stable-domain-key" };
@@ -1006,7 +1007,7 @@ describe("HttpClient retry behaviour", () => {
     await expect(
       executor.execute(
         "createDomain",
-        { path: { account_id: "acc_1" }, body },
+        { path: { account_id: ACCOUNT_ID }, body },
         {
           idempotencyKey: "stable-domain-key",
         },
@@ -1033,7 +1034,7 @@ describe("HttpClient retry behaviour", () => {
     await expect(
       executor.execute(
         "createDomain",
-        { path: { account_id: "acc_1" }, body: { domain: "example.com" } },
+        { path: { account_id: ACCOUNT_ID }, body: { domain: "example.com" } },
         { idempotencyKey: "stable-domain-key" },
       ),
     ).rejects.toBeInstanceOf(AhaSendConflictError);
@@ -1051,7 +1052,7 @@ describe("HttpClient retry behaviour", () => {
     await expect(
       executor.execute(
         "createDomain",
-        { path: { account_id: "acc_1" }, body: { domain: "example.com" } },
+        { path: { account_id: ACCOUNT_ID }, body: { domain: "example.com" } },
         { idempotencyKey: "stable-domain-key" },
       ),
     ).rejects.toBeInstanceOf(AhaSendIdempotencyMismatchError);
@@ -1077,7 +1078,7 @@ describe("HttpClient retry behaviour", () => {
     try {
       await executor.execute(
         "createDomain",
-        { path: { account_id: "acc_1" }, body: { domain: "example.com" } },
+        { path: { account_id: ACCOUNT_ID }, body: { domain: "example.com" } },
         { idempotencyKey: "stable-domain-key" },
       );
     } catch (error) {
@@ -1104,7 +1105,7 @@ describe("HttpClient retry behaviour", () => {
     try {
       await executor.execute(
         "createSuppression",
-        { path: { account_id: "acc_1" }, body: { email: "person@example.com" } },
+        { path: { account_id: ACCOUNT_ID }, body: { email: "person@example.com" } },
         { idempotencyKey: "stored-suppression-key" },
       );
     } catch (error) {
@@ -1132,7 +1133,7 @@ describe("HttpClient retry behaviour", () => {
     await expect(
       executor.execute(
         "createAPIKey",
-        { path: { account_id: "acc_1" }, body: { label: "key", scopes: ["invalid"] } },
+        { path: { account_id: ACCOUNT_ID }, body: { label: "key", scopes: ["invalid"] } },
         { idempotencyKey: "secret-create-key" },
       ),
     ).rejects.toMatchObject({ status: 400 });

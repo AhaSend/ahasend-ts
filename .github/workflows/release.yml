@@ -30,6 +30,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
+
       - run: npm ci
 
       - name: Verify tag and source revision
@@ -47,7 +53,7 @@ jobs:
         run: npm run lint
 
       - name: Unit test gate
-        run: npm run test:unit -- --exclude tests/package.test.ts
+        run: npm run test:unit
 
       - name: State test gate
         run: npx vitest run tests/state-machines.test.ts
@@ -59,7 +65,7 @@ jobs:
         run: npx vitest run tests/webhook-express.integration.test.ts
 
       - name: Coverage gate
-        run: npm run test:coverage -- --exclude tests/package.test.ts
+        run: npm run test:coverage
 
       - name: Format gate
         run: npx prettier --check "src/**/*.ts" "tests/**/*.ts"
@@ -169,6 +175,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
+
       - run: npm ci
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -222,6 +234,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
+
       - run: npm ci
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -256,6 +274,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - run: npm ci
 
@@ -300,6 +324,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - run: npm ci
 
@@ -389,8 +419,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
 
-      - name: Install npm with trusted-publishing support
+      - name: Install asserted npm version
         run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -429,8 +462,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
 
-      - name: Install npm with attestation bundle output
+      - name: Install asserted npm version
         run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -499,6 +535,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -576,6 +618,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -659,6 +707,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:

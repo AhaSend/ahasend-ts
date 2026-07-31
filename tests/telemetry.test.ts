@@ -8,6 +8,7 @@ import type {
   RetryEvent,
   TelemetryHooks,
 } from "../src/telemetry.js";
+import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -155,7 +156,7 @@ describe("HttpClient telemetry integration", () => {
 
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks,
       fetch: mockFetch(
@@ -195,7 +196,7 @@ describe("HttpClient telemetry integration", () => {
     let attempts = 0;
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks,
       retry: { baseDelayMs: 1, maxDelayMs: 5, jitter: false, maxRetries: 1 },
@@ -242,7 +243,7 @@ describe("HttpClient telemetry integration", () => {
     const events: string[] = [];
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks: {
         onError: () => {
@@ -271,7 +272,7 @@ describe("HttpClient telemetry integration", () => {
     });
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       retry: { baseDelayMs: 1, maxDelayMs: 1, jitter: false, maxRetries: 1 },
       hooks: {
@@ -297,7 +298,7 @@ describe("HttpClient telemetry integration", () => {
     );
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks: {
         onError: async () => Promise.reject(new Error("telemetry failed")),
@@ -325,7 +326,7 @@ describe("HttpClient telemetry integration", () => {
     );
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks,
       fetch,
@@ -366,7 +367,7 @@ describe("HttpClient telemetry integration", () => {
       const responses: ResponseEvent[] = [];
       const client = new AhaSendClient({
         apiKey: "aha-sk-test",
-        accountId: "acc_1",
+        accountId: ACCOUNT_ID,
         baseUrl: "https://api.test",
         hooks: {
           onRequest: (event) => {
@@ -424,7 +425,7 @@ describe("HttpClient telemetry integration", () => {
 
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       debug: true,
       hooks: { onRequest: userHook },
