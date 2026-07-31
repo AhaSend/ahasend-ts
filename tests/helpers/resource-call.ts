@@ -5,6 +5,15 @@ import { OPERATION_DESCRIPTORS } from "../../src/generated/operations.js";
 
 type FetchImpl = typeof fetch;
 
+export const ACCOUNT_ID = "11111111-1111-4111-8111-111111111111";
+export const API_KEY_ID = "22222222-2222-4222-8222-222222222222";
+export const WEBHOOK_ID = "33333333-3333-4333-8333-333333333333";
+export const ROUTE_ID = "44444444-4444-4444-8444-444444444444";
+export const SUB_ACCOUNT_ID = "55555555-5555-4555-8555-555555555555";
+export const USER_ID = "66666666-6666-4666-8666-666666666666";
+export const SMTP_CREDENTIAL_ID = "77777777-7777-4777-8777-777777777777";
+export const HOSTNAME = "mail.example.test";
+
 export interface ResourceCall {
   readonly url: string;
   readonly method: string;
@@ -46,7 +55,7 @@ export function captureFetch(responseFactory: ResponseFactory = DEFAULT_RESPONSE
 export function makeClient(fetchImpl: FetchImpl): AhaSendClient {
   return new AhaSendClient({
     apiKey: "aha-sk-test",
-    accountId: "acc_1",
+    accountId: ACCOUNT_ID,
     baseUrl: "https://api.test",
     fetch: fetchImpl,
     retry: { enabled: false },

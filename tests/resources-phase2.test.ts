@@ -18,7 +18,15 @@ import type {
   UpdateWebhookRequest,
   Webhook,
 } from "../src/resources/webhooks.js";
-import { captureFetch, makeClient } from "./helpers/resource-call.js";
+import {
+  ACCOUNT_ID,
+  captureFetch,
+  makeClient,
+  ROUTE_ID,
+  SMTP_CREDENTIAL_ID,
+  USER_ID,
+  WEBHOOK_ID,
+} from "./helpers/resource-call.js";
 
 describe("Filtered pagination parameter declarations", () => {
   it("retains each resource filter alongside limit and one cursor", () => {
@@ -162,7 +170,7 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     });
     expect(calls[0]!.method).toBe("GET");
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/webhooks");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/webhooks`);
     expect(url.searchParams.get("limit")).toBe("25");
     expect(url.searchParams.get("after")).toBe("next");
     expect(url.searchParams.has("before")).toBe(false);
@@ -216,7 +224,7 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     );
     const call = calls[0]!;
     expect(call.method).toBe("POST");
-    expect(call.url).toBe("https://api.test/v2/accounts/acc_1/webhooks");
+    expect(call.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/webhooks`);
     expect(JSON.parse(call.body!)).toEqual({
       name: "delivery hook",
       url: "https://hooks.example/aha",
@@ -229,14 +237,14 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     expect(created).toEqual({ domains: [], secret: "whsec_created" });
   });
 
-  it("get() dispatches getWebhook and encodes the webhook ID", async () => {
+  it("get() dispatches getWebhook with the webhook ID", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.webhooks.get("wh/42");
+    await client.webhooks.get(WEBHOOK_ID);
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/webhooks/wh%2F42");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/webhooks/${WEBHOOK_ID}`);
     expect(calls[0]!.operationId).toBe("getWebhook");
   });
 
@@ -244,11 +252,11 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.webhooks.update("wh/42", { name: null, scope: null, domains: null });
-    await client.webhooks.update("wh/42", { domains: [] });
+    await client.webhooks.update(WEBHOOK_ID, { name: null, scope: null, domains: null });
+    await client.webhooks.update(WEBHOOK_ID, { domains: [] });
 
     expect(calls[0]!.method).toBe("PUT");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/webhooks/wh%2F42");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/webhooks/${WEBHOOK_ID}`);
     expect(JSON.parse(calls[0]!.body!)).toEqual({ name: null, scope: null, domains: null });
     expect(calls[0]!.operationId).toBe("updateWebhook");
     expect(JSON.parse(calls[1]!.body!)).toEqual({ domains: [] });
@@ -259,10 +267,10 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.webhooks.delete("wh/42");
+    await client.webhooks.delete(WEBHOOK_ID);
 
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/webhooks/wh%2F42");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/webhooks/${WEBHOOK_ID}`);
     expect(calls[0]!.operationId).toBe("deleteWebhook");
   });
 });
@@ -304,7 +312,7 @@ describe("StatisticsClient", () => {
       { headers: { "x-trace-id": "stats-1" } },
     );
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/statistics/transactional/deliverability");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/statistics/transactional/deliverability`);
     expect(url.searchParams.get("from_time")).toBe("2026-04-01T00:00:00Z");
     expect(url.searchParams.get("to_time")).toBe("2026-04-30T00:00:00Z");
     expect(url.searchParams.get("group_by")).toBe("day");
@@ -321,7 +329,7 @@ describe("StatisticsClient", () => {
       to_time: "2026-04-30T00:00:00Z",
     });
     expect(calls[0]!.url).toBe(
-      "https://api.test/v2/accounts/acc_1/statistics/transactional/bounce?from_time=2026-04-01T00%3A00%3A00Z&to_time=2026-04-30T00%3A00%3A00Z",
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/statistics/transactional/bounce?from_time=2026-04-01T00%3A00%3A00Z&to_time=2026-04-30T00%3A00%3A00Z`,
     );
     expect(calls[0]!.operationId).toBe("getBounceStatistics");
   });
@@ -334,7 +342,7 @@ describe("StatisticsClient", () => {
       to_time: "2026-04-30T00:00:00Z",
     });
     expect(calls[0]!.url).toBe(
-      "https://api.test/v2/accounts/acc_1/statistics/transactional/delivery-time?from_time=2026-04-01T00%3A00%3A00Z&to_time=2026-04-30T00%3A00%3A00Z",
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/statistics/transactional/delivery-time?from_time=2026-04-01T00%3A00%3A00Z&to_time=2026-04-30T00%3A00%3A00Z`,
     );
     expect(calls[0]!.operationId).toBe("getDeliveryTimeStatistics");
   });
@@ -348,9 +356,9 @@ describe("StatisticsClient", () => {
     await client.statistics.deliveryTimes();
 
     expect(calls.map(({ url }) => url)).toEqual([
-      "https://api.test/v2/accounts/acc_1/statistics/transactional/deliverability",
-      "https://api.test/v2/accounts/acc_1/statistics/transactional/bounce",
-      "https://api.test/v2/accounts/acc_1/statistics/transactional/delivery-time",
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/statistics/transactional/deliverability`,
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/statistics/transactional/bounce`,
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/statistics/transactional/delivery-time`,
     ]);
     expect(calls.map(({ operationId }) => operationId)).toEqual([
       "getDeliverabilityStatistics",
@@ -389,7 +397,7 @@ describe("SuppressionsClient", () => {
     );
     expect(calls[0]!.method).toBe("GET");
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/suppressions");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/suppressions`);
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("before")).toBe("previous");
     expect(url.searchParams.has("after")).toBe(false);
@@ -470,7 +478,7 @@ describe("SuppressionsClient", () => {
     );
     expect(calls[0]!.method).toBe("DELETE");
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/suppressions");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/suppressions`);
     expect(url.searchParams.get("email")).toBe("blocked@example.com");
     expect(url.searchParams.get("domain")).toBe("example.com");
     expect(calls[0]!.headers["x-trace-id"]).toBe("suppression-delete-1");
@@ -482,7 +490,7 @@ describe("SuppressionsClient", () => {
     const client = makeClient(fetch);
     await client.suppressions.wipe();
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/suppressions/all");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/suppressions/all`);
     expect(calls[0]!.operationId).toBe("deleteAllSuppressions");
   });
 
@@ -604,14 +612,14 @@ describe("RoutesClient", () => {
     expect(created).toEqual({ object: "route", id: "rt_1", secret: "rtsec_created" });
   });
 
-  it("get() dispatches getRoute and encodes the route ID", async () => {
+  it("get() dispatches getRoute with the route ID", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.routes.get("rt/42");
+    await client.routes.get(ROUTE_ID);
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/routes/rt%2F42");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/routes/${ROUTE_ID}`);
     expect(calls[0]!.operationId).toBe("getRoute");
   });
 
@@ -619,12 +627,12 @@ describe("RoutesClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
     await client.routes.update(
-      "rt/42",
+      ROUTE_ID,
       { recipient: "replies@example.net", enabled: false },
       { headers: { "x-trace-id": "route-update-1" } },
     );
     expect(calls[0]!.method).toBe("PUT");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/routes/rt%2F42");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/routes/${ROUTE_ID}`);
     expect(JSON.parse(calls[0]!.body!)).toEqual({
       recipient: "replies@example.net",
       enabled: false,
@@ -637,10 +645,10 @@ describe("RoutesClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.routes.delete("rt/42");
+    await client.routes.delete(ROUTE_ID);
 
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/routes/rt%2F42");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/routes/${ROUTE_ID}`);
     expect(calls[0]!.operationId).toBe("deleteRoute");
   });
 });
@@ -651,7 +659,7 @@ describe("AccountsClient", () => {
     const client = makeClient(fetch);
     await client.accounts.get({ headers: { "x-trace-id": "account-get-1" } });
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}`);
     expect(calls[0]!.headers["x-trace-id"]).toBe("account-get-1");
     expect(calls[0]!.operationId).toBe("getAccount");
   });
@@ -674,7 +682,7 @@ describe("AccountsClient", () => {
     const client = makeClient(fetch);
     await client.accounts.listMembers({ headers: { "x-trace-id": "members-list-1" } });
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/members");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/members`);
     expect(url.search).toBe("");
     expect(calls[0]!.headers["x-trace-id"]).toBe("members-list-1");
     expect(calls[0]!.operationId).toBe("getAccountMembers");
@@ -696,14 +704,14 @@ describe("AccountsClient", () => {
     expect(calls[0]!.operationId).toBe("addAccountMember");
   });
 
-  it("removeMember() dispatches removeAccountMember and encodes the user ID", async () => {
+  it("removeMember() dispatches removeAccountMember with the user ID", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    await client.accounts.removeMember("usr/42", {
+    await client.accounts.removeMember(USER_ID, {
       headers: { "x-trace-id": "member-remove-1" },
     });
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/members/usr%2F42");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/members/${USER_ID}`);
     expect(calls[0]!.headers["x-trace-id"]).toBe("member-remove-1");
     expect(calls[0]!.operationId).toBe("removeAccountMember");
   });
@@ -719,7 +727,7 @@ describe("SMTPCredentialsClient", () => {
     );
 
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/smtp-credentials");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/smtp-credentials`);
     expect(url.searchParams.get("limit")).toBe("25");
     expect(url.searchParams.get("before")).toBe("previous");
     expect(url.searchParams.has("after")).toBe(false);
@@ -784,16 +792,18 @@ describe("SMTPCredentialsClient", () => {
     expect(created).toMatchObject({ domains: [], password: "smtp-password" });
   });
 
-  it("get() dispatches getSMTPCredential and encodes the credential ID", async () => {
+  it("get() dispatches getSMTPCredential with the credential ID", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.smtpCredentials.get("cred/42", {
+    await client.smtpCredentials.get(SMTP_CREDENTIAL_ID, {
       headers: { "x-trace-id": "smtp-get-1" },
     });
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/smtp-credentials/cred%2F42");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/smtp-credentials/${SMTP_CREDENTIAL_ID}`,
+    );
     expect(calls[0]!.headers["x-trace-id"]).toBe("smtp-get-1");
     expect(calls[0]!.operationId).toBe("getSMTPCredential");
   });
@@ -802,12 +812,14 @@ describe("SMTPCredentialsClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.smtpCredentials.delete("cred/42", {
+    await client.smtpCredentials.delete(SMTP_CREDENTIAL_ID, {
       headers: { "x-trace-id": "smtp-delete-1" },
     });
 
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/smtp-credentials/cred%2F42");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/smtp-credentials/${SMTP_CREDENTIAL_ID}`,
+    );
     expect(calls[0]!.headers["x-trace-id"]).toBe("smtp-delete-1");
     expect(calls[0]!.operationId).toBe("deleteSMTPCredential");
   });

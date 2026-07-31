@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 const repositoryRoot = process.cwd();
 const packageJson = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8")) as {
+  readonly packageManager: string;
   readonly scripts: Readonly<Record<string, string>>;
 };
 const workflow = yaml.load(
@@ -25,7 +26,34 @@ function array(value: unknown, label: string): readonly unknown[] {
   return value;
 }
 
+function expectAssertedNpmToolchain(job: unknown, label: string): void {
+  const steps = array(record(job, label)["steps"], `${label} steps`).map((step, index) =>
+    record(step, `${label} step ${index}`),
+  );
+  const setupIndex = steps.findIndex((step) =>
+    String(step["uses"] ?? "").startsWith("actions/setup-node@"),
+  );
+
+  expect(setupIndex, `${label} setup-node step`).toBeGreaterThanOrEqual(0);
+  expect(steps[setupIndex + 1], `${label} npm install step`).toMatchObject({
+    name: "Install asserted npm version",
+    run: "npm install --global npm@11.12.0",
+  });
+  expect(steps[setupIndex + 2], `${label} npm version step`).toMatchObject({
+    name: "Verify asserted npm version",
+    run: 'test "$(npm --version)" = "11.12.0"',
+  });
+}
+
 describe("CI policy", () => {
+  it("provisions the declared npm executable before CI commands", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+
+    expect(packageJson.packageManager).toBe("npm@11.12.0");
+    expectAssertedNpmToolchain(jobs["test"], "test job");
+    expectAssertedNpmToolchain(jobs["coverage"], "coverage job");
+  });
+
   it("loads type-aware rules from the dedicated ESLint TypeScript program", async () => {
     const eslint = new ESLint({ cwd: repositoryRoot });
     const config = (await eslint.calculateConfigForFile("src/client.ts")) as unknown;

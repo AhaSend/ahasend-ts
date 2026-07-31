@@ -17,6 +17,8 @@ interface PackResult {
   readonly files: PackFile[];
 }
 
+type PackOutput = PackResult[] | Readonly<Record<string, PackResult>>;
+
 const repositoryRoot = process.cwd();
 const distDirectory = resolve(repositoryRoot, "dist");
 const require = createRequire(import.meta.url);
@@ -38,6 +40,11 @@ function runtimeFiles(directory: string, prefix = ""): string[] {
   return files.sort();
 }
 
+function parsePackOutput(output: string): readonly PackResult[] {
+  const parsed = JSON.parse(output) as PackOutput;
+  return Array.isArray(parsed) ? parsed : Object.values(parsed);
+}
+
 beforeAll(async () => {
   const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
     cwd: repositoryRoot,
@@ -51,6 +58,20 @@ beforeAll(async () => {
   )) as WebhooksModule;
   cjsRoot = require(resolve(distDirectory, "index.cjs")) as RootModule;
   cjsWebhooks = require(resolve(distDirectory, "webhooks/index.cjs")) as WebhooksModule;
+});
+
+describe("npm pack output compatibility", () => {
+  it.each([
+    ["npm 10/11 array output", [{ files: [{ path: "array-package.tgz" }] }], "array-package.tgz"],
+    [
+      "npm 12 keyed-object output",
+      { "@ahasend/sdk": { files: [{ path: "keyed-package.tgz" }] } },
+      "keyed-package.tgz",
+    ],
+  ])("accepts %s", (_label, output, expectedPath) => {
+    const [manifest] = parsePackOutput(JSON.stringify(output));
+    expect(manifest?.files[0]?.path).toBe(expectedPath);
+  });
 });
 
 describe("built package topology", () => {
@@ -138,7 +159,9 @@ describe("built package topology", () => {
     });
     expect(packed.status, `${packed.stdout}${packed.stderr}`).toBe(0);
 
-    const [manifest] = JSON.parse(packed.stdout) as PackResult[];
+    const manifests = parsePackOutput(packed.stdout);
+    expect(manifests).toHaveLength(1);
+    const [manifest] = manifests;
     expect(manifest).toBeDefined();
     const paths = manifest!.files.map(({ path }) => path);
     expect(paths).toContain("dist/_internal/errors.js");

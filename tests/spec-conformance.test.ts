@@ -17,22 +17,33 @@ import type { OperationProfileMapping } from "../src/generated/operation-profile
 import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
 import type { IdempotencyRequestOptions, RequestOptions } from "../src/types/common.js";
 import type { ResourceCall } from "./helpers/resource-call.js";
-import { captureFetch, makeClient } from "./helpers/resource-call.js";
+import {
+  ACCOUNT_ID,
+  API_KEY_ID,
+  captureFetch,
+  HOSTNAME,
+  makeClient,
+  ROUTE_ID,
+  SMTP_CREDENTIAL_ID,
+  SUB_ACCOUNT_ID,
+  USER_ID,
+  WEBHOOK_ID,
+} from "./helpers/resource-call.js";
 
 const SPEC_PATH = resolve(process.cwd(), "openapi.yaml");
-const ACCOUNT_PATH = "/v2/accounts/acc_1";
+const ACCOUNT_PATH = `/v2/accounts/${ACCOUNT_ID}`;
 const CONTRACT_HEADER = "matrix-options";
 const IDEMPOTENCY_KEY = "matrix-idempotency-key";
 
 const IDS = {
-  key: "key/id",
-  domain: "mail/example.test",
+  key: API_KEY_ID,
+  domain: HOSTNAME,
   message: "message/id",
-  user: "user/id",
-  subAccount: "sub/id",
-  webhook: "webhook/id",
-  route: "route/id",
-  smtpCredential: "smtp/id",
+  user: USER_ID,
+  subAccount: SUB_ACCOUNT_ID,
+  webhook: WEBHOOK_ID,
+  route: ROUTE_ID,
+  smtpCredential: SMTP_CREDENTIAL_ID,
 } as const;
 
 const REQUEST_OPTIONS: RequestOptions = {
@@ -146,18 +157,18 @@ const PRIMARY_MATRIX = [
   }),
   primary("getAPIKey", "apiKeys", "get", (client) => ({
     result: client.apiKeys.get(IDS.key, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/api-keys/key%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/api-keys/${API_KEY_ID}` },
   })),
   primary("updateAPIKey", "apiKeys", "update", (client) => {
     const body = { label: "updated" };
     return {
       result: client.apiKeys.update(IDS.key, body, REQUEST_OPTIONS),
-      input: { path: `${ACCOUNT_PATH}/api-keys/key%2Fid`, body },
+      input: { path: `${ACCOUNT_PATH}/api-keys/${API_KEY_ID}`, body },
     };
   }),
   primary("deleteAPIKey", "apiKeys", "delete", (client) => ({
     result: client.apiKeys.delete(IDS.key, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/api-keys/key%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/api-keys/${API_KEY_ID}` },
   })),
   primary("getDomains", "domains", "list", (client) => ({
     result: client.domains.list({ ...PAGINATION_PARAMS, dns_valid: true }, REQUEST_OPTIONS),
@@ -175,22 +186,22 @@ const PRIMARY_MATRIX = [
   }),
   primary("getDomain", "domains", "get", (client) => ({
     result: client.domains.get(IDS.domain, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/domains/mail%2Fexample.test` },
+    input: { path: `${ACCOUNT_PATH}/domains/${HOSTNAME}` },
   })),
   primary("updateDomain", "domains", "update", (client) => {
     const body = { tracking_subdomain: "track" };
     return {
       result: client.domains.update(IDS.domain, body, REQUEST_OPTIONS),
-      input: { path: `${ACCOUNT_PATH}/domains/mail%2Fexample.test`, body },
+      input: { path: `${ACCOUNT_PATH}/domains/${HOSTNAME}`, body },
     };
   }),
   primary("deleteDomain", "domains", "delete", (client) => ({
     result: client.domains.delete(IDS.domain, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/domains/mail%2Fexample.test` },
+    input: { path: `${ACCOUNT_PATH}/domains/${HOSTNAME}` },
   })),
   primary("checkDomainDNS", "domains", "checkDns", (client) => ({
     result: client.domains.checkDns(IDS.domain, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/domains/mail%2Fexample.test/check-dns` },
+    input: { path: `${ACCOUNT_PATH}/domains/${HOSTNAME}/check-dns` },
   })),
   primary("getMessages", "messages", "list", (client) => ({
     result: client.messages.list(
@@ -260,7 +271,7 @@ const PRIMARY_MATRIX = [
   }),
   primary("removeAccountMember", "accounts", "removeMember", (client) => ({
     result: client.accounts.removeMember(IDS.user, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/members/user%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/members/${USER_ID}` },
   })),
   primary("listSubAccounts", "subAccounts", "list", (client) => ({
     result: client.subAccounts.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
@@ -279,34 +290,34 @@ const PRIMARY_MATRIX = [
   })),
   primary("getSubAccount", "subAccounts", "get", (client) => ({
     result: client.subAccounts.get(IDS.subAccount, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}` },
   })),
   primary("updateSubAccount", "subAccounts", "update", (client) => {
     const body = { name: "Updated child" };
     return {
       result: client.subAccounts.update(IDS.subAccount, body, REQUEST_OPTIONS),
-      input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid`, body },
+      input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}`, body },
     };
   }),
   primary("deleteSubAccount", "subAccounts", "delete", (client) => ({
     result: client.subAccounts.delete(IDS.subAccount, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}` },
   })),
   primary("suspendSubAccount", "subAccounts", "suspend", (client) => {
     const body = { reason: "Matrix suspension" };
     return {
       result: client.subAccounts.suspend(IDS.subAccount, body, REQUEST_OPTIONS),
-      input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/suspend`, body },
+      input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/suspend`, body },
     };
   }),
   primary("unsuspendSubAccount", "subAccounts", "unsuspend", (client) => ({
     result: client.subAccounts.unsuspend(IDS.subAccount, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/unsuspend` },
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/unsuspend` },
   })),
   primary("listSubAccountAPIKeys", "subAccounts.apiKeys", "list", (client) => ({
     result: client.subAccounts.apiKeys.list(IDS.subAccount, PAGINATION_PARAMS, REQUEST_OPTIONS),
     input: {
-      path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys`,
+      path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys`,
       query: PAGINATION_QUERY,
     },
   })),
@@ -317,26 +328,26 @@ const PRIMARY_MATRIX = [
     };
     return {
       result: client.subAccounts.apiKeys.create(IDS.subAccount, body, IDEMPOTENCY_OPTIONS),
-      input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys`, body },
+      input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys`, body },
     };
   }),
   primary("getSubAccountAPIKey", "subAccounts.apiKeys", "get", (client) => ({
     result: client.subAccounts.apiKeys.get(IDS.subAccount, IDS.key, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys/key%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys/${API_KEY_ID}` },
   })),
   primary("updateSubAccountAPIKey", "subAccounts.apiKeys", "update", (client) => {
     const body = { label: "Updated child key" };
     return {
       result: client.subAccounts.apiKeys.update(IDS.subAccount, IDS.key, body, REQUEST_OPTIONS),
       input: {
-        path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys/key%2Fid`,
+        path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys/${API_KEY_ID}`,
         body,
       },
     };
   }),
   primary("deleteSubAccountAPIKey", "subAccounts.apiKeys", "delete", (client) => ({
     result: client.subAccounts.apiKeys.delete(IDS.subAccount, IDS.key, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys/key%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys/${API_KEY_ID}` },
   })),
   primary("getSuppressions", "suppressions", "list", (client) => ({
     result: client.suppressions.list(
@@ -399,18 +410,18 @@ const PRIMARY_MATRIX = [
   }),
   primary("getRoute", "routes", "get", (client) => ({
     result: client.routes.get(IDS.route, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/routes/route%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/routes/${ROUTE_ID}` },
   })),
   primary("updateRoute", "routes", "update", (client) => {
     const body = { name: "Updated route" };
     return {
       result: client.routes.update(IDS.route, body, REQUEST_OPTIONS),
-      input: { path: `${ACCOUNT_PATH}/routes/route%2Fid`, body },
+      input: { path: `${ACCOUNT_PATH}/routes/${ROUTE_ID}`, body },
     };
   }),
   primary("deleteRoute", "routes", "delete", (client) => ({
     result: client.routes.delete(IDS.route, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/routes/route%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/routes/${ROUTE_ID}` },
   })),
   primary("getWebhooks", "webhooks", "list", (client) => ({
     result: client.webhooks.list(
@@ -435,18 +446,18 @@ const PRIMARY_MATRIX = [
   }),
   primary("getWebhook", "webhooks", "get", (client) => ({
     result: client.webhooks.get(IDS.webhook, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/webhooks/webhook%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/webhooks/${WEBHOOK_ID}` },
   })),
   primary("updateWebhook", "webhooks", "update", (client) => {
     const body = { name: "Updated webhook" };
     return {
       result: client.webhooks.update(IDS.webhook, body, REQUEST_OPTIONS),
-      input: { path: `${ACCOUNT_PATH}/webhooks/webhook%2Fid`, body },
+      input: { path: `${ACCOUNT_PATH}/webhooks/${WEBHOOK_ID}`, body },
     };
   }),
   primary("deleteWebhook", "webhooks", "delete", (client) => ({
     result: client.webhooks.delete(IDS.webhook, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/webhooks/webhook%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/webhooks/${WEBHOOK_ID}` },
   })),
   primary("getSMTPCredentials", "smtpCredentials", "list", (client) => ({
     result: client.smtpCredentials.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
@@ -461,11 +472,11 @@ const PRIMARY_MATRIX = [
   }),
   primary("getSMTPCredential", "smtpCredentials", "get", (client) => ({
     result: client.smtpCredentials.get(IDS.smtpCredential, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/smtp-credentials/smtp%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/smtp-credentials/${SMTP_CREDENTIAL_ID}` },
   })),
   primary("deleteSMTPCredential", "smtpCredentials", "delete", (client) => ({
     result: client.smtpCredentials.delete(IDS.smtpCredential, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/smtp-credentials/smtp%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/smtp-credentials/${SMTP_CREDENTIAL_ID}` },
   })),
   primary("getDeliverabilityStatistics", "statistics", "deliverability", (client) => ({
     result: client.statistics.deliverability(STATISTICS_PARAMS, REQUEST_OPTIONS),
@@ -522,7 +533,7 @@ const ITERATOR_MATRIX = [
       .iterate(IDS.subAccount, PAGINATION_PARAMS, REQUEST_OPTIONS)
       .next(),
     input: {
-      path: `${ACCOUNT_PATH}/sub-accounts/sub%2Fid/api-keys`,
+      path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys`,
       query: PAGINATION_QUERY,
     },
   })),
