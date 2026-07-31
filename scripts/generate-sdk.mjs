@@ -1546,7 +1546,9 @@ function generateOperations(document, operations) {
     };
   }
 
-  return `${GENERATED_HEADER}export type RetryMode = "safe" | "idempotent" | "idempotency_key" | "never";
+  return `${GENERATED_HEADER}import type { operations } from "./rest-types.js";
+
+export type RetryMode = "safe" | "idempotent" | "idempotency_key" | "never";
 
 interface ResourceAuthorizationMetadata {
   readonly roles: {
@@ -1647,6 +1649,47 @@ export const OPERATION_DESCRIPTORS = ${JSON.stringify(descriptors, null, 2)} as 
 >;
 
 export type OperationId = keyof typeof OPERATION_DESCRIPTORS;
+
+export type OperationParametersById = {
+  readonly [Operation in OperationId]: operations[Operation]["parameters"];
+};
+
+export type RequestInput<Value> = Value extends readonly [infer Head, ...infer Tail]
+  ? readonly [RequestInput<Head>, ...RequestInput<Tail>]
+  : Value extends readonly (infer Item)[]
+    ? readonly RequestInput<Item>[]
+    : Value extends object
+      ? { [Key in keyof Value]: RequestInput<Value[Key]> }
+      : Value;
+
+export type OperationRequestBodyById = {
+  readonly [Operation in OperationId]: operations[Operation] extends {
+    requestBody: { content: { "application/json": infer Body } };
+  }
+    ? RequestInput<Body>
+    : never;
+};
+
+export type OperationInputById = {
+  readonly [Operation in OperationId]: OperationParametersById[Operation] &
+    (OperationRequestBodyById[Operation] extends never
+      ? { body?: never }
+      : { body: OperationRequestBodyById[Operation] });
+};
+
+type JsonSuccess<ResponseMap> = {
+  [Status in keyof ResponseMap]: Status extends \`2\${string}\`
+    ? ResponseMap[Status] extends {
+        content: { "application/json": infer Body };
+      }
+      ? Body
+      : never
+    : never;
+}[keyof ResponseMap];
+
+export type OperationSuccessById = {
+  readonly [Operation in OperationId]: JsonSuccess<operations[Operation]["responses"]>;
+};
 `;
 }
 

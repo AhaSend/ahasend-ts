@@ -20,6 +20,14 @@ import {
   WEBHOOK_SHA256,
 } from "../src/generated/contract-digests.js";
 import { OPERATION_DESCRIPTORS, RESOURCE_AUTHORIZATION } from "../src/generated/operations.js";
+import type {
+  OperationId,
+  OperationInputById,
+  OperationParametersById,
+  OperationRequestBodyById,
+  OperationSuccessById,
+  RequestInput,
+} from "../src/generated/operations.js";
 import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
 import type { components, operations } from "../src/generated/rest-types.js";
 
@@ -175,6 +183,94 @@ describe("SDK artifact generation", () => {
       WireSchemas["CreateMessageRequest"]["recipients"]
     >();
     expectTypeOf<readonly []>().not.toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
+  });
+
+  it("indexes parameters, request bodies, inputs, and successes for all 56 operations", () => {
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(56);
+    expectTypeOf<keyof OperationParametersById>().toEqualTypeOf<OperationId>();
+    expectTypeOf<keyof OperationRequestBodyById>().toEqualTypeOf<OperationId>();
+    expectTypeOf<keyof OperationInputById>().toEqualTypeOf<OperationId>();
+    expectTypeOf<keyof OperationSuccessById>().toEqualTypeOf<OperationId>();
+  });
+
+  it("normalizes recursive request inputs without changing object modifiers", () => {
+    type Normalized = RequestInput<{
+      readonly required: Array<{ values: string[] }>;
+      optional?: string[];
+    }>;
+    type Distributed = RequestInput<
+      { kind: "items"; values: Array<{ nested: number[] }> } | { kind: "count"; value: number }
+    >;
+
+    expectTypeOf<Normalized>().toEqualTypeOf<{
+      readonly required: readonly { values: readonly string[] }[];
+      optional?: readonly string[];
+    }>();
+    expectTypeOf<Distributed>().toEqualTypeOf<
+      | { kind: "items"; values: readonly { nested: readonly number[] }[] }
+      | { kind: "count"; value: number }
+    >();
+  });
+
+  it("accepts readonly arrays and preserves non-empty request tuple cardinality", () => {
+    type MessageBody = OperationRequestBodyById["createMessage"];
+
+    expectTypeOf<readonly [{ data: string; content_type: string; file_name: string }]>().toExtend<
+      NonNullable<MessageBody["attachments"]>
+    >();
+    expectTypeOf<readonly ["transactional", "welcome"]>().toExtend<
+      NonNullable<MessageBody["tags"]>
+    >();
+    expectTypeOf<readonly [{ email: string }]>().toExtend<MessageBody["recipients"]>();
+    expectTypeOf<readonly []>().not.toExtend<MessageBody["recipients"]>();
+
+    expectTypeOf<{
+      name: string;
+      url: string;
+      scope: "scoped";
+      domains: readonly [string];
+    }>().toExtend<OperationRequestBodyById["createWebhook"]>();
+    expectTypeOf<{
+      name: string;
+      url: string;
+      scope: "scoped";
+      domains: readonly [];
+    }>().not.toExtend<OperationRequestBodyById["createWebhook"]>();
+
+    expectTypeOf<{
+      name: string;
+      scope: "scoped";
+      domains: readonly [string];
+    }>().toExtend<OperationRequestBodyById["createSMTPCredential"]>();
+    expectTypeOf<{
+      name: string;
+      scope: "scoped";
+      domains: readonly [];
+    }>().not.toExtend<OperationRequestBodyById["createSMTPCredential"]>();
+  });
+
+  it("requires bodies only for body-bearing operation inputs", () => {
+    expectTypeOf<
+      OperationParametersById["createMessage"] & {
+        body: OperationRequestBodyById["createMessage"];
+      }
+    >().toExtend<OperationInputById["createMessage"]>();
+    expectTypeOf<OperationParametersById["createMessage"]>().not.toExtend<
+      OperationInputById["createMessage"]
+    >();
+    expectTypeOf<OperationParametersById["ping"]>().toExtend<OperationInputById["ping"]>();
+    expectTypeOf<OperationParametersById["ping"] & { body: Record<string, never> }>().not.toExtend<
+      OperationInputById["ping"]
+    >();
+  });
+
+  it("leaves success response arrays mutable wire types", () => {
+    expectTypeOf<OperationSuccessById["getMessages"]["data"]>().toEqualTypeOf<
+      Array<WireSchemas["MessageSummary"]>
+    >();
+    expectTypeOf<OperationSuccessById["getMessages"]["data"]>().not.toEqualTypeOf<
+      readonly WireSchemas["MessageSummary"][]
+    >();
   });
 
   it("generates JSON bodies for referenced 409 and 422 operation responses", () => {
