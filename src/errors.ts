@@ -60,9 +60,9 @@ export interface SerializedAhaSendError {
   requestId?: string;
   retryAfterSeconds?: number;
   reason?: string;
-  body?: typeof REDACTED;
-  headers?: typeof REDACTED;
-  cause?: typeof REDACTED;
+  body?: "[REDACTED]";
+  headers?: "[REDACTED]";
+  cause?: "[REDACTED]";
 }
 
 export type WebhookVerificationReason =
@@ -105,11 +105,11 @@ export class AhaSendError extends Error {
     if ("cause" in this) serialized.cause = REDACTED;
     return serialized;
   }
-
-  [INSPECT_CUSTOM](): SerializedAhaSendError {
-    return this.toJSON();
-  }
 }
+
+defineHidden(AhaSendError.prototype, INSPECT_CUSTOM, function (this: AhaSendError) {
+  return this.toJSON();
+});
 
 /** Safely identifies SDK errors across duplicate ESM/CJS package instances. */
 export function isAhaSendError(value: unknown): value is AhaSendError {
@@ -200,11 +200,16 @@ export class AhaSendAPIError extends AhaSendError {
   }
 }
 
-type APIErrorParams = ConstructorParameters<typeof AhaSendAPIError>[0];
-
 /** 401 — missing or invalid API key. Not retried. */
 export class AhaSendAuthenticationError extends AhaSendAPIError {
-  constructor(params: APIErrorParams) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+  }) {
     super(params);
     defineHidden(this, "code", "authentication_error");
   }
@@ -212,7 +217,14 @@ export class AhaSendAuthenticationError extends AhaSendAPIError {
 
 /** 403 — the API key lacks the required scope or its IP allow list rejects the caller. Not retried. */
 export class AhaSendPermissionError extends AhaSendAPIError {
-  constructor(params: APIErrorParams) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+  }) {
     super(params);
     defineHidden(this, "code", "permission_error");
   }
@@ -220,7 +232,14 @@ export class AhaSendPermissionError extends AhaSendAPIError {
 
 /** 404 — the resource does not exist. Not retried. */
 export class AhaSendNotFoundError extends AhaSendAPIError {
-  constructor(params: APIErrorParams) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+  }) {
     super(params);
     defineHidden(this, "code", "not_found_error");
   }
@@ -228,7 +247,14 @@ export class AhaSendNotFoundError extends AhaSendAPIError {
 
 /** 400 — malformed request. Not retried. */
 export class AhaSendBadRequestError extends AhaSendAPIError {
-  constructor(params: APIErrorParams) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+  }) {
     super(params);
     defineHidden(this, "code", "bad_request_error");
   }
@@ -236,7 +262,14 @@ export class AhaSendBadRequestError extends AhaSendAPIError {
 
 /** Generic 409 Conflict. */
 export class AhaSendConflictError extends AhaSendAPIError {
-  constructor(params: APIErrorParams) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+  }) {
     super(params);
     defineHidden(this, "code", "conflict_error");
   }
@@ -246,7 +279,15 @@ export class AhaSendConflictError extends AhaSendAPIError {
 export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
   public readonly retryAfterSeconds: number | undefined;
 
-  constructor(params: APIErrorParams & { retryAfterSeconds?: number | undefined }) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+    retryAfterSeconds?: number | undefined;
+  }) {
     super(params);
     defineHidden(this, "code", "idempotency_conflict_error");
     defineHidden(this, "retryAfterSeconds", params.retryAfterSeconds);
@@ -255,7 +296,14 @@ export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
 
 /** Generic 422 validation failure. */
 export class AhaSendUnprocessableEntityError extends AhaSendAPIError {
-  constructor(params: APIErrorParams) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+  }) {
     super(params);
     defineHidden(this, "code", "unprocessable_entity_error");
   }
@@ -263,7 +311,14 @@ export class AhaSendUnprocessableEntityError extends AhaSendAPIError {
 
 /** 422 for an idempotency key reused with a different request body. */
 export class AhaSendIdempotencyMismatchError extends AhaSendUnprocessableEntityError {
-  constructor(params: APIErrorParams) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+  }) {
     super(params);
     defineHidden(this, "code", "idempotency_mismatch_error");
   }
@@ -273,7 +328,15 @@ export class AhaSendIdempotencyMismatchError extends AhaSendUnprocessableEntityE
 export class AhaSendRateLimitError extends AhaSendAPIError {
   public readonly retryAfterSeconds: number | undefined;
 
-  constructor(params: APIErrorParams & { retryAfterSeconds?: number | undefined }) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+    retryAfterSeconds?: number | undefined;
+  }) {
     super(params);
     defineHidden(this, "code", "rate_limit_error");
     defineHidden(this, "retryAfterSeconds", params.retryAfterSeconds);
@@ -282,7 +345,14 @@ export class AhaSendRateLimitError extends AhaSendAPIError {
 
 /** 5xx after retries are exhausted. */
 export class AhaSendServerError extends AhaSendAPIError {
-  constructor(params: APIErrorParams) {
+  constructor(params: {
+    status: number;
+    message: string;
+    body: ApiErrorBody | string | null;
+    requestId?: string | undefined;
+    headers?: Record<string, string>;
+    cause?: unknown;
+  }) {
     super(params);
     defineHidden(this, "code", "server_error");
   }
