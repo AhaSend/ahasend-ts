@@ -6625,17 +6625,12 @@ export interface Suppression {
 }
 
 // @public
-class SuppressionsClient$1 {
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
-    constructor(operations: OperationExecutor, accountId: UUID);
-    // (undocumented)
-    create(body: CreateSuppressionRequest, options?: IdempotencyRequestOptions): Promise<CreateSuppressionResponse>;
-    delete(params: DeleteSuppressionParams, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
+interface SuppressionsClient$1 {
+    create(body: CreateSuppressionRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreateSuppressionResponse>;
+    delete(params: DeleteSuppressionParams, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
     iterate(params?: ListSuppressionsParams, options?: RequestOptions): AsyncGenerator<Suppression, void, undefined>;
-    // (undocumented)
-    list(params?: ListSuppressionsParams, options?: RequestOptions): Promise<PaginatedResponse<Suppression>>;
-    wipe(params?: WipeSuppressionsParams, options?: RequestOptions): Promise<SuccessResponse>;
+    list(params?: ListSuppressionsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Suppression>>;
+    wipe(params?: WipeSuppressionsParams, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
 }
 
 // @public (undocumented)
@@ -6852,6 +6847,7 @@ export interface Webhook {
 
 // @public
 class WebhooksClient$1 {
+    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
     constructor(operations: OperationExecutor, accountId: UUID);
     create(body: CreateWebhookRequest, options?: IdempotencyRequestOptions): Promise<CreatedWebhook>;
     delete(webhookId: UUID, options?: RequestOptions): Promise<SuccessResponse>;

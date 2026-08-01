@@ -648,12 +648,12 @@ client.subAccounts.apiKeys.delete(subAccountId: UUID, keyId: UUID, options?: Req
 ### suppressions.list
 
 ```ts
-client.suppressions.list(params?: ListSuppressionsParams, options?: RequestOptions): Promise<PaginatedResponse<Suppression>>
+client.suppressions.list(params?: ListSuppressionsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Suppression>>
 ```
 
 - **Operation ID:** `getSuppressions`
 - **HTTP:** `GET /v2/accounts/{account_id}/suppressions`
-- **Models:** [ListSuppressionsParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Suppression](../src/resources/suppressions.ts)
+- **Models:** [ListSuppressionsParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Suppression](../src/resources/suppressions.ts)
 - **OpenAPI models:** `200: PaginatedSuppressionsResponse`
 - **Scopes:** `suppressions:read`
 - **Security alternatives:** `BearerAuth: suppressions:read`
@@ -667,12 +667,12 @@ client.suppressions.list(params?: ListSuppressionsParams, options?: RequestOptio
 ### suppressions.create
 
 ```ts
-client.suppressions.create(body: CreateSuppressionRequest, options?: IdempotencyRequestOptions): Promise<CreateSuppressionResponse>
+client.suppressions.create(body: CreateSuppressionRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreateSuppressionResponse>
 ```
 
 - **Operation ID:** `createSuppression`
 - **HTTP:** `POST /v2/accounts/{account_id}/suppressions`
-- **Models:** [CreateSuppressionRequest](../src/resources/suppressions.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreateSuppressionResponse](../src/resources/suppressions.ts)
+- **Models:** [CreateSuppressionRequest](../src/resources/suppressions.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreateSuppressionResponse](../src/resources/suppressions.ts)
 - **OpenAPI models:** `request: CreateSuppressionRequest`, `201: CreateSuppressionResponse`
 - **Scopes:** `suppressions:write`
 - **Security alternatives:** `BearerAuth: suppressions:write`
@@ -685,12 +685,12 @@ client.suppressions.create(body: CreateSuppressionRequest, options?: Idempotency
 ### suppressions.delete
 
 ```ts
-client.suppressions.delete(params: DeleteSuppressionParams, options?: RequestOptions): Promise<SuccessResponse>
+client.suppressions.delete(params: DeleteSuppressionParams, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteSuppression`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/suppressions`
-- **Models:** [DeleteSuppressionParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [DeleteSuppressionParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `suppressions:delete`
 - **Security alternatives:** `BearerAuth: suppressions:delete`
@@ -703,12 +703,12 @@ client.suppressions.delete(params: DeleteSuppressionParams, options?: RequestOpt
 ### suppressions.wipe
 
 ```ts
-client.suppressions.wipe(params?: WipeSuppressionsParams, options?: RequestOptions): Promise<SuccessResponse>
+client.suppressions.wipe(params?: WipeSuppressionsParams, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteAllSuppressions`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/suppressions/all`
-- **Models:** [WipeSuppressionsParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [WipeSuppressionsParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `suppressions:wipe`
 - **Security alternatives:** `BearerAuth: suppressions:wipe`

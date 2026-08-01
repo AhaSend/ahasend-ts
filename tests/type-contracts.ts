@@ -537,7 +537,7 @@ type SuppressionSignatures = [
       (
         params?: SDK.ListSuppressionsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.Suppression>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Suppression>>
     >
   >,
   Expect<
@@ -555,7 +555,7 @@ type SuppressionSignatures = [
       (
         body: SDK.CreateSuppressionRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreateSuppressionResponse>
+      ) => SDK.AhaSendPromise<SDK.CreateSuppressionResponse>
     >
   >,
   Expect<
@@ -564,7 +564,7 @@ type SuppressionSignatures = [
       (
         params: SDK.DeleteSuppressionParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SuccessResponse>
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
   Expect<
@@ -573,10 +573,23 @@ type SuppressionSignatures = [
       (
         params?: SDK.WipeSuppressionsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SuccessResponse>
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const suppressionListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Suppression>>;
+declare const suppressionIteratorResult: AsyncGenerator<SDK.Suppression, void, undefined>;
+declare const createSuppressionResult: SDK.AhaSendPromise<SDK.CreateSuppressionResponse>;
+declare const suppressionDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralSuppressionMock: SDK.SuppressionsClient = {
+  list: () => suppressionListResult,
+  iterate: () => suppressionIteratorResult,
+  create: () => createSuppressionResult,
+  delete: () => suppressionDeleteResult,
+  wipe: () => suppressionDeleteResult,
+};
 
 type RouteSignatures = [
   Expect<

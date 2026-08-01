@@ -19,7 +19,8 @@ import { createStatisticsClient } from "./resources/statistics.js";
 import type { StatisticsClient } from "./resources/statistics.js";
 import { createSubAccountsClient } from "./resources/sub-accounts.js";
 import type { SubAccountsClient } from "./resources/sub-accounts.js";
-import { SuppressionsClient } from "./resources/suppressions.js";
+import { createSuppressionsClient } from "./resources/suppressions.js";
+import type { SuppressionsClient } from "./resources/suppressions.js";
 import { WebhooksClient } from "./resources/webhooks.js";
 import { createFrozenFacade, forwardOptions } from "./resources/_helpers.js";
 import type { AhaSendPromise, RequestOptions, UUID } from "./types/common.js";
@@ -92,7 +93,7 @@ export class AhaSendClient {
     this.#apiKeys = createFrozenFacade(createAPIKeysClient(this.#operations, accountId));
     this.#webhooks = createFrozenFacade(new WebhooksClient(this.#operations, accountId));
     this.#statistics = createFrozenFacade(createStatisticsClient(this.#operations, accountId));
-    this.#suppressions = createFrozenFacade(new SuppressionsClient(this.#operations, accountId));
+    this.#suppressions = createFrozenFacade(createSuppressionsClient(this.#operations, accountId));
     this.#routes = createFrozenFacade(createRoutesClient(this.#operations, accountId));
     this.#accounts = createFrozenFacade(createAccountsClient(this.#operations, accountId));
     this.#smtpCredentials = createFrozenFacade(
