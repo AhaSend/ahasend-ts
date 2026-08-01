@@ -75,7 +75,7 @@ const CLIENT_OPTION_NAMES = new Set([
   "dangerouslyAllowBrowser",
 ]);
 
-const REQUEST_OPTION_NAMES = new Set(["signal", "headers"]);
+const REQUEST_OPTION_NAMES = new Set(["signal", "headers", "timeoutMs"]);
 const IDEMPOTENCY_REQUEST_OPTION_NAMES = new Set([...REQUEST_OPTION_NAMES, "idempotencyKey"]);
 const RETRY_STRATEGIES = new Set(["exponential", "linear", "constant"]);
 const HOOK_NAMES = new Set(["onRequest", "onResponse", "onRetry", "onError"]);
@@ -109,8 +109,7 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
   );
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  assertPositiveFiniteNumber(timeoutMs, "timeoutMs");
-  assertSupportedTimerDelay(timeoutMs, "timeoutMs");
+  assertTimeoutMs(timeoutMs, "timeoutMs");
 
   const userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
   assertNonEmptyString(userAgent, "userAgent");
@@ -174,8 +173,7 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
       );
     }
     const timeoutMs = seconds * 1000;
-    assertPositiveFiniteNumber(timeoutMs, "AHASEND_TIMEOUT");
-    assertSupportedTimerDelay(timeoutMs, "AHASEND_TIMEOUT");
+    assertTimeoutMs(timeoutMs, "AHASEND_TIMEOUT");
     options.timeoutMs = timeoutMs;
   }
 
@@ -236,6 +234,9 @@ export function assertRequestOptions(
     );
   }
   assertHeaders(options.headers, "request options.headers");
+  if (options.timeoutMs !== undefined) {
+    assertTimeoutMs(options.timeoutMs, "request options.timeoutMs");
+  }
 
   if (allowIdempotencyKey && options.idempotencyKey !== undefined) {
     assertValidIdempotencyKey(options.idempotencyKey, "request options.idempotencyKey");
@@ -482,6 +483,12 @@ function assertPositiveFiniteNumber(value: unknown, name: string): asserts value
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a positive finite number.`);
   }
+}
+
+/** @internal Validate a timeout against Node.js's supported timer range. */
+export function assertTimeoutMs(value: unknown, name: string): asserts value is number {
+  assertPositiveFiniteNumber(value, name);
+  assertSupportedTimerDelay(value, name);
 }
 
 function assertNonNegativeFiniteNumber(value: unknown, name: string): asserts value is number {

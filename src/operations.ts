@@ -66,6 +66,7 @@ export class OperationExecutor {
         : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.headers ? { headers: options.headers } : {}),
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       ...(options.idempotencyKey !== undefined ? { idempotencyKey: options.idempotencyKey } : {}),
       execution,
     });

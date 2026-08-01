@@ -75,7 +75,7 @@ const client = new AhaSendClient({
   apiKey: "aha-sk-…", // required
   accountId: "uuid", // required — one client per account
   baseUrl: "https://api.ahasend.com", // HTTPS enforced (localhost exempt)
-  timeoutMs: 30_000, // per-request timeout in MILLISECONDS
+  timeoutMs: 30_000, // default per-attempt timeout in MILLISECONDS
   userAgent: "ahasend-node/x.y.z",
   debug: false, // true = log every request to stderr
   fetch: globalThis.fetch, // inject your own fetch if needed
@@ -150,16 +150,18 @@ Every method accepts a trailing options object:
 ```ts
 await client.messages.send(body, {
   signal: AbortSignal.timeout(5_000), // cancel/abort the request
+  timeoutMs: 2_000, // override the timeout for each attempt in this call
   headers: { "x-trace-id": traceId }, // extra headers for this call
   idempotencyKey: `receipt-${orderId}`, // create operations only
 });
 ```
 
-| Field            | Applies to        | Effect                                                    |
-| ---------------- | ----------------- | --------------------------------------------------------- |
-| `signal`         | all methods       | `AbortSignal` — cancels the request (and any retry sleep) |
-| `headers`        | all methods       | Additional request headers                                |
-| `idempotencyKey` | create operations | Explicit idempotency key; otherwise one is auto-generated |
+| Field            | Applies to        | Effect                                                        |
+| ---------------- | ----------------- | ------------------------------------------------------------- |
+| `signal`         | all methods       | `AbortSignal` — cancels the request (and any retry sleep)     |
+| `timeoutMs`      | all methods       | Per-attempt timeout override for fetch and response-body read |
+| `headers`        | all methods       | Additional request headers                                    |
+| `idempotencyKey` | create operations | Explicit idempotency key; otherwise one is auto-generated     |
 
 ## Cross-cutting behaviour
 

@@ -594,19 +594,24 @@ describe("root public exports", () => {
 describe("resource option forwarding", () => {
   it("returns frozen snapshots without freezing or retaining caller headers", () => {
     const headers = { "x-trace-id": "trace-1" };
-    const forwarded = forwardOptions({ headers });
-    const idempotent = forwardWithIdempotency({ headers, idempotencyKey: "operation-1" });
+    const forwarded = forwardOptions({ headers, timeoutMs: 2_000 });
+    const idempotent = forwardWithIdempotency({
+      headers,
+      timeoutMs: 3_000,
+      idempotencyKey: "operation-1",
+    });
     const generatedIdempotency = forwardWithIdempotency({ headers });
 
     headers["x-trace-id"] = "changed";
 
     expect(Object.isFrozen(forwarded)).toBe(true);
     expect(Object.isFrozen(forwarded.headers)).toBe(true);
-    expect(forwarded.headers).toEqual({ "x-trace-id": "trace-1" });
+    expect(forwarded).toEqual({ headers: { "x-trace-id": "trace-1" }, timeoutMs: 2_000 });
     expect(Object.isFrozen(idempotent)).toBe(true);
     expect(Object.isFrozen(idempotent.headers)).toBe(true);
     expect(idempotent).toEqual({
       headers: { "x-trace-id": "trace-1" },
+      timeoutMs: 3_000,
       idempotencyKey: "operation-1",
     });
     expect(generatedIdempotency).toEqual({ headers: { "x-trace-id": "trace-1" } });

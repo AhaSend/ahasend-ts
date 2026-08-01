@@ -1,5 +1,5 @@
 import type { ResolvedConfig } from "./config.js";
-import { assertHeaders } from "./config.js";
+import { assertHeaders, assertTimeoutMs } from "./config.js";
 import {
   AhaSendAbortError,
   AhaSendConnectionError,
@@ -34,6 +34,8 @@ export interface RequestOptions {
   /** Validated explicit key forwarded separately from caller-controlled headers. */
   idempotencyKey?: string;
   signal?: AbortSignal;
+  /** Per-attempt override for the configured timeout. */
+  timeoutMs?: number;
   /**
    * Resource clients set this on the 11 spec-documented idempotency
    * endpoints (every `create*` operation) so the transport layer will
@@ -71,6 +73,9 @@ export class HttpClient {
     assertHeaders(options.headers, "request headers");
     if (options.idempotencyKey !== undefined) {
       assertValidIdempotencyKey(options.idempotencyKey, "request idempotency key");
+    }
+    if (options.timeoutMs !== undefined) {
+      assertTimeoutMs(options.timeoutMs, "request timeoutMs");
     }
     let responseEnvelope: AhaSendResponse<T>;
     const bodyPromise = this.requestWithResponse<T>(options).then((envelope) => {
@@ -156,7 +161,10 @@ export class HttpClient {
     // but it is outside the per-attempt network timeout budget.
     await this.rateLimiter.acquire(options.method, options.path, options.signal);
 
-    const controller = this.linkAbortSignal(options.signal, this.config.timeoutMs);
+    const controller = this.linkAbortSignal(
+      options.signal,
+      options.timeoutMs ?? this.config.timeoutMs,
+    );
     onStarted();
 
     return this.executeOnce<T>(execution, options, controller, onResponseComplete);
@@ -400,6 +408,7 @@ export class HttpClient {
 
     return {
       signal: controller.signal,
+      timeoutMs,
       cleanup: () => {
         if (timer) clearTimeout(timer);
         if (userSignal) userSignal.removeEventListener("abort", onUserAbort);
@@ -429,7 +438,7 @@ export class HttpClient {
     if (controller.source === "timeout") {
       const bodyRead = phase === "during body read" ? " response body read" : "";
       return new AhaSendTimeoutError(
-        `Request${bodyRead} to ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms`,
+        `Request${bodyRead} to ${options.method} ${options.path} timed out after ${controller.timeoutMs}ms`,
         cause,
       );
     }
@@ -444,6 +453,7 @@ type AttemptPhase = "before fetch" | "during fetch" | "during body read";
 interface LinkedAbortSignal {
   readonly signal: AbortSignal;
   readonly source: AbortSource | undefined;
+  readonly timeoutMs: number;
   cleanup(): void;
 }
 
