@@ -643,9 +643,16 @@ describe("HttpClient cancellation and attempt timeouts", () => {
 });
 
 describe("HttpClient response promises", () => {
-  it("exports the shared promise, request-option, and non-empty-array types", () => {
+  it("exports the shared promise, response, request-option, and non-empty-array types", () => {
     expectTypeOf<NonEmptyArray<string>>().toEqualTypeOf<readonly [string, ...string[]]>();
     expectTypeOf<IdempotencyRequestOptions>().toExtend<RequestOptions>();
+    expectTypeOf<AhaSendResponse<string>>().toEqualTypeOf<{
+      data: string;
+      response: Response;
+      requestId?: string;
+      idempotentReplayed?: boolean;
+    }>();
+    expectTypeOf<AhaSendPromise<string>>().toExtend<Promise<string>>();
     expectTypeOf<AhaSendPromise<string>["withResponse"]>().returns.toEqualTypeOf<
       Promise<AhaSendResponse<string>>
     >();
