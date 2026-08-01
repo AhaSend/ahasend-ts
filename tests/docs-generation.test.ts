@@ -10,8 +10,25 @@ import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
 const repositoryRoot = process.cwd();
 const referencePath = resolve(repositoryRoot, "docs/api-reference.md");
 const openApiSource = readFileSync(resolve(repositoryRoot, "openapi.yaml"), "utf8");
+const clientSource = readFileSync(resolve(repositoryRoot, "src/client.ts"), "utf8");
 const document = parseOpenApi(openApiSource);
 const operations = collectOperations(document);
+
+function withAPIKeysInterface(declaration: string): string {
+  return clientSource
+    .replace(
+      'const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");',
+      [
+        'import type { APIKey } from "./resources/api-keys.js";',
+        'import type { PaginatedResponse, PaginationParams } from "./types/common.js";',
+        "",
+        declaration,
+        "",
+        'const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");',
+      ].join("\n"),
+    )
+    .replace("get apiKeys(): Readonly<APIKeysClient> {", "get apiKeys(): FixtureAPIKeysClient {");
+}
 
 function section(reference: string, kind: "operation" | "iterator", operationId: string): string {
   const marker = `<!-- ${kind}: ${operationId} -->`;
@@ -145,6 +162,43 @@ describe("generated API reference", () => {
     for (const link of links) {
       expect(existsSync(resolve(repositoryRoot, "docs", link)), link).toBe(true);
     }
+  });
+
+  it("renders typed interface method signatures from facade property types", async () => {
+    const fixture = withAPIKeysInterface(`interface FixtureAPIKeysClient
+  extends Omit<Readonly<APIKeysClient>, "list"> {
+  list(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): Promise<PaginatedResponse<APIKey>>;
+}`);
+
+    const reference = await generateApiReference({ clientSource: fixture });
+
+    expect(section(reference, "operation", "getAPIKeys")).toContain(
+      "client.apiKeys.list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>",
+    );
+  });
+
+  it("rejects missing and overloaded interface method declarations", async () => {
+    const missing = withAPIKeysInterface(
+      'interface FixtureAPIKeysClient extends Omit<Readonly<APIKeysClient>, "list"> {}',
+    );
+    await expect(generateApiReference({ clientSource: missing })).rejects.toThrow(
+      "Profile method apiKeys.list is not public",
+    );
+
+    const overloaded = withAPIKeysInterface(`interface FixtureAPIKeysClient
+  extends Omit<Readonly<APIKeysClient>, "list"> {
+  list(params?: PaginationParams): Promise<PaginatedResponse<APIKey>>;
+  list(
+    params: PaginationParams,
+    options?: RequestOptions,
+  ): Promise<PaginatedResponse<APIKey>>;
+}`);
+    await expect(generateApiReference({ clientSource: overloaded })).rejects.toThrow(
+      "apiKeys.list must have exactly one public call signature",
+    );
   });
 
   it("rejects operation and iterator inventory drift", async () => {

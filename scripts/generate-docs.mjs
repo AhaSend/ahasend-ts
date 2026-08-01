@@ -179,7 +179,7 @@ function hasIdempotency(document, entry) {
   );
 }
 
-function createTypeScriptContext() {
+function createTypeScriptContext(clientSourceText) {
   const configPath = ts.findConfigFile(repositoryRoot, ts.sys.fileExists, "tsconfig.json");
   if (configPath === undefined) throw new TypeError("Unable to find tsconfig.json");
   const config = ts.readConfigFile(configPath, ts.sys.readFile);
@@ -193,9 +193,21 @@ function createTypeScriptContext() {
     { noEmit: true },
     configPath,
   );
-  const program = ts.createProgram(parsed.fileNames, parsed.options);
+  const clientPath = resolve(repositoryRoot, "src/client.ts");
+  let program;
+  if (clientSourceText === undefined) {
+    program = ts.createProgram(parsed.fileNames, parsed.options);
+  } else {
+    const host = ts.createCompilerHost(parsed.options);
+    const getSourceFile = host.getSourceFile.bind(host);
+    host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
+      resolve(fileName) === clientPath
+        ? ts.createSourceFile(fileName, clientSourceText, languageVersion, true, ts.ScriptKind.TS)
+        : getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+    program = ts.createProgram(parsed.fileNames, parsed.options, host);
+  }
   const checker = program.getTypeChecker();
-  const clientSource = program.getSourceFile(resolve(repositoryRoot, "src/client.ts"));
+  const clientSource = program.getSourceFile(clientPath);
   const indexSource = program.getSourceFile(resolve(repositoryRoot, "src/index.ts"));
   if (clientSource === undefined || indexSource === undefined) {
     throw new TypeError("Unable to load the public SDK TypeScript sources");
@@ -246,8 +258,13 @@ function methodSignature(context, mapping) {
   if (method === undefined) {
     throw new TypeError(`Profile method ${mapping.facade}.${mapping.method} is not public`);
   }
-  const declaration = method.declarations?.find((candidate) => ts.isMethodDeclaration(candidate));
-  if (declaration === undefined || !ts.isMethodDeclaration(declaration)) {
+  const declaration = method.declarations?.find(
+    (candidate) => ts.isMethodDeclaration(candidate) || ts.isMethodSignature(candidate),
+  );
+  if (
+    declaration === undefined ||
+    (!ts.isMethodDeclaration(declaration) && !ts.isMethodSignature(declaration))
+  ) {
     throw new TypeError(`${mapping.facade}.${mapping.method} is not a declared method`);
   }
   const methodType = context.checker.getTypeOfSymbolAtLocation(method, declaration);
@@ -321,7 +338,7 @@ function validateProfile(document, profile, operationById) {
   }
 }
 
-export async function generateApiReference({ openApiSource, profileSource } = {}) {
+export async function generateApiReference({ openApiSource, profileSource, clientSource } = {}) {
   const openApi =
     openApiSource ?? (await readFile(resolve(repositoryRoot, "openapi.yaml"), "utf8"));
   const profileJson =
@@ -335,7 +352,7 @@ export async function generateApiReference({ openApiSource, profileSource } = {}
 
   validateProfile(document, profile, operationById);
 
-  const context = createTypeScriptContext();
+  const context = createTypeScriptContext(clientSource);
   const lines = [
     GENERATED_HEADER.trimEnd(),
     "",
