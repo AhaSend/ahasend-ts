@@ -6467,12 +6467,10 @@ export type SMTPCredentialsClient = SMTPCredentialsClient$1;
 export type SMTPCredentialScope = "global" | "scoped";
 
 // @public
-class StatisticsClient$1 {
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
-    constructor(operations: OperationExecutor, accountId: UUID);
-    bounces(params?: StatisticsParams, options?: RequestOptions): Promise<BounceStatisticsResponse>;
-    deliverability(params?: StatisticsParams, options?: RequestOptions): Promise<DeliverabilityStatisticsResponse>;
-    deliveryTimes(params?: StatisticsParams, options?: RequestOptions): Promise<DeliveryTimeStatisticsResponse>;
+interface StatisticsClient$1 {
+    bounces(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<BounceStatisticsResponse>;
+    deliverability(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliverabilityStatisticsResponse>;
+    deliveryTimes(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliveryTimeStatisticsResponse>;
 }
 
 // @public (undocumented)
@@ -6520,6 +6518,7 @@ export interface SubAccount {
 
 // @public
 class SubAccountAPIKeysClient$1 {
+    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
     constructor(operations: OperationExecutor, accountId: UUID);
     create(subAccountId: UUID, body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>;
     // (undocumented)
