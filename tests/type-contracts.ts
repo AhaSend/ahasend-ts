@@ -497,7 +497,7 @@ type StatisticsSignatures = [
       (
         params?: SDK.StatisticsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.DeliverabilityStatisticsResponse>
+      ) => SDK.AhaSendPromise<SDK.DeliverabilityStatisticsResponse>
     >
   >,
   Expect<
@@ -506,7 +506,7 @@ type StatisticsSignatures = [
       (
         params?: SDK.StatisticsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.BounceStatisticsResponse>
+      ) => SDK.AhaSendPromise<SDK.BounceStatisticsResponse>
     >
   >,
   Expect<
@@ -515,10 +515,20 @@ type StatisticsSignatures = [
       (
         params?: SDK.StatisticsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.DeliveryTimeStatisticsResponse>
+      ) => SDK.AhaSendPromise<SDK.DeliveryTimeStatisticsResponse>
     >
   >,
 ];
+
+declare const deliverabilityStatisticsResult: SDK.AhaSendPromise<SDK.DeliverabilityStatisticsResponse>;
+declare const bounceStatisticsResult: SDK.AhaSendPromise<SDK.BounceStatisticsResponse>;
+declare const deliveryTimeStatisticsResult: SDK.AhaSendPromise<SDK.DeliveryTimeStatisticsResponse>;
+
+const structuralStatisticsMock: SDK.StatisticsClient = {
+  deliverability: () => deliverabilityStatisticsResult,
+  bounces: () => bounceStatisticsResult,
+  deliveryTimes: () => deliveryTimeStatisticsResult,
+};
 
 type SuppressionSignatures = [
   Expect<
@@ -1183,6 +1193,7 @@ export type DeclarationContracts = [
   typeof structuralAPIKeyMock,
   typeof structuralRouteMock,
   typeof structuralAccountMock,
+  typeof structuralStatisticsMock,
   typeof pingExecution,
   typeof messageExecution,
   DomainRequestOptions,

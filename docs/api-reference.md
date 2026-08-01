@@ -976,12 +976,12 @@ client.smtpCredentials.delete(credentialId: UUID, options?: RequestOptions): Aha
 ### statistics.deliverability
 
 ```ts
-client.statistics.deliverability(params?: StatisticsParams, options?: RequestOptions): Promise<DeliverabilityStatisticsResponse>
+client.statistics.deliverability(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliverabilityStatisticsResponse>
 ```
 
 - **Operation ID:** `getDeliverabilityStatistics`
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/transactional/deliverability`
-- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [DeliverabilityStatisticsResponse](../src/resources/statistics.ts)
+- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [DeliverabilityStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: DeliverabilityStatisticsResponse`
 - **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
 - **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
@@ -994,12 +994,12 @@ client.statistics.deliverability(params?: StatisticsParams, options?: RequestOpt
 ### statistics.bounces
 
 ```ts
-client.statistics.bounces(params?: StatisticsParams, options?: RequestOptions): Promise<BounceStatisticsResponse>
+client.statistics.bounces(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<BounceStatisticsResponse>
 ```
 
 - **Operation ID:** `getBounceStatistics`
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/transactional/bounce`
-- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [BounceStatisticsResponse](../src/resources/statistics.ts)
+- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [BounceStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: BounceStatisticsResponse`
 - **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
 - **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
@@ -1012,12 +1012,12 @@ client.statistics.bounces(params?: StatisticsParams, options?: RequestOptions): 
 ### statistics.deliveryTimes
 
 ```ts
-client.statistics.deliveryTimes(params?: StatisticsParams, options?: RequestOptions): Promise<DeliveryTimeStatisticsResponse>
+client.statistics.deliveryTimes(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliveryTimeStatisticsResponse>
 ```
 
 - **Operation ID:** `getDeliveryTimeStatistics`
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/transactional/delivery-time`
-- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [DeliveryTimeStatisticsResponse](../src/resources/statistics.ts)
+- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [DeliveryTimeStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: DeliveryTimeStatisticsResponse`
 - **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
 - **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
