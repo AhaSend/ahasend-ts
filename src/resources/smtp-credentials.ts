@@ -74,7 +74,7 @@ export class SMTPCredentialsClient {
     params: PaginationParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<SMTPCredential>> {
-    return this.#operations.execute<PaginatedResponse<SMTPCredential>>(
+    return this.#operations.execute(
       "getSMTPCredentials",
       {
         path: { account_id: this.#accountId },
@@ -105,7 +105,7 @@ export class SMTPCredentialsClient {
     body: CreateSMTPCredentialRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreatedSMTPCredential> {
-    return this.#operations.execute<CreatedSMTPCredential>(
+    return this.#operations.execute(
       "createSMTPCredential",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -120,7 +120,7 @@ export class SMTPCredentialsClient {
    * entry.
    */
   get(credentialId: UUID, options: RequestOptions = {}): Promise<SMTPCredential> {
-    return this.#operations.execute<SMTPCredential>(
+    return this.#operations.execute(
       "getSMTPCredential",
       {
         path: {
@@ -140,7 +140,7 @@ export class SMTPCredentialsClient {
    * `domains` entry.
    */
   delete(credentialId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "deleteSMTPCredential",
       {
         path: {

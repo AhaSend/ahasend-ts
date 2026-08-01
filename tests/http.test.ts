@@ -1105,7 +1105,10 @@ describe("HttpClient retry behaviour", () => {
     try {
       await executor.execute(
         "createSuppression",
-        { path: { account_id: ACCOUNT_ID }, body: { email: "person@example.com" } },
+        {
+          path: { account_id: ACCOUNT_ID },
+          body: { email: "person@example.com", expires_at: "2027-01-01T00:00:00Z" },
+        },
         { idempotencyKey: "stored-suppression-key" },
       );
     } catch (error) {

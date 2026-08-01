@@ -429,6 +429,586 @@ export interface ClientOptions {
     userAgent?: string;
 }
 
+// @public (undocumented)
+interface components {
+    // (undocumented)
+    schemas: {
+        ErrorResponse: {
+            message: string;
+        };
+        SuccessResponse: {
+            message: string;
+        };
+        PaginationInfo: {
+            has_more: boolean;
+            next_cursor?: string;
+            previous_cursor?: string;
+        };
+        APIKeyScope: {
+            id: string;
+            created_at: string;
+            updated_at: string;
+            api_key_id: string;
+            scope: string;
+            domain_id: string | null;
+        };
+        APIKey: {
+            object: "api_key";
+            id: string;
+            created_at: string;
+            updated_at: string;
+            last_used_at: string | null;
+            account_id: string;
+            label: string;
+            public_key: string;
+            scopes: Array<components["schemas"]["APIKeyScope"]>;
+            ip_allow_list: Array<string>;
+        };
+        CreateAPIKeyRequest: {
+            label: string;
+            scopes: readonly [string, ...Array<string>];
+            ip_allow_list?: Array<string>;
+        };
+        UpdateAPIKeyRequest: {
+            label?: string | null;
+            scopes?: readonly [string, ...Array<string>] | null;
+            ip_allow_list?: Array<string> | null;
+        } & ({
+            label: string;
+        } | {
+            scopes: Array<unknown>;
+        } | {
+            ip_allow_list: Array<unknown>;
+        });
+        PaginatedAPIKeysResponse: {
+            object: "list";
+            data: Array<components["schemas"]["APIKey"]>;
+            pagination: components["schemas"]["PaginationInfo"];
+        };
+        DNSRecord: {
+            type: string;
+            label?: string;
+            host: string;
+            content: string;
+            required: boolean;
+            propagated: boolean;
+        };
+        Domain: {
+            object: "domain";
+            id: string;
+            created_at: string;
+            updated_at: string;
+            domain: string;
+            account_id: string;
+            dns_records: Array<components["schemas"]["DNSRecord"]>;
+            last_dns_check_at: string | null;
+            dns_valid: boolean;
+            tracking_subdomain: string | null;
+            return_path_subdomain: string | null;
+            subscription_subdomain: string | null;
+            media_subdomain: string | null;
+            dkim_rotation_interval_days: number | null;
+            dkim_selector: string | null;
+            rotation_ready: boolean;
+            dsn_recipient: string | null;
+        };
+        CreateDomainRequest: {
+            domain: string;
+            dkim_private_key?: string;
+            tracking_subdomain?: string;
+            return_path_subdomain?: string;
+            subscription_subdomain?: string;
+            media_subdomain?: string;
+            dkim_rotation_interval_days?: number;
+            dkim_selector?: string | null;
+        };
+        UpdateDomainRequest: {
+            tracking_subdomain?: string;
+            return_path_subdomain?: string;
+            subscription_subdomain?: string;
+            media_subdomain?: string;
+            dkim_rotation_interval_days?: number;
+            dkim_selector?: string | null;
+        };
+        PaginatedDomainsResponse: {
+            object: "list";
+            data: Array<components["schemas"]["Domain"]>;
+            pagination: components["schemas"]["PaginationInfo"];
+        };
+        Address: {
+            email: string;
+            name?: string;
+        };
+        Recipient: {
+            email: string;
+            name?: string;
+            substitutions?: {
+                [key: string]: unknown;
+            };
+        };
+        Attachment: {
+            base64?: boolean;
+            data: string;
+            content_type: string;
+            content_disposition?: string;
+            content_id?: string;
+            file_name: string;
+        };
+        Tracking: {
+            open?: boolean | null;
+            click?: boolean | null;
+        } | null;
+        Retention: {
+            metadata?: number | null;
+            data?: number | null;
+        } | null;
+        MessageSchedule: {
+            first_attempt?: string;
+            expires?: string;
+        };
+        CreateMessageRequest: {
+            from: components["schemas"]["Address"];
+            recipients: readonly [
+            components["schemas"]["Recipient"],
+            ...Array<components["schemas"]["Recipient"]>
+            ];
+            reply_to?: components["schemas"]["Address"];
+            subject: string;
+            text_content?: string;
+            html_content?: string;
+            amp_content?: string;
+            attachments?: Array<components["schemas"]["Attachment"]>;
+            headers?: {
+                [key: string]: string;
+            };
+            substitutions?: {
+                [key: string]: unknown;
+            };
+            tags?: Array<string>;
+            sandbox?: boolean;
+            sandbox_result?: "deliver" | "bounce" | "defer" | "fail" | "suppress";
+            tracking?: components["schemas"]["Tracking"];
+            retention?: components["schemas"]["Retention"];
+            schedule?: components["schemas"]["MessageSchedule"];
+        };
+        CreateConversationMessageRequest: {
+            from: components["schemas"]["Address"];
+            to: readonly [components["schemas"]["Address"], ...Array<components["schemas"]["Address"]>];
+            cc?: readonly [components["schemas"]["Address"], ...Array<components["schemas"]["Address"]>];
+            bcc?: readonly [components["schemas"]["Address"], ...Array<components["schemas"]["Address"]>];
+            reply_to?: components["schemas"]["Address"];
+            subject: string;
+            text_content?: string;
+            html_content?: string;
+            amp_content?: string;
+            attachments?: Array<components["schemas"]["Attachment"]>;
+            headers?: {
+                [key: string]: string;
+            };
+            tags?: Array<string>;
+            sandbox?: boolean;
+            sandbox_result?: "deliver" | "bounce" | "defer" | "fail" | "suppress";
+            tracking?: components["schemas"]["Tracking"];
+            retention?: components["schemas"]["Retention"];
+            schedule?: components["schemas"]["MessageSchedule"];
+        };
+        CreateSingleMessageResponse: {
+            object: "message";
+            id: string | null;
+            recipient: components["schemas"]["Recipient"] & {
+                name: string;
+            };
+            status: "queued" | "scheduled" | "error";
+            error: string | null;
+            schedule?: components["schemas"]["MessageSchedule"];
+        };
+        CreateMessageResponse: {
+            object: "list";
+            data: Array<components["schemas"]["CreateSingleMessageResponse"]>;
+        };
+        DeliveryEvent: {
+            time: string;
+            log: string;
+            status: string;
+        };
+        MessageContentPart: {
+            content_type: string;
+            content: string;
+        };
+        MessageAttachment: {
+            filename: string;
+            content: string;
+            content_type: string;
+            content_id: string;
+        };
+        MessageContentParsed: {
+            parts: Array<components["schemas"]["MessageContentPart"]>;
+            attachments: Array<components["schemas"]["MessageAttachment"]>;
+            headers: {
+                [key: string]: Array<string>;
+            };
+        };
+        MessageSummary: {
+            object: "message";
+            created_at: string;
+            updated_at: string;
+            sent_at: string | null;
+            delivered_at: string | null;
+            retain_until: string;
+            direction: "inbound" | "outbound";
+            is_bounce_notification: boolean;
+            bounce_classification: string;
+            delivery_attempts: Array<components["schemas"]["DeliveryEvent"]>;
+            message_id: string;
+            id: string | null;
+            subject: string;
+            tags: Array<string>;
+            sender: string;
+            recipient: string;
+            status: string;
+            num_attempts: number;
+            click_count: number;
+            open_count: number;
+            reference_message_id: number | null;
+            domain_id: string;
+            account_id: string;
+        };
+        Message: components["schemas"]["MessageSummary"] & {
+            content?: string;
+            content_parsed?: components["schemas"]["MessageContentParsed"];
+        };
+        PaginatedMessagesResponse: {
+            object: "list";
+            data: Array<components["schemas"]["MessageSummary"]>;
+            pagination: components["schemas"]["PaginationInfo"];
+        };
+        Account: {
+            object: "account";
+            id: string;
+            parent_account_id: string | null;
+            created_at: string;
+            updated_at: string;
+            name: string;
+            website: string;
+            about: string;
+            track_opens: boolean;
+            track_clicks: boolean;
+            reject_bad_recipients: boolean;
+            reject_mistyped_recipients: boolean;
+            message_metadata_retention: number;
+            message_data_retention: number;
+            owner_id: string;
+        };
+        SubAccount: {
+            object: "sub_account";
+            id: string;
+            parent_account_id: string;
+            created_at: string;
+            name: string;
+            website: string;
+            status: "active" | "suspended" | "parent-suspended" | "deleted";
+            monthly_credit: number;
+            domain_count: number;
+            member_count: number;
+            last_activity_at: string | null;
+        };
+        CreateSubAccountRequest: {
+            name: string;
+            website: string;
+            monthly_credit?: number;
+        };
+        UpdateSubAccountRequest: {
+            name?: string | null;
+            website?: string | null;
+            monthly_credit?: number | null;
+        } & ({
+            name: string;
+        } | {
+            website: string;
+        } | {
+            monthly_credit: number;
+        });
+        SuspendSubAccountRequest: {
+            reason: string;
+        };
+        SubAccountUsageBreakdown: {
+            account_id?: string;
+            name?: string;
+            reception_count: number;
+            allocated_cost: number;
+        };
+        SubAccountUsageResponse: {
+            billing_period: {
+                start: string;
+                end: string;
+            };
+            currency: string;
+            allocation_method: "proportional";
+            allocation_note: string;
+            parent: components["schemas"]["SubAccountUsageBreakdown"] & {
+                account_id: string;
+            };
+            sub_accounts: Array<components["schemas"]["SubAccountUsageBreakdown"] & {
+                account_id: string;
+                name: string;
+            }>;
+            removed_sub_accounts: components["schemas"]["SubAccountUsageBreakdown"];
+            total: components["schemas"]["SubAccountUsageBreakdown"];
+        };
+        PaginatedSubAccountsResponse: {
+            object: "list";
+            data: Array<components["schemas"]["SubAccount"]>;
+            pagination: components["schemas"]["PaginationInfo"];
+        };
+        UpdateAccountRequest: {
+            name?: string;
+            website?: string;
+            about?: string;
+            track_opens?: boolean;
+            track_clicks?: boolean;
+            reject_bad_recipients?: boolean;
+            reject_mistyped_recipients?: boolean;
+            message_metadata_retention?: number;
+            message_data_retention?: number;
+        };
+        UserAccount: {
+            created_at: string;
+            updated_at: string;
+            user_id: string;
+            account_id: string;
+            role: "Administrator" | "Developer" | "Analyst" | "Billing Manager";
+        };
+        AccountMembersResponse: {
+            object: "list";
+            data: Array<components["schemas"]["UserAccount"]>;
+        };
+        AddMemberRequest: {
+            email: string;
+            name?: string;
+            role: "Administrator" | "Developer" | "Analyst" | "Billing Manager";
+        };
+        Suppression: {
+            object: "suppression";
+            id: string;
+            created_at: string;
+            email: string;
+            domain: string;
+            reason: string;
+            expires_at: string;
+        };
+        CreateSuppressionResponse: {
+            object: "list";
+            data: Array<components["schemas"]["Suppression"]>;
+        };
+        CreateSuppressionRequest: {
+            email: string;
+            domain?: string;
+            reason?: string;
+            expires_at: string;
+        };
+        PaginatedSuppressionsResponse: {
+            object: "list";
+            data: Array<components["schemas"]["Suppression"]>;
+            pagination: components["schemas"]["PaginationInfo"];
+        };
+        Route: {
+            object: "route";
+            id: string;
+            created_at: string;
+            updated_at: string;
+            name: string;
+            url: string;
+            recipient: string;
+            attachments: boolean;
+            headers: boolean;
+            group_by_message_id: boolean;
+            strip_replies: boolean;
+            enabled: boolean;
+            success_count: number;
+            error_count: number;
+            errors_since_last_success: number;
+            last_request_at: string | null;
+        };
+        CreatedRoute: components["schemas"]["Route"] & {
+            secret: string;
+        };
+        CreateRouteRequest: {
+            name: string;
+            url: string;
+            recipient: string;
+            attachments?: boolean;
+            headers?: boolean;
+            group_by_message_id?: boolean;
+            strip_replies?: boolean;
+            enabled?: boolean;
+        };
+        UpdateRouteRequest: {
+            name?: string | null;
+            url?: string | null;
+            recipient?: string | null;
+            attachments?: boolean | null;
+            headers?: boolean | null;
+            group_by_message_id?: boolean | null;
+            strip_replies?: boolean | null;
+            enabled?: boolean | null;
+        };
+        PaginatedRoutesResponse: {
+            object: "list";
+            data: Array<components["schemas"]["Route"]>;
+            pagination: components["schemas"]["PaginationInfo"];
+        };
+        Webhook: {
+            object: "webhook";
+            id: string;
+            created_at: string;
+            updated_at: string;
+            name: string;
+            url: string;
+            enabled: boolean;
+            on_reception: boolean;
+            on_delivered: boolean;
+            on_transient_error: boolean;
+            on_failed: boolean;
+            on_bounced: boolean;
+            on_suppressed: boolean;
+            on_opened: boolean;
+            on_clicked: boolean;
+            on_suppression_created: boolean;
+            on_dns_error: boolean;
+            scope: "global" | "scoped";
+            domains: Array<string>;
+            success_count: number;
+            error_count: number;
+            errors_since_last_success: number;
+            last_request_at: string | null;
+        };
+        CreatedWebhook: components["schemas"]["Webhook"] & {
+            secret: string;
+        };
+        CreateWebhookRequest: {
+            name: string;
+            url: string;
+            enabled?: boolean;
+            on_reception?: boolean;
+            on_delivered?: boolean;
+            on_transient_error?: boolean;
+            on_failed?: boolean;
+            on_bounced?: boolean;
+            on_suppressed?: boolean;
+            on_opened?: boolean;
+            on_clicked?: boolean;
+            on_suppression_created?: boolean;
+            on_dns_error?: boolean;
+            scope: "global" | "scoped";
+            domains?: Array<string> | null;
+        } & (({
+            scope: "scoped";
+        } & {
+            domains: readonly [string, ...Array<string>];
+        }) | {
+            scope?: Exclude<"global" | "scoped", "scoped">;
+        });
+        UpdateWebhookRequest: {
+            name?: string | null;
+            url?: string | null;
+            enabled?: boolean | null;
+            on_reception?: boolean | null;
+            on_delivered?: boolean | null;
+            on_transient_error?: boolean | null;
+            on_failed?: boolean | null;
+            on_bounced?: boolean | null;
+            on_suppressed?: boolean | null;
+            on_opened?: boolean | null;
+            on_clicked?: boolean | null;
+            on_suppression_created?: boolean | null;
+            on_dns_error?: boolean | null;
+            scope?: "global" | "scoped" | null;
+            domains?: Array<string> | null;
+        };
+        PaginatedWebhooksResponse: {
+            object: "list";
+            data: Array<components["schemas"]["Webhook"]>;
+            pagination: components["schemas"]["PaginationInfo"];
+        };
+        SMTPCredential: {
+            object: "credential_smtp";
+            id: string;
+            created_at: string;
+            updated_at: string;
+            name: string;
+            username: string;
+            sandbox: boolean;
+            scope: "global" | "scoped";
+            domains: Array<string>;
+        };
+        CreatedSMTPCredential: components["schemas"]["SMTPCredential"] & {
+            password: string;
+        };
+        CreateSMTPCredentialRequest: {
+            name: string;
+            sandbox?: boolean;
+            scope: "global" | "scoped";
+            domains?: Array<string> | null;
+        } & (({
+            scope: "scoped";
+        } & {
+            domains: readonly [string, ...Array<string>];
+        }) | {
+            scope?: Exclude<"global" | "scoped", "scoped">;
+        });
+        PaginatedSMTPCredentialsResponse: {
+            object: "list";
+            data: Array<components["schemas"]["SMTPCredential"]>;
+            pagination: components["schemas"]["PaginationInfo"];
+        };
+        DeliverabilityStatistics: {
+            from_timestamp: string;
+            to_timestamp: string;
+            reception_count: number;
+            delivered_count: number;
+            deferred_count: number;
+            bounced_count: number;
+            failed_count: number;
+            suppressed_count: number;
+            opened_count: number;
+            clicked_count: number;
+        };
+        DeliverabilityStatisticsResponse: {
+            object: "list";
+            data: Array<components["schemas"]["DeliverabilityStatistics"]>;
+        };
+        Bounce: {
+            classification: string;
+            count: number;
+        };
+        BounceStatistics: {
+            from_timestamp: string;
+            to_timestamp: string;
+            bounces: Array<components["schemas"]["Bounce"]>;
+        };
+        BounceStatisticsResponse: {
+            object: "list";
+            data: Array<components["schemas"]["BounceStatistics"]>;
+        };
+        DeliveryTimeStatistics: {
+            from_timestamp: string;
+            to_timestamp: string;
+            avg_delivery_time: number;
+            delivered_count: number;
+            delivery_times: Array<components["schemas"]["DeliveryTime"]>;
+        };
+        DeliveryTime: {
+            recipient_domain: string;
+            delivery_time: number;
+            count: number;
+        };
+        DeliveryTimeStatisticsResponse: {
+            object: "list";
+            data: Array<components["schemas"]["DeliveryTimeStatistics"]>;
+        };
+    };
+}
+
 // @public
 export function composeHooks(...hookSets: Array<TelemetryHooks | undefined>): TelemetryHooks;
 
@@ -897,6 +1477,15 @@ export function isAhaSendError(value: unknown): value is AhaSendError;
 
 // @public (undocumented)
 export type ISODateTime = string;
+
+// @public (undocumented)
+type JsonSuccess<ResponseMap> = {
+    [Status in keyof ResponseMap]: Status extends `2${string}` ? ResponseMap[Status] extends {
+        content: {
+            "application/json": infer Body;
+        };
+    } ? Body : never : never;
+}[keyof ResponseMap];
 
 // @public (undocumented)
 export interface ListAccountMembersResponse {
@@ -2854,10 +3443,11 @@ interface OperationExecutionRecord {
 class OperationExecutor {
     // Warning: (ae-forgotten-export) The symbol "OperationTransport" needs to be exported by the entry point index.d.ts
     constructor(http: OperationTransport);
-    // Warning: (ae-forgotten-export) The symbol "OperationParameters" needs to be exported by the entry point index.d.ts
+    // Warning: (ae-forgotten-export) The symbol "OperationInputById" needs to be exported by the entry point index.d.ts
+    // Warning: (ae-forgotten-export) The symbol "OperationSuccessById" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
-    execute<T>(operationId: OperationId, parameters?: OperationParameters, options?: IdempotencyRequestOptions): AhaSendPromise<T>;
+    execute<K extends OperationId>(operationId: K, parameters: OperationInputById[K], options?: IdempotencyRequestOptions): AhaSendPromise<OperationSuccessById[K]>;
 }
 
 // Warning: (ae-forgotten-export) The symbol "OPERATION_DESCRIPTORS" needs to be exported by the entry point index.d.ts
@@ -2865,15 +3455,2547 @@ class OperationExecutor {
 // @public (undocumented)
 type OperationId = keyof typeof OPERATION_DESCRIPTORS;
 
+// Warning: (ae-forgotten-export) The symbol "OperationParametersById" needs to be exported by the entry point index.d.ts
+// Warning: (ae-forgotten-export) The symbol "OperationRequestBodyById" needs to be exported by the entry point index.d.ts
+//
 // @public (undocumented)
-interface OperationParameters {
+type OperationInputById = {
+    readonly [Operation in OperationId]: OperationParametersById[Operation] & (OperationRequestBodyById[Operation] extends never ? {
+        body?: never;
+    } : {
+        body: OperationRequestBodyById[Operation];
+    });
+};
+
+// Warning: (ae-forgotten-export) The symbol "operations" needs to be exported by the entry point index.d.ts
+//
+// @public (undocumented)
+type OperationParametersById = {
+    readonly [Operation in OperationId]: operations[Operation]["parameters"];
+};
+
+// Warning: (ae-forgotten-export) The symbol "RequestInput" needs to be exported by the entry point index.d.ts
+//
+// @public (undocumented)
+type OperationRequestBodyById = {
+    readonly [Operation in OperationId]: operations[Operation] extends {
+        requestBody: {
+            content: {
+                "application/json": infer Body;
+            };
+        };
+    } ? RequestInput<Body> : never;
+};
+
+// @public (undocumented)
+interface operations {
     // (undocumented)
-    readonly body?: unknown;
+    addAccountMember: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMemberRequest"];
+            };
+        };
+        responses: {
+            "201": {
+                content: {
+                    "application/json": components["schemas"]["UserAccount"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     // (undocumented)
-    readonly path?: Readonly<Record<string, string | number>>;
+    cancelMessage: {
+        parameters: {
+            path: {
+                account_id: string;
+                message_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     // (undocumented)
-    readonly query?: Readonly<Record<string, unknown>>;
+    checkDomainDNS: {
+        parameters: {
+            path: {
+                account_id: string;
+                domain: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Domain"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "503": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createAPIKey: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAPIKeyRequest"];
+            };
+        };
+        responses: {
+            "201": {
+                content: {
+                    "application/json": components["schemas"]["APIKey"] & {
+                        secret_key: string;
+                    };
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createConversationMessage: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateConversationMessageRequest"];
+            };
+        };
+        responses: {
+            "202": {
+                content: {
+                    "application/json": components["schemas"]["CreateMessageResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createDomain: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDomainRequest"];
+            };
+        };
+        responses: {
+            "201": {
+                content: {
+                    "application/json": components["schemas"]["Domain"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createMessage: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMessageRequest"];
+            };
+        };
+        responses: {
+            "202": {
+                content: {
+                    "application/json": components["schemas"]["CreateMessageResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createRoute: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRouteRequest"];
+            };
+        };
+        responses: {
+            "201": {
+                content: {
+                    "application/json": components["schemas"]["CreatedRoute"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createSMTPCredential: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSMTPCredentialRequest"];
+            };
+        };
+        responses: {
+            "201": {
+                content: {
+                    "application/json": components["schemas"]["CreatedSMTPCredential"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createSubAccount: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSubAccountRequest"];
+            };
+        };
+        responses: {
+            "201": {
+                content: {
+                    "application/json": components["schemas"]["SubAccount"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createSubAccountAPIKey: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAPIKeyRequest"];
+            };
+        };
+        responses: {
+            "201": {
+                content: {
+                    "application/json": components["schemas"]["APIKey"] & {
+                        secret_key: string;
+                    };
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createSuppression: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSuppressionRequest"];
+            };
+        };
+        responses: {
+            "201": {
+                content: {
+                    "application/json": components["schemas"]["CreateSuppressionResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    createWebhook: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWebhookRequest"];
+            };
+        };
+        responses: {
+            "201": {
+                content: {
+                    "application/json": components["schemas"]["CreatedWebhook"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "422": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    deleteAllSuppressions: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                domain?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    deleteAPIKey: {
+        parameters: {
+            path: {
+                account_id: string;
+                key_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    deleteDomain: {
+        parameters: {
+            path: {
+                account_id: string;
+                domain: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    deleteRoute: {
+        parameters: {
+            path: {
+                account_id: string;
+                route_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    deleteSMTPCredential: {
+        parameters: {
+            path: {
+                account_id: string;
+                smtp_credential_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    deleteSubAccount: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    deleteSubAccountAPIKey: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+                key_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    deleteSuppression: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                email: string;
+                domain?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    deleteWebhook: {
+        parameters: {
+            path: {
+                account_id: string;
+                webhook_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getAccount: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getAccountMembers: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["AccountMembersResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getAPIKey: {
+        parameters: {
+            path: {
+                account_id: string;
+                key_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["APIKey"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getAPIKeys: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["PaginatedAPIKeysResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getBounceStatistics: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                from_time?: string;
+                to_time?: string;
+                sender_domain?: string;
+                recipient_domains?: string;
+                tags?: string;
+                group_by?: "hour" | "day" | "week" | "month";
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["BounceStatisticsResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "429": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getDeliverabilityStatistics: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                from_time?: string;
+                to_time?: string;
+                sender_domain?: string;
+                recipient_domains?: string;
+                tags?: string;
+                group_by?: "hour" | "day" | "week" | "month";
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["DeliverabilityStatisticsResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "429": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getDeliveryTimeStatistics: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                from_time?: string;
+                to_time?: string;
+                sender_domain?: string;
+                recipient_domains?: string;
+                tags?: string;
+                group_by?: "hour" | "day" | "week" | "month";
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["DeliveryTimeStatisticsResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "429": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getDomain: {
+        parameters: {
+            path: {
+                account_id: string;
+                domain: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Domain"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getDomains: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                dns_valid?: boolean | null;
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["PaginatedDomainsResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getMessage: {
+        parameters: {
+            path: {
+                account_id: string;
+                message_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Message"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getMessages: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                status?: string;
+                sender?: string;
+                recipient?: string;
+                subject?: string;
+                message_id_header?: string;
+                tags?: string;
+                from_time?: string;
+                to_time?: string;
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["PaginatedMessagesResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getRoute: {
+        parameters: {
+            path: {
+                account_id: string;
+                route_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Route"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getRoutes: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                domain?: string;
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["PaginatedRoutesResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getSMTPCredential: {
+        parameters: {
+            path: {
+                account_id: string;
+                smtp_credential_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SMTPCredential"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getSMTPCredentials: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["PaginatedSMTPCredentialsResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getSubAccount: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SubAccount"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getSubAccountAPIKey: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+                key_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["APIKey"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getSubAccountsUsage: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SubAccountUsageResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getSuppressions: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                domain?: string;
+                email?: string;
+                from_time?: string;
+                to_time?: string;
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["PaginatedSuppressionsResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getWebhook: {
+        parameters: {
+            path: {
+                account_id: string;
+                webhook_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Webhook"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    getWebhooks: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                enabled?: boolean;
+                on_reception?: boolean;
+                on_delivered?: boolean;
+                on_transient_error?: boolean;
+                on_failed?: boolean;
+                on_bounced?: boolean;
+                on_suppressed?: boolean;
+                on_opened?: boolean;
+                on_clicked?: boolean;
+                on_suppression_created?: boolean;
+                on_dns_error?: boolean;
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["PaginatedWebhooksResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    listSubAccountAPIKeys: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+            };
+            query: {
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["PaginatedAPIKeysResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    listSubAccounts: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+            query: {
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["PaginatedSubAccountsResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    ping: {
+        parameters: {
+            path?: Record<string, never>;
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    removeAccountMember: {
+        parameters: {
+            path: {
+                account_id: string;
+                user_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    suspendSubAccount: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuspendSubAccountRequest"];
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SubAccount"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    unsuspendSubAccount: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SubAccount"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    updateAccount: {
+        parameters: {
+            path: {
+                account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAccountRequest"];
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    updateAPIKey: {
+        parameters: {
+            path: {
+                account_id: string;
+                key_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAPIKeyRequest"];
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["APIKey"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "409": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    updateDomain: {
+        parameters: {
+            path: {
+                account_id: string;
+                domain: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDomainRequest"];
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Domain"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    updateRoute: {
+        parameters: {
+            path: {
+                account_id: string;
+                route_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRouteRequest"];
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Route"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    updateSubAccount: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSubAccountRequest"];
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["SubAccount"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    updateSubAccountAPIKey: {
+        parameters: {
+            path: {
+                account_id: string;
+                sub_account_id: string;
+                key_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAPIKeyRequest"];
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["APIKey"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    // (undocumented)
+    updateWebhook: {
+        parameters: {
+            path: {
+                account_id: string;
+                webhook_id: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWebhookRequest"];
+            };
+        };
+        responses: {
+            "200": {
+                content: {
+                    "application/json": components["schemas"]["Webhook"];
+                };
+            };
+            "400": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "401": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "403": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "404": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            "500": {
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
 }
+
+// Warning: (ae-forgotten-export) The symbol "JsonSuccess" needs to be exported by the entry point index.d.ts
+//
+// @public (undocumented)
+type OperationSuccessById = {
+    readonly [Operation in OperationId]: JsonSuccess<operations[Operation]["responses"]>;
+};
 
 // Warning: (ae-forgotten-export) The symbol "HttpClient" needs to be exported by the entry point index.d.ts
 //
@@ -2984,6 +6106,11 @@ export interface RequestEvent {
     operationId: OperationId | undefined;
     routeTemplate: string;
 }
+
+// @public (undocumented)
+type RequestInput<Value> = Value extends readonly [infer Head, ...infer Tail] ? readonly [RequestInput<Head>, ...RequestInput<Tail>] : Value extends readonly (infer Item)[] ? readonly RequestInput<Item>[] : Value extends object ? {
+    [Key in keyof Value]: RequestInput<Value[Key]>;
+} : Value;
 
 // @public (undocumented)
 export interface RequestOptions {
@@ -3732,6 +6859,10 @@ export interface WipeSuppressionsParams {
     // (undocumented)
     domain?: string;
 }
+
+// Warnings were encountered during analysis:
+//
+// dist/index.d.ts:588:21 - (ae-forgotten-export) The symbol "components" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

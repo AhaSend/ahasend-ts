@@ -85,7 +85,7 @@ export class RoutesClient {
     params: ListRoutesParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Route>> {
-    return this.#operations.execute<PaginatedResponse<Route>>(
+    return this.#operations.execute(
       "getRoutes",
       {
         path: { account_id: this.#accountId },
@@ -111,7 +111,7 @@ export class RoutesClient {
    * The response is the only time the route signing `secret` is exposed.
    */
   create(body: CreateRouteRequest, options: IdempotencyRequestOptions = {}): Promise<CreatedRoute> {
-    return this.#operations.execute<CreatedRoute>(
+    return this.#operations.execute(
       "createRoute",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -125,7 +125,7 @@ export class RoutesClient {
    * the route's `recipient` domain.
    */
   get(routeId: UUID, options: RequestOptions = {}): Promise<Route> {
-    return this.#operations.execute<Route>(
+    return this.#operations.execute(
       "getRoute",
       { path: { account_id: this.#accountId, route_id: routeId } },
       forwardOptions(options),
@@ -139,7 +139,7 @@ export class RoutesClient {
    * both the existing and replacement `recipient` domains.
    */
   update(routeId: UUID, body: UpdateRouteRequest, options: RequestOptions = {}): Promise<Route> {
-    return this.#operations.execute<Route>(
+    return this.#operations.execute(
       "updateRoute",
       { path: { account_id: this.#accountId, route_id: routeId }, body },
       forwardOptions(options),
@@ -153,7 +153,7 @@ export class RoutesClient {
    * matching the route's `recipient` domain.
    */
   delete(routeId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "deleteRoute",
       { path: { account_id: this.#accountId, route_id: routeId } },
       forwardOptions(options),

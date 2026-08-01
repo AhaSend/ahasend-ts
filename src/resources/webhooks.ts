@@ -132,7 +132,7 @@ export class WebhooksClient {
     params: ListWebhooksParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Webhook>> {
-    return this.#operations.execute<PaginatedResponse<Webhook>>(
+    return this.#operations.execute(
       "getWebhooks",
       {
         path: { account_id: this.#accountId },
@@ -161,7 +161,7 @@ export class WebhooksClient {
     body: CreateWebhookRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreatedWebhook> {
-    return this.#operations.execute<CreatedWebhook>(
+    return this.#operations.execute(
       "createWebhook",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -175,7 +175,7 @@ export class WebhooksClient {
    * matching at least one webhook `domains` entry.
    */
   get(webhookId: UUID, options: RequestOptions = {}): Promise<Webhook> {
-    return this.#operations.execute<Webhook>(
+    return this.#operations.execute(
       "getWebhook",
       { path: { account_id: this.#accountId, webhook_id: webhookId } },
       forwardOptions(options),
@@ -194,7 +194,7 @@ export class WebhooksClient {
     body: UpdateWebhookRequest,
     options: RequestOptions = {},
   ): Promise<Webhook> {
-    return this.#operations.execute<Webhook>(
+    return this.#operations.execute(
       "updateWebhook",
       { path: { account_id: this.#accountId, webhook_id: webhookId }, body },
       forwardOptions(options),
@@ -208,7 +208,7 @@ export class WebhooksClient {
    * matching at least one webhook `domains` entry.
    */
   delete(webhookId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "deleteWebhook",
       { path: { account_id: this.#accountId, webhook_id: webhookId } },
       forwardOptions(options),

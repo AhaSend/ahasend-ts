@@ -94,11 +94,11 @@ export class StatisticsClient {
     params: StatisticsParams = {},
     options: RequestOptions = {},
   ): Promise<DeliverabilityStatisticsResponse> {
-    return this.#operations.execute<DeliverabilityStatisticsResponse>(
+    return this.#operations.execute(
       "getDeliverabilityStatistics",
       {
         path: { account_id: this.#accountId },
-        query: params as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );
@@ -114,11 +114,11 @@ export class StatisticsClient {
     params: StatisticsParams = {},
     options: RequestOptions = {},
   ): Promise<BounceStatisticsResponse> {
-    return this.#operations.execute<BounceStatisticsResponse>(
+    return this.#operations.execute(
       "getBounceStatistics",
       {
         path: { account_id: this.#accountId },
-        query: params as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );
@@ -134,11 +134,11 @@ export class StatisticsClient {
     params: StatisticsParams = {},
     options: RequestOptions = {},
   ): Promise<DeliveryTimeStatisticsResponse> {
-    return this.#operations.execute<DeliveryTimeStatisticsResponse>(
+    return this.#operations.execute(
       "getDeliveryTimeStatistics",
       {
         path: { account_id: this.#accountId },
-        query: params as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );

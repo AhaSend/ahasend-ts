@@ -169,6 +169,6 @@ export class AhaSendClient {
 
   /** Health check (`GET /v2/ping`) — verifies connectivity and the API key. */
   ping(options: RequestOptions = {}): AhaSendPromise<PingResponse> {
-    return this.#operations.execute<PingResponse>("ping", {}, forwardOptions(options));
+    return this.#operations.execute("ping", {}, forwardOptions(options));
   }
 }

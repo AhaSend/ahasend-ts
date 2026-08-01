@@ -67,7 +67,7 @@ export class SuppressionsClient {
     params: ListSuppressionsParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Suppression>> {
-    return this.#operations.execute<PaginatedResponse<Suppression>>(
+    return this.#operations.execute(
       "getSuppressions",
       {
         path: { account_id: this.#accountId },
@@ -88,7 +88,7 @@ export class SuppressionsClient {
     body: CreateSuppressionRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreateSuppressionResponse> {
-    return this.#operations.execute<CreateSuppressionResponse>(
+    return this.#operations.execute(
       "createSuppression",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -101,11 +101,11 @@ export class SuppressionsClient {
    * method accepts those fields directly as query parameters.
    */
   delete(params: DeleteSuppressionParams, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "deleteSuppression",
       {
         path: { account_id: this.#accountId },
-        query: params as unknown as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );
@@ -119,11 +119,11 @@ export class SuppressionsClient {
     params: WipeSuppressionsParams = {},
     options: RequestOptions = {},
   ): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "deleteAllSuppressions",
       {
         path: { account_id: this.#accountId },
-        query: params as unknown as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );

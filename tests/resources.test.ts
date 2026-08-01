@@ -25,11 +25,13 @@ import type {
 // @ts-expect-error DomainRequestOptions was never released from the domain module.
 import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src/resources/domains.js";
 import type {
+  Attachment,
   CreateConversationMessageRequest,
   CreateMessageRequest,
   ListMessagesParams,
   Message,
   MessageSummary,
+  Recipient,
   SendMessageResult,
 } from "../src/resources/messages.js";
 import type {
@@ -38,7 +40,7 @@ import type {
   SMTPCredentialsClient,
 } from "../src/resources/smtp-credentials.js";
 import type { Route, UpdateRouteRequest } from "../src/resources/routes.js";
-import type { PaginationMeta, PaginationParams } from "../src/types/common.js";
+import type { NonEmptyArray, PaginationMeta, PaginationParams } from "../src/types/common.js";
 import {
   ACCOUNT_ID,
   API_KEY_ID,
@@ -286,18 +288,18 @@ describe("SMTP credential declarations", () => {
 
 describe("MessagesClient", () => {
   it("matches nested substitution, nullability, non-empty array, and response declarations", () => {
-    const recipients = [
+    const recipients: NonEmptyArray<Recipient> = [
       {
         email: "recipient@example.com",
         substitutions: {
           customer: { preferences: ["email", { digest: true }] },
         },
       },
-    ] as const;
-    const attachments = [
+    ];
+    const attachments: readonly Attachment[] = [
       { data: "hello", content_type: "text/plain", file_name: "hello.txt" },
-    ] as const;
-    const tags = ["transactional"] as const;
+    ];
+    const tags: readonly string[] = ["transactional"];
     const request: CreateMessageRequest = {
       from: { email: "sender@example.com" },
       recipients,
@@ -310,9 +312,9 @@ describe("MessagesClient", () => {
     };
     const conversation: CreateConversationMessageRequest = {
       from: { email: "sender@example.com" },
-      to: [{ email: "to@example.com" }] as const,
-      cc: [{ email: "cc@example.com" }] as const,
-      bcc: [{ email: "bcc@example.com" }] as const,
+      to: [{ email: "to@example.com" }],
+      cc: [{ email: "cc@example.com" }],
+      bcc: [{ email: "bcc@example.com" }],
       subject: "Conversation",
       attachments,
       tags,
@@ -774,12 +776,13 @@ describe("DomainsClient", () => {
 
 describe("APIKeysClient", () => {
   it("requires readonly non-empty scopes and a concrete API-key update", () => {
-    const createScopes = ["messages:send:all"] as const;
-    const updateScopes = ["domains:read"] as const;
+    const createScopes: NonEmptyArray<string> = ["messages:send:all"];
+    const updateScopes: NonEmptyArray<string> = ["domains:read"];
+    const ipAllowList: readonly string[] = ["203.0.113.0/24"];
     const create: CreateAPIKeyRequest = {
       label: "CI",
       scopes: createScopes,
-      ip_allow_list: ["203.0.113.0/24"] as const,
+      ip_allow_list: ipAllowList,
     };
     const update: UpdateAPIKeyRequest = { scopes: updateScopes };
     const clearIPAllowList: UpdateAPIKeyRequest = { ip_allow_list: [] };

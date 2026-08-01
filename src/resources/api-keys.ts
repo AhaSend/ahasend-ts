@@ -100,7 +100,7 @@ export class APIKeysClient {
     params: PaginationParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<APIKey>> {
-    return this.#operations.execute<PaginatedResponse<APIKey>>(
+    return this.#operations.execute(
       "getAPIKeys",
       {
         path: { account_id: this.#accountId },
@@ -125,7 +125,7 @@ export class APIKeysClient {
     body: CreateAPIKeyRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreatedAPIKey> {
-    return this.#operations.execute<CreatedAPIKey>(
+    return this.#operations.execute(
       "createAPIKey",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -133,7 +133,7 @@ export class APIKeysClient {
   }
 
   get(keyId: UUID, options: RequestOptions = {}): Promise<APIKey> {
-    return this.#operations.execute<APIKey>(
+    return this.#operations.execute(
       "getAPIKey",
       { path: { account_id: this.#accountId, key_id: keyId } },
       forwardOptions(options),
@@ -141,7 +141,7 @@ export class APIKeysClient {
   }
 
   update(keyId: UUID, body: UpdateAPIKeyRequest, options: RequestOptions = {}): Promise<APIKey> {
-    return this.#operations.execute<APIKey>(
+    return this.#operations.execute(
       "updateAPIKey",
       { path: { account_id: this.#accountId, key_id: keyId }, body },
       forwardOptions(options),
@@ -149,7 +149,7 @@ export class APIKeysClient {
   }
 
   delete(keyId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "deleteAPIKey",
       { path: { account_id: this.#accountId, key_id: keyId } },
       forwardOptions(options),

@@ -1,14 +1,13 @@
-import type { OperationId, RetryMode } from "./generated/operations.js";
+import type {
+  OperationId,
+  OperationInputById,
+  OperationSuccessById,
+  RetryMode,
+} from "./generated/operations.js";
 import { OPERATION_DESCRIPTORS } from "./generated/operations.js";
 import type { HttpClient } from "./http.js";
 import type { IdempotencyOperationPolicy } from "./idempotency.js";
 import type { AhaSendPromise, IdempotencyRequestOptions } from "./types/common.js";
-
-export interface OperationParameters {
-  readonly path?: Readonly<Record<string, string | number>>;
-  readonly query?: Readonly<Record<string, unknown>>;
-  readonly body?: unknown;
-}
 
 type OperationTransport = Pick<HttpClient, "request">;
 
@@ -31,23 +30,26 @@ const MANUAL_SECRET_COMPLETION_OPERATIONS: ReadonlySet<OperationId> = new Set([
 export class OperationExecutor {
   constructor(private readonly http: OperationTransport) {}
 
-  execute<T>(
-    operationId: OperationId,
-    parameters: OperationParameters = {},
+  execute<K extends OperationId>(
+    operationId: K,
+    parameters: OperationInputById[K],
     options: IdempotencyRequestOptions = {},
-  ): AhaSendPromise<T> {
+  ): AhaSendPromise<OperationSuccessById[K]> {
     const descriptor = OPERATION_DESCRIPTORS[operationId];
     const path = descriptor.path.replace(PATH_PARAMETER, (_placeholder, name: string) => {
-      const value = parameters.path?.[name];
-      if (!Object.hasOwn(parameters.path ?? {}, name) || value === undefined || value === null) {
+      const value = readPathParameter(parameters.path, name);
+      if (value === undefined) {
         throw new TypeError(`Missing path parameter ${JSON.stringify(name)} for ${operationId}`);
       }
       return encodeURIComponent(String(value));
     });
 
-    const query = selectDeclaredQuery(parameters.query, descriptor.query);
+    const query = selectDeclaredQuery(
+      "query" in parameters ? parameters.query : undefined,
+      descriptor.query,
+    );
     const execution = createOperationExecutionRecord(operationId);
-    return this.http.request<T>({
+    return this.http.request<OperationSuccessById[K]>({
       method: descriptor.method,
       path,
       ...(query ? { query } : {}),
@@ -60,6 +62,12 @@ export class OperationExecutor {
       execution,
     });
   }
+}
+
+function readPathParameter(values: object | undefined, name: string): string | number | undefined {
+  if (values === undefined || !Object.hasOwn(values, name)) return undefined;
+  const value: unknown = Reflect.get(values, name);
+  return typeof value === "string" || typeof value === "number" ? value : undefined;
 }
 
 function createOperationExecutionRecord(operationId: OperationId): OperationExecutionRecord {

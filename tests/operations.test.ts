@@ -58,7 +58,7 @@ describe("OperationExecutor", () => {
     );
   });
 
-  it("places only descriptor-declared query and body inputs", async () => {
+  it("places a descriptor-declared request body", async () => {
     let seenUrl = "";
     let seenInit: RequestInit | undefined;
     const http = makeHttp(
@@ -74,7 +74,6 @@ describe("OperationExecutor", () => {
 
     await executor.execute("createDomain", {
       path: { account_id: ACCOUNT_ID },
-      query: { undeclared_sentinel: "must-not-be-sent" },
       body,
     });
 
@@ -103,7 +102,7 @@ describe("OperationExecutor", () => {
     });
     await executor.execute("createAPIKey", {
       path: { account_id: ACCOUNT_ID },
-      body: { label: "key", scopes: [] },
+      body: { label: "key", scopes: ["messages:send:all"] },
     });
 
     const automatic = request.mock.calls[0]![0].execution!;
@@ -116,7 +115,7 @@ describe("OperationExecutor", () => {
     expect(manual.idempotency?.completion).toBe("manual_secret");
   });
 
-  it("filters query values to the names declared by the descriptor", async () => {
+  it("serializes descriptor-declared query values for a bodyless operation", async () => {
     let seenUrl = "";
     let seenInit: RequestInit | undefined;
     const executor = new OperationExecutor(
@@ -134,9 +133,7 @@ describe("OperationExecutor", () => {
       query: {
         email: "person+tag@example.com",
         domain: "example.com",
-        undeclared_sentinel: "must-not-be-sent",
       },
-      body: { undeclared_sentinel: "must-not-be-sent" },
     });
 
     const url = new URL(seenUrl);
@@ -145,18 +142,6 @@ describe("OperationExecutor", () => {
       domain: "example.com",
     });
     expect(seenInit?.body).toBeUndefined();
-  });
-
-  it("rejects missing path values before dispatch", () => {
-    const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const executor = new OperationExecutor(makeHttp(transport));
-
-    expect(() =>
-      executor.execute("getDomain", {
-        path: { account_id: ACCOUNT_ID },
-      }),
-    ).toThrow('Missing path parameter "domain" for getDomain');
-    expect(transport).not.toHaveBeenCalled();
   });
 
   it("prevents retries for operations generated as unsafe", async () => {

@@ -1,5 +1,6 @@
 import type * as SDK from "../src/index.js";
 import type { components } from "../src/generated/rest-types.js";
+import type { OperationExecutor } from "../src/operations.js";
 
 // @ts-expect-error DomainRequestOptions was intentionally removed from the public API.
 import type { DomainRequestOptions } from "../src/index.js";
@@ -827,6 +828,106 @@ type RefinementContracts = [
   Expect<Equal<"password" extends keyof SDK.SMTPCredential ? true : false, false>>,
 ];
 
+declare const operations: OperationExecutor;
+
+const readonlyAttachments: readonly SDK.Attachment[] = [
+  { data: "hello", content_type: "text/plain", file_name: "hello.txt" },
+];
+const readonlyTags: readonly string[] = ["transactional"];
+const readonlyRecipients: SDK.NonEmptyArray<SDK.Recipient> = [{ email: "recipient@example.com" }];
+const readonlyAddresses: SDK.NonEmptyArray<SDK.Address> = [{ email: "recipient@example.com" }];
+const messageBody: SDK.CreateMessageRequest = {
+  from: { email: "sender@example.com" },
+  recipients: readonlyRecipients,
+  subject: "Readonly message",
+  attachments: readonlyAttachments,
+  tags: readonlyTags,
+};
+const conversationBody: SDK.CreateConversationMessageRequest = {
+  from: { email: "sender@example.com" },
+  to: readonlyAddresses,
+  subject: "Readonly conversation",
+  attachments: readonlyAttachments,
+  tags: readonlyTags,
+};
+const readonlyWebhookDomains: SDK.NonEmptyArray<string> = ["example.com"];
+const createWebhookBody: SDK.CreateWebhookRequest = {
+  name: "Readonly webhook",
+  url: "https://hooks.example.com/ahasend",
+  scope: "scoped",
+  domains: readonlyWebhookDomains,
+};
+const updateWebhookDomains: readonly string[] = ["example.com", "example.net"];
+const updateWebhookBody: SDK.UpdateWebhookRequest = { domains: updateWebhookDomains };
+const readonlySMTPDomains: SDK.NonEmptyArray<string> = ["example.com"];
+const smtpBody: SDK.CreateSMTPCredentialRequest = {
+  name: "Readonly SMTP credential",
+  scope: "scoped",
+  domains: readonlySMTPDomains,
+};
+const createAPIKeyBody: SDK.CreateAPIKeyRequest = {
+  label: "Readonly API key",
+  scopes: ["messages:send:all"],
+  ip_allow_list: ["203.0.113.0/24"],
+};
+const updateAPIKeyBody: SDK.UpdateAPIKeyRequest = { ip_allow_list: [] };
+
+const pingExecution: SDK.AhaSendPromise<SDK.SuccessResponse> = operations.execute("ping", {});
+const messageExecution: SDK.AhaSendPromise<SDK.SendMessageResponse> = operations.execute(
+  "createMessage",
+  { path: { account_id: "account-id" }, body: messageBody },
+);
+operations.execute("createConversationMessage", {
+  path: { account_id: "account-id" },
+  body: conversationBody,
+});
+operations.execute("createWebhook", {
+  path: { account_id: "account-id" },
+  body: createWebhookBody,
+});
+operations.execute("updateWebhook", {
+  path: { account_id: "account-id", webhook_id: "webhook-id" },
+  body: updateWebhookBody,
+});
+operations.execute("createSMTPCredential", {
+  path: { account_id: "account-id" },
+  body: smtpBody,
+});
+operations.execute("createAPIKey", {
+  path: { account_id: "account-id" },
+  body: createAPIKeyBody,
+});
+operations.execute("updateAPIKey", {
+  path: { account_id: "account-id", key_id: "key-id" },
+  body: updateAPIKeyBody,
+});
+
+// @ts-expect-error Body-bearing operations require their generated request body.
+operations.execute("createMessage", { path: { account_id: "account-id" } });
+operations.execute("ping", {
+  // @ts-expect-error Bodyless operations do not accept a request body.
+  body: {},
+});
+operations.execute("createWebhook", {
+  path: { account_id: "account-id" },
+  // @ts-expect-error Scoped webhook domains are non-empty.
+  body: {
+    name: "Invalid empty scoped webhook",
+    url: "https://hooks.example.com/ahasend",
+    scope: "scoped",
+    domains: [],
+  },
+});
+operations.execute("createSMTPCredential", {
+  path: { account_id: "account-id" },
+  // @ts-expect-error Scoped SMTP credential domains are non-empty.
+  body: {
+    name: "Invalid empty scoped SMTP credential",
+    scope: "scoped",
+    domains: [],
+  },
+});
+
 declare const client: SDK.AhaSendClient;
 declare const dualCursor: { readonly limit: 10; readonly after: "next"; readonly before: "prev" };
 
@@ -929,6 +1030,8 @@ export type DeclarationContracts = [
   SubAccountSignatures,
   SubAccountAPIKeySignatures,
   RefinementContracts,
+  typeof pingExecution,
+  typeof messageExecution,
   DomainRequestOptions,
   APIKeyRequestOptions,
   ListMembersParams,

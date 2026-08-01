@@ -93,7 +93,7 @@ export class SubAccountsClient {
     params: ListSubAccountsParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<SubAccount>> {
-    return this.#operations.execute<PaginatedResponse<SubAccount>>(
+    return this.#operations.execute(
       "listSubAccounts",
       {
         path: { account_id: this.#accountId },
@@ -114,7 +114,7 @@ export class SubAccountsClient {
     body: CreateSubAccountRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<SubAccount> {
-    return this.#operations.execute<SubAccount>(
+    return this.#operations.execute(
       "createSubAccount",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -122,7 +122,7 @@ export class SubAccountsClient {
   }
 
   usage(options: RequestOptions = {}): Promise<SubAccountUsageResponse> {
-    return this.#operations.execute<SubAccountUsageResponse>(
+    return this.#operations.execute(
       "getSubAccountsUsage",
       { path: { account_id: this.#accountId } },
       forwardOptions(options),
@@ -130,7 +130,7 @@ export class SubAccountsClient {
   }
 
   get(subAccountId: UUID, options: RequestOptions = {}): Promise<SubAccount> {
-    return this.#operations.execute<SubAccount>(
+    return this.#operations.execute(
       "getSubAccount",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId } },
       forwardOptions(options),
@@ -142,7 +142,7 @@ export class SubAccountsClient {
     body: UpdateSubAccountRequest,
     options: RequestOptions = {},
   ): Promise<SubAccount> {
-    return this.#operations.execute<SubAccount>(
+    return this.#operations.execute(
       "updateSubAccount",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId }, body },
       forwardOptions(options),
@@ -150,7 +150,7 @@ export class SubAccountsClient {
   }
 
   delete(subAccountId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "deleteSubAccount",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId } },
       forwardOptions(options),
@@ -162,7 +162,7 @@ export class SubAccountsClient {
     body: SuspendSubAccountRequest,
     options: RequestOptions = {},
   ): Promise<SubAccount> {
-    return this.#operations.execute<SubAccount>(
+    return this.#operations.execute(
       "suspendSubAccount",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId }, body },
       forwardOptions(options),
@@ -170,7 +170,7 @@ export class SubAccountsClient {
   }
 
   unsuspend(subAccountId: UUID, options: RequestOptions = {}): Promise<SubAccount> {
-    return this.#operations.execute<SubAccount>(
+    return this.#operations.execute(
       "unsuspendSubAccount",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId } },
       forwardOptions(options),

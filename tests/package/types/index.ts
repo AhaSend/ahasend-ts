@@ -1,15 +1,46 @@
 import type {
   AhaSendClient,
+  CreateMessageRequest,
+  CreateSMTPCredentialRequest,
+  CreateWebhookRequest,
   ListDomainsParams,
   ListMessagesParams,
   ListRoutesParams,
   ListSuppressionsParams,
   ListWebhooksParams,
   PaginationParams,
+  UpdateWebhookRequest,
 } from "@ahasend/sdk";
 import { WebhookVerifier } from "@ahasend/sdk/webhooks";
 
 declare const client: AhaSendClient;
+
+const messageBody: CreateMessageRequest = {
+  from: { email: "sender@example.com" },
+  recipients: [{ email: "recipient@example.com" }],
+  subject: "Package contract",
+  attachments: [{ data: "hello", content_type: "text/plain", file_name: "hello.txt" }],
+  tags: ["transactional"],
+};
+const webhookBody: CreateWebhookRequest = {
+  name: "Package webhook",
+  url: "https://hooks.example.com/ahasend",
+  scope: "scoped",
+  domains: ["example.com"],
+};
+const webhookUpdate: UpdateWebhookRequest = { domains: [] };
+const smtpBody: CreateSMTPCredentialRequest = {
+  name: "Package SMTP credential",
+  scope: "scoped",
+  domains: ["example.com"],
+};
+
+void client.ping();
+void client.messages.send(messageBody);
+void client.webhooks.create(webhookBody);
+void client.webhooks.update("33333333-3333-4333-8333-333333333333", webhookUpdate);
+void client.smtpCredentials.create(smtpBody);
+void client.accounts.get();
 
 const direct: PaginationParams = { limit: 25, after: "direct-cursor" };
 const domains: ListDomainsParams = { limit: 25, after: "domain-cursor", dns_valid: true };

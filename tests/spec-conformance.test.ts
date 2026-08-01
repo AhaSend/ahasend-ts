@@ -11,6 +11,14 @@ import { resolve } from "node:path";
 import yaml from "js-yaml";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AhaSendClient } from "../src/client.js";
+import type {
+  AddAccountMemberRequest,
+  CreateAPIKeyRequest,
+  CreateConversationMessageRequest,
+  CreateMessageRequest,
+  CreateSMTPCredentialRequest,
+  CreateWebhookRequest,
+} from "../src/index.js";
 import type { OperationId, RetryMode } from "../src/generated/operations.js";
 import { OPERATION_DESCRIPTORS } from "../src/generated/operations.js";
 import type { OperationProfileMapping } from "../src/generated/operation-profile.js";
@@ -148,8 +156,8 @@ const PRIMARY_MATRIX = [
   primary("createAPIKey", "apiKeys", "create", (client) => {
     const body = {
       label: "matrix",
-      scopes: ["messages:send:all"] as [string, ...string[]],
-    };
+      scopes: ["messages:send:all"],
+    } satisfies CreateAPIKeyRequest;
     return {
       result: client.apiKeys.create(body, IDEMPOTENCY_OPTIONS),
       input: { path: `${ACCOUNT_PATH}/api-keys`, body },
@@ -220,9 +228,11 @@ const PRIMARY_MATRIX = [
   primary("createMessage", "messages", "send", (client) => {
     const body = {
       from: { email: "sender@example.test" },
-      recipients: [{ email: "recipient@example.test" }] as const,
+      recipients: [{ email: "recipient@example.test" }],
       subject: "Matrix",
-    };
+      attachments: [{ data: "hello", content_type: "text/plain", file_name: "hello.txt" }],
+      tags: ["transactional"],
+    } satisfies CreateMessageRequest;
     return {
       result: client.messages.send(body, IDEMPOTENCY_OPTIONS),
       input: { path: `${ACCOUNT_PATH}/messages`, body },
@@ -231,9 +241,11 @@ const PRIMARY_MATRIX = [
   primary("createConversationMessage", "messages", "sendConversation", (client) => {
     const body = {
       from: { email: "sender@example.test" },
-      to: [{ email: "recipient@example.test" }] as const,
+      to: [{ email: "recipient@example.test" }],
       subject: "Matrix conversation",
-    };
+      attachments: [{ data: "hello", content_type: "text/plain", file_name: "hello.txt" }],
+      tags: ["transactional"],
+    } satisfies CreateConversationMessageRequest;
     return {
       result: client.messages.sendConversation(body, IDEMPOTENCY_OPTIONS),
       input: { path: `${ACCOUNT_PATH}/messages/conversation`, body },
@@ -263,7 +275,10 @@ const PRIMARY_MATRIX = [
     input: { path: `${ACCOUNT_PATH}/members` },
   })),
   primary("addAccountMember", "accounts", "addMember", (client) => {
-    const body = { email: "member@example.test", role: "Developer" as const };
+    const body = {
+      email: "member@example.test",
+      role: "Developer",
+    } satisfies AddAccountMemberRequest;
     return {
       result: client.accounts.addMember(body, IDEMPOTENCY_OPTIONS),
       input: { path: `${ACCOUNT_PATH}/members`, body },
@@ -324,8 +339,8 @@ const PRIMARY_MATRIX = [
   primary("createSubAccountAPIKey", "subAccounts.apiKeys", "create", (client) => {
     const body = {
       label: "Matrix child key",
-      scopes: ["messages:send:all"] as [string, ...string[]],
-    };
+      scopes: ["messages:send:all"],
+    } satisfies CreateAPIKeyRequest;
     return {
       result: client.subAccounts.apiKeys.create(IDS.subAccount, body, IDEMPOTENCY_OPTIONS),
       input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys`, body },
@@ -437,8 +452,8 @@ const PRIMARY_MATRIX = [
     const body = {
       name: "Matrix webhook",
       url: "https://example.test/webhook",
-      scope: "global" as const,
-    };
+      scope: "global",
+    } satisfies CreateWebhookRequest;
     return {
       result: client.webhooks.create(body, IDEMPOTENCY_OPTIONS),
       input: { path: `${ACCOUNT_PATH}/webhooks`, body },
@@ -464,7 +479,10 @@ const PRIMARY_MATRIX = [
     input: { path: `${ACCOUNT_PATH}/smtp-credentials`, query: PAGINATION_QUERY },
   })),
   primary("createSMTPCredential", "smtpCredentials", "create", (client) => {
-    const body = { name: "Matrix SMTP", scope: "global" as const };
+    const body = {
+      name: "Matrix SMTP",
+      scope: "global",
+    } satisfies CreateSMTPCredentialRequest;
     return {
       result: client.smtpCredentials.create(body, IDEMPOTENCY_OPTIONS),
       input: { path: `${ACCOUNT_PATH}/smtp-credentials`, body },

@@ -34,7 +34,7 @@ export class SubAccountAPIKeysClient {
     params: PaginationParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<APIKey>> {
-    return this.#operations.execute<PaginatedResponse<APIKey>>(
+    return this.#operations.execute(
       "listSubAccountAPIKeys",
       {
         path: { account_id: this.#accountId, sub_account_id: subAccountId },
@@ -61,7 +61,7 @@ export class SubAccountAPIKeysClient {
     body: CreateAPIKeyRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<CreatedAPIKey> {
-    return this.#operations.execute<CreatedAPIKey>(
+    return this.#operations.execute(
       "createSubAccountAPIKey",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId }, body },
       forwardWithIdempotency(options),
@@ -69,7 +69,7 @@ export class SubAccountAPIKeysClient {
   }
 
   get(subAccountId: UUID, keyId: UUID, options: RequestOptions = {}): Promise<APIKey> {
-    return this.#operations.execute<APIKey>(
+    return this.#operations.execute(
       "getSubAccountAPIKey",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId, key_id: keyId } },
       forwardOptions(options),
@@ -82,7 +82,7 @@ export class SubAccountAPIKeysClient {
     body: UpdateAPIKeyRequest,
     options: RequestOptions = {},
   ): Promise<APIKey> {
-    return this.#operations.execute<APIKey>(
+    return this.#operations.execute(
       "updateSubAccountAPIKey",
       {
         path: { account_id: this.#accountId, sub_account_id: subAccountId, key_id: keyId },
@@ -93,7 +93,7 @@ export class SubAccountAPIKeysClient {
   }
 
   delete(subAccountId: UUID, keyId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "deleteSubAccountAPIKey",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId, key_id: keyId } },
       forwardOptions(options),

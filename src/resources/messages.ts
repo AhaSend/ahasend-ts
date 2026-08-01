@@ -265,7 +265,7 @@ export class MessagesClient {
     body: CreateMessageRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<SendMessageResponse> {
-    return this.#operations.execute<SendMessageResponse>(
+    return this.#operations.execute(
       "createMessage",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -284,7 +284,7 @@ export class MessagesClient {
     body: CreateConversationMessageRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<SendMessageResponse> {
-    return this.#operations.execute<SendMessageResponse>(
+    return this.#operations.execute(
       "createConversationMessage",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -301,7 +301,7 @@ export class MessagesClient {
     params: ListMessagesParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<MessageSummary>> {
-    return this.#operations.execute<PaginatedResponse<MessageSummary>>(
+    return this.#operations.execute(
       "getMessages",
       {
         path: { account_id: this.#accountId },
@@ -331,7 +331,7 @@ export class MessagesClient {
    * matching the message's `sender` domain.
    */
   get(messageId: string, options: RequestOptions = {}): Promise<Message> {
-    return this.#operations.execute<Message>(
+    return this.#operations.execute(
       "getMessage",
       { path: { account_id: this.#accountId, message_id: messageId } },
       forwardOptions(options),
@@ -348,7 +348,7 @@ export class MessagesClient {
    * matching the message's `sender` domain.
    */
   cancel(messageId: string, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "cancelMessage",
       { path: { account_id: this.#accountId, message_id: messageId } },
       forwardOptions(options),

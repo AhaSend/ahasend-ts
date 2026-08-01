@@ -102,10 +102,7 @@ describe("deterministic execution state machines", () => {
     const executor = new OperationExecutor(client);
     const body = { domain: "example.com" };
     const request = executor
-      .execute<{
-        object: string;
-        domain: string;
-      }>(
+      .execute(
         "createDomain",
         { path: { account_id: ACCOUNT_ID }, body },
         { idempotencyKey: "execution-key" },

@@ -84,7 +84,7 @@ export class DomainsClient {
     params: ListDomainsParams = {},
     options: RequestOptions = {},
   ): Promise<PaginatedResponse<Domain>> {
-    return this.#operations.execute<PaginatedResponse<Domain>>(
+    return this.#operations.execute(
       "getDomains",
       {
         path: { account_id: this.#accountId },
@@ -107,7 +107,7 @@ export class DomainsClient {
    * confirm propagation.
    */
   create(body: CreateDomainRequest, options: IdempotencyRequestOptions = {}): Promise<Domain> {
-    return this.#operations.execute<Domain>(
+    return this.#operations.execute(
       "createDomain",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -115,7 +115,7 @@ export class DomainsClient {
   }
 
   get(domain: string, options: RequestOptions = {}): Promise<Domain> {
-    return this.#operations.execute<Domain>(
+    return this.#operations.execute(
       "getDomain",
       { path: { account_id: this.#accountId, domain } },
       forwardOptions(options),
@@ -123,7 +123,7 @@ export class DomainsClient {
   }
 
   update(domain: string, body: UpdateDomainRequest, options: RequestOptions = {}): Promise<Domain> {
-    return this.#operations.execute<Domain>(
+    return this.#operations.execute(
       "updateDomain",
       { path: { account_id: this.#accountId, domain }, body },
       forwardOptions(options),
@@ -131,7 +131,7 @@ export class DomainsClient {
   }
 
   delete(domain: string, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "deleteDomain",
       { path: { account_id: this.#accountId, domain } },
       forwardOptions(options),
@@ -144,7 +144,7 @@ export class DomainsClient {
    * not idempotency-keyed — the spec does not model it.)
    */
   checkDns(domain: string, options: RequestOptions = {}): Promise<Domain> {
-    return this.#operations.execute<Domain>(
+    return this.#operations.execute(
       "checkDomainDNS",
       { path: { account_id: this.#accountId, domain } },
       forwardOptions(options),

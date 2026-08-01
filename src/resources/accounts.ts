@@ -65,7 +65,7 @@ export class AccountsClient {
   }
 
   get(options: RequestOptions = {}): Promise<Account> {
-    return this.#operations.execute<Account>(
+    return this.#operations.execute(
       "getAccount",
       { path: { account_id: this.#accountId } },
       forwardOptions(options),
@@ -73,7 +73,7 @@ export class AccountsClient {
   }
 
   update(body: UpdateAccountRequest, options: RequestOptions = {}): Promise<Account> {
-    return this.#operations.execute<Account>(
+    return this.#operations.execute(
       "updateAccount",
       { path: { account_id: this.#accountId }, body },
       forwardOptions(options),
@@ -81,7 +81,7 @@ export class AccountsClient {
   }
 
   listMembers(options: RequestOptions = {}): Promise<ListAccountMembersResponse> {
-    return this.#operations.execute<ListAccountMembersResponse>(
+    return this.#operations.execute(
       "getAccountMembers",
       { path: { account_id: this.#accountId } },
       forwardOptions(options),
@@ -92,7 +92,7 @@ export class AccountsClient {
     body: AddAccountMemberRequest,
     options: IdempotencyRequestOptions = {},
   ): Promise<UserAccount> {
-    return this.#operations.execute<UserAccount>(
+    return this.#operations.execute(
       "addAccountMember",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -100,7 +100,7 @@ export class AccountsClient {
   }
 
   removeMember(userId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+    return this.#operations.execute(
       "removeAccountMember",
       { path: { account_id: this.#accountId, user_id: userId } },
       forwardOptions(options),

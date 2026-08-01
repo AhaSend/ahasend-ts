@@ -76,19 +76,19 @@ describe("WebhooksClient (account-scoped per spec)", () => {
       name: "global empty",
       url: "https://hooks.example/empty",
       scope: "global",
-      domains: [] as const,
+      domains: [],
     };
     const globalDomains: CreateWebhookRequest = {
       name: "global domains",
       url: "https://hooks.example/domains",
       scope: "global",
-      domains: ["ignored.example"] as const,
+      domains: ["ignored.example"],
     };
     const scoped: CreateWebhookRequest = {
       name: "scoped",
       url: "https://hooks.example/scoped",
       scope: "scoped",
-      domains: ["example.com"] as const,
+      domains: ["example.com"],
     };
     // @ts-expect-error Scoped creates require at least one domain.
     const emptyScoped: CreateWebhookRequest = {
@@ -116,7 +116,7 @@ describe("WebhooksClient (account-scoped per spec)", () => {
       scope: null,
       domains: null,
     };
-    const clear: UpdateWebhookRequest = { domains: [] as const };
+    const clear: UpdateWebhookRequest = { domains: [] };
     const webhook: Webhook = {
       object: "webhook",
       id: "wh_1",
