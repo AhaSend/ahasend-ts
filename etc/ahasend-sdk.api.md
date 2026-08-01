@@ -1424,20 +1424,14 @@ export interface Domain {
 }
 
 // @public
-class DomainsClient$1 {
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
-    constructor(operations: OperationExecutor, accountId: UUID);
-    checkDns(domain: string, options?: RequestOptions): Promise<Domain>;
-    create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): Promise<Domain>;
-    // (undocumented)
-    delete(domain: string, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    get(domain: string, options?: RequestOptions): Promise<Domain>;
-    // (undocumented)
+interface DomainsClient$1 {
+    checkDns(domain: string, options?: RequestOptions): AhaSendPromise<Domain>;
+    create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Domain>;
+    delete(domain: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(domain: string, options?: RequestOptions): AhaSendPromise<Domain>;
     iterate(params?: ListDomainsParams, options?: RequestOptions): AsyncGenerator<Domain, void, undefined>;
-    list(params?: ListDomainsParams, options?: RequestOptions): Promise<PaginatedResponse<Domain>>;
-    // (undocumented)
-    update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): Promise<Domain>;
+    list(params?: ListDomainsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Domain>>;
+    update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): AhaSendPromise<Domain>;
 }
 
 // @public (undocumented)
@@ -6355,6 +6349,7 @@ export interface Route {
 
 // @public
 class RoutesClient$1 {
+    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
     constructor(operations: OperationExecutor, accountId: UUID);
     create(body: CreateRouteRequest, options?: IdempotencyRequestOptions): Promise<CreatedRoute>;
     delete(routeId: UUID, options?: RequestOptions): Promise<SuccessResponse>;

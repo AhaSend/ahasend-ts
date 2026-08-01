@@ -282,7 +282,7 @@ type DomainSignatures = [
       (
         params?: SDK.ListDomainsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.Domain>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Domain>>
     >
   >,
   Expect<
@@ -300,13 +300,13 @@ type DomainSignatures = [
       (
         body: SDK.CreateDomainRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.Domain>
+      ) => SDK.AhaSendPromise<SDK.Domain>
     >
   >,
   Expect<
     Equal<
       SDK.DomainsClient["get"],
-      (domain: string, options?: SDK.RequestOptions) => Promise<SDK.Domain>
+      (domain: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Domain>
     >
   >,
   Expect<
@@ -316,22 +316,60 @@ type DomainSignatures = [
         domain: string,
         body: SDK.UpdateDomainRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.Domain>
+      ) => SDK.AhaSendPromise<SDK.Domain>
     >
   >,
   Expect<
     Equal<
       SDK.DomainsClient["delete"],
-      (domain: string, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (domain: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
   Expect<
     Equal<
       SDK.DomainsClient["checkDns"],
-      (domain: string, options?: SDK.RequestOptions) => Promise<SDK.Domain>
+      (domain: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Domain>
     >
   >,
 ];
+
+declare const domainListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Domain>>;
+declare const domainIteratorResult: AsyncGenerator<SDK.Domain, void, undefined>;
+declare const domainResult: SDK.AhaSendPromise<SDK.Domain>;
+declare const domainDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralDomainMock: SDK.DomainsClient = {
+  list: () => domainListResult,
+  iterate: () => domainIteratorResult,
+  create: () => domainResult,
+  get: () => domainResult,
+  update: () => domainResult,
+  delete: () => domainDeleteResult,
+  checkDns: () => domainResult,
+};
+
+const createDomainWithDefaultSelector: SDK.CreateDomainRequest = {
+  domain: "example.com",
+  dkim_selector: null,
+};
+const createDomainWithCustomSelector: SDK.CreateDomainRequest = {
+  domain: "example.net",
+  dkim_selector: "selector-1",
+};
+const updateDomainWithoutSelectorChange: SDK.UpdateDomainRequest = { dkim_selector: null };
+const updateDomainClearingSelector: SDK.UpdateDomainRequest = { dkim_selector: "" };
+const updateDomainClearingWhitespaceSelector: SDK.UpdateDomainRequest = { dkim_selector: " \t " };
+
+declare const domains: SDK.DomainsClient;
+const createdDomainResponse: Promise<SDK.AhaSendResponse<SDK.Domain>> = domains
+  .create(createDomainWithDefaultSelector)
+  .withResponse();
+domains.create(createDomainWithCustomSelector).withResponse();
+domains.update("example.com", updateDomainWithoutSelectorChange).withResponse();
+domains.update("example.com", updateDomainClearingSelector).withResponse();
+const updatedDomainResponse: Promise<SDK.AhaSendResponse<SDK.Domain>> = domains
+  .update("example.com", updateDomainClearingWhitespaceSelector)
+  .withResponse();
 
 type APIKeySignatures = [
   Expect<
