@@ -325,7 +325,7 @@ type APIKeySignatures = [
       (
         params?: SDK.PaginationParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.APIKey>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.APIKey>>
     >
   >,
   Expect<
@@ -343,13 +343,13 @@ type APIKeySignatures = [
       (
         body: SDK.CreateAPIKeyRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedAPIKey>
+      ) => SDK.AhaSendPromise<SDK.CreatedAPIKey>
     >
   >,
   Expect<
     Equal<
       SDK.APIKeysClient["get"],
-      (keyId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.APIKey>
+      (keyId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.APIKey>
     >
   >,
   Expect<
@@ -359,16 +359,31 @@ type APIKeySignatures = [
         keyId: SDK.UUID,
         body: SDK.UpdateAPIKeyRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.APIKey>
+      ) => SDK.AhaSendPromise<SDK.APIKey>
     >
   >,
   Expect<
     Equal<
       SDK.APIKeysClient["delete"],
-      (keyId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (keyId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const apiKeyListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.APIKey>>;
+declare const apiKeyIteratorResult: AsyncGenerator<SDK.APIKey, void, undefined>;
+declare const apiKeyResult: SDK.AhaSendPromise<SDK.APIKey>;
+declare const createdAPIKeyResult: SDK.AhaSendPromise<SDK.CreatedAPIKey>;
+declare const apiKeyDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralAPIKeyMock: SDK.APIKeysClient = {
+  list: () => apiKeyListResult,
+  iterate: () => apiKeyIteratorResult,
+  create: () => createdAPIKeyResult,
+  get: () => apiKeyResult,
+  update: () => apiKeyResult,
+  delete: () => apiKeyDeleteResult,
+};
 
 type WebhookSignatures = [
   Expect<
@@ -792,6 +807,29 @@ type RefinementContracts = [
   Expect<Equal<SDK.CreateAPIKeyRequest["scopes"], SDK.NonEmptyArray<string>>>,
   Expect<
     Equal<
+      { label: string; scopes: readonly [] } extends SDK.CreateAPIKeyRequest ? true : false,
+      false
+    >
+  >,
+  Expect<Equal<{} extends SDK.UpdateAPIKeyRequest ? true : false, false>>,
+  Expect<
+    Equal<
+      {
+        label: null;
+        scopes: null;
+        ip_allow_list: null;
+      } extends SDK.UpdateAPIKeyRequest
+        ? true
+        : false,
+      false
+    >
+  >,
+  Expect<Equal<{ scopes: readonly [] } extends SDK.UpdateAPIKeyRequest ? true : false, false>>,
+  Expect<Extends<{ label: string }, SDK.UpdateAPIKeyRequest>>,
+  Expect<Extends<{ scopes: SDK.NonEmptyArray<string> }, SDK.UpdateAPIKeyRequest>>,
+  Expect<Extends<{ ip_allow_list: readonly string[] }, SDK.UpdateAPIKeyRequest>>,
+  Expect<
+    Equal<
       Extract<SDK.CreateWebhookRequest, { scope: "scoped" }>["domains"],
       SDK.NonEmptyArray<string>
     >
@@ -1051,6 +1089,7 @@ export type DeclarationContracts = [
   SubAccountSignatures,
   SubAccountAPIKeySignatures,
   RefinementContracts,
+  typeof structuralAPIKeyMock,
   typeof structuralAccountMock,
   typeof pingExecution,
   typeof messageExecution,

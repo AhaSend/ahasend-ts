@@ -31,12 +31,12 @@ client.ping(options?: RequestOptions): AhaSendPromise<PingResponse>
 ### apiKeys.list
 
 ```ts
-client.apiKeys.list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>
+client.apiKeys.list(params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<APIKey>>
 ```
 
 - **Operation ID:** `getAPIKeys`
 - **HTTP:** `GET /v2/accounts/{account_id}/api-keys`
-- **Models:** [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `200: PaginatedAPIKeysResponse`
 - **Scopes:** `api-keys:read`
 - **Security alternatives:** `BearerAuth: api-keys:read`
@@ -50,12 +50,12 @@ client.apiKeys.list(params?: PaginationParams, options?: RequestOptions): Promis
 ### apiKeys.create
 
 ```ts
-client.apiKeys.create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>
+client.apiKeys.create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedAPIKey>
 ```
 
 - **Operation ID:** `createAPIKey`
 - **HTTP:** `POST /v2/accounts/{account_id}/api-keys`
-- **Models:** [CreateAPIKeyRequest](../src/resources/api-keys.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedAPIKey](../src/resources/api-keys.ts)
+- **Models:** [CreateAPIKeyRequest](../src/resources/api-keys.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedAPIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `request: CreateAPIKeyRequest`, `201: inline schema`
 - **Scopes:** `api-keys:write`
 - **Security alternatives:** `BearerAuth: api-keys:write`
@@ -68,12 +68,12 @@ client.apiKeys.create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOpt
 ### apiKeys.get
 
 ```ts
-client.apiKeys.get(keyId: UUID, options?: RequestOptions): Promise<APIKey>
+client.apiKeys.get(keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey>
 ```
 
 - **Operation ID:** `getAPIKey`
 - **HTTP:** `GET /v2/accounts/{account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `200: APIKey`
 - **Scopes:** `api-keys:read`
 - **Security alternatives:** `BearerAuth: api-keys:read`
@@ -86,12 +86,12 @@ client.apiKeys.get(keyId: UUID, options?: RequestOptions): Promise<APIKey>
 ### apiKeys.update
 
 ```ts
-client.apiKeys.update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): Promise<APIKey>
+client.apiKeys.update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): AhaSendPromise<APIKey>
 ```
 
 - **Operation ID:** `updateAPIKey`
 - **HTTP:** `PUT /v2/accounts/{account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateAPIKeyRequest](../src/resources/api-keys.ts), [RequestOptions](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateAPIKeyRequest](../src/resources/api-keys.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `request: UpdateAPIKeyRequest`, `200: APIKey`
 - **Scopes:** `api-keys:write`
 - **Security alternatives:** `BearerAuth: api-keys:write`
@@ -104,12 +104,12 @@ client.apiKeys.update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestO
 ### apiKeys.delete
 
 ```ts
-client.apiKeys.delete(keyId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.apiKeys.delete(keyId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteAPIKey`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `api-keys:delete`
 - **Security alternatives:** `BearerAuth: api-keys:delete`

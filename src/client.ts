@@ -5,7 +5,8 @@ import { HttpClient } from "./http.js";
 import { OperationExecutor } from "./operations.js";
 import { createAccountsClient } from "./resources/accounts.js";
 import type { AccountsClient } from "./resources/accounts.js";
-import { APIKeysClient } from "./resources/api-keys.js";
+import { createAPIKeysClient } from "./resources/api-keys.js";
+import type { APIKeysClient } from "./resources/api-keys.js";
 import { DomainsClient } from "./resources/domains.js";
 import { MessagesClient } from "./resources/messages.js";
 import { RoutesClient } from "./resources/routes.js";
@@ -82,7 +83,7 @@ export class AhaSendClient {
 
     this.#messages = createFrozenFacade(new MessagesClient(this.#operations, accountId));
     this.#domains = createFrozenFacade(new DomainsClient(this.#operations, accountId));
-    this.#apiKeys = createFrozenFacade(new APIKeysClient(this.#operations, accountId));
+    this.#apiKeys = createFrozenFacade(createAPIKeysClient(this.#operations, accountId));
     this.#webhooks = createFrozenFacade(new WebhooksClient(this.#operations, accountId));
     this.#statistics = createFrozenFacade(new StatisticsClient(this.#operations, accountId));
     this.#suppressions = createFrozenFacade(new SuppressionsClient(this.#operations, accountId));
