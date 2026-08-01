@@ -42,19 +42,12 @@ export interface Account {
 export type AccountMemberRole = "Administrator" | "Developer" | "Analyst" | "Billing Manager";
 
 // @public
-class AccountsClient$1 {
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
-    constructor(operations: OperationExecutor, accountId: UUID);
-    // (undocumented)
-    addMember(body: AddAccountMemberRequest, options?: IdempotencyRequestOptions): Promise<UserAccount>;
-    // (undocumented)
-    get(options?: RequestOptions): Promise<Account>;
-    // (undocumented)
-    listMembers(options?: RequestOptions): Promise<ListAccountMembersResponse>;
-    // (undocumented)
-    removeMember(userId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    update(body: UpdateAccountRequest, options?: RequestOptions): Promise<Account>;
+interface AccountsClient$1 {
+    addMember(body: AddAccountMemberRequest, options?: IdempotencyRequestOptions): AhaSendPromise<UserAccount>;
+    get(options?: RequestOptions): AhaSendPromise<Account>;
+    listMembers(options?: RequestOptions): AhaSendPromise<ListAccountMembersResponse>;
+    removeMember(userId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    update(body: UpdateAccountRequest, options?: RequestOptions): AhaSendPromise<Account>;
 }
 
 // Warning: (ae-forgotten-export) The symbol "AccountsClient$1" needs to be exported by the entry point index.d.ts
@@ -319,6 +312,7 @@ export interface APIKey {
 
 // @public
 class APIKeysClient$1 {
+    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
     constructor(operations: OperationExecutor, accountId: UUID);
     create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>;
     // (undocumented)
