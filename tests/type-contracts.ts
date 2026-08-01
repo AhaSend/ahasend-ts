@@ -98,6 +98,76 @@ type AllWireSchemasHavePublicContracts = Expect<
   Equal<keyof PublicSchemaContracts, keyof WireSchemas>
 >;
 
+/**
+ * These request models deliberately accept readonly arrays so callers can pass
+ * `as const` data without copying it. The generated wire models use mutable
+ * arrays for these fields, but JSON serialization does not mutate them.
+ */
+interface ReadonlyPublicSchemaRefinements {
+  CreateAPIKeyRequest: "ip_allow_list is readonly in the public request model";
+  UpdateAPIKeyRequest: "ip_allow_list is readonly in the public request model";
+  CreateMessageRequest: "attachments and tags are readonly in the public request model";
+  CreateConversationMessageRequest: "attachments and tags are readonly in the public request model";
+  CreateWebhookRequest: "global webhook domains are readonly in the public request model";
+  UpdateWebhookRequest: "domains is readonly in the public request model";
+  CreateSMTPCredentialRequest: "global credential domains are readonly in the public request model";
+}
+
+type ReadonlyArrays<Value> = Value extends readonly unknown[]
+  ? number extends Value["length"]
+    ? readonly ReadonlyArrays<Value[number]>[]
+    : { readonly [Index in keyof Value]: ReadonlyArrays<Value[Index]> }
+  : Value extends object
+    ? { [Key in keyof Value]: ReadonlyArrays<Value[Key]> }
+    : Value;
+
+type BidirectionalSchema = Exclude<
+  keyof PublicSchemaContracts,
+  keyof ReadonlyPublicSchemaRefinements
+>;
+
+type PublicSchemasAssignableToWire = Expect<
+  Equal<
+    {
+      [Schema in BidirectionalSchema]: Extends<PublicSchemaContracts[Schema], WireSchemas[Schema]>;
+    },
+    { [Schema in BidirectionalSchema]: true }
+  >
+>;
+
+type WireSchemasAssignableToPublic = Expect<
+  Equal<
+    {
+      [Schema in BidirectionalSchema]: Extends<WireSchemas[Schema], PublicSchemaContracts[Schema]>;
+    },
+    { [Schema in BidirectionalSchema]: true }
+  >
+>;
+
+type RefinedPublicSchemasAssignableToWire = Expect<
+  Equal<
+    {
+      [Schema in keyof ReadonlyPublicSchemaRefinements]: Extends<
+        PublicSchemaContracts[Schema],
+        ReadonlyArrays<WireSchemas[Schema]>
+      >;
+    },
+    { [Schema in keyof ReadonlyPublicSchemaRefinements]: true }
+  >
+>;
+
+type RefinedWireSchemasAssignableToPublic = Expect<
+  Equal<
+    {
+      [Schema in keyof ReadonlyPublicSchemaRefinements]: Extends<
+        WireSchemas[Schema],
+        PublicSchemaContracts[Schema]
+      >;
+    },
+    { [Schema in keyof ReadonlyPublicSchemaRefinements]: true }
+  >
+>;
+
 type CommonSignatures = [
   Expect<Equal<SDK.UUID, string>>,
   Expect<Equal<SDK.ISODateTime, string>>,
