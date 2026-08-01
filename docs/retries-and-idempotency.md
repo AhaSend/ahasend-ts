@@ -100,7 +100,8 @@ try {
   await client.messages.send(message);
 } catch (error) {
   if (error instanceof AhaSendIdempotencyConflictError && error.idempotencyKey) {
-    await reconcileMessage(error.idempotencyKey);
+    const recoveryKey = error.idempotencyKey;
+    // Reconcile with recoveryKey before starting a new business operation.
   }
 }
 ```

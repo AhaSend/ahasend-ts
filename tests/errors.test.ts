@@ -26,7 +26,7 @@ import {
 } from "../src/errors.js";
 import { AhaSendWebhookVerificationError as WebhookEntryError } from "../src/webhooks/index.js";
 import { createIdempotencyExecutionRecord } from "../src/idempotency.js";
-import { ACCOUNT_ID } from "./helpers/resource-call.js";
+import { ACCOUNT_ID, captureFetch } from "./helpers/resource-call.js";
 
 const ELIGIBLE_KEYED = createIdempotencyExecutionRecord(
   Object.freeze({ completion: "automatic" }),
@@ -419,10 +419,9 @@ describe("AhaSend error contract", () => {
   });
 
   it("exposes only the exhausted conflict recovery key to the caller", async () => {
-    const recoveryKey = "reconcile-order-secret-key";
     const telemetryErrors: unknown[] = [];
-    const fetch = vi.fn(async () =>
-      Promise.resolve(
+    const { fetch, calls } = captureFetch(
+      () =>
         new Response(JSON.stringify({ message: "still processing" }), {
           status: 409,
           headers: {
@@ -431,8 +430,7 @@ describe("AhaSend error contract", () => {
             "retry-after": "1",
           },
         }),
-      ),
-    ) as unknown as typeof globalThis.fetch;
+    );
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
       accountId: ACCOUNT_ID,
@@ -448,7 +446,7 @@ describe("AhaSend error contract", () => {
 
     let caught: unknown;
     try {
-      await client.domains.create({ domain: "example.com" }, { idempotencyKey: recoveryKey });
+      await client.domains.create({ domain: "example.com" });
     } catch (error) {
       caught = error;
     }
@@ -456,8 +454,16 @@ describe("AhaSend error contract", () => {
 
     expect(caught).toBeInstanceOf(AhaSendIdempotencyConflictError);
     const error = caught as AhaSendIdempotencyConflictError;
-    expect(error.idempotencyKey).toBe(recoveryKey);
     expect(fetch).toHaveBeenCalledTimes(2);
+    expect(calls).toHaveLength(2);
+    const recoveryKey = calls[0]?.headers["idempotency-key"];
+    expect(recoveryKey).toEqual(expect.any(String));
+    expect(recoveryKey).not.toHaveLength(0);
+    expect(calls.map((call) => call.headers["idempotency-key"])).toEqual([
+      recoveryKey,
+      recoveryKey,
+    ]);
+    expect(error.idempotencyKey).toBe(recoveryKey);
     expect(Object.getOwnPropertyDescriptor(error, "idempotencyKey")).toMatchObject({
       enumerable: false,
       writable: false,
