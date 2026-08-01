@@ -4,6 +4,8 @@ import { sleep } from "./retry.js";
 type EndpointCategory = "standard" | "statistics";
 
 const MAX_PENDING_ACQUISITIONS_PER_BUCKET = 1_000;
+/** @internal Smallest pacing rate whose token wait fits in a Node.js timer. */
+export const MIN_REQUESTS_PER_SECOND = 1000 / 2_147_483_647;
 
 export interface CategoryRateLimit {
   requestsPerSecond: number;

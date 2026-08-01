@@ -20,6 +20,11 @@ are 100 requests/second with a 200-request burst for standard calls and 1 reques
 one-request burst for statistics calls. Each category can be disabled independently, and every
 configured burst must be at least one token.
 
+Configured rates must be at least `1000 / 2_147_483_647` requests per second (approximately
+`4.6566e-7`). Lower rates would require a token wait longer than the maximum delay supported by
+Node.js timers, so the client rejects them during configuration instead of clamping or rounding
+them.
+
 Waiting calls are queued within one client instance and remain cancellable through their request
 `AbortSignal`. Local pacing happens before the per-attempt `timeoutMs` budget starts. Use a caller
 deadline when the queue wait must count toward an end-to-end deadline.

@@ -2,7 +2,7 @@ import type { IdempotencyConfig, ResolvedIdempotencyConfig } from "./idempotency
 import { assertValidIdempotencyKey, resolveIdempotencyConfig } from "./idempotency.js";
 import { AhaSendConfigurationError } from "./errors.js";
 import type { RateLimitConfig, ResolvedRateLimitConfig } from "./rate-limit.js";
-import { resolveRateLimitConfig } from "./rate-limit.js";
+import { MIN_REQUESTS_PER_SECOND, resolveRateLimitConfig } from "./rate-limit.js";
 import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
 import { MAX_RETRIES, resolveRetryConfig } from "./retry.js";
 import type { ResolvedTelemetryHooks, TelemetryHooks } from "./telemetry.js";
@@ -414,6 +414,11 @@ function assertRateLimitConfig(config: unknown): void {
         value.requestsPerSecond,
         `rateLimit.${category}.requestsPerSecond`,
       );
+      if (value.requestsPerSecond < MIN_REQUESTS_PER_SECOND) {
+        throw new AhaSendConfigurationError(
+          `AhaSend: \`rateLimit.${category}.requestsPerSecond\` must be greater than or equal to ${MIN_REQUESTS_PER_SECOND}.`,
+        );
+      }
     }
     if (value.burst !== undefined) {
       assertPositiveFiniteNumber(value.burst, `rateLimit.${category}.burst`);

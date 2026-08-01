@@ -7,6 +7,7 @@ import {
   optionsFromEnv,
   resolveConfig,
 } from "../src/config.js";
+import { MIN_REQUESTS_PER_SECOND } from "../src/rate-limit.js";
 import { MAX_RETRIES } from "../src/retry.js";
 
 describe("resolveConfig", () => {
@@ -76,6 +77,32 @@ describe("resolveConfig", () => {
           rateLimit: { [category]: { burst: 0.5 } },
         }),
       ).toThrow(/burst.*greater than or equal to 1/i);
+    },
+  );
+
+  it.each(["standard", "statistics"] as const)(
+    "accepts the exact minimum pacing rate for %s requests",
+    (category) => {
+      const resolved = resolveConfig({
+        apiKey: "aha-sk-test",
+        rateLimit: { [category]: { requestsPerSecond: MIN_REQUESTS_PER_SECOND } },
+      });
+
+      expect(resolved.rateLimit[category].requestsPerSecond).toBe(MIN_REQUESTS_PER_SECOND);
+    },
+  );
+
+  it.each(["standard", "statistics"] as const)(
+    "rejects a pacing rate immediately below the timer-safe minimum for %s requests",
+    (category) => {
+      const immediatelyBelowMinimum = MIN_REQUESTS_PER_SECOND * (1 - Number.EPSILON);
+
+      expect(() =>
+        resolveConfig({
+          apiKey: "aha-sk-test",
+          rateLimit: { [category]: { requestsPerSecond: immediatelyBelowMinimum } },
+        }),
+      ).toThrow(/requestsPerSecond.*greater than or equal/i);
     },
   );
 
