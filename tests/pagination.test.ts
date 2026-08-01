@@ -37,6 +37,20 @@ describe("paginate", () => {
     expect(fetchPage).toHaveBeenCalledOnce();
   });
 
+  it("stops when has_more is false even if a stale cursor is present", async () => {
+    const fetchPage = vi.fn(async () => ({
+      object: "list" as const,
+      data: [1],
+      pagination: { has_more: false, next_cursor: "stale-next-page" },
+    }));
+
+    const out: number[] = [];
+    for await (const item of paginate(fetchPage, {})) out.push(item);
+
+    expect(out).toEqual([1]);
+    expect(fetchPage).toHaveBeenCalledOnce();
+  });
+
   it("advances forward while preserving the limit and filters", async () => {
     const seen: Array<{ status?: string; limit?: number; after?: string; before?: string }> = [];
     const pages = [

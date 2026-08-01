@@ -31,7 +31,7 @@ export async function* paginate<T, P extends PaginationParams>(
     const page = await fetchPage(params);
     for (const item of page.data) yield item;
 
-    if (!page.pagination.has_more) return;
+    if (page.pagination.has_more === false) return;
     const cursor = backwards ? page.pagination.previous_cursor : page.pagination.next_cursor;
     if (!cursor) return;
     if (seenCursors.has(cursor)) {
