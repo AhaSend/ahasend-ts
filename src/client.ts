@@ -35,11 +35,15 @@ interface SerializedAhaSendClient {
   readonly apiKey: typeof REDACTED;
 }
 
+/** Options for an {@link AhaSendClient}, including the account that its resources target. */
 export interface AhaSendClientOptions extends ClientOptions {
+  /** Account ID used by every account-scoped resource request. */
   accountId: UUID;
 }
 
+/** Response returned by {@link AhaSendClient.ping}. */
 export interface PingResponse {
+  /** API health-check message. */
   message: string;
 }
 
@@ -57,6 +61,11 @@ export interface PingResponse {
  * Server-side only — construction throws in browser-like environments
  * to keep the bearer key out of front-end bundles. One client maps to
  * one account; instantiate multiple clients for multi-account tooling.
+ *
+ * The client exposes readonly structural facades for messages, domains,
+ * API keys, outbound webhooks, statistics, suppressions, routes, accounts,
+ * SMTP credentials, and sub-accounts. Child-account API keys are available
+ * through `client.subAccounts.apiKeys`.
  *
  * Retries (with backoff + `Retry-After`), opt-in two-bucket rate limiting,
  * and automatic idempotency keys on create operations are built in and
@@ -77,6 +86,7 @@ export class AhaSendClient {
   readonly #smtpCredentials: Readonly<SMTPCredentialsClient>;
   readonly #subAccounts: Readonly<SubAccountsClient>;
 
+  /** Create a server-side client bound to `options.accountId`. */
   constructor(options: AhaSendClientOptions) {
     assertPlainRecord(options, "client options");
     if (typeof options.accountId !== "string" || options.accountId.trim().length === 0) {
@@ -103,46 +113,57 @@ export class AhaSendClient {
     this.#subAccounts = createFrozenFacade(createSubAccountsClient(this.#operations, accountId));
   }
 
+  /** Account ID used by every account-scoped resource facade. */
   get accountId(): UUID {
     return this.#accountId;
   }
 
+  /** Send, inspect, list, and cancel transactional messages. */
   get messages(): Readonly<MessagesClient> {
     return this.#messages;
   }
 
+  /** Create, verify, inspect, update, and delete sending domains. */
   get domains(): Readonly<DomainsClient> {
     return this.#domains;
   }
 
+  /** Create, inspect, update, and delete API keys for the current account. */
   get apiKeys(): Readonly<APIKeysClient> {
     return this.#apiKeys;
   }
 
+  /** Create, inspect, update, and delete outbound webhook endpoints. */
   get webhooks(): Readonly<WebhooksClient> {
     return this.#webhooks;
   }
 
+  /** Query deliverability, bounce, and delivery-time statistics. */
   get statistics(): Readonly<StatisticsClient> {
     return this.#statistics;
   }
 
+  /** Create, list, delete, and wipe address suppressions. */
   get suppressions(): Readonly<SuppressionsClient> {
     return this.#suppressions;
   }
 
+  /** Create, inspect, update, and delete inbound email routes. */
   get routes(): Readonly<RoutesClient> {
     return this.#routes;
   }
 
+  /** Inspect and update accounts and manage account members. */
   get accounts(): Readonly<AccountsClient> {
     return this.#accounts;
   }
 
+  /** Create, inspect, list, and delete SMTP credentials. */
   get smtpCredentials(): Readonly<SMTPCredentialsClient> {
     return this.#smtpCredentials;
   }
 
+  /** Manage child accounts, their usage, and their nested API keys. */
   get subAccounts(): Readonly<SubAccountsClient> {
     return this.#subAccounts;
   }

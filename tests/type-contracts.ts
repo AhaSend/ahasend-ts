@@ -984,6 +984,33 @@ const structuralSubAccountMock: SDK.SubAccountsClient = {
   apiKeys: structuralSubAccountAPIKeyMock,
 };
 
+type ClientResourceSurface = Pick<
+  SDK.AhaSendClient,
+  | "messages"
+  | "domains"
+  | "apiKeys"
+  | "webhooks"
+  | "statistics"
+  | "suppressions"
+  | "routes"
+  | "accounts"
+  | "smtpCredentials"
+  | "subAccounts"
+>;
+
+const structuralClientMock: ClientResourceSurface = {
+  messages: structuralMessageMock,
+  domains: structuralDomainMock,
+  apiKeys: structuralAPIKeyMock,
+  webhooks: structuralWebhookMock,
+  statistics: structuralStatisticsMock,
+  suppressions: structuralSuppressionMock,
+  routes: structuralRouteMock,
+  accounts: structuralAccountMock,
+  smtpCredentials: structuralSMTPCredentialMock,
+  subAccounts: structuralSubAccountMock,
+};
+
 type RefinementContracts = [
   Expect<Equal<SDK.CreateMessageRequest["recipients"], SDK.NonEmptyArray<SDK.Recipient>>>,
   Expect<Equal<SDK.CreateConversationMessageRequest["to"], SDK.NonEmptyArray<SDK.Address>>>,
@@ -1286,6 +1313,7 @@ export type DeclarationContracts = [
   typeof structuralStatisticsMock,
   typeof structuralSubAccountMock,
   typeof structuralSubAccountAPIKeyMock,
+  typeof structuralClientMock,
   typeof expressHandler,
   typeof fastifyHandler,
   typeof nextHandler,
