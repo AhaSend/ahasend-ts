@@ -75,7 +75,7 @@ const CLIENT_OPTION_NAMES = new Set([
   "dangerouslyAllowBrowser",
 ]);
 
-const REQUEST_OPTION_NAMES = new Set(["signal", "headers", "timeoutMs"]);
+const REQUEST_OPTION_NAMES = new Set(["signal", "headers", "timeoutMs", "retry"]);
 const IDEMPOTENCY_REQUEST_OPTION_NAMES = new Set([...REQUEST_OPTION_NAMES, "idempotencyKey"]);
 const RETRY_STRATEGIES = new Set(["exponential", "linear", "constant"]);
 const HOOK_NAMES = new Set(["onRequest", "onResponse", "onRetry", "onError"]);
@@ -237,10 +237,21 @@ export function assertRequestOptions(
   if (options.timeoutMs !== undefined) {
     assertTimeoutMs(options.timeoutMs, "request options.timeoutMs");
   }
+  if (options.retry !== undefined && options.retry !== false) {
+    assertRequestRetryOverride(options.retry);
+  }
 
   if (allowIdempotencyKey && options.idempotencyKey !== undefined) {
     assertValidIdempotencyKey(options.idempotencyKey, "request options.idempotencyKey");
   }
+}
+
+/** @internal Validate the public per-call retry override shape. */
+export function assertRequestRetryOverride(
+  retry: unknown,
+): asserts retry is false | Partial<RetryConfig> {
+  if (retry === false) return;
+  assertRetryConfig(retry, "request options.retry", false);
 }
 
 /** @internal Validate caller headers and reject names owned by the SDK transport. */
@@ -347,37 +358,37 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
   return parsed.origin;
 }
 
-function assertRetryConfig(config: unknown): void {
+function assertRetryConfig(config: unknown, name = "retry", checkResolvedDelays = true): void {
   if (config === undefined) return;
-  assertPlainRecord(config, "retry");
+  assertPlainRecord(config, name);
   assertKnownKeys(
     config,
     new Set(["enabled", "maxRetries", "baseDelayMs", "maxDelayMs", "strategy", "jitter"]),
-    "retry",
+    name,
   );
-  assertOptionalBoolean(config.enabled, "retry.enabled");
-  assertOptionalBoolean(config.jitter, "retry.jitter");
+  assertOptionalBoolean(config.enabled, `${name}.enabled`);
+  assertOptionalBoolean(config.jitter, `${name}.jitter`);
   if (config.maxRetries !== undefined) {
-    assertRetryCount(config.maxRetries, "retry.maxRetries");
+    assertRetryCount(config.maxRetries, `${name}.maxRetries`);
   }
   if (config.baseDelayMs !== undefined) {
-    assertNonNegativeFiniteNumber(config.baseDelayMs, "retry.baseDelayMs");
-    assertSupportedTimerDelay(config.baseDelayMs, "retry.baseDelayMs");
+    assertNonNegativeFiniteNumber(config.baseDelayMs, `${name}.baseDelayMs`);
+    assertSupportedTimerDelay(config.baseDelayMs, `${name}.baseDelayMs`);
   }
   if (config.maxDelayMs !== undefined) {
-    assertNonNegativeFiniteNumber(config.maxDelayMs, "retry.maxDelayMs");
-    assertSupportedTimerDelay(config.maxDelayMs, "retry.maxDelayMs");
+    assertNonNegativeFiniteNumber(config.maxDelayMs, `${name}.maxDelayMs`);
+    assertSupportedTimerDelay(config.maxDelayMs, `${name}.maxDelayMs`);
   }
   if (config.strategy !== undefined && !RETRY_STRATEGIES.has(config.strategy as string)) {
     throw new AhaSendConfigurationError(
-      'AhaSend: `retry.strategy` must be "exponential", "linear", or "constant".',
+      `AhaSend: \`${name}.strategy\` must be "exponential", "linear", or "constant".`,
     );
   }
 
   const resolved = resolveRetryConfig(config);
-  if (resolved.maxDelayMs < resolved.baseDelayMs) {
+  if (checkResolvedDelays && resolved.maxDelayMs < resolved.baseDelayMs) {
     throw new AhaSendConfigurationError(
-      "AhaSend: `retry.maxDelayMs` must be greater than or equal to `retry.baseDelayMs`.",
+      `AhaSend: \`${name}.maxDelayMs\` must be greater than or equal to \`${name}.baseDelayMs\`.`,
     );
   }
 }

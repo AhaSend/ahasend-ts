@@ -1,6 +1,7 @@
 import {
   AhaSendAbortError,
   AhaSendAPIError,
+  AhaSendConfigurationError,
   AhaSendConnectionError,
   AhaSendIdempotencyConflictError,
   AhaSendRateLimitError,
@@ -48,6 +49,63 @@ export function resolveRetryConfig(override?: RetryConfig): ResolvedRetryConfig 
     strategy: override?.strategy ?? DEFAULT_RETRY_CONFIG.strategy,
     jitter: override?.jitter ?? DEFAULT_RETRY_CONFIG.jitter,
   };
+}
+
+/** Resolve a per-call retry restriction without broadening the client policy. */
+export function resolveRetryOverride(
+  configured: ResolvedRetryConfig,
+  override?: false | Partial<RetryConfig>,
+): ResolvedRetryConfig {
+  if (override === undefined) return configured;
+  if (override === false) return { ...configured, enabled: false };
+
+  if (override.enabled === true && !configured.enabled) {
+    throw new AhaSendConfigurationError(
+      "AhaSend: `request options.retry.enabled` cannot enable retries disabled by the client.",
+    );
+  }
+
+  assertRetryLimitDoesNotIncrease("maxRetries", override.maxRetries, configured.maxRetries);
+  assertRetryLimitDoesNotIncrease("baseDelayMs", override.baseDelayMs, configured.baseDelayMs);
+  assertRetryLimitDoesNotIncrease("maxDelayMs", override.maxDelayMs, configured.maxDelayMs);
+
+  if (override.strategy !== undefined && override.strategy !== configured.strategy) {
+    throw new AhaSendConfigurationError(
+      "AhaSend: `request options.retry.strategy` cannot change the client retry strategy.",
+    );
+  }
+  if (override.jitter !== undefined && override.jitter !== configured.jitter) {
+    throw new AhaSendConfigurationError(
+      "AhaSend: `request options.retry.jitter` cannot change the client retry jitter setting.",
+    );
+  }
+
+  const resolved: ResolvedRetryConfig = {
+    enabled: override.enabled ?? configured.enabled,
+    maxRetries: override.maxRetries ?? configured.maxRetries,
+    baseDelayMs: override.baseDelayMs ?? configured.baseDelayMs,
+    maxDelayMs: override.maxDelayMs ?? configured.maxDelayMs,
+    strategy: override.strategy ?? configured.strategy,
+    jitter: override.jitter ?? configured.jitter,
+  };
+  if (resolved.maxDelayMs < resolved.baseDelayMs) {
+    throw new AhaSendConfigurationError(
+      "AhaSend: resolved `request options.retry.maxDelayMs` must be greater than or equal to `baseDelayMs`.",
+    );
+  }
+  return resolved;
+}
+
+function assertRetryLimitDoesNotIncrease(
+  field: "maxRetries" | "baseDelayMs" | "maxDelayMs",
+  override: number | undefined,
+  configured: number,
+): void {
+  if (override !== undefined && override > configured) {
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`request options.retry.${field}\` cannot exceed the client value (${configured}).`,
+    );
+  }
 }
 
 export function isRetryableError(err: unknown): boolean {

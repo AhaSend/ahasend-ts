@@ -1065,6 +1065,7 @@ export interface RequestEvent {
 export interface RequestOptions {
     // (undocumented)
     headers?: Record<string, string>;
+    retry?: false | Partial<RetryConfig>;
     // (undocumented)
     signal?: AbortSignal;
     timeoutMs?: number;

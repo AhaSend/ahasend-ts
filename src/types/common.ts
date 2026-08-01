@@ -1,3 +1,5 @@
+import type { RetryConfig } from "../retry.js";
+
 export type UUID = string;
 export type ISODateTime = string;
 export type NonEmptyArray<T> = readonly [T, ...T[]];
@@ -38,6 +40,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Timeout for each network attempt, including response-body reading. */
   timeoutMs?: number;
+  /** Restrict the client's retry policy for this call, or disable retries. */
+  retry?: false | Partial<RetryConfig>;
 }
 
 export interface IdempotencyRequestOptions extends RequestOptions {

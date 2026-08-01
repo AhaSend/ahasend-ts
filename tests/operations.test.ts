@@ -47,13 +47,14 @@ describe("OperationExecutor", () => {
           domain: HOSTNAME,
         },
       },
-      { timeoutMs: 2_000 },
+      { timeoutMs: 2_000, retry: false },
     );
 
     expect(new URL(seenUrl).pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
         timeoutMs: 2_000,
+        retry: false,
         execution: {
           operationId: "getDomain",
           retryMode: "safe",
@@ -250,9 +251,13 @@ describe("OperationExecutor", () => {
     const executor = new OperationExecutor(http);
 
     await expect(
-      executor.execute("checkDomainDNS", {
-        path: { account_id: ACCOUNT_ID, domain: HOSTNAME },
-      }),
+      executor.execute(
+        "checkDomainDNS",
+        {
+          path: { account_id: ACCOUNT_ID, domain: HOSTNAME },
+        },
+        { retry: { enabled: true, maxRetries: 2 } },
+      ),
     ).rejects.toMatchObject({ status: 500 });
     expect(transport).toHaveBeenCalledTimes(1);
   });
@@ -271,10 +276,14 @@ describe("OperationExecutor", () => {
     const executor = new OperationExecutor(http);
 
     await expect(
-      executor.execute("createDomain", {
-        path: { account_id: ACCOUNT_ID },
-        body: { domain: "example.com" },
-      }),
+      executor.execute(
+        "createDomain",
+        {
+          path: { account_id: ACCOUNT_ID },
+          body: { domain: "example.com" },
+        },
+        { retry: { enabled: true, maxRetries: 2 } },
+      ),
     ).rejects.toMatchObject({ status: 500 });
     expect(transport).toHaveBeenCalledTimes(1);
   });

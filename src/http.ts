@@ -1,5 +1,5 @@
 import type { ResolvedConfig } from "./config.js";
-import { assertHeaders, assertTimeoutMs } from "./config.js";
+import { assertHeaders, assertRequestRetryOverride, assertTimeoutMs } from "./config.js";
 import {
   AhaSendAbortError,
   AhaSendConnectionError,
@@ -21,7 +21,8 @@ import { OPERATION_DESCRIPTORS } from "./generated/operations.js";
 import type { OperationId, RetryMode } from "./generated/operations.js";
 import type { OperationExecutionRecord } from "./operations.js";
 import { RateLimiter } from "./rate-limit.js";
-import { computeRetryDelayMs, isRetryableError, sleep } from "./retry.js";
+import { computeRetryDelayMs, isRetryableError, resolveRetryOverride, sleep } from "./retry.js";
+import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
 import type { AhaSendPromise, AhaSendResponse } from "./types/common.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -37,6 +38,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** Per-attempt override for the configured timeout. */
   timeoutMs?: number;
+  /** Per-call restriction of the configured retry policy. */
+  retry?: false | Partial<RetryConfig>;
   /**
    * Resource clients set this on the 11 spec-documented idempotency
    * endpoints (every `create*` operation) so the transport layer will
@@ -78,8 +81,12 @@ export class HttpClient {
     if (options.timeoutMs !== undefined) {
       assertTimeoutMs(options.timeoutMs, "request timeoutMs");
     }
+    if (options.retry !== undefined) {
+      assertRequestRetryOverride(options.retry);
+    }
+    const retry = resolveRetryOverride(this.config.retry, options.retry);
     let responseEnvelope: AhaSendResponse<T>;
-    const bodyPromise = this.requestWithResponse<T>(options).then((envelope) => {
+    const bodyPromise = this.requestWithResponse<T>(options, retry).then((envelope) => {
       responseEnvelope = envelope;
       return envelope.data;
     }) as AhaSendPromise<T>;
@@ -90,12 +97,14 @@ export class HttpClient {
     return bodyPromise;
   }
 
-  private async requestWithResponse<T>(options: RequestOptions): Promise<AhaSendResponse<T>> {
+  private async requestWithResponse<T>(
+    options: RequestOptions,
+    retry: ResolvedRetryConfig,
+  ): Promise<AhaSendResponse<T>> {
     const url = this.buildUrl(options.path, options.query);
     const init = this.buildRequestInit(options);
     const execution = this.buildExecutionRecord(options, url, init);
 
-    const retry = this.config.retry;
     const maxAttempts = retry.enabled && this.isRetryAllowed(execution) ? retry.maxRetries + 1 : 1;
     const hooks = this.config.hooks;
 

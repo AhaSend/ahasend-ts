@@ -151,6 +151,7 @@ Every method accepts a trailing options object:
 await client.messages.send(body, {
   signal: AbortSignal.timeout(5_000), // cancel/abort the request
   timeoutMs: 2_000, // override the timeout for each attempt in this call
+  retry: { maxRetries: 1 }, // restrict this call's retry policy (or use false)
   headers: { "x-trace-id": traceId }, // extra headers for this call
   idempotencyKey: `receipt-${orderId}`, // create operations only
 });
@@ -160,6 +161,7 @@ await client.messages.send(body, {
 | ---------------- | ----------------- | ------------------------------------------------------------- |
 | `signal`         | all methods       | `AbortSignal` — cancels the request (and any retry sleep)     |
 | `timeoutMs`      | all methods       | Per-attempt timeout override for fetch and response-body read |
+| `retry`          | all methods       | Disable or restrict the client retry policy for this call     |
 | `headers`        | all methods       | Additional request headers                                    |
 | `idempotencyKey` | create operations | Explicit idempotency key; otherwise one is auto-generated     |
 
@@ -191,6 +193,9 @@ A valid server `Retry-After` on 429 (seconds or HTTP-date) or an eligible keyed
 409 (positive integer seconds) is authoritative and capped at the configured
 `maxDelayMs` (30 seconds by default). Configure via the `retry` option;
 `maxRetries: 3` means up to 4 total attempts for an eligible operation.
+Per-call `options.retry` may be `false`, set `enabled: false`, or lower the configured numeric
+limits. It cannot enable client-disabled retries, increase a numeric setting, or change the
+configured strategy or jitter. Generated operation safety remains the final retry gate.
 
 Caller aborts are terminal. Read [Cancellation and timeouts](docs/cancellation.md) before
 combining local pacing, retries, and end-to-end deadlines.

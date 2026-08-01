@@ -43,6 +43,23 @@ const client = new AhaSendClient({
 });
 ```
 
+Every resource method also accepts a restricted per-call override. Use `retry: false` (or
+`retry: { enabled: false }`) to make one attempt. An object is merged field by field with the
+client policy: `maxRetries`, `baseDelayMs`, and `maxDelayMs` may stay the same or decrease, while
+`strategy` and `jitter` may only repeat their configured values. `enabled: true` is accepted only
+when client retries are enabled. Invalid increases or changes are rejected before any request is
+sent.
+
+```ts
+await client.messages.send(message, {
+  retry: { maxRetries: 1, maxDelayMs: 5_000 },
+});
+```
+
+These overrides can only restrict client policy. They never override the generated operation
+profile: an operation marked never retryable still gets one attempt, and a key-protected operation
+still requires an idempotency key.
+
 See [Cancellation and timeouts](cancellation.md) for the boundaries of attempt timeouts and abort
 signals.
 

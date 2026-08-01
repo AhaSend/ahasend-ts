@@ -550,6 +550,7 @@ describe("root public exports", () => {
   it("retains public options, promises, telemetry, models, and resource client types", () => {
     expectTypeOf<AhaSendClientOptions>().toExtend<ClientOptions>();
     expectTypeOf<IdempotencyRequestOptions>().toExtend<RequestOptions>();
+    expectTypeOf<RequestOptions>().toHaveProperty("retry");
     expectTypeOf<IdempotencyConfig>().toHaveProperty("autoGenerate");
     expectTypeOf<RetryConfig>().toHaveProperty("maxRetries");
     expectTypeOf<RateLimitConfig["standard"]>().toEqualTypeOf<
@@ -594,7 +595,8 @@ describe("root public exports", () => {
 describe("resource option forwarding", () => {
   it("returns frozen snapshots without freezing or retaining caller headers", () => {
     const headers = { "x-trace-id": "trace-1" };
-    const forwarded = forwardOptions({ headers, timeoutMs: 2_000 });
+    const retry = { maxRetries: 1 };
+    const forwarded = forwardOptions({ headers, timeoutMs: 2_000, retry });
     const idempotent = forwardWithIdempotency({
       headers,
       timeoutMs: 3_000,
@@ -603,10 +605,16 @@ describe("resource option forwarding", () => {
     const generatedIdempotency = forwardWithIdempotency({ headers });
 
     headers["x-trace-id"] = "changed";
+    retry.maxRetries = 2;
 
     expect(Object.isFrozen(forwarded)).toBe(true);
     expect(Object.isFrozen(forwarded.headers)).toBe(true);
-    expect(forwarded).toEqual({ headers: { "x-trace-id": "trace-1" }, timeoutMs: 2_000 });
+    expect(Object.isFrozen(forwarded.retry)).toBe(true);
+    expect(forwarded).toEqual({
+      headers: { "x-trace-id": "trace-1" },
+      timeoutMs: 2_000,
+      retry: { maxRetries: 1 },
+    });
     expect(Object.isFrozen(idempotent)).toBe(true);
     expect(Object.isFrozen(idempotent.headers)).toBe(true);
     expect(idempotent).toEqual({
@@ -615,5 +623,6 @@ describe("resource option forwarding", () => {
       idempotencyKey: "operation-1",
     });
     expect(generatedIdempotency).toEqual({ headers: { "x-trace-id": "trace-1" } });
+    expect(forwardOptions({ retry: false })).toEqual({ retry: false });
   });
 });

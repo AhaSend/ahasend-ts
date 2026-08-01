@@ -1,4 +1,5 @@
 import type { IdempotencyRequestOptions, RequestOptions } from "../types/common.js";
+import type { RetryConfig } from "../retry.js";
 import { assertRequestOptions } from "../config.js";
 export type { IdempotencyRequestOptions } from "../types/common.js";
 
@@ -6,6 +7,7 @@ interface ForwardedOptions {
   readonly signal?: AbortSignal;
   readonly headers?: Record<string, string>;
   readonly timeoutMs?: number;
+  readonly retry?: false | Readonly<Partial<RetryConfig>>;
   readonly idempotencyKey?: string;
 }
 
@@ -47,6 +49,7 @@ export function forwardOptions(options: RequestOptions = {}): ForwardedOptions {
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.headers ? { headers: Object.freeze({ ...options.headers }) } : {}),
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.retry !== undefined ? { retry: freezeRetryOverride(options.retry) } : {}),
   });
 }
 
@@ -57,6 +60,13 @@ export function forwardWithIdempotency(options: IdempotencyRequestOptions = {}):
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.headers ? { headers: Object.freeze({ ...options.headers }) } : {}),
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.retry !== undefined ? { retry: freezeRetryOverride(options.retry) } : {}),
     ...(options.idempotencyKey !== undefined ? { idempotencyKey: options.idempotencyKey } : {}),
   });
+}
+
+function freezeRetryOverride(
+  retry: false | Partial<RetryConfig>,
+): false | Readonly<Partial<RetryConfig>> {
+  return retry === false ? false : Object.freeze({ ...retry });
 }

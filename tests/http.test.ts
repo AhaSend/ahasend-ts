@@ -5,6 +5,7 @@ import type {
   IdempotencyRequestOptions,
   NonEmptyArray,
   RequestOptions,
+  RetryConfig,
 } from "../src/index.js";
 import { MAX_TIMER_DELAY_MS, resolveConfig } from "../src/config.js";
 import {
@@ -893,6 +894,145 @@ describe("HttpClient response promises", () => {
 
 describe("HttpClient retry behaviour", () => {
   const fastRetry = { baseDelayMs: 1, maxDelayMs: 5, jitter: false };
+
+  it.each([
+    ["false", false, 1],
+    ["enabled:false", { enabled: false }, 1],
+    ["enabled:true", { enabled: true }, 3],
+    ["maxRetries", { maxRetries: 1 }, 2],
+    ["baseDelayMs", { baseDelayMs: 0 }, 3],
+    ["maxDelayMs", { maxDelayMs: 0 }, 3],
+    ["strategy", { strategy: "constant" as const }, 3],
+    ["jitter", { jitter: false }, 3],
+  ])(
+    "applies the per-call %s override against enabled client retries",
+    async (_name, retry, attempts) => {
+      const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+      const client = makeClient(fetchImpl, {
+        retry: {
+          enabled: true,
+          maxRetries: 2,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          strategy: "constant",
+          jitter: false,
+        },
+      });
+
+      await expect(
+        client.request({
+          method: "GET",
+          path: "/x",
+          retry: retry as false | Partial<RetryConfig>,
+        }),
+      ).rejects.toMatchObject({ status: 500 });
+      expect(fetchImpl).toHaveBeenCalledTimes(attempts);
+    },
+  );
+
+  it.each([
+    ["false", false],
+    ["enabled:false", { enabled: false }],
+    ["maxRetries", { maxRetries: 1 }],
+    ["baseDelayMs", { baseDelayMs: 0 }],
+    ["maxDelayMs", { maxDelayMs: 0 }],
+    ["strategy", { strategy: "constant" as const }],
+    ["jitter", { jitter: false }],
+  ])("keeps retries disabled for a per-call %s override", async (_name, retry) => {
+    const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+    const client = makeClient(fetchImpl, {
+      retry: {
+        enabled: false,
+        maxRetries: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        strategy: "constant",
+        jitter: false,
+      },
+    });
+
+    await expect(
+      client.request({
+        method: "GET",
+        path: "/x",
+        retry: retry as false | Partial<RetryConfig>,
+      }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["enabled", { enabled: true }, { enabled: false }],
+    ["maxRetries", { maxRetries: 3 }, { enabled: true, maxRetries: 2 }],
+    ["baseDelayMs", { baseDelayMs: 6 }, { enabled: true, baseDelayMs: 5, maxDelayMs: 10 }],
+    ["maxDelayMs", { maxDelayMs: 11 }, { enabled: true, baseDelayMs: 5, maxDelayMs: 10 }],
+    ["strategy", { strategy: "linear" as const }, { enabled: true }],
+    ["jitter", { jitter: false }, { enabled: true }],
+  ])("rejects a per-call %s policy increase before fetch", (field, retry, configured) => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl, {
+      retry: {
+        maxRetries: 2,
+        baseDelayMs: 5,
+        maxDelayMs: 10,
+        strategy: "exponential",
+        jitter: true,
+        ...configured,
+      },
+    });
+
+    expect(() => client.request({ method: "GET", path: "/x", retry })).toThrow(
+      new RegExp(`request options\\.retry\\.${field}`),
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects a per-call delay cap below the resolved base delay before fetch", () => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl, {
+      retry: { baseDelayMs: 5, maxDelayMs: 10 },
+    });
+
+    expect(() => client.request({ method: "GET", path: "/x", retry: { maxDelayMs: 4 } })).toThrow(
+      /request options\.retry\.maxDelayMs.*greater than or equal to.*baseDelayMs/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["unknown field", { extra: true }],
+    ["non-boolean enabled", { enabled: "yes" }],
+    ["invalid maxRetries", { maxRetries: 1.5 }],
+    ["invalid baseDelayMs", { baseDelayMs: -1 }],
+    ["invalid maxDelayMs", { maxDelayMs: Number.NaN }],
+    ["invalid strategy", { strategy: "random" }],
+    ["non-boolean jitter", { jitter: 1 }],
+  ])("rejects a malformed per-call retry override with %s before fetch", (_name, retry) => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl);
+
+    expect(() => client.request({ method: "GET", path: "/x", retry } as never)).toThrow(
+      /request options\.retry/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps generated never-retry safety final after resolving a per-call override", async () => {
+    const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+    const client = makeClient(fetchImpl, {
+      retry: { ...fastRetry, enabled: true, maxRetries: 2 },
+    });
+
+    await expect(
+      client.request({
+        method: "POST",
+        path: "/x",
+        retryMode: "never",
+        retry: { enabled: true, maxRetries: 2 },
+      }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
 
   it("retries on a 500 then succeeds", async () => {
     let attempts = 0;
