@@ -164,6 +164,13 @@ export class AhaSendAbortError extends AhaSendError {
   }
 }
 
+/** @internal The local pacing queue cannot retain another acquisition. */
+export class AhaSendRateLimitQueueFullError extends AhaSendError {
+  constructor() {
+    super("Rate limiter queue is full");
+  }
+}
+
 /** The per-attempt `timeoutMs` elapsed during fetch or response-body reading. */
 export class AhaSendTimeoutError extends AhaSendConnectionError {
   constructor(message = "Request timed out", cause?: unknown) {
