@@ -11,7 +11,26 @@ import type {
   PaginationParams,
   UpdateWebhookRequest,
 } from "@ahasend/sdk";
-import { WebhookVerifier } from "@ahasend/sdk/webhooks";
+import {
+  AhaSendAbortError,
+  AhaSendAPIError,
+  AhaSendAuthenticationError,
+  AhaSendBadRequestError,
+  AhaSendConflictError,
+  AhaSendConfigurationError,
+  AhaSendConnectionError,
+  AhaSendError,
+  AhaSendIdempotencyConflictError,
+  AhaSendIdempotencyMismatchError,
+  AhaSendNotFoundError,
+  AhaSendPermissionError,
+  AhaSendRateLimitError,
+  AhaSendResponseParseError,
+  AhaSendServerError,
+  AhaSendTimeoutError,
+  AhaSendUnprocessableEntityError,
+} from "@ahasend/sdk";
+import { AhaSendWebhookVerificationError, WebhookVerifier } from "@ahasend/sdk/webhooks";
 
 declare const client: AhaSendClient;
 
@@ -91,6 +110,26 @@ void client.routes.list(routes);
 void client.suppressions.list(suppressions);
 void client.webhooks.list(webhooks);
 void new WebhookVerifier("whsec_dGVzdA==");
+
+const apiErrorParams = { status: 400, message: "failed", body: null };
+void new AhaSendError("failed");
+void new AhaSendConfigurationError("failed");
+void new AhaSendConnectionError("failed");
+void new AhaSendAbortError();
+void new AhaSendTimeoutError();
+void new AhaSendResponseParseError({ status: 200, body: "invalid" });
+void new AhaSendAPIError(apiErrorParams);
+void new AhaSendAuthenticationError(apiErrorParams);
+void new AhaSendPermissionError(apiErrorParams);
+void new AhaSendNotFoundError(apiErrorParams);
+void new AhaSendBadRequestError(apiErrorParams);
+void new AhaSendConflictError(apiErrorParams);
+void new AhaSendIdempotencyConflictError({ ...apiErrorParams, retryAfterSeconds: 1 });
+void new AhaSendUnprocessableEntityError(apiErrorParams);
+void new AhaSendIdempotencyMismatchError(apiErrorParams);
+void new AhaSendRateLimitError({ ...apiErrorParams, retryAfterSeconds: 1 });
+void new AhaSendServerError(apiErrorParams);
+void new AhaSendWebhookVerificationError("signature_mismatch");
 
 // @ts-expect-error Pagination cursors are mutually exclusive.
 void client.apiKeys.list({ limit: 25, after: "after", before: "before" });
