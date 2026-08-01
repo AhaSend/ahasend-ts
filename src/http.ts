@@ -32,7 +32,7 @@ export interface RequestOptions {
   path: string;
   query?: Record<string, unknown>;
   body?: unknown;
-  headers?: Record<string, string>;
+  headers?: Readonly<Record<string, string>>;
   /** Validated explicit key forwarded separately from caller-controlled headers. */
   idempotencyKey?: string;
   signal?: AbortSignal;
@@ -478,7 +478,7 @@ interface HttpExecutionRecord {
   readonly idempotency: IdempotencyExecutionRecord;
 }
 
-function lowercaseHeaders(headers?: Record<string, string>): Record<string, string> {
+function lowercaseHeaders(headers?: Readonly<Record<string, string>>): Record<string, string> {
   if (!headers) return {};
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) out[key.toLowerCase()] = value;

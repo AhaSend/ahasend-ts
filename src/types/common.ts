@@ -37,7 +37,7 @@ export interface SuccessResponse {
 
 export interface RequestOptions {
   signal?: AbortSignal;
-  headers?: Record<string, string>;
+  headers?: Readonly<Record<string, string>>;
   /** Timeout for each network attempt, including response-body reading. */
   timeoutMs?: number;
   /** Restrict the client's retry policy for this call, or disable retries. */
