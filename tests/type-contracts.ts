@@ -553,17 +553,25 @@ type RouteSignatures = [
 ];
 
 type AccountSignatures = [
-  Expect<Equal<SDK.AccountsClient["get"], (options?: SDK.RequestOptions) => Promise<SDK.Account>>>,
+  Expect<
+    Equal<
+      SDK.AccountsClient["get"],
+      (options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Account>
+    >
+  >,
   Expect<
     Equal<
       SDK.AccountsClient["update"],
-      (body: SDK.UpdateAccountRequest, options?: SDK.RequestOptions) => Promise<SDK.Account>
+      (
+        body: SDK.UpdateAccountRequest,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.Account>
     >
   >,
   Expect<
     Equal<
       SDK.AccountsClient["listMembers"],
-      (options?: SDK.RequestOptions) => Promise<SDK.ListAccountMembersResponse>
+      (options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.ListAccountMembersResponse>
     >
   >,
   Expect<
@@ -572,16 +580,29 @@ type AccountSignatures = [
       (
         body: SDK.AddAccountMemberRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.UserAccount>
+      ) => SDK.AhaSendPromise<SDK.UserAccount>
     >
   >,
   Expect<
     Equal<
       SDK.AccountsClient["removeMember"],
-      (userId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (userId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const accountResult: SDK.AhaSendPromise<SDK.Account>;
+declare const accountMembersResult: SDK.AhaSendPromise<SDK.ListAccountMembersResponse>;
+declare const accountMemberResult: SDK.AhaSendPromise<SDK.UserAccount>;
+declare const successResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralAccountMock: SDK.AccountsClient = {
+  get: () => accountResult,
+  update: () => accountResult,
+  listMembers: () => accountMembersResult,
+  addMember: () => accountMemberResult,
+  removeMember: () => successResult,
+};
 
 type SMTPCredentialSignatures = [
   Expect<
@@ -1030,6 +1051,7 @@ export type DeclarationContracts = [
   SubAccountSignatures,
   SubAccountAPIKeySignatures,
   RefinementContracts,
+  typeof structuralAccountMock,
   typeof pingExecution,
   typeof messageExecution,
   DomainRequestOptions,

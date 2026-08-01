@@ -1,5 +1,11 @@
 import type { OperationExecutor } from "../operations.js";
-import type { ISODateTime, RequestOptions, SuccessResponse, UUID } from "../types/common.js";
+import type {
+  AhaSendPromise,
+  ISODateTime,
+  RequestOptions,
+  SuccessResponse,
+  UUID,
+} from "../types/common.js";
 import { forwardOptions, forwardWithIdempotency } from "./_helpers.js";
 import type { IdempotencyRequestOptions } from "./_helpers.js";
 
@@ -55,7 +61,27 @@ export interface AddAccountMemberRequest {
 }
 
 /** Account settings and member management. */
-export class AccountsClient {
+export interface AccountsClient {
+  /** Retrieve the account's current settings. */
+  get(options?: RequestOptions): AhaSendPromise<Account>;
+
+  /** Update the supplied account settings, leaving omitted settings unchanged. */
+  update(body: UpdateAccountRequest, options?: RequestOptions): AhaSendPromise<Account>;
+
+  /** List every user who belongs to the account and each user's account role. */
+  listMembers(options?: RequestOptions): AhaSendPromise<ListAccountMembersResponse>;
+
+  /** Add a user to the account by email address and assign their account role. */
+  addMember(
+    body: AddAccountMemberRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<UserAccount>;
+
+  /** Remove a user from the account by user ID. */
+  removeMember(userId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+}
+
+class AccountsClientImplementation implements AccountsClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -64,7 +90,7 @@ export class AccountsClient {
     this.#accountId = accountId;
   }
 
-  get(options: RequestOptions = {}): Promise<Account> {
+  get(options: RequestOptions = {}): AhaSendPromise<Account> {
     return this.#operations.execute(
       "getAccount",
       { path: { account_id: this.#accountId } },
@@ -72,7 +98,7 @@ export class AccountsClient {
     );
   }
 
-  update(body: UpdateAccountRequest, options: RequestOptions = {}): Promise<Account> {
+  update(body: UpdateAccountRequest, options: RequestOptions = {}): AhaSendPromise<Account> {
     return this.#operations.execute(
       "updateAccount",
       { path: { account_id: this.#accountId }, body },
@@ -80,7 +106,7 @@ export class AccountsClient {
     );
   }
 
-  listMembers(options: RequestOptions = {}): Promise<ListAccountMembersResponse> {
+  listMembers(options: RequestOptions = {}): AhaSendPromise<ListAccountMembersResponse> {
     return this.#operations.execute(
       "getAccountMembers",
       { path: { account_id: this.#accountId } },
@@ -91,7 +117,7 @@ export class AccountsClient {
   addMember(
     body: AddAccountMemberRequest,
     options: IdempotencyRequestOptions = {},
-  ): Promise<UserAccount> {
+  ): AhaSendPromise<UserAccount> {
     return this.#operations.execute(
       "addAccountMember",
       { path: { account_id: this.#accountId }, body },
@@ -99,11 +125,19 @@ export class AccountsClient {
     );
   }
 
-  removeMember(userId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
+  removeMember(userId: UUID, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
     return this.#operations.execute(
       "removeAccountMember",
       { path: { account_id: this.#accountId, user_id: userId } },
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the account resource implementation for the root client. */
+export function createAccountsClient(
+  operations: OperationExecutor,
+  accountId: UUID,
+): AccountsClient {
+  return new AccountsClientImplementation(operations, accountId);
 }

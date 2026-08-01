@@ -322,12 +322,12 @@ client.messages.cancel(messageId: string, options?: RequestOptions): Promise<Suc
 ### accounts.get
 
 ```ts
-client.accounts.get(options?: RequestOptions): Promise<Account>
+client.accounts.get(options?: RequestOptions): AhaSendPromise<Account>
 ```
 
 - **Operation ID:** `getAccount`
 - **HTTP:** `GET /v2/accounts/{account_id}`
-- **Models:** [RequestOptions](../src/types/common.ts), [Account](../src/resources/accounts.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Account](../src/resources/accounts.ts)
 - **OpenAPI models:** `200: Account`
 - **Scopes:** `accounts:read`
 - **Security alternatives:** `BearerAuth: accounts:read`
@@ -340,12 +340,12 @@ client.accounts.get(options?: RequestOptions): Promise<Account>
 ### accounts.update
 
 ```ts
-client.accounts.update(body: UpdateAccountRequest, options?: RequestOptions): Promise<Account>
+client.accounts.update(body: UpdateAccountRequest, options?: RequestOptions): AhaSendPromise<Account>
 ```
 
 - **Operation ID:** `updateAccount`
 - **HTTP:** `PUT /v2/accounts/{account_id}`
-- **Models:** [UpdateAccountRequest](../src/resources/accounts.ts), [RequestOptions](../src/types/common.ts), [Account](../src/resources/accounts.ts)
+- **Models:** [UpdateAccountRequest](../src/resources/accounts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Account](../src/resources/accounts.ts)
 - **OpenAPI models:** `request: UpdateAccountRequest`, `200: Account`
 - **Scopes:** `accounts:write`
 - **Security alternatives:** `BearerAuth: accounts:write`
@@ -358,12 +358,12 @@ client.accounts.update(body: UpdateAccountRequest, options?: RequestOptions): Pr
 ### accounts.listMembers
 
 ```ts
-client.accounts.listMembers(options?: RequestOptions): Promise<ListAccountMembersResponse>
+client.accounts.listMembers(options?: RequestOptions): AhaSendPromise<ListAccountMembersResponse>
 ```
 
 - **Operation ID:** `getAccountMembers`
 - **HTTP:** `GET /v2/accounts/{account_id}/members`
-- **Models:** [RequestOptions](../src/types/common.ts), [ListAccountMembersResponse](../src/resources/accounts.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [ListAccountMembersResponse](../src/resources/accounts.ts)
 - **OpenAPI models:** `200: AccountMembersResponse`
 - **Scopes:** `accounts:members:read`
 - **Security alternatives:** `BearerAuth: accounts:members:read`
@@ -376,12 +376,12 @@ client.accounts.listMembers(options?: RequestOptions): Promise<ListAccountMember
 ### accounts.addMember
 
 ```ts
-client.accounts.addMember(body: AddAccountMemberRequest, options?: IdempotencyRequestOptions): Promise<UserAccount>
+client.accounts.addMember(body: AddAccountMemberRequest, options?: IdempotencyRequestOptions): AhaSendPromise<UserAccount>
 ```
 
 - **Operation ID:** `addAccountMember`
 - **HTTP:** `POST /v2/accounts/{account_id}/members`
-- **Models:** [AddAccountMemberRequest](../src/resources/accounts.ts), [IdempotencyRequestOptions](../src/types/common.ts), [UserAccount](../src/resources/accounts.ts)
+- **Models:** [AddAccountMemberRequest](../src/resources/accounts.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [UserAccount](../src/resources/accounts.ts)
 - **OpenAPI models:** `request: AddMemberRequest`, `201: UserAccount`
 - **Scopes:** `accounts:members:add`
 - **Security alternatives:** `BearerAuth: accounts:members:add`
@@ -394,12 +394,12 @@ client.accounts.addMember(body: AddAccountMemberRequest, options?: IdempotencyRe
 ### accounts.removeMember
 
 ```ts
-client.accounts.removeMember(userId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.accounts.removeMember(userId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `removeAccountMember`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/members/{user_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `accounts:members:remove`
 - **Security alternatives:** `BearerAuth: accounts:members:remove`

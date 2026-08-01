@@ -3,7 +3,8 @@ import { assertPlainRecord, optionsFromEnv, resolveConfig } from "./config.js";
 import { AhaSendConfigurationError } from "./errors.js";
 import { HttpClient } from "./http.js";
 import { OperationExecutor } from "./operations.js";
-import { AccountsClient } from "./resources/accounts.js";
+import { createAccountsClient } from "./resources/accounts.js";
+import type { AccountsClient } from "./resources/accounts.js";
 import { APIKeysClient } from "./resources/api-keys.js";
 import { DomainsClient } from "./resources/domains.js";
 import { MessagesClient } from "./resources/messages.js";
@@ -86,7 +87,7 @@ export class AhaSendClient {
     this.#statistics = createFrozenFacade(new StatisticsClient(this.#operations, accountId));
     this.#suppressions = createFrozenFacade(new SuppressionsClient(this.#operations, accountId));
     this.#routes = createFrozenFacade(new RoutesClient(this.#operations, accountId));
-    this.#accounts = createFrozenFacade(new AccountsClient(this.#operations, accountId));
+    this.#accounts = createFrozenFacade(createAccountsClient(this.#operations, accountId));
     this.#smtpCredentials = createFrozenFacade(
       new SMTPCredentialsClient(this.#operations, accountId),
     );
