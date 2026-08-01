@@ -768,7 +768,7 @@ type SubAccountSignatures = [
       (
         params?: SDK.ListSubAccountsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.SubAccount>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.SubAccount>>
     >
   >,
   Expect<
@@ -786,19 +786,19 @@ type SubAccountSignatures = [
       (
         body: SDK.CreateSubAccountRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.SubAccount>
+      ) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountsClient["usage"],
-      (options?: SDK.RequestOptions) => Promise<SDK.SubAccountUsageResponse>
+      (options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SubAccountUsageResponse>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountsClient["get"],
-      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SubAccount>
+      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<
@@ -808,13 +808,16 @@ type SubAccountSignatures = [
         subAccountId: SDK.UUID,
         body: SDK.UpdateSubAccountRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SubAccount>
+      ) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountsClient["delete"],
-      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (
+        subAccountId: SDK.UUID,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
   Expect<
@@ -824,13 +827,13 @@ type SubAccountSignatures = [
         subAccountId: SDK.UUID,
         body: SDK.SuspendSubAccountRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SubAccount>
+      ) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountsClient["unsuspend"],
-      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SubAccount>
+      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<Equal<SDK.SubAccountsClient["apiKeys"], Readonly<SDK.SubAccountAPIKeysClient>>>,
@@ -844,7 +847,7 @@ type SubAccountAPIKeySignatures = [
         subAccountId: SDK.UUID,
         params?: SDK.PaginationParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.APIKey>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.APIKey>>
     >
   >,
   Expect<
@@ -864,13 +867,17 @@ type SubAccountAPIKeySignatures = [
         subAccountId: SDK.UUID,
         body: SDK.CreateAPIKeyRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedAPIKey>
+      ) => SDK.AhaSendPromise<SDK.CreatedAPIKey>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountAPIKeysClient["get"],
-      (subAccountId: SDK.UUID, keyId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.APIKey>
+      (
+        subAccountId: SDK.UUID,
+        keyId: SDK.UUID,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.APIKey>
     >
   >,
   Expect<
@@ -881,7 +888,7 @@ type SubAccountAPIKeySignatures = [
         keyId: SDK.UUID,
         body: SDK.UpdateAPIKeyRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.APIKey>
+      ) => SDK.AhaSendPromise<SDK.APIKey>
     >
   >,
   Expect<
@@ -891,10 +898,43 @@ type SubAccountAPIKeySignatures = [
         subAccountId: SDK.UUID,
         keyId: SDK.UUID,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SuccessResponse>
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const subAccountListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.SubAccount>>;
+declare const subAccountIteratorResult: AsyncGenerator<SDK.SubAccount, void, undefined>;
+declare const subAccountResult: SDK.AhaSendPromise<SDK.SubAccount>;
+declare const subAccountUsageResult: SDK.AhaSendPromise<SDK.SubAccountUsageResponse>;
+declare const subAccountDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+declare const subAccountAPIKeyListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.APIKey>>;
+declare const subAccountAPIKeyIteratorResult: AsyncGenerator<SDK.APIKey, void, undefined>;
+declare const createdSubAccountAPIKeyResult: SDK.AhaSendPromise<SDK.CreatedAPIKey>;
+declare const subAccountAPIKeyResult: SDK.AhaSendPromise<SDK.APIKey>;
+declare const subAccountAPIKeyDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralSubAccountAPIKeyMock: SDK.SubAccountAPIKeysClient = {
+  list: () => subAccountAPIKeyListResult,
+  iterate: () => subAccountAPIKeyIteratorResult,
+  create: () => createdSubAccountAPIKeyResult,
+  get: () => subAccountAPIKeyResult,
+  update: () => subAccountAPIKeyResult,
+  delete: () => subAccountAPIKeyDeleteResult,
+};
+
+const structuralSubAccountMock: SDK.SubAccountsClient = {
+  list: () => subAccountListResult,
+  iterate: () => subAccountIteratorResult,
+  create: () => subAccountResult,
+  usage: () => subAccountUsageResult,
+  get: () => subAccountResult,
+  update: () => subAccountResult,
+  delete: () => subAccountDeleteResult,
+  suspend: () => subAccountResult,
+  unsuspend: () => subAccountResult,
+  apiKeys: structuralSubAccountAPIKeyMock,
+};
 
 type RefinementContracts = [
   Expect<Equal<SDK.CreateMessageRequest["recipients"], SDK.NonEmptyArray<SDK.Recipient>>>,
@@ -1194,6 +1234,8 @@ export type DeclarationContracts = [
   typeof structuralRouteMock,
   typeof structuralAccountMock,
   typeof structuralStatisticsMock,
+  typeof structuralSubAccountMock,
+  typeof structuralSubAccountAPIKeyMock,
   typeof pingExecution,
   typeof messageExecution,
   DomainRequestOptions,

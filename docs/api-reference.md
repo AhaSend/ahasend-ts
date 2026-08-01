@@ -412,12 +412,12 @@ client.accounts.removeMember(userId: UUID, options?: RequestOptions): AhaSendPro
 ### subAccounts.list
 
 ```ts
-client.subAccounts.list(params?: ListSubAccountsParams, options?: RequestOptions): Promise<PaginatedResponse<SubAccount>>
+client.subAccounts.list(params?: ListSubAccountsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SubAccount>>
 ```
 
 - **Operation ID:** `listSubAccounts`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts`
-- **Models:** [ListSubAccountsParams](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [ListSubAccountsParams](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `200: PaginatedSubAccountsResponse`
 - **Scopes:** `sub-accounts:read`
 - **Security alternatives:** `BearerAuth: sub-accounts:read`
@@ -431,12 +431,12 @@ client.subAccounts.list(params?: ListSubAccountsParams, options?: RequestOptions
 ### subAccounts.create
 
 ```ts
-client.subAccounts.create(body: CreateSubAccountRequest, options?: IdempotencyRequestOptions): Promise<SubAccount>
+client.subAccounts.create(body: CreateSubAccountRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `createSubAccount`
 - **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts`
-- **Models:** [CreateSubAccountRequest](../src/resources/sub-accounts.ts), [IdempotencyRequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [CreateSubAccountRequest](../src/resources/sub-accounts.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `request: CreateSubAccountRequest`, `201: SubAccount`
 - **Scopes:** `sub-accounts:write`
 - **Security alternatives:** `BearerAuth: sub-accounts:write`
@@ -449,12 +449,12 @@ client.subAccounts.create(body: CreateSubAccountRequest, options?: IdempotencyRe
 ### subAccounts.usage
 
 ```ts
-client.subAccounts.usage(options?: RequestOptions): Promise<SubAccountUsageResponse>
+client.subAccounts.usage(options?: RequestOptions): AhaSendPromise<SubAccountUsageResponse>
 ```
 
 - **Operation ID:** `getSubAccountsUsage`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts/usage`
-- **Models:** [RequestOptions](../src/types/common.ts), [SubAccountUsageResponse](../src/resources/sub-accounts.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccountUsageResponse](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `200: SubAccountUsageResponse`
 - **Scopes:** `sub-accounts:usage`
 - **Security alternatives:** `BearerAuth: sub-accounts:usage`
@@ -467,12 +467,12 @@ client.subAccounts.usage(options?: RequestOptions): Promise<SubAccountUsageRespo
 ### subAccounts.get
 
 ```ts
-client.subAccounts.get(subAccountId: UUID, options?: RequestOptions): Promise<SubAccount>
+client.subAccounts.get(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `getSubAccount`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts/{sub_account_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `200: SubAccount`
 - **Scopes:** `sub-accounts:read`
 - **Security alternatives:** `BearerAuth: sub-accounts:read`
@@ -485,12 +485,12 @@ client.subAccounts.get(subAccountId: UUID, options?: RequestOptions): Promise<Su
 ### subAccounts.update
 
 ```ts
-client.subAccounts.update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): Promise<SubAccount>
+client.subAccounts.update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `updateSubAccount`
 - **HTTP:** `PUT /v2/accounts/{account_id}/sub-accounts/{sub_account_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateSubAccountRequest](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateSubAccountRequest](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `request: UpdateSubAccountRequest`, `200: SubAccount`
 - **Scopes:** `sub-accounts:write`
 - **Security alternatives:** `BearerAuth: sub-accounts:write`
@@ -503,12 +503,12 @@ client.subAccounts.update(subAccountId: UUID, body: UpdateSubAccountRequest, opt
 ### subAccounts.delete
 
 ```ts
-client.subAccounts.delete(subAccountId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.subAccounts.delete(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteSubAccount`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/sub-accounts/{sub_account_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `sub-accounts:delete`
 - **Security alternatives:** `BearerAuth: sub-accounts:delete`
@@ -521,12 +521,12 @@ client.subAccounts.delete(subAccountId: UUID, options?: RequestOptions): Promise
 ### subAccounts.suspend
 
 ```ts
-client.subAccounts.suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): Promise<SubAccount>
+client.subAccounts.suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `suspendSubAccount`
 - **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/suspend`
-- **Models:** [UUID](../src/types/common.ts), [SuspendSubAccountRequest](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [UUID](../src/types/common.ts), [SuspendSubAccountRequest](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `request: SuspendSubAccountRequest`, `200: SubAccount`
 - **Scopes:** `sub-accounts:suspend`
 - **Security alternatives:** `BearerAuth: sub-accounts:suspend`
@@ -539,12 +539,12 @@ client.subAccounts.suspend(subAccountId: UUID, body: SuspendSubAccountRequest, o
 ### subAccounts.unsuspend
 
 ```ts
-client.subAccounts.unsuspend(subAccountId: UUID, options?: RequestOptions): Promise<SubAccount>
+client.subAccounts.unsuspend(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `unsuspendSubAccount`
 - **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/unsuspend`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `200: SubAccount`
 - **Scopes:** `sub-accounts:suspend`
 - **Security alternatives:** `BearerAuth: sub-accounts:suspend`
@@ -557,12 +557,12 @@ client.subAccounts.unsuspend(subAccountId: UUID, options?: RequestOptions): Prom
 ### subAccounts.apiKeys.list
 
 ```ts
-client.subAccounts.apiKeys.list(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>
+client.subAccounts.apiKeys.list(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<APIKey>>
 ```
 
 - **Operation ID:** `listSubAccountAPIKeys`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys`
-- **Models:** [UUID](../src/types/common.ts), [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `200: PaginatedAPIKeysResponse`
 - **Scopes:** `sub-account-api-keys:read`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:read`
@@ -576,12 +576,12 @@ client.subAccounts.apiKeys.list(subAccountId: UUID, params?: PaginationParams, o
 ### subAccounts.apiKeys.create
 
 ```ts
-client.subAccounts.apiKeys.create(subAccountId: UUID, body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>
+client.subAccounts.apiKeys.create(subAccountId: UUID, body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedAPIKey>
 ```
 
 - **Operation ID:** `createSubAccountAPIKey`
 - **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys`
-- **Models:** [UUID](../src/types/common.ts), [CreateAPIKeyRequest](../src/resources/api-keys.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedAPIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [CreateAPIKeyRequest](../src/resources/api-keys.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedAPIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `request: CreateAPIKeyRequest`, `201: inline schema`
 - **Scopes:** `sub-account-api-keys:write`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:write`
@@ -594,12 +594,12 @@ client.subAccounts.apiKeys.create(subAccountId: UUID, body: CreateAPIKeyRequest,
 ### subAccounts.apiKeys.get
 
 ```ts
-client.subAccounts.apiKeys.get(subAccountId: UUID, keyId: UUID, options?: RequestOptions): Promise<APIKey>
+client.subAccounts.apiKeys.get(subAccountId: UUID, keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey>
 ```
 
 - **Operation ID:** `getSubAccountAPIKey`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `200: APIKey`
 - **Scopes:** `sub-account-api-keys:read`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:read`
@@ -612,12 +612,12 @@ client.subAccounts.apiKeys.get(subAccountId: UUID, keyId: UUID, options?: Reques
 ### subAccounts.apiKeys.update
 
 ```ts
-client.subAccounts.apiKeys.update(subAccountId: UUID, keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): Promise<APIKey>
+client.subAccounts.apiKeys.update(subAccountId: UUID, keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): AhaSendPromise<APIKey>
 ```
 
 - **Operation ID:** `updateSubAccountAPIKey`
 - **HTTP:** `PUT /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateAPIKeyRequest](../src/resources/api-keys.ts), [RequestOptions](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateAPIKeyRequest](../src/resources/api-keys.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `request: UpdateAPIKeyRequest`, `200: APIKey`
 - **Scopes:** `sub-account-api-keys:write`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:write`
@@ -630,12 +630,12 @@ client.subAccounts.apiKeys.update(subAccountId: UUID, keyId: UUID, body: UpdateA
 ### subAccounts.apiKeys.delete
 
 ```ts
-client.subAccounts.apiKeys.delete(subAccountId: UUID, keyId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.subAccounts.apiKeys.delete(subAccountId: UUID, keyId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteSubAccountAPIKey`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `sub-account-api-keys:delete`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:delete`

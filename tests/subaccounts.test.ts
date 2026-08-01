@@ -2,6 +2,7 @@ import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type {
   APIKey,
+  AhaSendPromise,
   CreatedAPIKey,
   IdempotencyRequestOptions,
   PaginationParams,
@@ -134,13 +135,17 @@ describe("SubAccountAPIKeysClient declarations", () => {
 
   it("returns the one-time secret only from create and accepts idempotency there", () => {
     expectTypeOf<ReturnType<SubAccountAPIKeysClient["create"]>>().toEqualTypeOf<
-      Promise<CreatedAPIKey>
+      AhaSendPromise<CreatedAPIKey>
     >();
     expectTypeOf<ReturnType<SubAccountAPIKeysClient["list"]>>().toEqualTypeOf<
-      Promise<import("../src/index.js").PaginatedResponse<APIKey>>
+      AhaSendPromise<import("../src/index.js").PaginatedResponse<APIKey>>
     >();
-    expectTypeOf<ReturnType<SubAccountAPIKeysClient["get"]>>().toEqualTypeOf<Promise<APIKey>>();
-    expectTypeOf<ReturnType<SubAccountAPIKeysClient["update"]>>().toEqualTypeOf<Promise<APIKey>>();
+    expectTypeOf<ReturnType<SubAccountAPIKeysClient["get"]>>().toEqualTypeOf<
+      AhaSendPromise<APIKey>
+    >();
+    expectTypeOf<ReturnType<SubAccountAPIKeysClient["update"]>>().toEqualTypeOf<
+      AhaSendPromise<APIKey>
+    >();
     expectTypeOf<Parameters<SubAccountAPIKeysClient["create"]>[2]>().toEqualTypeOf<
       IdempotencyRequestOptions | undefined
     >();

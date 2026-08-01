@@ -17,7 +17,8 @@ import { createSMTPCredentialsClient } from "./resources/smtp-credentials.js";
 import type { SMTPCredentialsClient } from "./resources/smtp-credentials.js";
 import { createStatisticsClient } from "./resources/statistics.js";
 import type { StatisticsClient } from "./resources/statistics.js";
-import { SubAccountsClient } from "./resources/sub-accounts.js";
+import { createSubAccountsClient } from "./resources/sub-accounts.js";
+import type { SubAccountsClient } from "./resources/sub-accounts.js";
 import { SuppressionsClient } from "./resources/suppressions.js";
 import { WebhooksClient } from "./resources/webhooks.js";
 import { createFrozenFacade, forwardOptions } from "./resources/_helpers.js";
@@ -97,7 +98,7 @@ export class AhaSendClient {
     this.#smtpCredentials = createFrozenFacade(
       createSMTPCredentialsClient(this.#operations, accountId),
     );
-    this.#subAccounts = createFrozenFacade(new SubAccountsClient(this.#operations, accountId));
+    this.#subAccounts = createFrozenFacade(createSubAccountsClient(this.#operations, accountId));
   }
 
   get accountId(): UUID {
