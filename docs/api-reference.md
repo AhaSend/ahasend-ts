@@ -721,12 +721,12 @@ client.suppressions.wipe(params?: WipeSuppressionsParams, options?: RequestOptio
 ### routes.list
 
 ```ts
-client.routes.list(params?: ListRoutesParams, options?: RequestOptions): Promise<PaginatedResponse<Route>>
+client.routes.list(params?: ListRoutesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Route>>
 ```
 
 - **Operation ID:** `getRoutes`
 - **HTTP:** `GET /v2/accounts/{account_id}/routes`
-- **Models:** [ListRoutesParams](../src/resources/routes.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Route](../src/resources/routes.ts)
+- **Models:** [ListRoutesParams](../src/resources/routes.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Route](../src/resources/routes.ts)
 - **OpenAPI models:** `200: PaginatedRoutesResponse`
 - **Scopes:** `routes:read:all`, `routes:read:{domain}`
 - **Security alternatives:** `BearerAuth: routes:read:all` **or** `BearerAuth: routes:read:{domain}`
@@ -740,12 +740,12 @@ client.routes.list(params?: ListRoutesParams, options?: RequestOptions): Promise
 ### routes.create
 
 ```ts
-client.routes.create(body: CreateRouteRequest, options?: IdempotencyRequestOptions): Promise<CreatedRoute>
+client.routes.create(body: CreateRouteRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedRoute>
 ```
 
 - **Operation ID:** `createRoute`
 - **HTTP:** `POST /v2/accounts/{account_id}/routes`
-- **Models:** [CreateRouteRequest](../src/resources/routes.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedRoute](../src/resources/routes.ts)
+- **Models:** [CreateRouteRequest](../src/resources/routes.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedRoute](../src/resources/routes.ts)
 - **OpenAPI models:** `request: CreateRouteRequest`, `201: CreatedRoute`
 - **Scopes:** `routes:write:all`, `routes:write:{domain}`
 - **Security alternatives:** `BearerAuth: routes:write:all` **or** `BearerAuth: routes:write:{domain}`
@@ -758,12 +758,12 @@ client.routes.create(body: CreateRouteRequest, options?: IdempotencyRequestOptio
 ### routes.get
 
 ```ts
-client.routes.get(routeId: UUID, options?: RequestOptions): Promise<Route>
+client.routes.get(routeId: UUID, options?: RequestOptions): AhaSendPromise<Route>
 ```
 
 - **Operation ID:** `getRoute`
 - **HTTP:** `GET /v2/accounts/{account_id}/routes/{route_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [Route](../src/resources/routes.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Route](../src/resources/routes.ts)
 - **OpenAPI models:** `200: Route`
 - **Scopes:** `routes:read:all`, `routes:read:{domain}`
 - **Security alternatives:** `BearerAuth: routes:read:all` **or** `BearerAuth: routes:read:{domain}`
@@ -776,12 +776,12 @@ client.routes.get(routeId: UUID, options?: RequestOptions): Promise<Route>
 ### routes.update
 
 ```ts
-client.routes.update(routeId: UUID, body: UpdateRouteRequest, options?: RequestOptions): Promise<Route>
+client.routes.update(routeId: UUID, body: UpdateRouteRequest, options?: RequestOptions): AhaSendPromise<Route>
 ```
 
 - **Operation ID:** `updateRoute`
 - **HTTP:** `PUT /v2/accounts/{account_id}/routes/{route_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateRouteRequest](../src/resources/routes.ts), [RequestOptions](../src/types/common.ts), [Route](../src/resources/routes.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateRouteRequest](../src/resources/routes.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Route](../src/resources/routes.ts)
 - **OpenAPI models:** `request: UpdateRouteRequest`, `200: Route`
 - **Scopes:** `routes:write:all`, `routes:write:{domain}`
 - **Security alternatives:** `BearerAuth: routes:write:all` **or** `BearerAuth: routes:write:{domain}`
@@ -794,12 +794,12 @@ client.routes.update(routeId: UUID, body: UpdateRouteRequest, options?: RequestO
 ### routes.delete
 
 ```ts
-client.routes.delete(routeId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.routes.delete(routeId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteRoute`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/routes/{route_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `routes:delete:all`, `routes:delete:{domain}`
 - **Security alternatives:** `BearerAuth: routes:delete:all` **or** `BearerAuth: routes:delete:{domain}`

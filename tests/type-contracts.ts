@@ -575,7 +575,7 @@ type RouteSignatures = [
       (
         params?: SDK.ListRoutesParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.Route>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Route>>
     >
   >,
   Expect<
@@ -593,13 +593,13 @@ type RouteSignatures = [
       (
         body: SDK.CreateRouteRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedRoute>
+      ) => SDK.AhaSendPromise<SDK.CreatedRoute>
     >
   >,
   Expect<
     Equal<
       SDK.RoutesClient["get"],
-      (routeId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.Route>
+      (routeId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Route>
     >
   >,
   Expect<
@@ -609,16 +609,31 @@ type RouteSignatures = [
         routeId: SDK.UUID,
         body: SDK.UpdateRouteRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.Route>
+      ) => SDK.AhaSendPromise<SDK.Route>
     >
   >,
   Expect<
     Equal<
       SDK.RoutesClient["delete"],
-      (routeId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (routeId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const routeListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Route>>;
+declare const routeIteratorResult: AsyncGenerator<SDK.Route, void, undefined>;
+declare const createdRouteResult: SDK.AhaSendPromise<SDK.CreatedRoute>;
+declare const routeResult: SDK.AhaSendPromise<SDK.Route>;
+declare const routeDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralRouteMock: SDK.RoutesClient = {
+  list: () => routeListResult,
+  iterate: () => routeIteratorResult,
+  create: () => createdRouteResult,
+  get: () => routeResult,
+  update: () => routeResult,
+  delete: () => routeDeleteResult,
+};
 
 type AccountSignatures = [
   Expect<
@@ -1144,6 +1159,7 @@ export type DeclarationContracts = [
   RefinementContracts,
   typeof structuralMessageMock,
   typeof structuralAPIKeyMock,
+  typeof structuralRouteMock,
   typeof structuralAccountMock,
   typeof pingExecution,
   typeof messageExecution,

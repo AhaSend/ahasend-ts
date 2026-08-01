@@ -1,6 +1,7 @@
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
+  AhaSendPromise,
   ISODateTime,
   PaginatedResponse,
   PaginationParams,
@@ -8,8 +9,11 @@ import type {
   SuccessResponse,
   UUID,
 } from "../types/common.js";
-import { forwardOptions, forwardWithIdempotency } from "./_helpers.js";
-import type { IdempotencyRequestOptions } from "./_helpers.js";
+import {
+  forwardOptions,
+  forwardWithIdempotency,
+  type IdempotencyRequestOptions,
+} from "./_helpers.js";
 
 export interface Route {
   object: "route";
@@ -63,10 +67,66 @@ export type ListRoutesParams = PaginationParams & {
 /**
  * Manage inbound routes — rules that deliver received email to your
  * HTTP endpoint. The created route's `secret` (returned once) signs
- * `route.message` webhook deliveries; verify them with
+ * `message.routing` webhook deliveries; verify them with
  * `WebhookVerifier` from `@ahasend/sdk/webhooks`.
  */
-export class RoutesClient {
+export interface RoutesClient {
+  /**
+   * Fetch one page of routes.
+   *
+   * Authorization requires `routes:read:all`, or `routes:read:{domain}` with
+   * its matching `domain` query filter.
+   */
+  list(
+    params?: ListRoutesParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<PaginatedResponse<Route>>;
+
+  /** Iterate through every matching route, fetching cursor pages lazily. */
+  iterate(
+    params?: ListRoutesParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<Route, void, undefined>;
+
+  /**
+   * Create an inbound route.
+   *
+   * Authorization requires `routes:write:all` or `routes:write:{domain}`
+   * matching the domain in `recipient`.
+   *
+   * The response is the only time the route signing `secret` is exposed.
+   */
+  create(
+    body: CreateRouteRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<CreatedRoute>;
+
+  /**
+   * Fetch a route by ID.
+   *
+   * Authorization requires `routes:read:all` or `routes:read:{domain}` matching
+   * the route's `recipient` domain.
+   */
+  get(routeId: UUID, options?: RequestOptions): AhaSendPromise<Route>;
+
+  /**
+   * Update a route by ID.
+   *
+   * Authorization requires `routes:write:all`, or `routes:write:{domain}` for
+   * both the existing and replacement `recipient` domains.
+   */
+  update(routeId: UUID, body: UpdateRouteRequest, options?: RequestOptions): AhaSendPromise<Route>;
+
+  /**
+   * Delete a route by ID.
+   *
+   * Authorization requires `routes:delete:all` or `routes:delete:{domain}`
+   * matching the route's `recipient` domain.
+   */
+  delete(routeId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+}
+
+class RoutesClientImplementation implements RoutesClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -84,7 +144,7 @@ export class RoutesClient {
   list(
     params: ListRoutesParams = {},
     options: RequestOptions = {},
-  ): Promise<PaginatedResponse<Route>> {
+  ): AhaSendPromise<PaginatedResponse<Route>> {
     return this.#operations.execute(
       "getRoutes",
       {
@@ -95,6 +155,7 @@ export class RoutesClient {
     );
   }
 
+  /** Iterate through every matching route, fetching cursor pages lazily. */
   iterate(
     params: ListRoutesParams = {},
     options: RequestOptions = {},
@@ -103,14 +164,17 @@ export class RoutesClient {
   }
 
   /**
-   * Create a route.
+   * Create an inbound route.
    *
    * Authorization requires `routes:write:all` or `routes:write:{domain}`
    * matching the domain in `recipient`.
    *
    * The response is the only time the route signing `secret` is exposed.
    */
-  create(body: CreateRouteRequest, options: IdempotencyRequestOptions = {}): Promise<CreatedRoute> {
+  create(
+    body: CreateRouteRequest,
+    options: IdempotencyRequestOptions = {},
+  ): AhaSendPromise<CreatedRoute> {
     return this.#operations.execute(
       "createRoute",
       { path: { account_id: this.#accountId }, body },
@@ -119,12 +183,12 @@ export class RoutesClient {
   }
 
   /**
-   * Fetch a route.
+   * Fetch a route by ID.
    *
    * Authorization requires `routes:read:all` or `routes:read:{domain}` matching
    * the route's `recipient` domain.
    */
-  get(routeId: UUID, options: RequestOptions = {}): Promise<Route> {
+  get(routeId: UUID, options: RequestOptions = {}): AhaSendPromise<Route> {
     return this.#operations.execute(
       "getRoute",
       { path: { account_id: this.#accountId, route_id: routeId } },
@@ -133,12 +197,16 @@ export class RoutesClient {
   }
 
   /**
-   * Update a route.
+   * Update a route by ID.
    *
    * Authorization requires `routes:write:all`, or `routes:write:{domain}` for
    * both the existing and replacement `recipient` domains.
    */
-  update(routeId: UUID, body: UpdateRouteRequest, options: RequestOptions = {}): Promise<Route> {
+  update(
+    routeId: UUID,
+    body: UpdateRouteRequest,
+    options: RequestOptions = {},
+  ): AhaSendPromise<Route> {
     return this.#operations.execute(
       "updateRoute",
       { path: { account_id: this.#accountId, route_id: routeId }, body },
@@ -147,16 +215,21 @@ export class RoutesClient {
   }
 
   /**
-   * Delete a route.
+   * Delete a route by ID.
    *
    * Authorization requires `routes:delete:all` or `routes:delete:{domain}`
    * matching the route's `recipient` domain.
    */
-  delete(routeId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
+  delete(routeId: UUID, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
     return this.#operations.execute(
       "deleteRoute",
       { path: { account_id: this.#accountId, route_id: routeId } },
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the route resource implementation for the root client. */
+export function createRoutesClient(operations: OperationExecutor, accountId: UUID): RoutesClient {
+  return new RoutesClientImplementation(operations, accountId);
 }

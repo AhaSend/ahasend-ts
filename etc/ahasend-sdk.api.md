@@ -6348,16 +6348,13 @@ export interface Route {
 }
 
 // @public
-class RoutesClient$1 {
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
-    constructor(operations: OperationExecutor, accountId: UUID);
-    create(body: CreateRouteRequest, options?: IdempotencyRequestOptions): Promise<CreatedRoute>;
-    delete(routeId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    get(routeId: UUID, options?: RequestOptions): Promise<Route>;
-    // (undocumented)
+interface RoutesClient$1 {
+    create(body: CreateRouteRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedRoute>;
+    delete(routeId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(routeId: UUID, options?: RequestOptions): AhaSendPromise<Route>;
     iterate(params?: ListRoutesParams, options?: RequestOptions): AsyncGenerator<Route, void, undefined>;
-    list(params?: ListRoutesParams, options?: RequestOptions): Promise<PaginatedResponse<Route>>;
-    update(routeId: UUID, body: UpdateRouteRequest, options?: RequestOptions): Promise<Route>;
+    list(params?: ListRoutesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Route>>;
+    update(routeId: UUID, body: UpdateRouteRequest, options?: RequestOptions): AhaSendPromise<Route>;
 }
 
 // @public (undocumented)
@@ -6456,6 +6453,7 @@ export interface SMTPCredential {
 
 // @public
 class SMTPCredentialsClient$1 {
+    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
     constructor(operations: OperationExecutor, accountId: UUID);
     create(body: CreateSMTPCredentialRequest, options?: IdempotencyRequestOptions): Promise<CreatedSMTPCredential>;
     delete(credentialId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
