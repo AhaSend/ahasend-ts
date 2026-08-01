@@ -8,8 +8,6 @@ import { Buffer as Buffer_2 } from 'node:buffer';
 
 // @public
 class AhaSendError extends Error {
-    // (undocumented)
-    [INSPECT_CUSTOM](): SerializedAhaSendError;
     constructor(message: string, cause?: unknown);
     // Warning: (ae-forgotten-export) The symbol "AhaSendErrorCode" needs to be exported by the entry point index.d.ts
     //
@@ -223,9 +221,6 @@ export function fastifyWebhookHandler(verifier: WebhookVerifier, handler: Fastif
 // @public (undocumented)
 type HeadersInput = Record<string, string | string[] | undefined> | Headers;
 
-// @public (undocumented)
-const INSPECT_CUSTOM: unique symbol;
-
 // Warning: (ae-forgotten-export) The symbol "AnyWebhookEvent$1" needs to be exported by the entry point index.d.ts
 //
 // @public
@@ -314,9 +309,6 @@ export interface NodeStyleResponse {
 type RawBody = string | Buffer;
 
 // @public (undocumented)
-const REDACTED: "[REDACTED]";
-
-// @public (undocumented)
 export type RouteAttachment = components["schemas"]["RouteAttachment"];
 
 // @public (undocumented)
@@ -327,16 +319,14 @@ export type RouteMessageEvent = MessageRoutingEvent;
 
 // @public (undocumented)
 interface SerializedAhaSendError {
-    // Warning: (ae-forgotten-export) The symbol "REDACTED" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
-    body?: typeof REDACTED;
+    body?: "[REDACTED]";
     // (undocumented)
-    cause?: typeof REDACTED;
+    cause?: "[REDACTED]";
     // (undocumented)
     code: AhaSendErrorCode;
     // (undocumented)
-    headers?: typeof REDACTED;
+    headers?: "[REDACTED]";
     // (undocumented)
     message: string;
     // (undocumented)

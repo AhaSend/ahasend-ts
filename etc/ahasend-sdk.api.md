@@ -107,19 +107,32 @@ export class AhaSendAPIError extends AhaSendError {
 
 // @public
 export class AhaSendAuthenticationError extends AhaSendAPIError {
-    // Warning: (ae-forgotten-export) The symbol "APIErrorParams" needs to be exported by the entry point index.d.ts
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
 export class AhaSendBadRequestError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
 export class AhaSendClient {
     // (undocumented)
-    [INSPECT_CUSTOM_2](): SerializedAhaSendClient;
+    [INSPECT_CUSTOM](): SerializedAhaSendClient;
     constructor(options: AhaSendClientOptions);
     // (undocumented)
     get accountId(): UUID;
@@ -180,7 +193,14 @@ export class AhaSendConfigurationError extends AhaSendError {
 
 // @public
 export class AhaSendConflictError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
@@ -190,8 +210,6 @@ export class AhaSendConnectionError extends AhaSendError {
 
 // @public
 export class AhaSendError extends Error {
-    // (undocumented)
-    [INSPECT_CUSTOM](): SerializedAhaSendError;
     constructor(message: string, cause?: unknown);
     // (undocumented)
     readonly code: AhaSendErrorCode;
@@ -204,7 +222,13 @@ export type AhaSendErrorCode = "ahasend_error" | "configuration_error" | "connec
 
 // @public
 export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
-    constructor(params: APIErrorParams & {
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
         retryAfterSeconds?: number | undefined;
     });
     // (undocumented)
@@ -213,17 +237,38 @@ export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
 
 // @public
 export class AhaSendIdempotencyMismatchError extends AhaSendUnprocessableEntityError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
 export class AhaSendNotFoundError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
 export class AhaSendPermissionError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public (undocumented)
@@ -234,7 +279,13 @@ export interface AhaSendPromise<T> extends Promise<T> {
 
 // @public
 export class AhaSendRateLimitError extends AhaSendAPIError {
-    constructor(params: APIErrorParams & {
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
         retryAfterSeconds?: number | undefined;
     });
     // (undocumented)
@@ -271,7 +322,14 @@ export class AhaSendResponseParseError extends AhaSendError {
 
 // @public
 export class AhaSendServerError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
@@ -281,7 +339,14 @@ export class AhaSendTimeoutError extends AhaSendConnectionError {
 
 // @public
 export class AhaSendUnprocessableEntityError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public (undocumented)
@@ -289,9 +354,6 @@ export interface ApiErrorBody {
     // (undocumented)
     message: string;
 }
-
-// @public (undocumented)
-type APIErrorParams = ConstructorParameters<typeof AhaSendAPIError>[0];
 
 // @public (undocumented)
 export interface APIKey {
@@ -1468,9 +1530,6 @@ export const IDEMPOTENT_REPLAYED_HEADER = "Idempotent-Replayed";
 
 // @public (undocumented)
 const INSPECT_CUSTOM: unique symbol;
-
-// @public (undocumented)
-const INSPECT_CUSTOM_2: unique symbol;
 
 // @public
 export function isAhaSendError(value: unknown): value is AhaSendError;
@@ -6095,9 +6154,6 @@ export interface Recipient {
 const REDACTED: "[REDACTED]";
 
 // @public (undocumented)
-const REDACTED_2: "[REDACTED]";
-
-// @public (undocumented)
 export interface RequestEvent {
     // (undocumented)
     attempt: number;
@@ -6363,26 +6419,24 @@ export type SendMessageStatus = "queued" | "scheduled" | "error";
 interface SerializedAhaSendClient {
     // (undocumented)
     readonly accountId: UUID;
-    // Warning: (ae-forgotten-export) The symbol "REDACTED_2" needs to be exported by the entry point index.d.ts
+    // Warning: (ae-forgotten-export) The symbol "REDACTED" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
-    readonly apiKey: typeof REDACTED_2;
+    readonly apiKey: typeof REDACTED;
     // (undocumented)
     readonly name: "AhaSendClient";
 }
 
 // @public (undocumented)
 export interface SerializedAhaSendError {
-    // Warning: (ae-forgotten-export) The symbol "REDACTED" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
-    body?: typeof REDACTED;
+    body?: "[REDACTED]";
     // (undocumented)
-    cause?: typeof REDACTED;
+    cause?: "[REDACTED]";
     // (undocumented)
     code: AhaSendErrorCode;
     // (undocumented)
-    headers?: typeof REDACTED;
+    headers?: "[REDACTED]";
     // (undocumented)
     message: string;
     // (undocumented)
