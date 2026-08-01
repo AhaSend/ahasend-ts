@@ -67,7 +67,21 @@ assert.throws(
 );
 assert.equal(requestCount, 0);
 
-async function verifyInstalledResponseBehavior() {
+async function verifyInstalledPackageBehavior() {
+  const [esmRoot, esmWebhooks] = await Promise.all([
+    import("@ahasend/sdk"),
+    import("@ahasend/sdk/webhooks"),
+  ]);
+  const esmVerificationError = new esmWebhooks.AhaSendWebhookVerificationError(
+    "signature_mismatch",
+  );
+
+  assert.notEqual(esmRoot.AhaSendError, AhaSendError);
+  assert.equal(esmVerificationError instanceof AhaSendError, false);
+  assert.equal(isAhaSendError(esmVerificationError), true);
+  assert.equal(verificationError instanceof esmRoot.AhaSendError, false);
+  assert.equal(esmRoot.isAhaSendError(verificationError), true);
+
   const accountRequest = client.accounts.get();
   const account = await accountRequest;
   const envelope = await accountRequest.withResponse();
@@ -79,7 +93,7 @@ async function verifyInstalledResponseBehavior() {
   assert.equal(requestCount, 1);
 }
 
-verifyInstalledResponseBehavior().catch((error) => {
+verifyInstalledPackageBehavior().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
