@@ -7,7 +7,8 @@ import { createAccountsClient } from "./resources/accounts.js";
 import type { AccountsClient } from "./resources/accounts.js";
 import { createAPIKeysClient } from "./resources/api-keys.js";
 import type { APIKeysClient } from "./resources/api-keys.js";
-import { DomainsClient } from "./resources/domains.js";
+import { createDomainsClient } from "./resources/domains.js";
+import type { DomainsClient } from "./resources/domains.js";
 import { MessagesClient } from "./resources/messages.js";
 import { RoutesClient } from "./resources/routes.js";
 import { SMTPCredentialsClient } from "./resources/smtp-credentials.js";
@@ -82,7 +83,7 @@ export class AhaSendClient {
     this.#accountId = accountId;
 
     this.#messages = createFrozenFacade(new MessagesClient(this.#operations, accountId));
-    this.#domains = createFrozenFacade(new DomainsClient(this.#operations, accountId));
+    this.#domains = createFrozenFacade(createDomainsClient(this.#operations, accountId));
     this.#apiKeys = createFrozenFacade(createAPIKeysClient(this.#operations, accountId));
     this.#webhooks = createFrozenFacade(new WebhooksClient(this.#operations, accountId));
     this.#statistics = createFrozenFacade(new StatisticsClient(this.#operations, accountId));

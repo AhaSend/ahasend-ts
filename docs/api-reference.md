@@ -122,12 +122,12 @@ client.apiKeys.delete(keyId: UUID, options?: RequestOptions): AhaSendPromise<Suc
 ### domains.list
 
 ```ts
-client.domains.list(params?: ListDomainsParams, options?: RequestOptions): Promise<PaginatedResponse<Domain>>
+client.domains.list(params?: ListDomainsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Domain>>
 ```
 
 - **Operation ID:** `getDomains`
 - **HTTP:** `GET /v2/accounts/{account_id}/domains`
-- **Models:** [ListDomainsParams](../src/resources/domains.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [ListDomainsParams](../src/resources/domains.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `200: PaginatedDomainsResponse`
 - **Scopes:** `domains:read`
 - **Security alternatives:** `BearerAuth: domains:read`
@@ -141,12 +141,12 @@ client.domains.list(params?: ListDomainsParams, options?: RequestOptions): Promi
 ### domains.create
 
 ```ts
-client.domains.create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): Promise<Domain>
+client.domains.create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Domain>
 ```
 
 - **Operation ID:** `createDomain`
 - **HTTP:** `POST /v2/accounts/{account_id}/domains`
-- **Models:** [CreateDomainRequest](../src/resources/domains.ts), [IdempotencyRequestOptions](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [CreateDomainRequest](../src/resources/domains.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `request: CreateDomainRequest`, `201: Domain`
 - **Scopes:** `domains:write`
 - **Security alternatives:** `BearerAuth: domains:write`
@@ -159,12 +159,12 @@ client.domains.create(body: CreateDomainRequest, options?: IdempotencyRequestOpt
 ### domains.get
 
 ```ts
-client.domains.get(domain: string, options?: RequestOptions): Promise<Domain>
+client.domains.get(domain: string, options?: RequestOptions): AhaSendPromise<Domain>
 ```
 
 - **Operation ID:** `getDomain`
 - **HTTP:** `GET /v2/accounts/{account_id}/domains/{domain}`
-- **Models:** [RequestOptions](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `200: Domain`
 - **Scopes:** `domains:read`
 - **Security alternatives:** `BearerAuth: domains:read`
@@ -177,12 +177,12 @@ client.domains.get(domain: string, options?: RequestOptions): Promise<Domain>
 ### domains.update
 
 ```ts
-client.domains.update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): Promise<Domain>
+client.domains.update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): AhaSendPromise<Domain>
 ```
 
 - **Operation ID:** `updateDomain`
 - **HTTP:** `PUT /v2/accounts/{account_id}/domains/{domain}`
-- **Models:** [UpdateDomainRequest](../src/resources/domains.ts), [RequestOptions](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [UpdateDomainRequest](../src/resources/domains.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `request: UpdateDomainRequest`, `200: Domain`
 - **Scopes:** `domains:write`
 - **Security alternatives:** `BearerAuth: domains:write`
@@ -195,12 +195,12 @@ client.domains.update(domain: string, body: UpdateDomainRequest, options?: Reque
 ### domains.delete
 
 ```ts
-client.domains.delete(domain: string, options?: RequestOptions): Promise<SuccessResponse>
+client.domains.delete(domain: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteDomain`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/domains/{domain}`
-- **Models:** [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `domains:delete:{domain}`, `domains:delete:all`
 - **Security alternatives:** `BearerAuth: domains:delete:{domain}` **or** `BearerAuth: domains:delete:all`
@@ -213,12 +213,12 @@ client.domains.delete(domain: string, options?: RequestOptions): Promise<Success
 ### domains.checkDns
 
 ```ts
-client.domains.checkDns(domain: string, options?: RequestOptions): Promise<Domain>
+client.domains.checkDns(domain: string, options?: RequestOptions): AhaSendPromise<Domain>
 ```
 
 - **Operation ID:** `checkDomainDNS`
 - **HTTP:** `POST /v2/accounts/{account_id}/domains/{domain}/check-dns`
-- **Models:** [RequestOptions](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `200: Domain`
 - **Scopes:** `domains:write`
 - **Security alternatives:** `BearerAuth: domains:write`
