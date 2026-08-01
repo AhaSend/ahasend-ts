@@ -277,6 +277,10 @@ function methodSignature(context, mapping) {
   if (declaration.type === undefined) {
     throw new TypeError(`${mapping.facade}.${mapping.method} has no declared return type`);
   }
+  const documentation = ts.displayPartsToString(method.getDocumentationComment(context.checker));
+  if (documentation.trim().length === 0) {
+    throw new TypeError(`${mapping.facade}.${mapping.method} must have public JSDoc`);
+  }
   const parameters = declaration.parameters.map((parameter) => {
     if (parameter.type === undefined) {
       throw new TypeError(`${mapping.facade}.${mapping.method} has an untyped parameter`);
