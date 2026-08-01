@@ -13,7 +13,8 @@ import { createMessagesClient } from "./resources/messages.js";
 import type { MessagesClient } from "./resources/messages.js";
 import { createRoutesClient } from "./resources/routes.js";
 import type { RoutesClient } from "./resources/routes.js";
-import { SMTPCredentialsClient } from "./resources/smtp-credentials.js";
+import { createSMTPCredentialsClient } from "./resources/smtp-credentials.js";
+import type { SMTPCredentialsClient } from "./resources/smtp-credentials.js";
 import { StatisticsClient } from "./resources/statistics.js";
 import { SubAccountsClient } from "./resources/sub-accounts.js";
 import { SuppressionsClient } from "./resources/suppressions.js";
@@ -93,7 +94,7 @@ export class AhaSendClient {
     this.#routes = createFrozenFacade(createRoutesClient(this.#operations, accountId));
     this.#accounts = createFrozenFacade(createAccountsClient(this.#operations, accountId));
     this.#smtpCredentials = createFrozenFacade(
-      new SMTPCredentialsClient(this.#operations, accountId),
+      createSMTPCredentialsClient(this.#operations, accountId),
     );
     this.#subAccounts = createFrozenFacade(new SubAccountsClient(this.#operations, accountId));
   }

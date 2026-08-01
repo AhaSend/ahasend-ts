@@ -694,7 +694,7 @@ type SMTPCredentialSignatures = [
       (
         params?: SDK.PaginationParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.SMTPCredential>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.SMTPCredential>>
     >
   >,
   Expect<
@@ -712,22 +712,44 @@ type SMTPCredentialSignatures = [
       (
         body: SDK.CreateSMTPCredentialRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedSMTPCredential>
+      ) => SDK.AhaSendPromise<SDK.CreatedSMTPCredential>
     >
   >,
   Expect<
     Equal<
       SDK.SMTPCredentialsClient["get"],
-      (credentialId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SMTPCredential>
+      (
+        credentialId: SDK.UUID,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.SMTPCredential>
     >
   >,
   Expect<
     Equal<
       SDK.SMTPCredentialsClient["delete"],
-      (credentialId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (
+        credentialId: SDK.UUID,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const smtpCredentialListResult: SDK.AhaSendPromise<
+  SDK.PaginatedResponse<SDK.SMTPCredential>
+>;
+declare const smtpCredentialIteratorResult: AsyncGenerator<SDK.SMTPCredential, void, undefined>;
+declare const createdSMTPCredentialResult: SDK.AhaSendPromise<SDK.CreatedSMTPCredential>;
+declare const smtpCredentialResult: SDK.AhaSendPromise<SDK.SMTPCredential>;
+declare const smtpCredentialDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralSMTPCredentialMock: SDK.SMTPCredentialsClient = {
+  list: () => smtpCredentialListResult,
+  iterate: () => smtpCredentialIteratorResult,
+  create: () => createdSMTPCredentialResult,
+  get: () => smtpCredentialResult,
+  delete: () => smtpCredentialDeleteResult,
+};
 
 type SubAccountSignatures = [
   Expect<

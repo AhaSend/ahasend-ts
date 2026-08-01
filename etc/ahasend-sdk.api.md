@@ -6452,15 +6452,12 @@ export interface SMTPCredential {
 }
 
 // @public
-class SMTPCredentialsClient$1 {
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
-    constructor(operations: OperationExecutor, accountId: UUID);
-    create(body: CreateSMTPCredentialRequest, options?: IdempotencyRequestOptions): Promise<CreatedSMTPCredential>;
-    delete(credentialId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    get(credentialId: UUID, options?: RequestOptions): Promise<SMTPCredential>;
-    // (undocumented)
+interface SMTPCredentialsClient$1 {
+    create(body: CreateSMTPCredentialRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedSMTPCredential>;
+    delete(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SMTPCredential>;
     iterate(params?: PaginationParams, options?: RequestOptions): AsyncGenerator<SMTPCredential, void, undefined>;
-    list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<SMTPCredential>>;
+    list(params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SMTPCredential>>;
 }
 
 // @public (undocumented)
@@ -6471,6 +6468,7 @@ export type SMTPCredentialScope = "global" | "scoped";
 
 // @public
 class StatisticsClient$1 {
+    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
     constructor(operations: OperationExecutor, accountId: UUID);
     bounces(params?: StatisticsParams, options?: RequestOptions): Promise<BounceStatisticsResponse>;
     deliverability(params?: StatisticsParams, options?: RequestOptions): Promise<DeliverabilityStatisticsResponse>;

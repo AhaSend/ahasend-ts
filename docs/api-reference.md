@@ -903,12 +903,12 @@ client.webhooks.delete(webhookId: UUID, options?: RequestOptions): Promise<Succe
 ### smtpCredentials.list
 
 ```ts
-client.smtpCredentials.list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<SMTPCredential>>
+client.smtpCredentials.list(params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SMTPCredential>>
 ```
 
 - **Operation ID:** `getSMTPCredentials`
 - **HTTP:** `GET /v2/accounts/{account_id}/smtp-credentials`
-- **Models:** [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [SMTPCredential](../src/resources/smtp-credentials.ts)
+- **Models:** [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [SMTPCredential](../src/resources/smtp-credentials.ts)
 - **OpenAPI models:** `200: PaginatedSMTPCredentialsResponse`
 - **Scopes:** `smtp-credentials:read:all`, `smtp-credentials:read:{domain}`
 - **Security alternatives:** `BearerAuth: smtp-credentials:read:all` **or** `BearerAuth: smtp-credentials:read:{domain}`
@@ -922,12 +922,12 @@ client.smtpCredentials.list(params?: PaginationParams, options?: RequestOptions)
 ### smtpCredentials.create
 
 ```ts
-client.smtpCredentials.create(body: CreateSMTPCredentialRequest, options?: IdempotencyRequestOptions): Promise<CreatedSMTPCredential>
+client.smtpCredentials.create(body: CreateSMTPCredentialRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedSMTPCredential>
 ```
 
 - **Operation ID:** `createSMTPCredential`
 - **HTTP:** `POST /v2/accounts/{account_id}/smtp-credentials`
-- **Models:** [CreateSMTPCredentialRequest](../src/resources/smtp-credentials.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedSMTPCredential](../src/resources/smtp-credentials.ts)
+- **Models:** [CreateSMTPCredentialRequest](../src/resources/smtp-credentials.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedSMTPCredential](../src/resources/smtp-credentials.ts)
 - **OpenAPI models:** `request: CreateSMTPCredentialRequest`, `201: CreatedSMTPCredential`
 - **Scopes:** `smtp-credentials:write:all`, `smtp-credentials:write:{domain}`
 - **Security alternatives:** `BearerAuth: smtp-credentials:write:all` **or** `BearerAuth: smtp-credentials:write:{domain}`
@@ -940,12 +940,12 @@ client.smtpCredentials.create(body: CreateSMTPCredentialRequest, options?: Idemp
 ### smtpCredentials.get
 
 ```ts
-client.smtpCredentials.get(credentialId: UUID, options?: RequestOptions): Promise<SMTPCredential>
+client.smtpCredentials.get(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SMTPCredential>
 ```
 
 - **Operation ID:** `getSMTPCredential`
 - **HTTP:** `GET /v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SMTPCredential](../src/resources/smtp-credentials.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SMTPCredential](../src/resources/smtp-credentials.ts)
 - **OpenAPI models:** `200: SMTPCredential`
 - **Scopes:** `smtp-credentials:read:all`, `smtp-credentials:read:{domain}`
 - **Security alternatives:** `BearerAuth: smtp-credentials:read:all` **or** `BearerAuth: smtp-credentials:read:{domain}`
@@ -958,12 +958,12 @@ client.smtpCredentials.get(credentialId: UUID, options?: RequestOptions): Promis
 ### smtpCredentials.delete
 
 ```ts
-client.smtpCredentials.delete(credentialId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.smtpCredentials.delete(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteSMTPCredential`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `smtp-credentials:delete:all`, `smtp-credentials:delete:{domain}`
 - **Security alternatives:** `BearerAuth: smtp-credentials:delete:all` **or** `BearerAuth: smtp-credentials:delete:{domain}`

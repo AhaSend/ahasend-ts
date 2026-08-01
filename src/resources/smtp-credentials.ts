@@ -1,6 +1,7 @@
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
+  AhaSendPromise,
   ISODateTime,
   NonEmptyArray,
   PaginatedResponse,
@@ -54,7 +55,60 @@ export type CreateSMTPCredentialRequest =
  * Manage SMTP credentials for apps that send via SMTP relay instead of
  * the HTTP API. The created credential's `password` is returned once.
  */
-export class SMTPCredentialsClient {
+export interface SMTPCredentialsClient {
+  /**
+   * Fetch one page of SMTP credentials.
+   *
+   * `smtp-credentials:read:all` returns every SMTP credential;
+   * `smtp-credentials:read:{domain}` returns only credentials with at least one
+   * authorized `domains` entry.
+   */
+  list(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<PaginatedResponse<SMTPCredential>>;
+
+  /** Iterate through every visible SMTP credential, fetching cursor pages lazily. */
+  iterate(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<SMTPCredential, void, undefined>;
+
+  /**
+   * Create an SMTP credential.
+   *
+   * A `scoped` SMTP credential requires `smtp-credentials:write:{domain}` for
+   * every `domains` entry; `scope: "global"` requires
+   * `smtp-credentials:write:all`.
+   *
+   * The response is the only time the SMTP `password` is exposed. SMTP
+   * credentials have no update operation.
+   */
+  create(
+    body: CreateSMTPCredentialRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<CreatedSMTPCredential>;
+
+  /**
+   * Fetch an SMTP credential by ID.
+   *
+   * Authorization requires `smtp-credentials:read:all` or
+   * `smtp-credentials:read:{domain}` matching at least one credential `domains`
+   * entry.
+   */
+  get(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SMTPCredential>;
+
+  /**
+   * Delete an SMTP credential by ID.
+   *
+   * Authorization requires `smtp-credentials:delete:all` or
+   * `smtp-credentials:delete:{domain}` matching at least one credential
+   * `domains` entry.
+   */
+  delete(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+}
+
+class SMTPCredentialsClientImplementation implements SMTPCredentialsClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -73,7 +127,7 @@ export class SMTPCredentialsClient {
   list(
     params: PaginationParams = {},
     options: RequestOptions = {},
-  ): Promise<PaginatedResponse<SMTPCredential>> {
+  ): AhaSendPromise<PaginatedResponse<SMTPCredential>> {
     return this.#operations.execute(
       "getSMTPCredentials",
       {
@@ -84,6 +138,7 @@ export class SMTPCredentialsClient {
     );
   }
 
+  /** Iterate through every visible SMTP credential, fetching cursor pages lazily. */
   iterate(
     params: PaginationParams = {},
     options: RequestOptions = {},
@@ -104,7 +159,7 @@ export class SMTPCredentialsClient {
   create(
     body: CreateSMTPCredentialRequest,
     options: IdempotencyRequestOptions = {},
-  ): Promise<CreatedSMTPCredential> {
+  ): AhaSendPromise<CreatedSMTPCredential> {
     return this.#operations.execute(
       "createSMTPCredential",
       { path: { account_id: this.#accountId }, body },
@@ -113,13 +168,13 @@ export class SMTPCredentialsClient {
   }
 
   /**
-   * Fetch an SMTP credential.
+   * Fetch an SMTP credential by ID.
    *
    * Authorization requires `smtp-credentials:read:all` or
    * `smtp-credentials:read:{domain}` matching at least one credential `domains`
    * entry.
    */
-  get(credentialId: UUID, options: RequestOptions = {}): Promise<SMTPCredential> {
+  get(credentialId: UUID, options: RequestOptions = {}): AhaSendPromise<SMTPCredential> {
     return this.#operations.execute(
       "getSMTPCredential",
       {
@@ -133,13 +188,13 @@ export class SMTPCredentialsClient {
   }
 
   /**
-   * Delete an SMTP credential.
+   * Delete an SMTP credential by ID.
    *
    * Authorization requires `smtp-credentials:delete:all` or
    * `smtp-credentials:delete:{domain}` matching at least one credential
    * `domains` entry.
    */
-  delete(credentialId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
+  delete(credentialId: UUID, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
     return this.#operations.execute(
       "deleteSMTPCredential",
       {
@@ -151,4 +206,12 @@ export class SMTPCredentialsClient {
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the SMTP credential resource implementation for the root client. */
+export function createSMTPCredentialsClient(
+  operations: OperationExecutor,
+  accountId: UUID,
+): SMTPCredentialsClient {
+  return new SMTPCredentialsClientImplementation(operations, accountId);
 }
