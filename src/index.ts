@@ -14,7 +14,7 @@ export { AhaSendClient } from "./client.js";
 export type { AhaSendClientOptions, PingResponse } from "./client.js";
 
 export type { ClientOptions } from "./config.js";
-export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS, optionsFromEnv } from "./config.js";
+export { optionsFromEnv } from "./config.js";
 
 export {
   AhaSendAbortError,
@@ -38,20 +38,13 @@ export {
 } from "./errors.js";
 export type { AhaSendErrorCode, ApiErrorBody, SerializedAhaSendError } from "./errors.js";
 
-export {
-  DEFAULT_IDEMPOTENCY_CONFIG,
-  IDEMPOTENCY_HEADER,
-  IDEMPOTENT_REPLAYED_HEADER,
-  IdempotencyKeyBuilder,
-  generateIdempotencyKey,
-} from "./idempotency.js";
+export { IdempotencyKeyBuilder, generateIdempotencyKey } from "./idempotency.js";
 export type { IdempotencyConfig } from "./idempotency.js";
 
 export type { RetryConfig, RetryStrategy } from "./retry.js";
 
 export type { CategoryRateLimit, RateLimitConfig } from "./rate-limit.js";
 
-export { composeHooks } from "./telemetry.js";
 export type {
   ErrorEvent,
   RequestEvent,
