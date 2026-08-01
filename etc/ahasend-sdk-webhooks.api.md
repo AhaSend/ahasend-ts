@@ -13,6 +13,7 @@ class AhaSendError extends Error {
     //
     // (undocumented)
     readonly code: AhaSendErrorCode;
+    static is(value: unknown): value is AhaSendError;
     // Warning: (ae-forgotten-export) The symbol "SerializedAhaSendError" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
