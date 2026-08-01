@@ -111,7 +111,10 @@ export interface DomainsClient {
   delete(domain: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
 
   /**
-   * Trigger an immediate DNS re-check and return the refreshed per-record propagation state.
+   * Trigger a DNS validation check and return the per-record propagation state.
+   *
+   * If the domain was checked within the last 60 seconds, the API returns the cached validation
+   * result instead of performing a fresh lookup.
    *
    * This POST operation does not accept an idempotency key because the API contract does not
    * model it as idempotency-keyed.
