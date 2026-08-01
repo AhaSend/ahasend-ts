@@ -457,9 +457,6 @@ export interface ClientOptions {
     userAgent?: string;
 }
 
-// @public
-export function composeHooks(...hookSets: Array<TelemetryHooks | undefined>): TelemetryHooks;
-
 // @public (undocumented)
 export interface CreateAPIKeyRequest {
     // (undocumented)
@@ -676,17 +673,6 @@ export type CreateWebhookRequest = (CreateWebhookBase & {
 });
 
 // @public (undocumented)
-export const DEFAULT_BASE_URL = "https://api.ahasend.com";
-
-// Warning: (ae-forgotten-export) The symbol "ResolvedIdempotencyConfig" needs to be exported by the entry point index.d.ts
-//
-// @public (undocumented)
-export const DEFAULT_IDEMPOTENCY_CONFIG: ResolvedIdempotencyConfig;
-
-// @public (undocumented)
-export const DEFAULT_TIMEOUT_MS = 30000;
-
-// @public (undocumented)
 export interface DeleteSuppressionParams {
     // (undocumented)
     domain?: string;
@@ -850,9 +836,6 @@ export interface ErrorEvent extends RequestEvent {
 export function generateIdempotencyKey(prefix?: string): string;
 
 // @public (undocumented)
-export const IDEMPOTENCY_HEADER = "Idempotency-Key";
-
-// @public (undocumented)
 export interface IdempotencyConfig {
     // (undocumented)
     autoGenerate?: boolean;
@@ -874,9 +857,6 @@ export interface IdempotencyRequestOptions extends RequestOptions {
     // (undocumented)
     idempotencyKey?: string;
 }
-
-// @public (undocumented)
-export const IDEMPOTENT_REPLAYED_HEADER = "Idempotent-Replayed";
 
 // @public (undocumented)
 const INSPECT_CUSTOM: unique symbol;
@@ -2904,14 +2884,6 @@ export interface RequestOptions {
     headers?: Record<string, string>;
     // (undocumented)
     signal?: AbortSignal;
-}
-
-// @public (undocumented)
-interface ResolvedIdempotencyConfig {
-    // (undocumented)
-    readonly autoGenerate: boolean;
-    // (undocumented)
-    readonly prefix: string;
 }
 
 // @public (undocumented)
