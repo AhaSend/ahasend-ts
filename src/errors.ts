@@ -48,6 +48,20 @@ export type AhaSendErrorCode =
   | "server_error"
   | "webhook_verification_error";
 
+const AHASEND_API_ERROR_CODES: ReadonlySet<AhaSendErrorCode> = new Set([
+  "api_error",
+  "authentication_error",
+  "permission_error",
+  "not_found_error",
+  "bad_request_error",
+  "conflict_error",
+  "idempotency_conflict_error",
+  "unprocessable_entity_error",
+  "idempotency_mismatch_error",
+  "rate_limit_error",
+  "server_error",
+]);
+
 export interface ApiErrorBody {
   message: string;
 }
@@ -80,6 +94,11 @@ export type WebhookVerificationReason =
 /** Base class for every error this SDK throws. */
 export class AhaSendError extends Error {
   public readonly code!: AhaSendErrorCode;
+
+  /** Safely identifies SDK errors across duplicate ESM/CJS package instances. */
+  static is(value: unknown): value is AhaSendError {
+    return isAhaSendError(value);
+  }
 
   constructor(message: string, cause?: unknown) {
     super(message);
@@ -182,6 +201,16 @@ export class AhaSendAPIError extends AhaSendError {
   public readonly body!: ApiErrorBody | string | null;
   public readonly requestId: string | undefined;
   public readonly headers!: Record<string, string>;
+
+  /** Safely identifies API error subclasses across duplicate ESM/CJS package instances. */
+  static override is(value: unknown): value is AhaSendAPIError {
+    if (!AhaSendError.is(value)) return false;
+    try {
+      return AHASEND_API_ERROR_CODES.has(value.code);
+    } catch {
+      return false;
+    }
+  }
 
   constructor(params: {
     status: number;

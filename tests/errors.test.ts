@@ -303,6 +303,8 @@ describe("AhaSend error contract", () => {
   ])("assigns stable code %s", (error, code) => {
     expect(error.code).toBe(code);
     expect(isAhaSendError(error)).toBe(true);
+    expect(AhaSendError.is(error)).toBe(true);
+    expect(AhaSendAPIError.is(error)).toBe(error instanceof AhaSendAPIError);
   });
 
   it("does not let direct base errors impersonate subtype codes", () => {
@@ -312,15 +314,58 @@ describe("AhaSend error contract", () => {
     expect(error.cause).toBe("server_error");
   });
 
-  it("uses a global brand without accepting ordinary Error objects", () => {
-    const brandedFromAnotherModule = {
+  it("uses the global brand for static cross-module guards", () => {
+    const brandedBaseError = {
+      [Symbol.for("@ahasend/sdk.error")]: true,
+      code: "configuration_error",
+    };
+    const brandedApiError = {
       [Symbol.for("@ahasend/sdk.error")]: true,
       code: "api_error",
     };
 
-    expect(isAhaSendError(brandedFromAnotherModule)).toBe(true);
-    expect(isAhaSendError(new Error("failed"))).toBe(false);
-    expect(isAhaSendError(null)).toBe(false);
+    expect(AhaSendError.is(brandedBaseError)).toBe(true);
+    expect(AhaSendAPIError.is(brandedBaseError)).toBe(false);
+    expect(AhaSendError.is(brandedApiError)).toBe(true);
+    expect(AhaSendAPIError.is(brandedApiError)).toBe(true);
+    expect(isAhaSendError(brandedApiError)).toBe(true);
+  });
+
+  it.each([
+    ["an ordinary Error", new Error("failed")],
+    ["an unbranded API-shaped value", { code: "api_error", status: 400 }],
+    ["a false brand", { [Symbol.for("@ahasend/sdk.error")]: false, code: "api_error" }],
+    ["null", null],
+    ["undefined", undefined],
+    ["a primitive", "failed"],
+  ])("rejects %s with both static guards", (_name, value) => {
+    expect(AhaSendError.is(value)).toBe(false);
+    expect(AhaSendAPIError.is(value)).toBe(false);
+  });
+
+  it("rejects values whose branded properties cannot be read", () => {
+    const inaccessibleBrand = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("inaccessible");
+        },
+      },
+    );
+    const inaccessibleCode = new Proxy(
+      { [Symbol.for("@ahasend/sdk.error")]: true },
+      {
+        get(target, property, receiver) {
+          if (property === "code") throw new Error("inaccessible");
+          return Reflect.get(target, property, receiver);
+        },
+      },
+    );
+
+    expect(AhaSendError.is(inaccessibleBrand)).toBe(false);
+    expect(AhaSendAPIError.is(inaccessibleBrand)).toBe(false);
+    expect(AhaSendError.is(inaccessibleCode)).toBe(true);
+    expect(AhaSendAPIError.is(inaccessibleCode)).toBe(false);
   });
 
   it("preserves applicable causes as non-enumerable properties", () => {

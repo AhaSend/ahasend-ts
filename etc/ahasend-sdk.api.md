@@ -87,6 +87,7 @@ export class AhaSendAPIError extends AhaSendError {
     readonly body: ApiErrorBody | string | null;
     // (undocumented)
     readonly headers: Record<string, string>;
+    static is(value: unknown): value is AhaSendAPIError;
     // (undocumented)
     readonly requestId: string | undefined;
     // (undocumented)
@@ -172,6 +173,7 @@ export class AhaSendError extends Error {
     constructor(message: string, cause?: unknown);
     // (undocumented)
     readonly code: AhaSendErrorCode;
+    static is(value: unknown): value is AhaSendError;
     // (undocumented)
     toJSON(): SerializedAhaSendError;
 }
