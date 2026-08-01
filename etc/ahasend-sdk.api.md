@@ -127,55 +127,34 @@ export class AhaSendClient {
     // (undocumented)
     [INSPECT_CUSTOM](): SerializedAhaSendClient;
     constructor(options: AhaSendClientOptions);
-    // (undocumented)
     get accountId(): UUID;
-    // (undocumented)
     get accounts(): Readonly<AccountsClient$1>;
     // Warning: (ae-forgotten-export) The symbol "APIKeysClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     get apiKeys(): Readonly<APIKeysClient$1>;
     // Warning: (ae-forgotten-export) The symbol "DomainsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     get domains(): Readonly<DomainsClient$1>;
     static fromEnv(env?: NodeJS.ProcessEnv): AhaSendClient;
     // Warning: (ae-forgotten-export) The symbol "MessagesClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     get messages(): Readonly<MessagesClient$1>;
     ping(options?: RequestOptions): AhaSendPromise<PingResponse>;
     // Warning: (ae-forgotten-export) The symbol "RoutesClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     get routes(): Readonly<RoutesClient$1>;
     // Warning: (ae-forgotten-export) The symbol "SMTPCredentialsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     get smtpCredentials(): Readonly<SMTPCredentialsClient$1>;
     // Warning: (ae-forgotten-export) The symbol "StatisticsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     get statistics(): Readonly<StatisticsClient$1>;
     // Warning: (ae-forgotten-export) The symbol "SubAccountsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     get subAccounts(): Readonly<SubAccountsClient$1>;
     // Warning: (ae-forgotten-export) The symbol "SuppressionsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     get suppressions(): Readonly<SuppressionsClient$1>;
     // Warning: (ae-forgotten-export) The symbol "SerializedAhaSendClient" needs to be exported by the entry point index.d.ts
     toJSON(): SerializedAhaSendClient;
     // Warning: (ae-forgotten-export) The symbol "WebhooksClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
     get webhooks(): Readonly<WebhooksClient$1>;
 }
 
-// @public (undocumented)
+// @public
 export interface AhaSendClientOptions extends ClientOptions {
-    // (undocumented)
     accountId: UUID;
 }
 
@@ -2882,9 +2861,8 @@ export type PaginationParams = Readonly<{
     before?: string;
 })>;
 
-// @public (undocumented)
+// @public
 export interface PingResponse {
-    // (undocumented)
     message: string;
 }
 
