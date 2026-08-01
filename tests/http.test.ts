@@ -900,8 +900,6 @@ describe("HttpClient retry behaviour", () => {
     ["enabled:false", { enabled: false }, 1],
     ["enabled:true", { enabled: true }, 3],
     ["maxRetries", { maxRetries: 1 }, 2],
-    ["baseDelayMs", { baseDelayMs: 0 }, 3],
-    ["maxDelayMs", { maxDelayMs: 0 }, 3],
     ["strategy", { strategy: "constant" as const }, 3],
     ["jitter", { jitter: false }, 3],
   ])(
@@ -929,6 +927,58 @@ describe("HttpClient retry behaviour", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(attempts);
     },
   );
+
+  it("applies a per-call baseDelayMs decrease", async () => {
+    const retryDelays: number[] = [];
+    const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+    const client = makeClient(fetchImpl, {
+      hooks: {
+        onRetry: ({ delayMs }) => {
+          retryDelays.push(delayMs);
+        },
+      },
+      retry: {
+        enabled: true,
+        maxRetries: 1,
+        baseDelayMs: 4,
+        maxDelayMs: 8,
+        strategy: "constant",
+        jitter: false,
+      },
+    });
+
+    await expect(
+      client.request({ method: "GET", path: "/x", retry: { baseDelayMs: 1 } }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(retryDelays).toEqual([1]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies a per-call maxDelayMs decrease", async () => {
+    const retryDelays: number[] = [];
+    const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+    const client = makeClient(fetchImpl, {
+      hooks: {
+        onRetry: ({ delayMs }) => {
+          retryDelays.push(delayMs);
+        },
+      },
+      retry: {
+        enabled: true,
+        maxRetries: 3,
+        baseDelayMs: 1,
+        maxDelayMs: 4,
+        strategy: "exponential",
+        jitter: false,
+      },
+    });
+
+    await expect(
+      client.request({ method: "GET", path: "/x", retry: { maxDelayMs: 2 } }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(retryDelays).toEqual([1, 2, 2]);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
 
   it.each([
     ["false", false],

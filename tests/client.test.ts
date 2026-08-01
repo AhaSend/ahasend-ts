@@ -600,6 +600,7 @@ describe("resource option forwarding", () => {
     const idempotent = forwardWithIdempotency({
       headers,
       timeoutMs: 3_000,
+      retry: { maxRetries: 0 },
       idempotencyKey: "operation-1",
     });
     const generatedIdempotency = forwardWithIdempotency({ headers });
@@ -617,12 +618,40 @@ describe("resource option forwarding", () => {
     });
     expect(Object.isFrozen(idempotent)).toBe(true);
     expect(Object.isFrozen(idempotent.headers)).toBe(true);
+    expect(Object.isFrozen(idempotent.retry)).toBe(true);
     expect(idempotent).toEqual({
       headers: { "x-trace-id": "trace-1" },
       timeoutMs: 3_000,
+      retry: { maxRetries: 0 },
       idempotencyKey: "operation-1",
     });
     expect(generatedIdempotency).toEqual({ headers: { "x-trace-id": "trace-1" } });
     expect(forwardOptions({ retry: false })).toEqual({ retry: false });
+  });
+
+  it("forwards retry restrictions through idempotency-aware resource methods", async () => {
+    const transport = mockFetch(() => new Response("server error", { status: 500 }));
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: "11111111-1111-4111-8111-111111111111",
+      baseUrl: "https://api.test",
+      fetch: transport,
+      retry: {
+        enabled: true,
+        maxRetries: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        strategy: "constant",
+        jitter: false,
+      },
+    });
+
+    await expect(
+      client.domains.create(
+        { domain: "example.com" },
+        { idempotencyKey: "domain-create-1", retry: { maxRetries: 0 } },
+      ),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(transport).toHaveBeenCalledOnce();
   });
 });
