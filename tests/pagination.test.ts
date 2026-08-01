@@ -3,6 +3,7 @@ import { AhaSendError, isAhaSendError } from "../src/index.js";
 import { collect, paginate } from "../src/pagination.js";
 import type { PaginatedResponse } from "../src/types/common.js";
 import { AhaSendClient } from "../src/client.js";
+import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -192,7 +193,7 @@ describe("Resource client iterators", () => {
     ) as unknown as FetchImpl;
     return new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       fetch: fetchImpl,
     });

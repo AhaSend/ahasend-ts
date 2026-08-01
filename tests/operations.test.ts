@@ -58,6 +58,55 @@ describe("OperationExecutor", () => {
     );
   });
 
+  it.each([
+    ["empty", ""],
+    ["dot", "."],
+    ["dot-dot", ".."],
+  ])("rejects an %s opaque path segment before dispatch", (_label, messageId) => {
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    expect(() =>
+      executor.execute("getMessage", {
+        path: { account_id: ACCOUNT_ID, message_id: messageId },
+      }),
+    ).toThrow(/path segments must not be empty/);
+    expect(request).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("rejects a generated UUID path format before dispatch", () => {
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    expect(() =>
+      executor.execute("getDomain", {
+        path: { account_id: "not-a-uuid", domain: HOSTNAME },
+      }),
+    ).toThrow('Invalid path parameter "account_id" for getDomain: expected uuid');
+    expect(request).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("rejects a generated hostname path format before dispatch", () => {
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    expect(() =>
+      executor.execute("getDomain", {
+        path: { account_id: ACCOUNT_ID, domain: "invalid_hostname.example" },
+      }),
+    ).toThrow('Invalid path parameter "domain" for getDomain: expected hostname');
+    expect(request).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
   it("places a descriptor-declared request body", async () => {
     let seenUrl = "";
     let seenInit: RequestInit | undefined;

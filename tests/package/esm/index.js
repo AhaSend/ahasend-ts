@@ -40,4 +40,10 @@ assert.throws(
   () => client.messages.list({ after: "next", before: "previous" }),
   /must not include both "after" and "before"/,
 );
+assert.throws(() => client.apiKeys.get("not-a-uuid"), /expected uuid/);
+assert.throws(() => client.domains.get("invalid_hostname.example"), /expected hostname/);
+assert.throws(
+  () => client.subAccounts.apiKeys.delete("22222222-2222-4222-8222-222222222222", ".."),
+  /path segments must not be empty/,
+);
 assert.equal(requestCount, 0);

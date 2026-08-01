@@ -59,6 +59,20 @@ describe("Filtered pagination parameter declarations", () => {
   });
 });
 
+describe("generated hostname path validation", () => {
+  it.each(["invalid_hostname.example", "-leading-hyphen.example", "double..dot.example"])(
+    "rejects %s without dispatching a domain request",
+    (domain) => {
+      const { fetch, calls } = captureFetch();
+      const client = makeClient(fetch);
+
+      expect(() => client.domains.get(domain)).toThrow(/expected hostname/);
+      expect(calls).toHaveLength(0);
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("WebhooksClient (account-scoped per spec)", () => {
   it("models scoped/global creates, partial updates, and required response fields", () => {
     const globalOmitted: CreateWebhookRequest = {

@@ -19,6 +19,7 @@ export interface OperationExecutionRecord {
 }
 
 const PATH_PARAMETER = /\{([^{}]+)\}/g;
+const UUID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const MANUAL_SECRET_COMPLETION_OPERATIONS: ReadonlySet<OperationId> = new Set([
   "createAPIKey",
   "createSubAccountAPIKey",
@@ -37,8 +38,13 @@ export class OperationExecutor {
     options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<OperationSuccessById[K]> {
     const descriptor = OPERATION_DESCRIPTORS[operationId];
+    const pathParameters = validatePathParameters(
+      operationId,
+      parameters.path,
+      descriptor.pathParameters,
+    );
     const path = descriptor.path.replace(PATH_PARAMETER, (_placeholder, name: string) => {
-      const value = readPathParameter(parameters.path, name);
+      const value = pathParameters[name];
       if (value === undefined) {
         throw new TypeError(`Missing path parameter ${JSON.stringify(name)} for ${operationId}`);
       }
@@ -70,6 +76,52 @@ function readPathParameter(values: object | undefined, name: string): string | n
   if (values === undefined || !Object.hasOwn(values, name)) return undefined;
   const value: unknown = Reflect.get(values, name);
   return typeof value === "string" || typeof value === "number" ? value : undefined;
+}
+
+function validatePathParameters(
+  operationId: OperationId,
+  values: object | undefined,
+  declarations: readonly { readonly name: string; readonly format: string | null }[],
+): Record<string, string | number> {
+  const selected: Record<string, string | number> = {};
+  for (const { name, format } of declarations) {
+    const value = readPathParameter(values, name);
+    if (value === undefined) {
+      throw new TypeError(`Missing path parameter ${JSON.stringify(name)} for ${operationId}`);
+    }
+
+    const segment = String(value);
+    if (segment === "" || segment === "." || segment === "..") {
+      throw new TypeError(
+        `Invalid path parameter ${JSON.stringify(name)} for ${operationId}: path segments must not be empty, ".", or ".."`,
+      );
+    }
+    if (format === "uuid" && !UUID_PATTERN.test(segment)) {
+      throw new TypeError(
+        `Invalid path parameter ${JSON.stringify(name)} for ${operationId}: expected uuid`,
+      );
+    }
+    if (format === "hostname" && !matchesHostname(segment)) {
+      throw new TypeError(
+        `Invalid path parameter ${JSON.stringify(name)} for ${operationId}: expected hostname`,
+      );
+    }
+    selected[name] = value;
+  }
+  return selected;
+}
+
+function matchesHostname(value: string): boolean {
+  const absolute = value.endsWith(".");
+  if (value.length > (absolute ? 254 : 253)) return false;
+
+  const hostname = absolute ? value.slice(0, -1) : value;
+  return hostname
+    .split(".")
+    .every(
+      (label) =>
+        label.length >= 1 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label),
+    );
 }
 
 function createOperationExecutionRecord(operationId: OperationId): OperationExecutionRecord {
