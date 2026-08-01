@@ -6517,20 +6517,13 @@ export interface SubAccount {
 }
 
 // @public
-class SubAccountAPIKeysClient$1 {
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
-    constructor(operations: OperationExecutor, accountId: UUID);
-    create(subAccountId: UUID, body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>;
-    // (undocumented)
-    delete(subAccountId: UUID, keyId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    get(subAccountId: UUID, keyId: UUID, options?: RequestOptions): Promise<APIKey>;
-    // (undocumented)
+interface SubAccountAPIKeysClient$1 {
+    create(subAccountId: UUID, body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedAPIKey>;
+    delete(subAccountId: UUID, keyId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(subAccountId: UUID, keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey>;
     iterate(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): AsyncGenerator<APIKey, void, undefined>;
-    // (undocumented)
-    list(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>;
-    // (undocumented)
-    update(subAccountId: UUID, keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): Promise<APIKey>;
+    list(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<APIKey>>;
+    update(subAccountId: UUID, keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): AhaSendPromise<APIKey>;
 }
 
 // Warning: (ae-forgotten-export) The symbol "SubAccountAPIKeysClient$1" needs to be exported by the entry point index.d.ts
@@ -6539,28 +6532,17 @@ class SubAccountAPIKeysClient$1 {
 export type SubAccountAPIKeysClient = SubAccountAPIKeysClient$1;
 
 // @public
-class SubAccountsClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    // (undocumented)
-    get apiKeys(): Readonly<SubAccountAPIKeysClient$1>;
-    // (undocumented)
-    create(body: CreateSubAccountRequest, options?: IdempotencyRequestOptions): Promise<SubAccount>;
-    // (undocumented)
-    delete(subAccountId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    get(subAccountId: UUID, options?: RequestOptions): Promise<SubAccount>;
-    // (undocumented)
+interface SubAccountsClient$1 {
+    readonly apiKeys: Readonly<SubAccountAPIKeysClient$1>;
+    create(body: CreateSubAccountRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SubAccount>;
+    delete(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>;
     iterate(params?: ListSubAccountsParams, options?: RequestOptions): AsyncGenerator<SubAccount, void, undefined>;
-    // (undocumented)
-    list(params?: ListSubAccountsParams, options?: RequestOptions): Promise<PaginatedResponse<SubAccount>>;
-    // (undocumented)
-    suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): Promise<SubAccount>;
-    // (undocumented)
-    unsuspend(subAccountId: UUID, options?: RequestOptions): Promise<SubAccount>;
-    // (undocumented)
-    update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): Promise<SubAccount>;
-    // (undocumented)
-    usage(options?: RequestOptions): Promise<SubAccountUsageResponse>;
+    list(params?: ListSubAccountsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SubAccount>>;
+    suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>;
+    unsuspend(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>;
+    update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>;
+    usage(options?: RequestOptions): AhaSendPromise<SubAccountUsageResponse>;
 }
 
 // @public (undocumented)
@@ -6644,6 +6626,7 @@ export interface Suppression {
 
 // @public
 class SuppressionsClient$1 {
+    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
     constructor(operations: OperationExecutor, accountId: UUID);
     // (undocumented)
     create(body: CreateSuppressionRequest, options?: IdempotencyRequestOptions): Promise<CreateSuppressionResponse>;
