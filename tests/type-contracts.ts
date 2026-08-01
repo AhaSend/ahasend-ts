@@ -1,6 +1,7 @@
 import type * as SDK from "../src/index.js";
 import type { components } from "../src/generated/rest-types.js";
 import type { OperationExecutor } from "../src/operations.js";
+import type * as WebhookSDK from "../src/webhooks/index.js";
 
 // @ts-expect-error DomainRequestOptions was intentionally removed from the public API.
 import type { DomainRequestOptions } from "../src/index.js";
@@ -445,7 +446,7 @@ type WebhookSignatures = [
       (
         params?: SDK.ListWebhooksParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.Webhook>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Webhook>>
     >
   >,
   Expect<
@@ -463,13 +464,13 @@ type WebhookSignatures = [
       (
         body: SDK.CreateWebhookRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedWebhook>
+      ) => SDK.AhaSendPromise<SDK.CreatedWebhook>
     >
   >,
   Expect<
     Equal<
       SDK.WebhooksClient["get"],
-      (webhookId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.Webhook>
+      (webhookId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Webhook>
     >
   >,
   Expect<
@@ -479,16 +480,50 @@ type WebhookSignatures = [
         webhookId: SDK.UUID,
         body: SDK.UpdateWebhookRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.Webhook>
+      ) => SDK.AhaSendPromise<SDK.Webhook>
     >
   >,
   Expect<
     Equal<
       SDK.WebhooksClient["delete"],
-      (webhookId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (webhookId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const webhookListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Webhook>>;
+declare const webhookIteratorResult: AsyncGenerator<SDK.Webhook, void, undefined>;
+declare const createdWebhookResult: SDK.AhaSendPromise<SDK.CreatedWebhook>;
+declare const webhookResult: SDK.AhaSendPromise<SDK.Webhook>;
+declare const webhookDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralWebhookMock: SDK.WebhooksClient = {
+  list: () => webhookListResult,
+  iterate: () => webhookIteratorResult,
+  create: () => createdWebhookResult,
+  get: () => webhookResult,
+  update: () => webhookResult,
+  delete: () => webhookDeleteResult,
+};
+
+type WebhookHandlerSignatures = [
+  Expect<Equal<Parameters<WebhookSDK.ExpressHandler>[0], WebhookSDK.AnyWebhookEvent>>,
+  Expect<Equal<Parameters<WebhookSDK.FastifyHandler>[0], WebhookSDK.AnyWebhookEvent>>,
+  Expect<Equal<Parameters<WebhookSDK.NextHandler>[0], WebhookSDK.AnyWebhookEvent>>,
+];
+
+const expressHandler: WebhookSDK.ExpressHandler = (event, request, response) => {
+  void [event, request, response];
+};
+
+const fastifyHandler: WebhookSDK.FastifyHandler = (event, request, reply) => {
+  void [event, request, reply];
+};
+
+const nextHandler: WebhookSDK.NextHandler = (event, request) => {
+  void [event, request];
+  return new Response(null, { status: 204 });
+};
 
 type StatisticsSignatures = [
   Expect<
@@ -1234,6 +1269,7 @@ export type DeclarationContracts = [
   DomainSignatures,
   APIKeySignatures,
   WebhookSignatures,
+  WebhookHandlerSignatures,
   StatisticsSignatures,
   SuppressionSignatures,
   RouteSignatures,
@@ -1244,11 +1280,15 @@ export type DeclarationContracts = [
   RefinementContracts,
   typeof structuralMessageMock,
   typeof structuralAPIKeyMock,
+  typeof structuralWebhookMock,
   typeof structuralRouteMock,
   typeof structuralAccountMock,
   typeof structuralStatisticsMock,
   typeof structuralSubAccountMock,
   typeof structuralSubAccountAPIKeyMock,
+  typeof expressHandler,
+  typeof fastifyHandler,
+  typeof nextHandler,
   typeof pingExecution,
   typeof messageExecution,
   DomainRequestOptions,

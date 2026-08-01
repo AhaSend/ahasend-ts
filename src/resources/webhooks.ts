@@ -1,6 +1,7 @@
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
+  AhaSendPromise,
   ISODateTime,
   NonEmptyArray,
   PaginatedResponse,
@@ -113,7 +114,68 @@ export type ListWebhooksParams = PaginationParams & {
  * `scope: "scoped"` + `domains: [...]` fields to limit a webhook to a
  * subset of domains.
  */
-export class WebhooksClient {
+export interface WebhooksClient {
+  /**
+   * Fetch one cursor-paginated page of configured webhooks.
+   *
+   * `webhooks:read:all` returns every webhook; `webhooks:read:{domain}` returns
+   * only webhooks with at least one authorized `domains` entry.
+   */
+  list(
+    params?: ListWebhooksParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<PaginatedResponse<Webhook>>;
+
+  /** Iterate through every matching webhook, fetching cursor pages lazily. */
+  iterate(
+    params?: ListWebhooksParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<Webhook, void, undefined>;
+
+  /**
+   * Create a configured webhook.
+   *
+   * A `scoped` webhook requires `webhooks:write:{domain}` for every `domains`
+   * entry; `scope: "global"` requires `webhooks:write:all`.
+   *
+   * The response is the only time the signing `secret` is exposed.
+   */
+  create(
+    body: CreateWebhookRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<CreatedWebhook>;
+
+  /**
+   * Fetch a configured webhook by ID.
+   *
+   * Authorization requires `webhooks:read:all` or `webhooks:read:{domain}`
+   * matching at least one webhook `domains` entry.
+   */
+  get(webhookId: UUID, options?: RequestOptions): AhaSendPromise<Webhook>;
+
+  /**
+   * Partially update a configured webhook by ID.
+   *
+   * Authorization requires `webhooks:write:{domain}` for the existing webhook
+   * and every new `domains` entry; changing `scope` to `global` requires
+   * `webhooks:write:all`.
+   */
+  update(
+    webhookId: UUID,
+    body: UpdateWebhookRequest,
+    options?: RequestOptions,
+  ): AhaSendPromise<Webhook>;
+
+  /**
+   * Delete a configured webhook by ID.
+   *
+   * Authorization requires `webhooks:delete:all` or `webhooks:delete:{domain}`
+   * matching at least one webhook `domains` entry.
+   */
+  delete(webhookId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+}
+
+class WebhooksClientImplementation implements WebhooksClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -131,7 +193,7 @@ export class WebhooksClient {
   list(
     params: ListWebhooksParams = {},
     options: RequestOptions = {},
-  ): Promise<PaginatedResponse<Webhook>> {
+  ): AhaSendPromise<PaginatedResponse<Webhook>> {
     return this.#operations.execute(
       "getWebhooks",
       {
@@ -142,6 +204,7 @@ export class WebhooksClient {
     );
   }
 
+  /** Iterate through every matching webhook, fetching cursor pages lazily. */
   iterate(
     params: ListWebhooksParams = {},
     options: RequestOptions = {},
@@ -160,7 +223,7 @@ export class WebhooksClient {
   create(
     body: CreateWebhookRequest,
     options: IdempotencyRequestOptions = {},
-  ): Promise<CreatedWebhook> {
+  ): AhaSendPromise<CreatedWebhook> {
     return this.#operations.execute(
       "createWebhook",
       { path: { account_id: this.#accountId }, body },
@@ -169,12 +232,12 @@ export class WebhooksClient {
   }
 
   /**
-   * Fetch a configured webhook.
+   * Fetch a configured webhook by ID.
    *
    * Authorization requires `webhooks:read:all` or `webhooks:read:{domain}`
    * matching at least one webhook `domains` entry.
    */
-  get(webhookId: UUID, options: RequestOptions = {}): Promise<Webhook> {
+  get(webhookId: UUID, options: RequestOptions = {}): AhaSendPromise<Webhook> {
     return this.#operations.execute(
       "getWebhook",
       { path: { account_id: this.#accountId, webhook_id: webhookId } },
@@ -183,7 +246,7 @@ export class WebhooksClient {
   }
 
   /**
-   * Partially update a configured webhook.
+   * Partially update a configured webhook by ID.
    *
    * Authorization requires `webhooks:write:{domain}` for the existing webhook
    * and every new `domains` entry; changing `scope` to `global` requires
@@ -193,7 +256,7 @@ export class WebhooksClient {
     webhookId: UUID,
     body: UpdateWebhookRequest,
     options: RequestOptions = {},
-  ): Promise<Webhook> {
+  ): AhaSendPromise<Webhook> {
     return this.#operations.execute(
       "updateWebhook",
       { path: { account_id: this.#accountId, webhook_id: webhookId }, body },
@@ -202,16 +265,24 @@ export class WebhooksClient {
   }
 
   /**
-   * Delete a configured webhook.
+   * Delete a configured webhook by ID.
    *
    * Authorization requires `webhooks:delete:all` or `webhooks:delete:{domain}`
    * matching at least one webhook `domains` entry.
    */
-  delete(webhookId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
+  delete(webhookId: UUID, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
     return this.#operations.execute(
       "deleteWebhook",
       { path: { account_id: this.#accountId, webhook_id: webhookId } },
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the webhook resource implementation for the root client. */
+export function createWebhooksClient(
+  operations: OperationExecutor,
+  accountId: UUID,
+): WebhooksClient {
+  return new WebhooksClientImplementation(operations, accountId);
 }

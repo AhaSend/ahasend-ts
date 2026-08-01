@@ -812,12 +812,12 @@ client.routes.delete(routeId: UUID, options?: RequestOptions): AhaSendPromise<Su
 ### webhooks.list
 
 ```ts
-client.webhooks.list(params?: ListWebhooksParams, options?: RequestOptions): Promise<PaginatedResponse<Webhook>>
+client.webhooks.list(params?: ListWebhooksParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Webhook>>
 ```
 
 - **Operation ID:** `getWebhooks`
 - **HTTP:** `GET /v2/accounts/{account_id}/webhooks`
-- **Models:** [ListWebhooksParams](../src/resources/webhooks.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
+- **Models:** [ListWebhooksParams](../src/resources/webhooks.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
 - **OpenAPI models:** `200: PaginatedWebhooksResponse`
 - **Scopes:** `webhooks:read:all`, `webhooks:read:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:read:all` **or** `BearerAuth: webhooks:read:{domain}`
@@ -831,12 +831,12 @@ client.webhooks.list(params?: ListWebhooksParams, options?: RequestOptions): Pro
 ### webhooks.create
 
 ```ts
-client.webhooks.create(body: CreateWebhookRequest, options?: IdempotencyRequestOptions): Promise<CreatedWebhook>
+client.webhooks.create(body: CreateWebhookRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedWebhook>
 ```
 
 - **Operation ID:** `createWebhook`
 - **HTTP:** `POST /v2/accounts/{account_id}/webhooks`
-- **Models:** [CreateWebhookRequest](../src/resources/webhooks.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedWebhook](../src/resources/webhooks.ts)
+- **Models:** [CreateWebhookRequest](../src/resources/webhooks.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedWebhook](../src/resources/webhooks.ts)
 - **OpenAPI models:** `request: CreateWebhookRequest`, `201: CreatedWebhook`
 - **Scopes:** `webhooks:write:all`, `webhooks:write:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:write:all` **or** `BearerAuth: webhooks:write:{domain}`
@@ -849,12 +849,12 @@ client.webhooks.create(body: CreateWebhookRequest, options?: IdempotencyRequestO
 ### webhooks.get
 
 ```ts
-client.webhooks.get(webhookId: UUID, options?: RequestOptions): Promise<Webhook>
+client.webhooks.get(webhookId: UUID, options?: RequestOptions): AhaSendPromise<Webhook>
 ```
 
 - **Operation ID:** `getWebhook`
 - **HTTP:** `GET /v2/accounts/{account_id}/webhooks/{webhook_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
 - **OpenAPI models:** `200: Webhook`
 - **Scopes:** `webhooks:read:all`, `webhooks:read:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:read:all` **or** `BearerAuth: webhooks:read:{domain}`
@@ -867,12 +867,12 @@ client.webhooks.get(webhookId: UUID, options?: RequestOptions): Promise<Webhook>
 ### webhooks.update
 
 ```ts
-client.webhooks.update(webhookId: UUID, body: UpdateWebhookRequest, options?: RequestOptions): Promise<Webhook>
+client.webhooks.update(webhookId: UUID, body: UpdateWebhookRequest, options?: RequestOptions): AhaSendPromise<Webhook>
 ```
 
 - **Operation ID:** `updateWebhook`
 - **HTTP:** `PUT /v2/accounts/{account_id}/webhooks/{webhook_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateWebhookRequest](../src/resources/webhooks.ts), [RequestOptions](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateWebhookRequest](../src/resources/webhooks.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
 - **OpenAPI models:** `request: UpdateWebhookRequest`, `200: Webhook`
 - **Scopes:** `webhooks:write:all`, `webhooks:write:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:write:all` **or** `BearerAuth: webhooks:write:{domain}`
@@ -885,12 +885,12 @@ client.webhooks.update(webhookId: UUID, body: UpdateWebhookRequest, options?: Re
 ### webhooks.delete
 
 ```ts
-client.webhooks.delete(webhookId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.webhooks.delete(webhookId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteWebhook`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/webhooks/{webhook_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `webhooks:delete:all`, `webhooks:delete:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:delete:all` **or** `BearerAuth: webhooks:delete:{domain}`
