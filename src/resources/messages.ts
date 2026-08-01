@@ -2,6 +2,7 @@ import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   Address,
+  AhaSendPromise,
   ISODateTime,
   NonEmptyArray,
   PaginatedResponse,
@@ -241,7 +242,76 @@ export type ListMessagesParams = PaginationParams & {
 };
 
 /** Send, list, fetch, and cancel transactional messages. */
-export class MessagesClient {
+export interface MessagesClient {
+  /**
+   * Send a message to 1–100 recipients. Each recipient gets a separate
+   * email with their own substitutions applied.
+   *
+   * An `Idempotency-Key` is auto-generated unless you pass
+   * `options.idempotencyKey`; retries (the SDK's and yours, if you reuse
+   * the key) can never double-send.
+   *
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain in `from.email`.
+   */
+  send(
+    body: CreateMessageRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<SendMessageResponse>;
+
+  /**
+   * Send a single message with multiple visible To/Cc/Bcc recipients
+   * (combined ≤ 50) — like a normal mail client, everyone sees the
+   * recipient list. Use {@link send} for individualized fan-out.
+   *
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain in `from.email`.
+   */
+  sendConversation(
+    body: CreateConversationMessageRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<SendMessageResponse>;
+
+  /**
+   * Fetch one page of messages using cursor pagination. Filters combine with AND semantics.
+   *
+   * `messages:read:all` returns every message; `messages:read:{domain}` returns
+   * only messages whose `sender` domain is authorized.
+   */
+  list(
+    params?: ListMessagesParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<PaginatedResponse<MessageSummary>>;
+
+  /** Iterate through every matching message, fetching cursor pages lazily. */
+  iterate(
+    params?: ListMessagesParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<MessageSummary, void, undefined>;
+
+  /**
+   * Fetch a single message by its opaque message ID. Accepts the generated
+   * Message-ID returned by {@link send} when non-null, or its bare UUID portion.
+   * The ID is encoded as one path segment.
+   *
+   * Authorization requires `messages:read:all` or `messages:read:{domain}`
+   * matching the message's `sender` domain.
+   */
+  get(messageId: string, options?: RequestOptions): AhaSendPromise<Message>;
+
+  /**
+   * Cancel a queued or scheduled message. Only possible before the
+   * first delivery attempt; already-sent messages cannot be recalled.
+   * Accepts the generated Message-ID returned by {@link send} when non-null,
+   * or its bare UUID portion.
+   *
+   * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
+   * matching the message's `sender` domain.
+   */
+  cancel(messageId: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+}
+
+class MessagesClientImplementation implements MessagesClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -264,7 +334,7 @@ export class MessagesClient {
   send(
     body: CreateMessageRequest,
     options: IdempotencyRequestOptions = {},
-  ): Promise<SendMessageResponse> {
+  ): AhaSendPromise<SendMessageResponse> {
     return this.#operations.execute(
       "createMessage",
       { path: { account_id: this.#accountId }, body },
@@ -283,7 +353,7 @@ export class MessagesClient {
   sendConversation(
     body: CreateConversationMessageRequest,
     options: IdempotencyRequestOptions = {},
-  ): Promise<SendMessageResponse> {
+  ): AhaSendPromise<SendMessageResponse> {
     return this.#operations.execute(
       "createConversationMessage",
       { path: { account_id: this.#accountId }, body },
@@ -292,7 +362,7 @@ export class MessagesClient {
   }
 
   /**
-   * Fetch one page of messages. Filters combine with AND semantics.
+   * Fetch one page of messages using cursor pagination. Filters combine with AND semantics.
    *
    * `messages:read:all` returns every message; `messages:read:{domain}` returns
    * only messages whose `sender` domain is authorized.
@@ -300,7 +370,7 @@ export class MessagesClient {
   list(
     params: ListMessagesParams = {},
     options: RequestOptions = {},
-  ): Promise<PaginatedResponse<MessageSummary>> {
+  ): AhaSendPromise<PaginatedResponse<MessageSummary>> {
     return this.#operations.execute(
       "getMessages",
       {
@@ -311,10 +381,7 @@ export class MessagesClient {
     );
   }
 
-  /**
-   * Iterate every message matching the filters, fetching pages lazily:
-   * `for await (const msg of client.messages.iterate({ status: "Delivered" }))`.
-   */
+  /** Iterate through every matching message, fetching cursor pages lazily. */
   iterate(
     params: ListMessagesParams = {},
     options: RequestOptions = {},
@@ -330,7 +397,7 @@ export class MessagesClient {
    * Authorization requires `messages:read:all` or `messages:read:{domain}`
    * matching the message's `sender` domain.
    */
-  get(messageId: string, options: RequestOptions = {}): Promise<Message> {
+  get(messageId: string, options: RequestOptions = {}): AhaSendPromise<Message> {
     return this.#operations.execute(
       "getMessage",
       { path: { account_id: this.#accountId, message_id: messageId } },
@@ -347,11 +414,19 @@ export class MessagesClient {
    * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
    * matching the message's `sender` domain.
    */
-  cancel(messageId: string, options: RequestOptions = {}): Promise<SuccessResponse> {
+  cancel(messageId: string, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
     return this.#operations.execute(
       "cancelMessage",
       { path: { account_id: this.#accountId, message_id: messageId } },
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the message resource implementation for the root client. */
+export function createMessagesClient(
+  operations: OperationExecutor,
+  accountId: UUID,
+): MessagesClient {
+  return new MessagesClientImplementation(operations, accountId);
 }

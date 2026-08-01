@@ -1635,14 +1635,13 @@ export interface MessageSchedule {
 }
 
 // @public
-class MessagesClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    cancel(messageId: string, options?: RequestOptions): Promise<SuccessResponse>;
-    get(messageId: string, options?: RequestOptions): Promise<Message>;
+interface MessagesClient$1 {
+    cancel(messageId: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(messageId: string, options?: RequestOptions): AhaSendPromise<Message>;
     iterate(params?: ListMessagesParams, options?: RequestOptions): AsyncGenerator<MessageSummary, void, undefined>;
-    list(params?: ListMessagesParams, options?: RequestOptions): Promise<PaginatedResponse<MessageSummary>>;
-    send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): Promise<SendMessageResponse>;
-    sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): Promise<SendMessageResponse>;
+    list(params?: ListMessagesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<MessageSummary>>;
+    send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
+    sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
 }
 
 // @public (undocumented)

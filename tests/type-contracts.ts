@@ -216,7 +216,7 @@ type MessageSignatures = [
       (
         body: SDK.CreateMessageRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.SendMessageResponse>
+      ) => SDK.AhaSendPromise<SDK.SendMessageResponse>
     >
   >,
   Expect<
@@ -225,7 +225,7 @@ type MessageSignatures = [
       (
         body: SDK.CreateConversationMessageRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.SendMessageResponse>
+      ) => SDK.AhaSendPromise<SDK.SendMessageResponse>
     >
   >,
   Expect<
@@ -234,7 +234,7 @@ type MessageSignatures = [
       (
         params?: SDK.ListMessagesParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.MessageSummary>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.MessageSummary>>
     >
   >,
   Expect<
@@ -249,16 +249,31 @@ type MessageSignatures = [
   Expect<
     Equal<
       SDK.MessagesClient["get"],
-      (messageId: string, options?: SDK.RequestOptions) => Promise<SDK.Message>
+      (messageId: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Message>
     >
   >,
   Expect<
     Equal<
       SDK.MessagesClient["cancel"],
-      (messageId: string, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (messageId: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const messageListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.MessageSummary>>;
+declare const messageIteratorResult: AsyncGenerator<SDK.MessageSummary, void, undefined>;
+declare const sendMessageResult: SDK.AhaSendPromise<SDK.SendMessageResponse>;
+declare const messageResult: SDK.AhaSendPromise<SDK.Message>;
+declare const messageCancelResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralMessageMock: SDK.MessagesClient = {
+  send: () => sendMessageResult,
+  sendConversation: () => sendMessageResult,
+  list: () => messageListResult,
+  iterate: () => messageIteratorResult,
+  get: () => messageResult,
+  cancel: () => messageCancelResult,
+};
 
 type DomainSignatures = [
   Expect<
@@ -1089,6 +1104,7 @@ export type DeclarationContracts = [
   SubAccountSignatures,
   SubAccountAPIKeySignatures,
   RefinementContracts,
+  typeof structuralMessageMock,
   typeof structuralAPIKeyMock,
   typeof structuralAccountMock,
   typeof pingExecution,

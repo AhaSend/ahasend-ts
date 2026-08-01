@@ -231,12 +231,12 @@ client.domains.checkDns(domain: string, options?: RequestOptions): Promise<Domai
 ### messages.list
 
 ```ts
-client.messages.list(params?: ListMessagesParams, options?: RequestOptions): Promise<PaginatedResponse<MessageSummary>>
+client.messages.list(params?: ListMessagesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<MessageSummary>>
 ```
 
 - **Operation ID:** `getMessages`
 - **HTTP:** `GET /v2/accounts/{account_id}/messages`
-- **Models:** [ListMessagesParams](../src/resources/messages.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [MessageSummary](../src/resources/messages.ts)
+- **Models:** [ListMessagesParams](../src/resources/messages.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [MessageSummary](../src/resources/messages.ts)
 - **OpenAPI models:** `200: PaginatedMessagesResponse`
 - **Scopes:** `messages:read:all`, `messages:read:{domain}`
 - **Security alternatives:** `BearerAuth: messages:read:all` **or** `BearerAuth: messages:read:{domain}`
@@ -250,12 +250,12 @@ client.messages.list(params?: ListMessagesParams, options?: RequestOptions): Pro
 ### messages.send
 
 ```ts
-client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): Promise<SendMessageResponse>
+client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>
 ```
 
 - **Operation ID:** `createMessage`
 - **HTTP:** `POST /v2/accounts/{account_id}/messages`
-- **Models:** [CreateMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
+- **Models:** [CreateMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
 - **OpenAPI models:** `request: CreateMessageRequest`, `202: CreateMessageResponse`
 - **Scopes:** `messages:send:all`, `messages:send:{domain}`
 - **Security alternatives:** `BearerAuth: messages:send:all` **or** `BearerAuth: messages:send:{domain}`
@@ -268,12 +268,12 @@ client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOpt
 ### messages.sendConversation
 
 ```ts
-client.messages.sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): Promise<SendMessageResponse>
+client.messages.sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>
 ```
 
 - **Operation ID:** `createConversationMessage`
 - **HTTP:** `POST /v2/accounts/{account_id}/messages/conversation`
-- **Models:** [CreateConversationMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
+- **Models:** [CreateConversationMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
 - **OpenAPI models:** `request: CreateConversationMessageRequest`, `202: CreateMessageResponse`
 - **Scopes:** `messages:send:all`, `messages:send:{domain}`
 - **Security alternatives:** `BearerAuth: messages:send:all` **or** `BearerAuth: messages:send:{domain}`
@@ -286,12 +286,12 @@ client.messages.sendConversation(body: CreateConversationMessageRequest, options
 ### messages.get
 
 ```ts
-client.messages.get(messageId: string, options?: RequestOptions): Promise<Message>
+client.messages.get(messageId: string, options?: RequestOptions): AhaSendPromise<Message>
 ```
 
 - **Operation ID:** `getMessage`
 - **HTTP:** `GET /v2/accounts/{account_id}/messages/{message_id}`
-- **Models:** [RequestOptions](../src/types/common.ts), [Message](../src/resources/messages.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Message](../src/resources/messages.ts)
 - **OpenAPI models:** `200: Message`
 - **Scopes:** `messages:read:all`, `messages:read:{domain}`
 - **Security alternatives:** `BearerAuth: messages:read:all` **or** `BearerAuth: messages:read:{domain}`
@@ -304,12 +304,12 @@ client.messages.get(messageId: string, options?: RequestOptions): Promise<Messag
 ### messages.cancel
 
 ```ts
-client.messages.cancel(messageId: string, options?: RequestOptions): Promise<SuccessResponse>
+client.messages.cancel(messageId: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `cancelMessage`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/messages/{message_id}/cancel`
-- **Models:** [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `messages:cancel:all`, `messages:cancel:{domain}`
 - **Security alternatives:** `BearerAuth: messages:cancel:all` **or** `BearerAuth: messages:cancel:{domain}`
