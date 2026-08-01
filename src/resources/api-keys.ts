@@ -69,19 +69,16 @@ export interface CreateAPIKeyRequest {
   ip_allow_list?: readonly string[];
 }
 
-interface UpdateAPIKeyFields {
+/** At least one field must select a non-null update value. */
+export type UpdateAPIKeyRequest = {
   label?: string | null;
   scopes?: NonEmptyArray<APIKeyScopeName> | null;
   ip_allow_list?: readonly string[] | null;
-}
-
-/** At least one field must select a non-null update value. */
-export type UpdateAPIKeyRequest = UpdateAPIKeyFields &
-  (
-    | { label: string }
-    | { scopes: NonEmptyArray<APIKeyScopeName> }
-    | { ip_allow_list: readonly string[] }
-  );
+} & (
+  | { label: string }
+  | { scopes: NonEmptyArray<APIKeyScopeName> }
+  | { ip_allow_list: readonly string[] }
+);
 
 /**
  * Manage API keys and their scopes. Scope strings follow

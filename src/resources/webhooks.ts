@@ -46,7 +46,12 @@ export interface CreatedWebhook extends Webhook {
   secret: string;
 }
 
-interface CreateWebhookBase {
+/**
+ * Discriminated union mirroring the spec: `scope: "scoped"` requires a
+ * non-empty `domains` array. Global webhooks may omit `domains` or send
+ * any array or `null`; the API accepts and ignores supplied values.
+ */
+export type CreateWebhookRequest = {
   name: string;
   url: string;
   enabled?: boolean;
@@ -60,16 +65,10 @@ interface CreateWebhookBase {
   on_clicked?: boolean;
   on_suppression_created?: boolean;
   on_dns_error?: boolean;
-}
-
-/**
- * Discriminated union mirroring the spec: `scope: "scoped"` requires a
- * non-empty `domains` array. Global webhooks may omit `domains` or send
- * any array or `null`; the API accepts and ignores supplied values.
- */
-export type CreateWebhookRequest =
-  | (CreateWebhookBase & { scope: "global"; domains?: readonly string[] | null })
-  | (CreateWebhookBase & { scope: "scoped"; domains: NonEmptyArray<string> });
+} & (
+  | { scope: "global"; domains?: readonly string[] | null }
+  | { scope: "scoped"; domains: NonEmptyArray<string> }
+);
 
 export interface UpdateWebhookRequest {
   /** Omit or send `null` to preserve the stored value. */

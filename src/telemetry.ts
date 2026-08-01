@@ -1,8 +1,6 @@
-import type { OperationId } from "./generated/operations.js";
-
 export interface RequestEvent {
   /** Generated OpenAPI operation identity, when the request uses a known operation. */
-  operationId: OperationId | undefined;
+  operationId: string | undefined;
   method: string;
   /** OpenAPI route template. Path parameters are never expanded with caller values. */
   routeTemplate: string;

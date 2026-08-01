@@ -40,16 +40,13 @@ export interface CreateSubAccountRequest {
   monthly_credit?: number;
 }
 
-type SubAccountUpdateFields = {
+/** At least one non-null field is required; omitted or null fields are left unchanged. */
+export type UpdateSubAccountRequest = {
   name?: string | null;
   website?: string | null;
   /** OpenAPI `int64`, represented as a JavaScript number. Valid values are 0 to 1 billion. */
   monthly_credit?: number | null;
-};
-
-/** At least one non-null field is required; omitted or null fields are left unchanged. */
-export type UpdateSubAccountRequest = SubAccountUpdateFields &
-  ({ name: string } | { website: string } | { monthly_credit: number });
+} & ({ name: string } | { website: string } | { monthly_credit: number });
 
 export interface SuspendSubAccountRequest {
   reason: string;

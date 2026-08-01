@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { digestJsonArtifact } from "../scripts/digest-artifact.mjs";
@@ -22,6 +22,15 @@ type PackOutput = PackResult[] | Readonly<Record<string, PackResult>>;
 const repositoryRoot = process.cwd();
 const distDirectory = resolve(repositoryRoot, "dist");
 const require = createRequire(import.meta.url);
+const apiExtractorManifestPath = require.resolve("@microsoft/api-extractor/package.json");
+const apiExtractorManifest = JSON.parse(readFileSync(apiExtractorManifestPath, "utf8")) as {
+  readonly bin: Readonly<Record<string, string>>;
+};
+const apiExtractorBin = apiExtractorManifest.bin["api-extractor"];
+if (apiExtractorBin === undefined) {
+  throw new TypeError("@microsoft/api-extractor does not declare its api-extractor executable.");
+}
+const apiExtractorExecutable = resolve(dirname(apiExtractorManifestPath), apiExtractorBin);
 let esmRoot: RootModule;
 let esmWebhooks: WebhooksModule;
 let cjsRoot: RootModule;
@@ -107,6 +116,54 @@ describe("built package topology", () => {
         'Symbol.for("@ahasend/sdk.error")',
       );
     }
+  });
+
+  it("extracts a warning-free curated root declaration report", () => {
+    const config = JSON.parse(
+      readFileSync(resolve(repositoryRoot, "config/api-extractor.json"), "utf8"),
+    ) as {
+      readonly apiReport: { readonly includeForgottenExports: boolean };
+      readonly messages: {
+        readonly extractorMessageReporting: Readonly<
+          Record<string, { readonly logLevel: string; readonly addToApiReportFile?: boolean }>
+        >;
+      };
+    };
+    expect(config.apiReport.includeForgottenExports).toBe(false);
+    expect(config.messages.extractorMessageReporting["ae-forgotten-export"]).toEqual({
+      logLevel: "error",
+      addToApiReportFile: false,
+    });
+
+    const extraction = spawnSync(
+      process.execPath,
+      [apiExtractorExecutable, "run", "--config", "config/api-extractor.json"],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
+    const output = `${extraction.stdout}${extraction.stderr}`;
+    expect(extraction.status, output).toBe(0);
+    expect(output).not.toContain("ae-forgotten-export");
+
+    const report = readFileSync(resolve(repositoryRoot, "etc/ahasend-sdk.api.md"), "utf8");
+    expect(report).toContain("export class AhaSendClient");
+    expect(report).toContain("export interface MessagesClient");
+    expect(report).not.toContain("Warning:");
+    for (const internal of [
+      "APIErrorParams",
+      "ClientImplementation",
+      "HttpClient",
+      "IdempotencyOperationPolicy",
+      "OperationExecutor",
+      "OperationId",
+      "OPERATION_DESCRIPTORS",
+      "ResolvedClientConfig",
+      "RetryMode",
+      "SerializedAhaSendClient",
+      "typeof REDACTED",
+    ]) {
+      expect(report).not.toContain(internal);
+    }
+    expect(report).not.toMatch(/\b(?:declare )?const REDACTED\b/u);
   });
 
   it("shares constructors within each format and brands errors across mixed graphs", () => {

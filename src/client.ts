@@ -29,12 +29,6 @@ import type { AhaSendPromise, RequestOptions, UUID } from "./types/common.js";
 const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");
 const REDACTED = "[REDACTED]" as const;
 
-interface SerializedAhaSendClient {
-  readonly name: "AhaSendClient";
-  readonly accountId: UUID;
-  readonly apiKey: typeof REDACTED;
-}
-
 /** Options for an {@link AhaSendClient}, including the account that its resources target. */
 export interface AhaSendClientOptions extends ClientOptions {
   /** Account ID used by every account-scoped resource request. */
@@ -186,7 +180,11 @@ export class AhaSendClient {
   }
 
   /** Return a safe diagnostic representation without transport or resource state. */
-  toJSON(): SerializedAhaSendClient {
+  toJSON(): {
+    readonly name: "AhaSendClient";
+    readonly accountId: UUID;
+    readonly apiKey: "[REDACTED]";
+  } {
     return Object.freeze({
       name: "AhaSendClient",
       accountId: this.#accountId,
@@ -194,12 +192,16 @@ export class AhaSendClient {
     });
   }
 
-  [INSPECT_CUSTOM](): SerializedAhaSendClient {
-    return this.toJSON();
-  }
-
   /** Health check (`GET /v2/ping`) — verifies connectivity and the API key. */
   ping(options: RequestOptions = {}): AhaSendPromise<PingResponse> {
     return this.#operations.execute("ping", {}, forwardOptions(options));
   }
 }
+
+Object.defineProperty(AhaSendClient.prototype, INSPECT_CUSTOM, {
+  configurable: true,
+  writable: true,
+  value(this: AhaSendClient) {
+    return this.toJSON();
+  },
+});
