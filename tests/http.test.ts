@@ -6,7 +6,7 @@ import type {
   NonEmptyArray,
   RequestOptions,
 } from "../src/index.js";
-import { resolveConfig } from "../src/config.js";
+import { MAX_TIMER_DELAY_MS, resolveConfig } from "../src/config.js";
 import {
   AhaSendAbortError,
   AhaSendAuthenticationError,
@@ -379,6 +379,33 @@ describe("HttpClient", () => {
 });
 
 describe("HttpClient cancellation and attempt timeouts", () => {
+  it.each([
+    ["fractional", 0.5],
+    ["one millisecond", 1],
+    ["the timer maximum", MAX_TIMER_DELAY_MS],
+  ])("accepts a per-call timeout at %s", async (_label, timeoutMs) => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl, { retry: { enabled: false } });
+
+    await expect(client.request({ method: "GET", path: "/x", timeoutMs })).resolves.toEqual({});
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["NaN", Number.NaN],
+    ["positive infinity", Number.POSITIVE_INFINITY],
+    ["negative infinity", Number.NEGATIVE_INFINITY],
+    ["zero", 0],
+    ["a negative value", -1],
+    ["above the timer maximum", MAX_TIMER_DELAY_MS + 1],
+  ])("rejects a per-call timeout of %s before fetch", (_label, timeoutMs) => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl, { retry: { enabled: false } });
+
+    expect(() => client.request({ method: "GET", path: "/x", timeoutMs })).toThrow(/timeoutMs/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("rejects an already-aborted consumer signal before fetch starts", async () => {
     const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
     const client = makeClient(fetchImpl, { retry: { enabled: false } });
@@ -399,14 +426,19 @@ describe("HttpClient cancellation and attempt timeouts", () => {
     try {
       const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
       const client = makeClient(fetchImpl, {
-        timeoutMs: 100,
+        timeoutMs: 5_000,
         retry: { enabled: false },
         rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
       });
       await client.request({ method: "GET", path: "/x" });
 
       const controller = new AbortController();
-      const queued = client.request({ method: "GET", path: "/x", signal: controller.signal });
+      const queued = client.request({
+        method: "GET",
+        path: "/x",
+        signal: controller.signal,
+        timeoutMs: 100,
+      });
       let settled = false;
       void queued.then(
         () => {
@@ -423,6 +455,33 @@ describe("HttpClient cancellation and attempt timeouts", () => {
 
       controller.abort("caller cancelled while queued");
       await expect(queued).rejects.toMatchObject({ code: "abort_error" });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies the per-call timeout while fetch is pending", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = mockFetch(
+        (_url, init) =>
+          new Promise<Response>((_, reject) => {
+            init.signal?.addEventListener("abort", () => reject(makeAbortError()), { once: true });
+          }),
+      );
+      const client = makeClient(fetchImpl, {
+        timeoutMs: 5_000,
+        retry: { enabled: false },
+      });
+      const request = client.request({ method: "GET", path: "/x", timeoutMs: 100 });
+      const rejected = expect(request).rejects.toMatchObject({
+        code: "timeout_error",
+        message: expect.stringContaining("100ms"),
+      });
+
+      await vi.advanceTimersByTimeAsync(100);
+      await rejected;
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -510,10 +569,10 @@ describe("HttpClient cancellation and attempt timeouts", () => {
         return response;
       });
       const client = makeClient(fetchImpl, {
-        timeoutMs: 100,
+        timeoutMs: 5_000,
         retry: { enabled: false },
       });
-      const request = client.request({ method: "GET", path: "/x" });
+      const request = client.request({ method: "GET", path: "/x", timeoutMs: 100 });
       const rejected = expect(request).rejects.toBeInstanceOf(AhaSendTimeoutError);
 
       await vi.advanceTimersByTimeAsync(100);
@@ -573,10 +632,10 @@ describe("HttpClient cancellation and attempt timeouts", () => {
           : new Response("{}", { status: 200 });
       });
       const client = makeClient(fetchImpl, {
-        timeoutMs: 100,
+        timeoutMs: 5_000,
         retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 1000, jitter: false },
       });
-      const request = client.request({ method: "GET", path: "/x" });
+      const request = client.request({ method: "GET", path: "/x", timeoutMs: 100 });
 
       await vi.advanceTimersByTimeAsync(250);
       expect(fetchImpl).toHaveBeenCalledTimes(1);

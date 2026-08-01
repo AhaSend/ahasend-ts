@@ -1,11 +1,15 @@
 # Cancellation and timeouts
 
-Every resource method accepts a trailing `RequestOptions` object with an `AbortSignal`:
+Every resource method accepts a trailing `RequestOptions` object with an `AbortSignal` and an
+optional per-call timeout:
 
 ```ts
 const controller = new AbortController();
 
-const pending = client.messages.list({ limit: 100 }, { signal: controller.signal });
+const pending = client.messages.list(
+  { limit: 100 },
+  { signal: controller.signal, timeoutMs: 10_000 },
+);
 
 controller.abort("request no longer needed");
 await pending; // rejects with AhaSendAbortError
@@ -16,10 +20,13 @@ token, `fetch`, response-body reading, retry backoff, and later attempts. `AhaSe
 terminal and is not retried. When caller cancellation and a timeout race, the first cancellation
 source wins.
 
-`timeoutMs` is a per-network-attempt budget in **milliseconds**. It starts after local rate pacing
-and covers both `fetch` and reading the response body. Each retry receives a new attempt budget;
-retry backoff and local pacing are outside that budget. `AhaSendClient.fromEnv()` instead reads
-`AHASEND_TIMEOUT` in **seconds** and converts it to milliseconds.
+`timeoutMs` is a per-network-attempt budget in **milliseconds**. A call's `options.timeoutMs`
+overrides the client setting for every attempt in that call. It starts after local rate pacing and
+covers both `fetch` and reading the response body. Each retry receives a new attempt budget; retry
+backoff and local pacing are outside that budget. Values must be finite, positive, and no greater
+than 2,147,483,647 milliseconds.
+
+`AhaSendClient.fromEnv()` reads `AHASEND_TIMEOUT` in **seconds** and converts it to milliseconds.
 
 ```ts
 const client = new AhaSendClient({

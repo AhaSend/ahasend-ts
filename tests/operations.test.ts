@@ -39,16 +39,21 @@ describe("OperationExecutor", () => {
     const request = vi.spyOn(http, "request");
     const executor = new OperationExecutor(http);
 
-    await executor.execute("getDomain", {
-      path: {
-        account_id: ACCOUNT_ID,
-        domain: HOSTNAME,
+    await executor.execute(
+      "getDomain",
+      {
+        path: {
+          account_id: ACCOUNT_ID,
+          domain: HOSTNAME,
+        },
       },
-    });
+      { timeoutMs: 2_000 },
+    );
 
     expect(new URL(seenUrl).pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
+        timeoutMs: 2_000,
         execution: {
           operationId: "getDomain",
           retryMode: "safe",

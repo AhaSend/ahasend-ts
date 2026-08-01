@@ -1063,6 +1063,7 @@ export interface RequestOptions {
     headers?: Record<string, string>;
     // (undocumented)
     signal?: AbortSignal;
+    timeoutMs?: number;
 }
 
 // @public (undocumented)

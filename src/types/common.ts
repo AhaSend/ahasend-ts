@@ -36,6 +36,8 @@ export interface SuccessResponse {
 export interface RequestOptions {
   signal?: AbortSignal;
   headers?: Record<string, string>;
+  /** Timeout for each network attempt, including response-body reading. */
+  timeoutMs?: number;
 }
 
 export interface IdempotencyRequestOptions extends RequestOptions {

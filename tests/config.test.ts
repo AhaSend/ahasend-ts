@@ -350,6 +350,8 @@ describe("resolveConfig", () => {
 
     expect(() => client.ping({ headers: { "bad header": "value" } })).toThrow(/header/i);
     expect(() => client.ping({ signal: {} as AbortSignal })).toThrow(/AbortSignal/);
+    expect(() => client.ping({ timeoutMs: 0 })).toThrow(/timeoutMs/);
+    expect(() => client.ping({ timeoutMs: MAX_TIMER_DELAY_MS + 1 })).toThrow(/timeoutMs/);
     expect(() => client.messages.send({} as never, { idempotencyKey: "" })).toThrow(
       /idempotencyKey/i,
     );

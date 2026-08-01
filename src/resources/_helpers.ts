@@ -5,6 +5,7 @@ export type { IdempotencyRequestOptions } from "../types/common.js";
 interface ForwardedOptions {
   readonly signal?: AbortSignal;
   readonly headers?: Record<string, string>;
+  readonly timeoutMs?: number;
   readonly idempotencyKey?: string;
 }
 
@@ -45,6 +46,7 @@ export function forwardOptions(options: RequestOptions = {}): ForwardedOptions {
   return Object.freeze({
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.headers ? { headers: Object.freeze({ ...options.headers }) } : {}),
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
   });
 }
 
@@ -54,6 +56,7 @@ export function forwardWithIdempotency(options: IdempotencyRequestOptions = {}):
   return Object.freeze({
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.headers ? { headers: Object.freeze({ ...options.headers }) } : {}),
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     ...(options.idempotencyKey !== undefined ? { idempotencyKey: options.idempotencyKey } : {}),
   });
 }
