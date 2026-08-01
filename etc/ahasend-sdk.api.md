@@ -373,20 +373,13 @@ export interface APIKey {
 }
 
 // @public
-class APIKeysClient$1 {
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
-    constructor(operations: OperationExecutor, accountId: UUID);
-    create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>;
-    // (undocumented)
-    delete(keyId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    get(keyId: UUID, options?: RequestOptions): Promise<APIKey>;
-    // (undocumented)
+interface APIKeysClient$1 {
+    create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedAPIKey>;
+    delete(keyId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey>;
     iterate(params?: PaginationParams, options?: RequestOptions): AsyncGenerator<APIKey, void, undefined>;
-    // (undocumented)
-    list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>;
-    // (undocumented)
-    update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): Promise<APIKey>;
+    list(params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<APIKey>>;
+    update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): AhaSendPromise<APIKey>;
 }
 
 // @public (undocumented)
@@ -1432,6 +1425,7 @@ export interface Domain {
 
 // @public
 class DomainsClient$1 {
+    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
     constructor(operations: OperationExecutor, accountId: UUID);
     checkDns(domain: string, options?: RequestOptions): Promise<Domain>;
     create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): Promise<Domain>;
