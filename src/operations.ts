@@ -7,6 +7,7 @@ import type {
 import { OPERATION_DESCRIPTORS } from "./generated/operations.js";
 import type { HttpClient } from "./http.js";
 import type { IdempotencyOperationPolicy } from "./idempotency.js";
+import { assertExclusiveCursors } from "./pagination.js";
 import type { AhaSendPromise, IdempotencyRequestOptions } from "./types/common.js";
 
 type OperationTransport = Pick<HttpClient, "request">;
@@ -44,7 +45,8 @@ export class OperationExecutor {
       return encodeURIComponent(String(value));
     });
 
-    const query = selectDeclaredQuery(
+    const query = validateAndSelectDeclaredQuery(
+      operationId,
       "query" in parameters ? parameters.query : undefined,
       descriptor.query,
     );
@@ -87,11 +89,37 @@ function createOperationExecutionRecord(operationId: OperationId): OperationExec
   });
 }
 
-function selectDeclaredQuery(
+function validateAndSelectDeclaredQuery(
+  operationId: OperationId,
   values: Readonly<Record<string, unknown>> | undefined,
-  declarations: readonly { readonly name: string }[],
+  declarations: readonly { readonly name: string; readonly required: boolean }[],
 ): Record<string, unknown> | undefined {
+  const declaredNames = new Set(declarations.map(({ name }) => name));
+  if (values !== undefined) {
+    const undeclaredName = Object.keys(values).find((name) => !declaredNames.has(name));
+    if (undeclaredName !== undefined) {
+      throw new TypeError(
+        `Unknown query parameter ${JSON.stringify(undeclaredName)} for ${operationId}`,
+      );
+    }
+  }
+
+  for (const { name, required } of declarations) {
+    if (
+      required &&
+      (values === undefined ||
+        !Object.hasOwn(values, name) ||
+        values[name] === undefined ||
+        values[name] === null)
+    ) {
+      throw new TypeError(
+        `Missing required query parameter ${JSON.stringify(name)} for ${operationId}`,
+      );
+    }
+  }
+
   if (values === undefined) return undefined;
+  assertExclusiveCursors(values);
 
   const query: Record<string, unknown> = {};
   for (const { name } of declarations) {

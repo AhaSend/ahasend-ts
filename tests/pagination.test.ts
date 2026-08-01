@@ -103,6 +103,27 @@ describe("paginate", () => {
     ]);
   });
 
+  it("rejects dual cursors before fetching a page", async () => {
+    const fetchPage = vi.fn(async () => ({
+      object: "list" as const,
+      data: [1],
+      pagination: { has_more: false },
+    }));
+    const drain = async () => {
+      for await (const _item of paginate(fetchPage, {
+        after: "next",
+        before: "previous",
+      } as never)) {
+        // drain
+      }
+    };
+
+    await expect(drain()).rejects.toThrow(
+      'Pagination parameters must not include both "after" and "before"',
+    );
+    expect(fetchPage).not.toHaveBeenCalled();
+  });
+
   it("rejects a cursor that would revisit a page", async () => {
     const pages = [
       { object: "list" as const, data: ["a"], pagination: { has_more: true, next_cursor: "c1" } },

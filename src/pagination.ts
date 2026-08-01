@@ -1,6 +1,15 @@
 import { AhaSendError } from "./errors.js";
 import type { PaginatedResponse, PaginationParams } from "./types/common.js";
 
+export function assertExclusiveCursors(params: {
+  readonly after?: unknown;
+  readonly before?: unknown;
+}): void {
+  if (params.after !== undefined && params.before !== undefined) {
+    throw new TypeError('Pagination parameters must not include both "after" and "before"');
+  }
+}
+
 /**
  * Walk a cursor-paginated endpoint as an async iterable.
  *
@@ -12,6 +21,7 @@ export async function* paginate<T, P extends PaginationParams>(
   fetchPage: (params: P) => Promise<PaginatedResponse<T>>,
   initial: P,
 ): AsyncGenerator<T, void, undefined> {
+  assertExclusiveCursors(initial);
   let params: P = { ...initial };
   const backwards = initial.before !== undefined;
   const initialCursor = backwards ? initial.before : initial.after;

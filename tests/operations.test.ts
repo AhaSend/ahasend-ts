@@ -144,6 +144,45 @@ describe("OperationExecutor", () => {
     expect(seenInit?.body).toBeUndefined();
   });
 
+  it("rejects undeclared destructive query keys before dispatch", () => {
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    expect(() =>
+      executor.execute("deleteAllSuppressions", {
+        path: { account_id: ACCOUNT_ID },
+        // @ts-expect-error Exercise the runtime boundary used by JavaScript consumers.
+        query: { domian: "example.com" },
+      }),
+    ).toThrow('Unknown query parameter "domian" for deleteAllSuppressions');
+    expect(request).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing query", undefined],
+    ["missing value", {}],
+    ["undefined value", { email: undefined }],
+    ["null value", { email: null }],
+  ])("rejects a required query with %s before dispatch", (_label, query) => {
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    expect(() =>
+      executor.execute("deleteSuppression", {
+        path: { account_id: ACCOUNT_ID },
+        ...(query === undefined ? {} : { query }),
+        // The table deliberately exercises inputs that JavaScript can supply.
+      } as never),
+    ).toThrow('Missing required query parameter "email" for deleteSuppression');
+    expect(request).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
   it("prevents retries for operations generated as unsafe", async () => {
     const transport = mockFetch(() => new Response("server error", { status: 500 }));
     const http = new HttpClient(
