@@ -1,4 +1,8 @@
-import { AhaSendAbortError, AhaSendRateLimitQueueFullError } from "./errors.js";
+import {
+  AhaSendAbortError,
+  AhaSendConfigurationError,
+  AhaSendRateLimitQueueFullError,
+} from "./errors.js";
 import { sleep } from "./retry.js";
 
 type EndpointCategory = "standard" | "statistics";
@@ -258,6 +262,11 @@ export class RateLimiter {
   }
 
   setLimit(category: EndpointCategory, rps: number, burst: number): void {
+    if (rps < MIN_REQUESTS_PER_SECOND) {
+      throw new AhaSendConfigurationError(
+        `AhaSend: \`rateLimit.${category}.requestsPerSecond\` must be greater than or equal to ${MIN_REQUESTS_PER_SECOND}.`,
+      );
+    }
     this.buckets[category].setLimit(rps, burst);
   }
 

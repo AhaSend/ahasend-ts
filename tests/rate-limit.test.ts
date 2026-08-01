@@ -4,6 +4,7 @@ import { AhaSendAbortError, AhaSendError } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 import {
   DEFAULT_RATE_LIMIT_CONFIG,
+  MIN_REQUESTS_PER_SECOND,
   RateLimiter,
   detectCategory,
   resolveRateLimitConfig,
@@ -305,6 +306,59 @@ describe("RateLimiter", () => {
     expect(vi.getTimerCount()).toBe(1);
     await vi.advanceTimersByTimeAsync(1);
     await queued;
+  });
+
+  it("schedules a timer-safe integer delay at the minimum live pacing rate", async () => {
+    const sleep = vi.fn(
+      (_ms: number, _signal?: AbortSignal) => new Promise<void>(() => undefined),
+    );
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
+      }),
+      { now: () => 0, sleep },
+    );
+    await limiter.acquire("GET", "/v2/ping");
+    limiter.setLimit("standard", MIN_REQUESTS_PER_SECOND, 1);
+
+    const queued = limiter.acquire("GET", "/v2/ping");
+
+    expect(sleep).toHaveBeenCalledOnce();
+    const delay = sleep.mock.calls[0]?.[0] ?? Number.NaN;
+    expect(delay).toBe(2_147_483_647);
+    expect(Number.isFinite(delay)).toBe(true);
+    expect(Number.isInteger(delay)).toBe(true);
+    expect(delay).toBeLessThanOrEqual(2_147_483_647);
+
+    limiter.setCategoryEnabled("standard", false);
+    await queued;
+  });
+
+  it("rejects a live pacing rate below the minimum without changing bucket behavior", async () => {
+    let now = 0;
+    const sleep = vi.fn(() => new Promise<void>(() => undefined));
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 2, burst: 1 },
+      }),
+      { now: () => now, sleep },
+    );
+    await limiter.acquire("GET", "/v2/ping");
+    const immediatelyBelowMinimum = MIN_REQUESTS_PER_SECOND * (1 - Number.EPSILON);
+
+    expect(() => limiter.setLimit("standard", immediatelyBelowMinimum, 2)).toThrow(
+      /requestsPerSecond.*greater than or equal/i,
+    );
+    expect(sleep).not.toHaveBeenCalled();
+
+    now = 500;
+    await limiter.acquire("GET", "/v2/ping");
+    expect(sleep).not.toHaveBeenCalled();
+
+    now = 1_500;
+    expect(limiter.available("standard")).toBe(1);
   });
 
   it("ignores remaining-like response headers returned by the transport", async () => {
