@@ -1,7 +1,9 @@
-import { AhaSendAbortError } from "./errors.js";
+import { AhaSendAbortError, AhaSendRateLimitQueueFullError } from "./errors.js";
 import { sleep } from "./retry.js";
 
 type EndpointCategory = "standard" | "statistics";
+
+const MAX_PENDING_ACQUISITIONS_PER_BUCKET = 1_000;
 
 export interface CategoryRateLimit {
   requestsPerSecond: number;
@@ -135,6 +137,9 @@ class TokenBucket {
     if (!this.enabled) return Promise.resolve();
     if (signal?.aborted) {
       return Promise.reject(new AhaSendAbortError("Request aborted", signal.reason));
+    }
+    if (this.queue.length >= MAX_PENDING_ACQUISITIONS_PER_BUCKET) {
+      return Promise.reject(new AhaSendRateLimitQueueFullError());
     }
 
     return new Promise<void>((resolve, reject) => {

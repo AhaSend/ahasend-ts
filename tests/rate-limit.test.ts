@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "../src/config.js";
-import { AhaSendAbortError } from "../src/errors.js";
+import { AhaSendAbortError, AhaSendError } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 import {
   DEFAULT_RATE_LIMIT_CONFIG,
@@ -8,6 +8,7 @@ import {
   detectCategory,
   resolveRateLimitConfig,
 } from "../src/rate-limit.js";
+import { isRetryableError } from "../src/retry.js";
 
 describe("detectCategory", () => {
   it("uses the statistics tier only for statistics paths", () => {
@@ -101,6 +102,72 @@ describe("RateLimiter", () => {
 
     await vi.advanceTimersByTimeAsync(1000);
     await next;
+  });
+
+  it.each([
+    ["standard", "/v2/ping"],
+    ["statistics", "/v2/accounts/a/statistics/bounce"],
+  ] as const)(
+    "bounds the %s bucket without installing an overload abort listener",
+    async (_category, path) => {
+      const limiter = new RateLimiter(
+        resolveRateLimitConfig({
+          enabled: true,
+          standard: { requestsPerSecond: 1, burst: 1 },
+          statistics: { requestsPerSecond: 1, burst: 1 },
+        }),
+      );
+      await limiter.acquire("GET", path);
+      const admitted = Array.from({ length: 1_000 }, () => limiter.acquire("GET", path));
+      const overloadController = new AbortController();
+      const addEventListener = vi.spyOn(overloadController.signal, "addEventListener");
+
+      const overload = await limiter.acquire("GET", path, overloadController.signal).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(overload).toBeInstanceOf(Error);
+      expect(AhaSendError.is(overload)).toBe(true);
+      expect(isRetryableError(overload)).toBe(false);
+      expect(addEventListener).not.toHaveBeenCalled();
+
+      limiter.setCategoryEnabled(_category, false);
+      await Promise.all(admitted);
+    },
+  );
+
+  it("settles a cancelled admitted acquisition once and reuses its capacity", async () => {
+    const sleep = vi.fn(() => new Promise<void>(() => undefined));
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
+      }),
+      { now: () => 0, sleep },
+    );
+    await limiter.acquire("GET", "/v2/ping");
+
+    const admitted = Array.from({ length: 999 }, () => limiter.acquire("GET", "/v2/ping"));
+    const controller = new AbortController();
+    const settlement = vi.fn();
+    const cancelled = limiter.acquire("GET", "/v2/ping", controller.signal);
+    void cancelled.then(settlement, settlement);
+
+    controller.abort("caller stopped waiting");
+    await expect(cancelled).rejects.toBeInstanceOf(AhaSendAbortError);
+    await Promise.resolve();
+    expect(settlement).toHaveBeenCalledOnce();
+
+    controller.abort("ignored second cancellation");
+    await Promise.resolve();
+    expect(settlement).toHaveBeenCalledOnce();
+
+    const replacement = limiter.acquire("GET", "/v2/ping");
+    limiter.setCategoryEnabled("standard", false);
+    await Promise.all([...admitted, replacement]);
+    expect(settlement).toHaveBeenCalledOnce();
+    expect(sleep).toHaveBeenCalledOnce();
   });
 
   it("does not spend the per-attempt timeout while queued for pacing", async () => {
