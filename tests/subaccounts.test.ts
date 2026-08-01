@@ -402,6 +402,21 @@ describe("SubAccountAPIKeysClient operations", () => {
     expect(JSON.parse(calls[1]!.body!)).toEqual({ label: "Rotated" });
   });
 
+  it.each([
+    ["child account", "..", API_KEY_ID],
+    ["child API key", SUB_ACCOUNT_ID, ".."],
+    ["malformed child API key UUID", SUB_ACCOUNT_ID, "not-a-uuid"],
+  ])("rejects an invalid %s deletion path before dispatch", (_label, subAccountId, keyId) => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() => client.subAccounts.apiKeys.delete(subAccountId, keyId)).toThrow(
+      /Invalid path parameter/,
+    );
+    expect(calls).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("keeps child executor and transport state out of inspection and serialization", () => {
     const { fetch } = captureFetch();
     const facade = makeClient(fetch).subAccounts.apiKeys;
