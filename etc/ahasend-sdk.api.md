@@ -191,7 +191,9 @@ export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
         headers?: Record<string, string>;
         cause?: unknown;
         retryAfterSeconds?: number | undefined;
+        idempotencyKey?: string | undefined;
     });
+    readonly idempotencyKey: string | undefined;
     // (undocumented)
     readonly retryAfterSeconds: number | undefined;
 }

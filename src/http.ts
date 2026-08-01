@@ -3,6 +3,7 @@ import { assertHeaders, assertTimeoutMs } from "./config.js";
 import {
   AhaSendAbortError,
   AhaSendConnectionError,
+  AhaSendIdempotencyConflictError,
   AhaSendResponseParseError,
   AhaSendTimeoutError,
   createApiError,
@@ -133,7 +134,9 @@ export class HttpClient {
         if (status !== undefined) errorEvent.status = status;
         if (requestId) errorEvent.requestId = requestId;
         void hooks.onError(Object.freeze(errorEvent));
-        if (attempt === maxAttempts) throw err;
+        if (attempt === maxAttempts) {
+          throw finalizeIdempotencyConflict(err, execution.idempotency.key);
+        }
         if (!isRetryableError(err)) throw err;
         const delayMs = computeRetryDelayMs(err, attempt, retry);
         const retryEvent: import("./telemetry.js").RetryEvent = {
@@ -499,6 +502,21 @@ function extractStatus(err: unknown): number | undefined {
   if (typeof err !== "object" || err === null) return undefined;
   const candidate = (err as { status?: unknown }).status;
   return typeof candidate === "number" ? candidate : undefined;
+}
+
+function finalizeIdempotencyConflict(error: unknown, key: string | undefined): unknown {
+  if (!(error instanceof AhaSendIdempotencyConflictError) || key === undefined) return error;
+
+  return new AhaSendIdempotencyConflictError({
+    status: error.status,
+    message: error.message,
+    body: error.body,
+    requestId: error.requestId,
+    headers: error.headers,
+    cause: error.cause,
+    retryAfterSeconds: error.retryAfterSeconds,
+    idempotencyKey: key,
+  });
 }
 
 function elapsedSince(startedAt: number | undefined): number {

@@ -88,4 +88,23 @@ for related but distinct operations; its prefix is prepended literally, so inclu
 separator yourself.
 
 An abort or timeout does not prove that the server did no work. Reconcile using the stable
-idempotency key or a subsequent read before issuing a new business operation.
+idempotency key or a subsequent read before issuing a new business operation. If an
+idempotency-in-progress conflict remains after automatic retries, the terminal
+`AhaSendIdempotencyConflictError.idempotencyKey` contains the same stable key used for every
+attempt:
+
+```ts
+import { AhaSendIdempotencyConflictError } from "@ahasend/sdk";
+
+try {
+  await client.messages.send(message);
+} catch (error) {
+  if (error instanceof AhaSendIdempotencyConflictError && error.idempotencyKey) {
+    await reconcileMessage(error.idempotencyKey);
+  }
+}
+```
+
+Read the property directly for reconciliation. The SDK deliberately omits it from property
+enumeration, JSON serialization, inspection, and telemetry errors so routine diagnostics do not
+disclose the key.

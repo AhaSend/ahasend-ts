@@ -26,6 +26,7 @@ import {
 } from "../src/errors.js";
 import { AhaSendWebhookVerificationError as WebhookEntryError } from "../src/webhooks/index.js";
 import { createIdempotencyExecutionRecord } from "../src/idempotency.js";
+import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
 const ELIGIBLE_KEYED = createIdempotencyExecutionRecord(
   Object.freeze({ completion: "automatic" }),
@@ -415,6 +416,73 @@ describe("AhaSend error contract", () => {
       headers: "[REDACTED]",
       cause: "[REDACTED]",
     });
+  });
+
+  it("exposes only the exhausted conflict recovery key to the caller", async () => {
+    const recoveryKey = "reconcile-order-secret-key";
+    const telemetryErrors: unknown[] = [];
+    const fetch = vi.fn(async () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ message: "still processing" }), {
+          status: 409,
+          headers: {
+            "content-type": "application/json",
+            "idempotent-replayed": "false",
+            "retry-after": "1",
+          },
+        }),
+      ),
+    ) as unknown as typeof globalThis.fetch;
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: ACCOUNT_ID,
+      baseUrl: "https://api.test",
+      fetch,
+      retry: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+      hooks: {
+        onError: (event) => {
+          telemetryErrors.push(event.error);
+        },
+      },
+    });
+
+    let caught: unknown;
+    try {
+      await client.domains.create({ domain: "example.com" }, { idempotencyKey: recoveryKey });
+    } catch (error) {
+      caught = error;
+    }
+    await Promise.resolve();
+
+    expect(caught).toBeInstanceOf(AhaSendIdempotencyConflictError);
+    const error = caught as AhaSendIdempotencyConflictError;
+    expect(error.idempotencyKey).toBe(recoveryKey);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(Object.getOwnPropertyDescriptor(error, "idempotencyKey")).toMatchObject({
+      enumerable: false,
+      writable: false,
+      value: recoveryKey,
+    });
+    expect(Object.keys(error)).not.toContain("idempotencyKey");
+    expect(Object.entries(error)).not.toContainEqual(["idempotencyKey", recoveryKey]);
+    expect({ ...error }).not.toHaveProperty("idempotencyKey");
+
+    expect(telemetryErrors).toHaveLength(2);
+    for (const telemetryError of telemetryErrors) {
+      expect((telemetryError as AhaSendIdempotencyConflictError).idempotencyKey).toBeUndefined();
+    }
+
+    const diagnostics = [
+      JSON.stringify(error),
+      inspect(error),
+      inspect(error, { showHidden: true }),
+      JSON.stringify(telemetryErrors),
+      inspect(telemetryErrors, { showHidden: true }),
+    ];
+    for (const diagnostic of diagnostics) {
+      expect(diagnostic).not.toContain(recoveryKey);
+      expect(diagnostic).not.toContain("idempotencyKey");
+    }
   });
 
   it("does not expose rejected base URL credentials in messages or safe renderings", () => {
