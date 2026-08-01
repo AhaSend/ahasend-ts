@@ -167,6 +167,7 @@ describe("generated API reference", () => {
   it("renders typed interface method signatures from facade property types", async () => {
     const fixture = withAPIKeysInterface(`interface FixtureAPIKeysClient
   extends Omit<Readonly<APIKeysClient>, "list"> {
+  /** Fetch one documented page from a structural facade. */
   list(
     params?: PaginationParams,
     options?: RequestOptions,
@@ -198,6 +199,30 @@ describe("generated API reference", () => {
 }`);
     await expect(generateApiReference({ clientSource: overloaded })).rejects.toThrow(
       "apiKeys.list must have exactly one public call signature",
+    );
+  });
+
+  it("requires public JSDoc on every structural method and iterator", async () => {
+    const undocumentedMethod = withAPIKeysInterface(`interface FixtureAPIKeysClient
+  extends Omit<Readonly<APIKeysClient>, "list"> {
+  list(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): Promise<PaginatedResponse<APIKey>>;
+}`);
+    await expect(generateApiReference({ clientSource: undocumentedMethod })).rejects.toThrow(
+      "apiKeys.list must have public JSDoc",
+    );
+
+    const undocumentedIterator = withAPIKeysInterface(`interface FixtureAPIKeysClient
+  extends Omit<Readonly<APIKeysClient>, "iterate"> {
+  iterate(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<APIKey, void, undefined>;
+}`);
+    await expect(generateApiReference({ clientSource: undocumentedIterator })).rejects.toThrow(
+      "apiKeys.iterate must have public JSDoc",
     );
   });
 
