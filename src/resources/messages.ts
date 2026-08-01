@@ -95,7 +95,7 @@ export type SandboxResult = "deliver" | "bounce" | "defer" | "fail" | "suppress"
  * Body for {@link MessagesClient.send}. Each recipient receives a
  * **separate** message (with their own substitutions applied); use
  * {@link MessagesClient.sendConversation} for a single message with
- * multiple visible To/Cc/Bcc recipients.
+ * multiple To/Cc/Bcc recipients, with Bcc recipients hidden.
  */
 export interface CreateMessageRequest {
   /** Sender — must be on a verified sending domain of your account. */
@@ -247,9 +247,10 @@ export interface MessagesClient {
    * Send a message to 1–100 recipients. Each recipient gets a separate
    * email with their own substitutions applied.
    *
-   * An `Idempotency-Key` is auto-generated unless you pass
-   * `options.idempotencyKey`; retries (the SDK's and yours, if you reuse
-   * the key) can never double-send.
+   * When automatic idempotency is enabled (the default), the SDK generates an
+   * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
+   * key for your own retries; stored non-server-error results can be replayed
+   * for 24 hours, while server errors release the key for re-execution.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.
@@ -260,9 +261,9 @@ export interface MessagesClient {
   ): AhaSendPromise<SendMessageResponse>;
 
   /**
-   * Send a single message with multiple visible To/Cc/Bcc recipients
-   * (combined ≤ 50) — like a normal mail client, everyone sees the
-   * recipient list. Use {@link send} for individualized fan-out.
+   * Send a single message to multiple To/Cc/Bcc recipients (combined ≤ 50).
+   * To and Cc recipients can see one another; Bcc recipients remain hidden.
+   * Use {@link send} for individualized fan-out.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.
@@ -324,9 +325,10 @@ class MessagesClientImplementation implements MessagesClient {
    * Send a message to 1–100 recipients. Each recipient gets a separate
    * email with their own substitutions applied.
    *
-   * An `Idempotency-Key` is auto-generated unless you pass
-   * `options.idempotencyKey`; retries (the SDK's and yours, if you reuse
-   * the key) can never double-send.
+   * When automatic idempotency is enabled (the default), the SDK generates an
+   * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
+   * key for your own retries; stored non-server-error results can be replayed
+   * for 24 hours, while server errors release the key for re-execution.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.
@@ -343,9 +345,9 @@ class MessagesClientImplementation implements MessagesClient {
   }
 
   /**
-   * Send a single message with multiple visible To/Cc/Bcc recipients
-   * (combined ≤ 50) — like a normal mail client, everyone sees the
-   * recipient list. Use {@link send} for individualized fan-out.
+   * Send a single message to multiple To/Cc/Bcc recipients (combined ≤ 50).
+   * To and Cc recipients can see one another; Bcc recipients remain hidden.
+   * Use {@link send} for individualized fan-out.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.
