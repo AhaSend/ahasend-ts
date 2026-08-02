@@ -378,6 +378,27 @@ describe("packed typed error example", () => {
   });
 });
 
+describe("packed offline webhook example", () => {
+  it("verifies and rejects the exact example without exposing raw errors or secrets", async () => {
+    const fixtureSecret = "aha-whsec-local-demo-secret-please-rotate";
+    const result = await runPackedExample("verify-webhook.mjs", {
+      AHASEND_BASE_URL: "http://127.0.0.1:1",
+    });
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.timedOut).toBe(false);
+    expect(result.signal).toBeNull();
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(
+      "✓ verified webhook signature\n✓ tampered body correctly rejected\n",
+    );
+    expect(output).not.toContain("signature_mismatch");
+    expect(output).not.toContain(fixtureSecret);
+    expect(output).not.toContain(API_KEY);
+  });
+});
+
 describe("packed guarded mutation examples", () => {
   it.each(GUARDED_PACKED_EXAMPLE_CASES)(
     "refuses $file without explicit mutation approval",
