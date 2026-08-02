@@ -140,6 +140,7 @@ export class HttpClient {
         const status = extractStatus(err);
         const errorEvent: import("./telemetry.js").ErrorEvent = {
           ...this.buildAttemptEvent(execution, options, attempt),
+          phase: "attempt",
           durationMs,
           error: err,
         };

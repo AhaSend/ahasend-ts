@@ -460,9 +460,10 @@ function extractMessage(body: ApiErrorBody | string | null): string | undefined 
   return undefined;
 }
 
-function parseRetryAfter(value: string | undefined): number | undefined {
+/** @internal Parse a Retry-After value for retry timing policy. */
+export function parseRetryAfter(value: string | undefined): number | undefined {
   if (!value) return undefined;
-  const seconds = parsePositiveIntegerRetryAfter(value);
+  const seconds = parseNonNegativeIntegerRetryAfter(value);
   if (seconds !== undefined) return seconds;
   const now = Date.now();
   const date = parseHttpDate(value, now);
@@ -474,9 +475,14 @@ function parseRetryAfter(value: string | undefined): number | undefined {
 }
 
 function parsePositiveIntegerRetryAfter(value: string | undefined): number | undefined {
+  const seconds = parseNonNegativeIntegerRetryAfter(value);
+  return seconds !== undefined && seconds > 0 ? seconds : undefined;
+}
+
+function parseNonNegativeIntegerRetryAfter(value: string | undefined): number | undefined {
   if (value === undefined || !/^\d+$/.test(value)) return undefined;
   const seconds = Number(value);
-  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : undefined;
+  return Number.isSafeInteger(seconds) ? seconds : undefined;
 }
 
 /** Parse the three HTTP-date forms required by RFC 9110 without Date.parse's permissive extensions. */

@@ -179,6 +179,17 @@ describe("createApiError", () => {
     expect((err as AhaSendRateLimitError).retryAfterSeconds).toBe(12);
   });
 
+  it("accepts a zero-second Retry-After for generic 429 responses", () => {
+    const err = createApiError({
+      status: 429,
+      body: null,
+      headers: { "retry-after": "0" },
+    });
+
+    expect(err).toBeInstanceOf(AhaSendRateLimitError);
+    expect((err as AhaSendRateLimitError).retryAfterSeconds).toBe(0);
+  });
+
   it.each([
     "Fri, 02 Jan 2026 00:00:00 GMT",
     "Friday, 02-Jan-26 00:00:00 GMT",
@@ -217,7 +228,6 @@ describe("createApiError", () => {
   });
 
   it.each([
-    "0",
     "-1",
     "1.5",
     "not-a-delay",
@@ -227,7 +237,7 @@ describe("createApiError", () => {
     "Thu, 31 Dec 2099 23:59:59 UTC",
     "Thu, 01 Jan 2026 23:59:61 GMT",
     "Thursday, 31-Dec-99 23:59:59 GMT",
-  ])("treats malformed or nonpositive Retry-After %j as absent", (retryAfter) => {
+  ])("treats malformed or negative Retry-After %j as absent", (retryAfter) => {
     const err = createApiError({
       status: 429,
       body: null,

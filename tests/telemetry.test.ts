@@ -55,7 +55,7 @@ describe("resolveTelemetryHooks", () => {
     // None should throw
     hooks.onRequest(REQUEST_EVENT);
     hooks.onResponse({ ...REQUEST_EVENT, status: 200, durationMs: 1 });
-    hooks.onError({ ...REQUEST_EVENT, durationMs: 1, error: ERROR });
+    hooks.onError({ ...REQUEST_EVENT, phase: "attempt", durationMs: 1, error: ERROR });
     hooks.onRetry({ ...REQUEST_EVENT, durationMs: 1, delayMs: 1, error: ERROR });
   });
 
@@ -224,6 +224,7 @@ describe("HttpClient telemetry integration", () => {
       method: "GET",
       routeTemplate: "/v2/ping",
       attempt: 1,
+      phase: "attempt",
       status: 503,
       requestId: "req_retry",
     });
@@ -459,6 +460,7 @@ describe("debugConsoleHooks", () => {
     });
     hooks.onError!({
       ...REQUEST_EVENT,
+      phase: "attempt",
       durationMs: 12,
       error: new Error("boom"),
     });
