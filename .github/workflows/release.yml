@@ -192,7 +192,6 @@ jobs:
         run: |
           node scripts/create-candidate.mjs \
             /tmp/source-report/source-report.json \
-            /tmp/source-report/renderer-report.json \
             /tmp/candidate \
             /tmp/source-report/source-report.sha256
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"

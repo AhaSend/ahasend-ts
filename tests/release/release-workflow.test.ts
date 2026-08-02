@@ -135,6 +135,9 @@ describe("single-run release workflow", () => {
 
   it("builds and packs only in candidate creation and never regenerates the artifact", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const candidateCreation = String(
+      namedStep(jobs["candidate"], "candidate", "Build and pack the retained candidate")["run"],
+    );
     const allCommands = Object.entries(jobs)
       .map(([name, job]) => commands(job, name))
       .join("\n");
@@ -144,6 +147,12 @@ describe("single-run release workflow", () => {
       .join("\n");
 
     expect(allCommands.match(/create-candidate\.mjs/gu)).toHaveLength(1);
+    expect(candidateCreation).toContain(
+      "node scripts/create-candidate.mjs \\\n" +
+        "  /tmp/source-report/source-report.json \\\n" +
+        "  /tmp/candidate \\\n" +
+        "  /tmp/source-report/source-report.sha256",
+    );
     expect(allCommands).not.toMatch(/\bnpm run build\b/u);
     expect(allCommands).not.toMatch(/\bnpm pack\b/u);
     expect(afterCandidate).not.toMatch(/create-candidate\.mjs/u);
