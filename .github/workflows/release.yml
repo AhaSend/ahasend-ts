@@ -99,6 +99,7 @@ jobs:
 
       - name: Create detached source report
         run: |
+          mkdir -p /tmp/source-report
           node --input-type=module <<'NODE'
           import { writeFile } from "node:fs/promises";
           import { canonicalizeJson, sha256Hex } from "./scripts/digest-artifact.mjs";

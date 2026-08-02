@@ -132,6 +132,9 @@ describe("single-run release workflow", () => {
 
   it("does not read or retain external reports", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const sourceReportCreation = String(
+      namedStep(jobs["source-gate"], "source gate", "Create detached source report")["run"],
+    );
     const gateReportCreation = String(
       namedStep(jobs["live-gates"], "live gates", "Create detached gate report")["run"],
     );
@@ -147,6 +150,9 @@ describe("single-run release workflow", () => {
     expect(workflowSource).not.toContain("renderer-report.json");
     expect(workflowSource).not.toContain("go-webhook-attestation.json");
     expect(workflowSource).not.toContain("verify-external-attestations.mjs");
+    expect(sourceReportCreation).toMatch(
+      /^mkdir -p \/tmp\/source-report\nnode --input-type=module/u,
+    );
     expect(gateReportCreation).toContain('{ name: "artifact", passed: true }');
     expect(gateReportCreation).toContain('{ name: "live", passed: true }');
     expect(gateReportCreation).not.toContain('{ name: "external", passed: true }');
