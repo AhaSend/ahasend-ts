@@ -11,6 +11,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -325,6 +326,55 @@ describe("packed readonly examples", () => {
     expect(result.stderr).toBe("");
     for (const marker of example.expectedMarkers) expect(output).toContain(marker);
     expect(output).not.toContain(API_KEY);
+  });
+});
+
+describe("packed typed error example", () => {
+  it("reports only allowlisted fields from a deterministic local 404", async () => {
+    const rawResponseMessage = "private upstream diagnostic must not be logged";
+    const suppliedApiKey = "aha-sk-error-example-secret";
+    const requestId = "req_error_example_404";
+    const responder = createHttpServer((_request, response) => {
+      response.writeHead(404, {
+        "content-type": "application/json",
+        "x-request-id": requestId,
+      });
+      response.end(JSON.stringify({ message: rawResponseMessage }));
+    });
+    await new Promise<void>((resolveListening, reject) => {
+      responder.once("error", reject);
+      responder.listen(0, "127.0.0.1", resolveListening);
+    });
+
+    try {
+      const address = responder.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("The deterministic 404 responder did not bind to a TCP port.");
+      }
+      const result = await runPackedExample("error-handling.mjs", {
+        AHASEND_API_KEY: suppliedApiKey,
+        AHASEND_BASE_URL: `http://127.0.0.1:${address.port}`,
+      });
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.timedOut).toBe(false);
+      expect(result.signal).toBeNull();
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toBe(
+        `✓ caught AhaSendNotFoundError status=404 code=not_found_error request-id=${requestId}\n`,
+      );
+      expect(output).not.toContain(rawResponseMessage);
+      expect(output).not.toContain(suppliedApiKey);
+      expect(output).not.toContain(API_KEY);
+    } finally {
+      await new Promise<void>((resolveClosed, reject) => {
+        responder.close((error) => {
+          if (error === undefined) resolveClosed();
+          else reject(error);
+        });
+      });
+    }
   });
 });
 

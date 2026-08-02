@@ -4,14 +4,7 @@
 // Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars.
 // Run:  node examples/error-handling.mjs
 
-import {
-  AhaSendClient,
-  AhaSendAuthenticationError,
-  AhaSendNotFoundError,
-  AhaSendRateLimitError,
-  AhaSendConnectionError,
-  AhaSendAPIError,
-} from "../dist/index.js";
+import { AhaSendClient, AhaSendNotFoundError, isAhaSendError } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
 
@@ -21,18 +14,13 @@ try {
   console.log("unexpected: message existed");
 } catch (err) {
   if (err instanceof AhaSendNotFoundError) {
-    console.log(`✓ caught AhaSendNotFoundError (HTTP ${err.status})`);
-    console.log(`  request-id: ${err.requestId ?? "n/a"}`);
-  } else if (err instanceof AhaSendAuthenticationError) {
-    console.log("✗ bad API key — check AHASEND_API_KEY");
-    process.exit(1);
-  } else if (err instanceof AhaSendRateLimitError) {
-    console.log(`rate limited — server says retry after ${err.retryAfterSeconds}s`);
-  } else if (err instanceof AhaSendConnectionError) {
-    console.log("network problem:", err.message);
-  } else if (err instanceof AhaSendAPIError) {
-    console.log(`API error ${err.status}; request-id=${err.requestId ?? "n/a"}`);
+    console.log(
+      `✓ caught AhaSendNotFoundError status=${err.status} code=${err.code} request-id=${err.requestId ?? "n/a"}`,
+    );
   } else {
-    throw err; // not an SDK error — rethrow
+    console.error("unexpected SDK outcome", {
+      errorCode: isAhaSendError(err) ? err.code : "unknown",
+    });
+    process.exitCode = 1;
   }
 }
