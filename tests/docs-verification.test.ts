@@ -273,6 +273,57 @@ const nested = safe.nested;
 nested.requestId = err.message;
 logger.error(safe.nested.requestId);`,
     ],
+    [
+      "nested-object-held aliases",
+      `const safe = { requestId: err.requestId };
+const aliases = { nested: { safe } };
+aliases.nested.safe.requestId = err.message;
+logger.error(safe.requestId);`,
+    ],
+    [
+      "array-held aliases",
+      `const safe = { requestId: err.requestId };
+const aliases = [safe];
+aliases[0].requestId = err.message;
+logger.error(safe.requestId);`,
+    ],
+    [
+      "computed aliases",
+      `const safe = { requestId: err.requestId };
+const aliasName = "safe";
+const aliases = { [aliasName]: safe };
+aliases[aliasName].requestId = err.message;
+logger.error(safe.requestId);`,
+    ],
+    [
+      "computed property writes through aliases",
+      `const safe = { requestId: err.requestId };
+const alias = safe;
+const propertyName = "requestId";
+alias[propertyName] = err.message;
+logger.error(safe.requestId);`,
+    ],
+    [
+      "writes in later-declared invoked functions",
+      `const safe = { requestId: err.requestId };
+const alias = safe;
+overwrite();
+logger.error(safe.requestId);
+
+function overwrite() {
+  alias.requestId = err.message;
+}`,
+    ],
+    [
+      "reassignments in later-declared invoked functions",
+      `let output = err.status;
+overwrite();
+logger.error(output);
+
+function overwrite() {
+  output = err.message;
+}`,
+    ],
     ["template literals", "console.log(`recipient: ${event.data.recipient}`);"],
     ["error messages", "logger.error(err.message);"],
     [

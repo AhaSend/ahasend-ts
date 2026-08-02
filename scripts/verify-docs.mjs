@@ -581,16 +581,35 @@ function staticPropertyName(name) {
     return name.text;
   }
   if (ts.isComputedPropertyName(name)) {
-    const expression = unwrapOutputExpression(name.expression);
-    if (
-      ts.isStringLiteral(expression) ||
-      ts.isNumericLiteral(expression) ||
-      ts.isNoSubstitutionTemplateLiteral(expression)
-    ) {
-      return expression.text;
-    }
+    return staticElementAccessName(name.expression);
   }
   return undefined;
+}
+
+function staticElementAccessName(node, seenBindings = new Set()) {
+  const expression = unwrapOutputExpression(node);
+  if (
+    ts.isStringLiteral(expression) ||
+    ts.isNumericLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression)
+  ) {
+    return expression.text;
+  }
+  if (!ts.isIdentifier(expression)) return undefined;
+  const binding = outputBindingAt(expression);
+  if (
+    binding === undefined ||
+    seenBindings.has(binding.pos) ||
+    !ts.isVariableDeclaration(binding) ||
+    binding.initializer === undefined ||
+    !ts.isVariableDeclarationList(binding.parent) ||
+    (binding.parent.flags & ts.NodeFlags.Const) === 0
+  ) {
+    return undefined;
+  }
+  const nextSeen = new Set(seenBindings);
+  nextSeen.add(binding.pos);
+  return staticElementAccessName(binding.initializer, nextSeen);
 }
 
 function memberAccessPath(node) {
@@ -602,13 +621,7 @@ function memberAccessPath(node) {
     return { root: parent.root, properties: [...parent.properties, expression.name.text] };
   }
   if (ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined) {
-    const argument = unwrapOutputExpression(expression.argumentExpression);
-    const name =
-      ts.isStringLiteral(argument) ||
-      ts.isNumericLiteral(argument) ||
-      ts.isNoSubstitutionTemplateLiteral(argument)
-        ? argument.text
-        : undefined;
+    const name = staticElementAccessName(expression.argumentExpression);
     const parent = memberAccessPath(expression.expression);
     if (name === undefined || parent === undefined) return undefined;
     return { root: parent.root, properties: [...parent.properties, name] };
@@ -649,6 +662,36 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
     ts.forEachChild(node, collectSensitiveIdentifiers);
   }
   collectSensitiveIdentifiers(sourceFile);
+
+  function visitBeforeOutputUse(use, inspect) {
+    const invokedFunctions = new Set();
+    function collectInvocations(node) {
+      if (node.getStart(sourceFile) >= use.getStart(sourceFile)) return;
+      if (ts.isCallExpression(node)) {
+        const expression = unwrapOutputExpression(node.expression);
+        if (ts.isIdentifier(expression)) invokedFunctions.add(expression.text);
+      }
+      ts.forEachChild(node, collectInvocations);
+    }
+    collectInvocations(sourceFile);
+
+    function visit(node, inInvokedFunction = false) {
+      if (!inInvokedFunction && node.getStart(sourceFile) >= use.getStart(sourceFile)) {
+        if (
+          ts.isFunctionDeclaration(node) &&
+          node.name !== undefined &&
+          invokedFunctions.has(node.name.text) &&
+          node.body !== undefined
+        ) {
+          visit(node.body, true);
+        }
+        return;
+      }
+      inspect(node);
+      ts.forEachChild(node, (child) => visit(child, inInvokedFunction));
+    }
+    visit(sourceFile);
+  }
 
   function outputBindingValues(binding, use) {
     const values = [];
@@ -740,8 +783,7 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
       return { found: false, unsupported: false, values: [] };
     }
 
-    function visit(node) {
-      if (node.getStart(sourceFile) >= use.getStart(sourceFile)) return;
+    function inspect(node) {
       if (
         node !== binding &&
         ts.isVariableDeclaration(node) &&
@@ -783,9 +825,8 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
       ) {
         unsupportedWrite = true;
       }
-      ts.forEachChild(node, visit);
     }
-    visit(sourceFile);
+    visitBeforeOutputUse(use, inspect);
     return { values, selections, unsupportedWrite };
   }
 
@@ -825,19 +866,41 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
     nextSeen.add(binding.pos);
     const locations = [{ binding, properties }];
 
-    function addValue(value, selectedProperties = []) {
-      const access = memberAccessPath(value);
+    function resolveValue(value, pendingProperties) {
+      const expression = unwrapOutputExpression(value);
+      const [name, ...remaining] = pendingProperties;
+      if (name !== undefined && ts.isObjectLiteralExpression(expression)) {
+        const initializers = objectPropertyInitializers(expression, name);
+        if (initializers !== undefined) {
+          for (const initializer of initializers) resolveValue(initializer, remaining);
+        }
+        return;
+      }
+      if (name !== undefined && ts.isArrayLiteralExpression(expression)) {
+        const index = Number(name);
+        const element =
+          Number.isSafeInteger(index) && index >= 0 ? expression.elements[index] : undefined;
+        if (element !== undefined && !ts.isOmittedExpression(element)) {
+          resolveValue(ts.isSpreadElement(element) ? element.expression : element, remaining);
+        }
+        return;
+      }
+      const access = memberAccessPath(expression);
       if (access === undefined) return;
       const rootBinding = outputBindingAt(access.root);
       if (rootBinding === undefined) return;
       locations.push(
         ...objectLocations(
           rootBinding,
-          [...access.properties, ...selectedProperties, ...properties],
+          [...access.properties, ...pendingProperties],
           use,
           nextSeen,
         ),
       );
+    }
+
+    function addValue(value, selectedProperties = []) {
+      resolveValue(value, [...selectedProperties, ...properties]);
     }
 
     if (ts.isBindingElement(binding)) {
@@ -854,8 +917,8 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
 
   function propertyWritesAreAllowed(binding, properties, use, seenAliases) {
     let allowed = true;
-    function visit(node) {
-      if (!allowed || node.getStart(sourceFile) >= use.getStart(sourceFile)) return;
+    function inspect(node) {
+      if (!allowed) return;
       if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
         const access = memberAccessPath(node.left);
         const rootBinding = access === undefined ? undefined : outputBindingAt(access.root);
@@ -884,9 +947,8 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
           }
         }
       }
-      ts.forEachChild(node, visit);
     }
-    visit(sourceFile);
+    visitBeforeOutputUse(use, inspect);
     return allowed;
   }
 
