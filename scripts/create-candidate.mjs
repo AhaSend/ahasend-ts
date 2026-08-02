@@ -40,7 +40,6 @@ import {
   SOURCE_KEY_PATHS,
   validateSourceGateReport,
 } from "./run-source-gates.mjs";
-import { validateRendererReport } from "./verify-renderer-report.mjs";
 
 const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
@@ -56,7 +55,6 @@ export function parseCandidateManifest(value, label = "Candidate manifest") {
       "contractSha256",
       "keysSha256",
       "profileSha256",
-      "rendererReportSha256",
       "sourceReportSha256",
       "tarballSha256",
       "version",
@@ -75,7 +73,6 @@ export function parseCandidateManifest(value, label = "Candidate manifest") {
     keysSha256: Object.freeze(
       parseSourceHashMap(value.keysSha256, SOURCE_KEY_PATHS, `${label} keysSha256`),
     ),
-    rendererReportSha256: requireHash(value.rendererReportSha256, `${label} rendererReportSha256`),
     profileSha256: requireHash(value.profileSha256, `${label} profileSha256`),
     tarballSha256: requireHash(value.tarballSha256, `${label} tarballSha256`),
   });
@@ -91,7 +88,6 @@ function parseExpectedCandidateBindings(value) {
       "contractSha256",
       "keysSha256",
       "profileSha256",
-      "rendererReportSha256",
       "sourceReportSha256",
       "tarballSha256",
     ],
@@ -106,12 +102,6 @@ function compareCandidateBindings(manifest, expected) {
     manifest.sourceReportSha256,
     expected.sourceReportSha256,
     "source report",
-    "Candidate manifest",
-  );
-  requireSourceBinding(
-    manifest.rendererReportSha256,
-    expected.rendererReportSha256,
-    "renderer report",
     "Candidate manifest",
   );
   requireSourceBinding(
@@ -547,7 +537,6 @@ async function parsePackResult(output, packDestination) {
 export async function createCandidate({
   sourceReportPath,
   sourceReportSidecarPath,
-  rendererReportPath,
   outputDirectory,
   runCommand = defaultRunCommand,
 }) {
@@ -558,13 +547,11 @@ export async function createCandidate({
         ? `${sourcePath.slice(0, -5)}.sha256`
         : `${sourcePath}.sha256`
       : resolve(sourceReportSidecarPath);
-  const rendererPath = resolve(rendererReportPath);
   const destination = resolve(outputDirectory);
 
-  const [sourceReport, sourceSidecar, rendererReport, initialSourceBindings] = await Promise.all([
+  const [sourceReport, sourceSidecar, initialSourceBindings] = await Promise.all([
     readFile(sourcePath),
     readFile(sourceSidecarPath),
-    readFile(rendererPath),
     readRepositorySourceBindings(),
   ]);
   const commit = validateCleanCommit({
@@ -592,20 +579,11 @@ export async function createCandidate({
     expectedBindings: expectedSourceBindings,
   });
 
-  const [handoffSource, handoffSidecar, sourceProfile, sourceProfileSidecar, openApiSource] =
-    await Promise.all([
-      readFile(resolve(repositoryRoot, "docs/renderer-handoff.json")),
-      readFile(resolve(repositoryRoot, "docs/renderer-handoff.sha256")),
-      readFile(resolve(repositoryRoot, "src/generated/operation-profile.json")),
-      readFile(resolve(repositoryRoot, "src/generated/operation-profile.sha256")),
-      readFile(resolve(repositoryRoot, "openapi.yaml")),
-    ]);
-  validateRendererReport({
-    handoffSource,
-    handoffSidecar,
-    reportSource: rendererReport,
-  });
-  const rendererReportSha256 = sha256Hex(rendererReport);
+  const [sourceProfile, sourceProfileSidecar, openApiSource] = await Promise.all([
+    readFile(resolve(repositoryRoot, "src/generated/operation-profile.json")),
+    readFile(resolve(repositoryRoot, "src/generated/operation-profile.sha256")),
+    readFile(resolve(repositoryRoot, "openapi.yaml")),
+  ]);
 
   const stagingDirectory = await mkdtemp(join(tmpdir(), "ahasend-sdk-candidate-"));
   try {
@@ -684,7 +662,6 @@ export async function createCandidate({
       contractSha256: expectedSourceBindings.contractSha256,
       captureSha256: expectedSourceBindings.captureSha256,
       keysSha256: expectedSourceBindings.keysSha256,
-      rendererReportSha256,
       profileSha256: profileSummary.profileDigest,
       tarballSha256,
     };
@@ -720,21 +697,14 @@ export async function createCandidate({
 }
 
 async function main() {
-  const [sourceReportPath, rendererReportPath, outputDirectory, suppliedSidecarPath, ...extra] =
-    process.argv.slice(2);
-  if (
-    sourceReportPath === undefined ||
-    rendererReportPath === undefined ||
-    outputDirectory === undefined ||
-    extra.length > 0
-  ) {
+  const [sourceReportPath, outputDirectory, suppliedSidecarPath, ...extra] = process.argv.slice(2);
+  if (sourceReportPath === undefined || outputDirectory === undefined || extra.length > 0) {
     throw new TypeError(
-      "Usage: node scripts/create-candidate.mjs <source-report.json> <renderer-report.json> <output-directory> [source-report.sha256]",
+      "Usage: node scripts/create-candidate.mjs <source-report.json> <output-directory> [source-report.sha256]",
     );
   }
   const result = await createCandidate({
     sourceReportPath,
-    rendererReportPath,
     outputDirectory,
     ...(suppliedSidecarPath === undefined ? {} : { sourceReportSidecarPath: suppliedSidecarPath }),
   });

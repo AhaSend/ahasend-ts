@@ -23,7 +23,6 @@ export interface LiveCandidateManifest {
   readonly contractSha256: Readonly<Record<string, string>>;
   readonly captureSha256: string;
   readonly keysSha256: Readonly<Record<string, string>>;
-  readonly rendererReportSha256: string;
   readonly profileSha256: string;
   readonly tarballSha256: string;
 }

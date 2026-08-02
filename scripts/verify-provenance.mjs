@@ -57,7 +57,6 @@ function parseCandidateEnvelope(manifestSource, manifestSidecar, tarballSource) 
       "contractSha256",
       "keysSha256",
       "profileSha256",
-      "rendererReportSha256",
       "sourceReportSha256",
       "tarballSha256",
       "version",

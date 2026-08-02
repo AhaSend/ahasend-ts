@@ -11,7 +11,6 @@
     "contractSha256",
     "captureSha256",
     "keysSha256",
-    "rendererReportSha256",
     "profileSha256",
     "tarballSha256"
   ],
@@ -34,9 +33,6 @@
     },
     "keysSha256": {
       "$ref": "#/definitions/keys"
-    },
-    "rendererReportSha256": {
-      "$ref": "#/definitions/sha256"
     },
     "profileSha256": {
       "$ref": "#/definitions/sha256"

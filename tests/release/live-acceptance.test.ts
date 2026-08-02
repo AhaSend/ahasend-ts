@@ -94,7 +94,6 @@ function manifestFor(tarball: Buffer, profileSha256: string): LiveCandidateManif
       "contracts/webhooks/captured/keys/configured-webhook.key": "7".repeat(64),
       "contracts/webhooks/captured/keys/route.key": "8".repeat(64),
     },
-    rendererReportSha256: "9".repeat(64),
     profileSha256,
     tarballSha256: sha256Hex(tarball),
   };
