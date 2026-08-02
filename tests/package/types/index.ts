@@ -193,8 +193,50 @@ const statistics: SDK.StatisticsParams = {
   sender_domain: "example.com",
   group_by: "day",
 };
+const readonlyHeaders: Readonly<Record<string, string>> = {
+  "x-correlation-id": "package-type-fixture",
+};
+const requestOptions: SDK.RequestOptions = {
+  headers: readonlyHeaders,
+  timeoutMs: 2_000,
+  retry: {
+    enabled: true,
+    maxRetries: 1,
+    baseDelayMs: 100,
+    maxDelayMs: 1_000,
+    strategy: "exponential",
+    jitter: true,
+  },
+};
+const noRetryOptions: SDK.RequestOptions = { retry: false };
+const telemetryHooks: SDK.TelemetryHooks = {
+  onRequest: async (event) => {
+    const requestEvent: SDK.RequestEvent = event;
+    await Promise.resolve(requestEvent);
+  },
+  onResponse: async (event) => {
+    const responseEvent: SDK.ResponseEvent = event;
+    await Promise.resolve(responseEvent);
+  },
+  onRetry: async (event) => {
+    const retryEvent: SDK.RetryEvent = event;
+    await Promise.resolve(retryEvent);
+  },
+  onError: async (event) => {
+    const errorEvent: SDK.ErrorEvent = event;
+    await Promise.resolve(errorEvent);
+  },
+};
+const phaseSixClientOptions: SDK.ClientOptions = {
+  apiKey: "package-type-fixture",
+  hooks: telemetryHooks,
+};
+if (requestOptions.headers) {
+  // @ts-expect-error Per-call headers remain readonly through the packed declarations.
+  requestOptions.headers["x-correlation-id"] = "changed";
+}
 
-void [accountModel, domainModel, routeModel];
+void [accountModel, domainModel, routeModel, phaseSixClientOptions];
 
 const pingResponse: Promise<SDK.AhaSendResponse<SDK.PingResponse>> = client.ping().withResponse();
 const messageListResponse: Promise<SDK.AhaSendResponse<SDK.PaginatedResponse<SDK.MessageSummary>>> =
@@ -221,6 +263,8 @@ void [
 void client.messages.send(messageBody).withResponse();
 void client.messages.sendConversation(conversationBody).withResponse();
 void client.messages.cancel(messageId).withResponse();
+void client.messages.get(messageId, requestOptions).withResponse();
+void client.messages.list(messages, noRetryOptions).withResponse();
 
 void client.domains.list(domains).withResponse();
 void client.domains.get("example.com").withResponse();
@@ -433,12 +477,31 @@ void new AhaSendPermissionError(apiErrorParams);
 void new AhaSendNotFoundError(apiErrorParams);
 void new AhaSendBadRequestError(apiErrorParams);
 void new AhaSendConflictError(apiErrorParams);
-void new AhaSendIdempotencyConflictError({ ...apiErrorParams, retryAfterSeconds: 1 });
+const idempotencyConflict = new AhaSendIdempotencyConflictError({
+  ...apiErrorParams,
+  retryAfterSeconds: 1,
+  idempotencyKey: "package-recovery-key",
+});
+const recoveryKey: string | undefined = idempotencyConflict.idempotencyKey;
+void recoveryKey;
 void new AhaSendUnprocessableEntityError(apiErrorParams);
 void new AhaSendIdempotencyMismatchError(apiErrorParams);
 void new AhaSendRateLimitError({ ...apiErrorParams, retryAfterSeconds: 1 });
 void new AhaSendServerError(apiErrorParams);
 void new AhaSendWebhookVerificationError("signature_mismatch");
+
+function narrowAhaSendErrors(value: unknown): void {
+  if (AhaSendError.is(value)) {
+    const sdkError: AhaSendError = value;
+    void sdkError;
+  }
+  if (AhaSendAPIError.is(value)) {
+    const apiError: AhaSendAPIError = value;
+    void apiError;
+  }
+}
+
+void narrowAhaSendErrors;
 
 // @ts-expect-error Pagination cursors are mutually exclusive.
 void client.apiKeys.list({ limit: 25, after: "after", before: "before" });
