@@ -83,7 +83,6 @@ describe("single-run release workflow", () => {
       "source-gate",
       "candidate",
       "artifact-gates",
-      "external-gates",
       "live-gates",
       "next-publish",
       "registry-smoke",
@@ -111,7 +110,6 @@ describe("single-run release workflow", () => {
       "source-gate",
       "candidate",
       "artifact-gates",
-      "external-gates",
       "live-gates",
       "next-publish",
       "registry-smoke",
@@ -121,8 +119,7 @@ describe("single-run release workflow", () => {
     ]);
     expect(record(jobs["candidate"], "candidate")["needs"]).toBe("source-gate");
     expect(record(jobs["artifact-gates"], "artifact")["needs"]).toBe("candidate");
-    expect(record(jobs["external-gates"], "external")["needs"]).toBe("artifact-gates");
-    expect(record(jobs["live-gates"], "live")["needs"]).toBe("external-gates");
+    expect(record(jobs["live-gates"], "live")["needs"]).toBe("artifact-gates");
     expect(record(jobs["next-publish"], "next")["needs"]).toBe("live-gates");
     expect(record(jobs["registry-smoke"], "smoke")["needs"]).toBe("next-publish");
     expect(record(jobs["latest-promotion"], "promotion")["needs"]).toBe("registry-smoke");
@@ -131,6 +128,34 @@ describe("single-run release workflow", () => {
       "latest-promotion",
       "github-release",
     ]);
+  });
+
+  it("does not read or retain external reports", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const gateReportCreation = String(
+      namedStep(jobs["live-gates"], "live gates", "Create detached gate report")["run"],
+    );
+    const sourceReportUpload = jobSteps(jobs["source-gate"], "source gate").find(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/upload-artifact@") &&
+        record(step["with"], "source report upload inputs")["name"] === "source-report",
+    );
+
+    expect(jobs).not.toHaveProperty("external-gates");
+    expect(workflowSource).not.toContain("RENDERER_REPORT_JSON");
+    expect(workflowSource).not.toContain("GO_WEBHOOK_ATTESTATION_JSON");
+    expect(workflowSource).not.toContain("renderer-report.json");
+    expect(workflowSource).not.toContain("go-webhook-attestation.json");
+    expect(workflowSource).not.toContain("verify-external-attestations.mjs");
+    expect(gateReportCreation).toContain('{ name: "artifact", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "live", passed: true }');
+    expect(gateReportCreation).not.toContain('{ name: "external", passed: true }');
+    expect(
+      record(
+        record(sourceReportUpload, "source report upload")["with"],
+        "source report upload inputs",
+      )["path"],
+    ).toBe("/tmp/source-report/source-report.json\n/tmp/source-report/source-report.sha256\n");
   });
 
   it("builds and packs only in candidate creation and never regenerates the artifact", () => {
