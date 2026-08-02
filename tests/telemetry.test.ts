@@ -1,5 +1,9 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
+import { resolveConfig } from "../src/config.js";
+import { AhaSendError } from "../src/errors.js";
+import { HttpClient } from "../src/http.js";
+import { isRetryableError } from "../src/retry.js";
 import { composeHooks, debugConsoleHooks, resolveTelemetryHooks } from "../src/telemetry.js";
 import type {
   ErrorEvent,
@@ -267,6 +271,85 @@ describe("HttpClient telemetry integration", () => {
 
     await expect(client.ping()).rejects.toThrow();
     expect(events).toEqual(["request:1", "error:1:attempt:400"]);
+  });
+
+  it("attributes limiter overload to pacing without starting an attempt", async () => {
+    vi.useFakeTimers();
+    try {
+      const events: string[] = [];
+      const errors: ErrorEvent[] = [];
+      const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ message: "pong" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      const client = new HttpClient(
+        resolveConfig({
+          apiKey: "aha-sk-test",
+          baseUrl: "https://api.test",
+          retry: { enabled: false },
+          rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+          hooks: {
+            onRequest: ({ attempt }) => {
+              events.push(`request:${attempt}`);
+            },
+            onResponse: ({ attempt, status }) => {
+              events.push(`response:${attempt}:${status}`);
+            },
+            onError: (event) => {
+              errors.push(event);
+              events.push(`error:${event.attempt}:${event.phase}`);
+            },
+            onRetry: ({ attempt }) => {
+              events.push(`retry:${attempt}`);
+            },
+          },
+          fetch,
+        }),
+      );
+      const request = () =>
+        client.request({
+          method: "GET",
+          path: "/v2/ping",
+          operationId: "ping",
+          retryMode: "safe",
+        });
+
+      await request();
+      await Promise.resolve();
+      fetch.mockClear();
+      events.length = 0;
+      errors.length = 0;
+
+      const admitted = Array.from({ length: 1_000 }, request);
+      const overload = await request().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await Promise.resolve();
+
+      expect(AhaSendError.is(overload)).toBe(true);
+      expect(isRetryableError(overload)).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(events).toEqual(["error:1:pacing"]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        operationId: "ping",
+        method: "GET",
+        routeTemplate: "/v2/ping",
+        attempt: 1,
+        phase: "pacing",
+        error: overload,
+      });
+      expect(errors[0]!.durationMs).toBeGreaterThanOrEqual(0);
+
+      client.rateLimiter.setCategoryEnabled("standard", false);
+      await Promise.all(admitted);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("attributes cancellation in the pacing queue without starting an attempt", async () => {
