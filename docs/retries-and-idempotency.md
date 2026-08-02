@@ -101,8 +101,11 @@ after its server retention window expires.
 
 `idempotency.autoGenerate: false` disables automatic keys. Create operations without a key are
 then attempted only once because they are no longer retry-safe. `IdempotencyKeyBuilder` is useful
-for related but distinct operations; its prefix is prepended literally, so include any desired
-separator yourself.
+for related but distinct operations. Its first `next()` call returns the base key unchanged.
+`IdempotencyKeyBuilder` inserts a hyphen between its prefix and the generated key remainder on each
+later `next()` call; `withSuffix()` inserts the same separator before an explicit suffix. By contrast,
+`generateIdempotencyKey(prefix)` prepends its prefix literally, so include any desired separator in
+that function's prefix yourself.
 
 An abort or timeout does not prove that the server did no work. Reconcile using the stable
 idempotency key or a subsequent read before issuing a new business operation. If an
