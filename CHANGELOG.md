@@ -30,8 +30,7 @@ Initial release.
 - Typed telemetry hooks (`onRequest`, `onResponse`, `onRetry`,
   `onError`) carrying the server `x-request-id`;
   successful response envelopes carry `requestId` / `idempotentReplayed`.
-- Async pagination: `iterate()` on every list endpoint plus generic
-  `paginate()` / `collect()` helpers.
+- Async pagination via `iterate()` on every list endpoint.
 - `@ahasend/sdk/webhooks` subpath: Standard-Webhooks HMAC-SHA256
   verifier (raw-string secrets, byte-compatible with the Go SDK),
   typed events for all 11 event types with a forward-compatible

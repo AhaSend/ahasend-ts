@@ -1,6 +1,7 @@
 # Examples
 
-Runnable smoke tests for the AhaSend Node SDK. Each script imports from `../dist/`, so build first:
+Example scripts and framework modules for the AhaSend Node SDK. Each file imports from `../dist/`,
+so build first:
 
 ```bash
 npm run build
@@ -21,6 +22,11 @@ export AHASEND_ACCOUNT_ID="your-account-uuid"
 Get these from the [AhaSend dashboard](https://dashboard.ahasend.com).
 
 ## Examples (in recommended order)
+
+The packed documentation runtime matrix installs the candidate SDK and syntax- and
+declaration-checks all 17 `examples/*.mjs` files. It does not make live API calls or start framework
+servers. The inventory contains 15 executable smoke-test scripts and two framework examples
+(`webhook-express.mjs` and `next-webhook-route.mjs`), which require their host framework setup.
 
 ### 1. `ping.mjs` — safest first test
 
@@ -65,6 +71,10 @@ node examples/send-sandbox.mjs
 | `idempotency.mjs`            | Explicit stable idempotency key reuse (sandbox send, run twice with the same key)                                 |
 | `telemetry.mjs`              | `onRequest` / `onResponse` / `onRetry` / `onError` hooks for logging and metrics                                  |
 | `error-handling.mjs`         | Branching on the typed error classes (`AhaSendNotFoundError`, `AhaSendRateLimitError`, …)                         |
+| `get-account.mjs`            | Read-only account lookup                                                                                          |
+| `list-routes.mjs`            | Read-only inbound-route listing                                                                                   |
+| `list-suppressions.mjs`      | Read-only suppression listing                                                                                     |
+| `statistics.mjs`             | Read-only deliverability statistics                                                                               |
 | `webhook-express.mjs`        | Express webhook endpoint with application-owned, durable `webhook-id` deduplication (needs `npm install express`) |
 | `next-webhook-route.mjs`     | Next.js App Router webhook route with explicit Node.js runtime and durable deduplication boundary                 |
 | `verify-webhook.mjs`         | Offline HMAC sign + verify round-trip — runs without any credentials                                              |
@@ -108,11 +118,11 @@ bootstrap.
 
 ## Testing without real credentials — Prism mock server
 
-The AhaSend OpenAPI spec is public. You can run a local mock server from it:
+From the repository root after `npm ci`, use the lockfile-pinned local Prism executable and the
+committed `openapi.yaml`:
 
 ```bash
-npm install -g @stoplight/prism-cli
-prism mock https://raw.githubusercontent.com/AhaSend/ahasend-go/main/openapi/openapi.yaml -p 4010
+./node_modules/.bin/prism mock openapi.yaml -p 4010 --errors
 ```
 
 Then point the SDK at the mock:
@@ -121,6 +131,7 @@ Then point the SDK at the mock:
 export AHASEND_API_KEY="aha-sk-mock-key-any-value"
 export AHASEND_ACCOUNT_ID="00000000-0000-0000-0000-000000000000"
 export AHASEND_BASE_URL="http://127.0.0.1:4010"
+export AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL="true"
 node examples/ping.mjs
 ```
 
