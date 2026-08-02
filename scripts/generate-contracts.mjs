@@ -862,6 +862,14 @@ function requestOptionsArgumentIndex(contractOperation) {
 }
 
 function validatePublicImport(operationId, sourceFile) {
+  const dynamicImports = collectNodes(
+    sourceFile,
+    (node) => ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword,
+  );
+  if (dynamicImports.length > 0) {
+    throw new TypeError(`${operationId} sample must not use dynamic imports`);
+  }
+
   const imports = sourceFile.statements.filter(ts.isImportDeclaration);
   if (imports.length !== 1) {
     throw new TypeError(`${operationId} sample must have exactly one public SDK import`);
@@ -874,14 +882,32 @@ function validatePublicImport(operationId, sourceFile) {
     throw new TypeError(`${operationId} sample imports a non-public SDK module`);
   }
   const bindings = declaration.importClause?.namedBindings;
+  const binding =
+    bindings !== undefined && ts.isNamedImports(bindings) ? bindings.elements[0] : undefined;
   if (
     bindings === undefined ||
     !ts.isNamedImports(bindings) ||
     bindings.elements.length !== 1 ||
-    bindings.elements[0]?.name.text !== "AhaSendClient"
+    binding === undefined ||
+    (binding.propertyName?.text ?? binding.name.text) !== "AhaSendClient" ||
+    binding.name.text !== "AhaSendClient"
   ) {
     throw new TypeError(`${operationId} sample must import only AhaSendClient from @ahasend/sdk`);
   }
+}
+
+function containsFetchReference(sourceFile) {
+  return (
+    collectNodes(
+      sourceFile,
+      (node) =>
+        (ts.isIdentifier(node) && node.text === "fetch") ||
+        (ts.isElementAccessExpression(node) &&
+          node.argumentExpression !== undefined &&
+          ts.isStringLiteral(node.argumentExpression) &&
+          node.argumentExpression.text === "fetch"),
+    ).length > 0
+  );
 }
 
 function validateSelfContained(operationId, sourceFile) {
@@ -974,9 +1000,8 @@ function validateRegistrySample(entry, contractOperation) {
   validateSelfContained(operationId, sourceFile);
 
   if (
-    /\bfetch\s*\(|\bnew\s+URL\s*\(|api\.ahasend\.com|\bAuthorization\b|\bBearer\b/iu.test(
-      sample.source,
-    )
+    containsFetchReference(sourceFile) ||
+    /\bnew\s+URL\s*\(|api\.ahasend\.com|\bAuthorization\b|\bBearer\b/iu.test(sample.source)
   ) {
     throw new TypeError(`${operationId} sample must not construct raw API requests`);
   }

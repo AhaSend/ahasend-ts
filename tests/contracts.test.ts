@@ -97,6 +97,72 @@ function changedRegistryEntry(
   );
 }
 
+function normalizeSampleLanguage(value: string): string {
+  const unquoted =
+    (value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))
+      ? value.slice(1, -1)
+      : value;
+  return unquoted.toLowerCase().replaceAll(/[^a-z.]/g, "");
+}
+
+function rawNonNodeSampleBlocks(yamlSource: string): Array<{
+  operationId: string;
+  language: string;
+  bytes: Buffer;
+}> {
+  const samples: Array<{ operationId: string; language: string; bytes: Buffer }> = [];
+  const lines = yamlSource.match(/[^\n]*\n|[^\n]+$/gu) ?? [];
+  let operationId = "";
+  let insideSamples = false;
+  let current: { language: string; lines: string[] } | undefined;
+
+  const finishSample = (): void => {
+    if (
+      current !== undefined &&
+      !["javascript", "js", "typescript", "ts"].includes(current.language)
+    ) {
+      samples.push({
+        operationId,
+        language: current.language,
+        bytes: Buffer.from(current.lines.join(""), "utf8"),
+      });
+    }
+    current = undefined;
+  };
+
+  for (const line of lines) {
+    const lineWithoutEnding = line.replace(/\r?\n$/u, "");
+    if (insideSamples) {
+      const indentation = lineWithoutEnding.match(/^ */u)?.[0].length ?? 0;
+      if (lineWithoutEnding.trim() !== "" && indentation <= 6) {
+        finishSample();
+        insideSamples = false;
+      } else {
+        const sampleMatch = lineWithoutEnding.match(/^ {8}- lang:\s*(.+?)\s*$/u);
+        if (sampleMatch?.[1] !== undefined) {
+          finishSample();
+          current = {
+            language: normalizeSampleLanguage(sampleMatch[1]),
+            lines: [line],
+          };
+        } else if (current !== undefined) {
+          current.lines.push(line);
+        }
+        continue;
+      }
+    }
+
+    const operationMatch = lineWithoutEnding.match(/^ {6}operationId:\s*(.+?)\s*$/u);
+    if (operationMatch?.[1] !== undefined) operationId = operationMatch[1];
+    if (/^ {6}x-code-samples:\s*$/u.test(lineWithoutEnding)) {
+      insideSamples = true;
+    }
+  }
+  finishSample();
+
+  return samples;
+}
+
 function schema(name: string): JsonRecord {
   const components = record(document.components);
   return record(record(components.schemas)[name]);
@@ -340,6 +406,30 @@ describe("REST contract rejection checks", () => {
         source: entry.sample.source.replace('"@ahasend/sdk"', '"@ahasend/sdk/dist/client.js"'),
       },
     }));
+    const aliasedMissingExport = changedRegistryEntry("ping", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace(
+          "{ AhaSendClient }",
+          "{ MissingExport as AhaSendClient }",
+        ),
+      },
+    }));
+    const dynamicInternalImport = changedRegistryEntry("ping", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: `${entry.sample.source}\nawait import("@ahasend/sdk/dist/client.js");\n`,
+      },
+    }));
+    const bracketedGlobalFetch = changedRegistryEntry("ping", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: `${entry.sample.source}\nawait globalThis["fetch"]("https://example.com");\n`,
+      },
+    }));
     const apiUrl = changedRegistryEntry("ping", (entry) => ({
       ...entry,
       sample: {
@@ -364,10 +454,19 @@ describe("REST contract rejection checks", () => {
     }));
 
     expect(() => validateNodeSampleRegistry(document, rawFetch)).toThrow(/raw API requests/);
+    expect(() => validateNodeSampleRegistry(document, bracketedGlobalFetch)).toThrow(
+      /raw API requests/,
+    );
     expect(() => validateNodeSampleRegistry(document, apiUrl)).toThrow(/raw API requests/);
     expect(() => validateNodeSampleRegistry(document, bearerHeader)).toThrow(/raw API requests/);
     expect(() => validateNodeSampleRegistry(document, internalImport)).toThrow(
       /non-public SDK module/,
+    );
+    expect(() => validateNodeSampleRegistry(document, aliasedMissingExport)).toThrow(
+      /must import only AhaSendClient/,
+    );
+    expect(() => validateNodeSampleRegistry(document, dynamicInternalImport)).toThrow(
+      /must not use dynamic imports/,
     );
     expect(() => validateNodeSampleRegistry(document, wrongFacade)).toThrow(
       /Wrong facade mapping for getDomains/,
@@ -478,20 +577,9 @@ describe("REST contract rejection checks", () => {
       ...NODE_CODE_SAMPLES,
       ping: { ...NODE_CODE_SAMPLES.ping!, source: `${NODE_CODE_SAMPLES.ping!.source}// changed\n` },
     };
-    const generated = parseOpenApi(injectNodeSamples(source, document, changedNodeSamples));
-    const generatedById = new Map(
-      collectOperations(generated).map(({ operationId, operation }) => [operationId, operation]),
-    );
+    const generatedSource = injectNodeSamples(source, document, changedNodeSamples);
 
-    for (const { operationId, operation } of collectOperations(document)) {
-      const nonNode = samplesFor(operation).filter(({ lang }) => lang !== "javascript");
-      const generatedOperation = generatedById.get(operationId);
-      if (generatedOperation === undefined) throw new TypeError(`Missing ${operationId}`);
-      expect(
-        samplesFor(generatedOperation).filter(({ lang }) => lang !== "javascript"),
-        operationId,
-      ).toEqual(nonNode);
-    }
+    expect(rawNonNodeSampleBlocks(generatedSource)).toEqual(rawNonNodeSampleBlocks(source));
   });
 
   it("rejects missing, duplicate, and drifted generated samples", () => {
