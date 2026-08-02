@@ -105,6 +105,11 @@ interface PackedNextRouteFactory {
   }): (request: Request) => Promise<Response>;
 }
 
+interface SignedWebhookDelivery {
+  readonly body: string;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
 const PAGINATION = { limit: 5 };
 const STATISTICS = {
   from_time: "2026-04-01T00:00:00Z",
@@ -433,30 +438,7 @@ describe("packed Express webhook example", () => {
     async () => {
       const secret = "aha-whsec-express-integration-secret";
       const webhookId = "msg_express_it_1";
-      const timestamp = Math.floor(Date.now() / 1000);
-      const body = JSON.stringify({
-        type: "message.delivered",
-        webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
-        timestamp: new Date().toISOString(),
-        data: {
-          id: webhookId,
-          account_id: ACCOUNT_ID,
-          event: "on_delivered",
-          from: "sender@example.test",
-          recipient: "recipient@example.test",
-          subject: "Integration",
-          message_id_header: "<express-integration@example.test>",
-        },
-      });
-      const signature = `v1,${createHmac("sha256", Buffer.from(secret, "utf8"))
-        .update(`${webhookId}.${timestamp}.${body}`)
-        .digest("base64")}`;
-      const headers = {
-        "content-type": "application/json",
-        "webhook-id": webhookId,
-        "webhook-timestamp": String(timestamp),
-        "webhook-signature": signature,
-      };
+      const { body, headers } = createSignedWebhookDelivery(secret, webhookId);
 
       linkExpressHostDependency();
       const installedCopy = copyPackedExample("webhook-express.mjs");
@@ -502,30 +484,7 @@ describe("packed Next webhook example", () => {
     async () => {
       const secret = "aha-whsec-next-integration-secret";
       const webhookId = "msg_next_it_1";
-      const timestamp = Math.floor(Date.now() / 1000);
-      const body = JSON.stringify({
-        type: "message.delivered",
-        webhook_id: "fb801bb3-717b-47e8-8746-616535eff05b",
-        timestamp: new Date().toISOString(),
-        data: {
-          id: webhookId,
-          account_id: ACCOUNT_ID,
-          event: "on_delivered",
-          from: "sender@example.test",
-          recipient: "recipient@example.test",
-          subject: "Integration",
-          message_id_header: "<next-integration@example.test>",
-        },
-      });
-      const signature = `v1,${createHmac("sha256", Buffer.from(secret, "utf8"))
-        .update(`${webhookId}.${timestamp}.${body}`)
-        .digest("base64")}`;
-      const headers = {
-        "content-type": "application/json",
-        "webhook-id": webhookId,
-        "webhook-timestamp": String(timestamp),
-        "webhook-signature": signature,
-      };
+      const { body, headers } = createSignedWebhookDelivery(secret, webhookId);
 
       const stdout: string[] = [];
       const stderr: string[] = [];
@@ -739,33 +698,9 @@ describe("packed webhooks subpath", () => {
     const secret = "aha-whsec-integration-secret";
     const verifier = new installedWebhooks.WebhookVerifier(secret);
     const id = "msg_it_1";
-    const timestamp = Math.floor(Date.now() / 1000);
-    const body = JSON.stringify({
-      type: "message.delivered",
-      webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
-      timestamp: new Date().toISOString(),
-      data: {
-        id,
-        account_id: ACCOUNT_ID,
-        event: "on_delivered",
-        from: "sender@example.test",
-        recipient: "recipient@example.test",
-        subject: "Integration",
-        message_id_header: "<integration@example.test>",
-      },
-    });
-    const signature = `v1,${createHmac("sha256", Buffer.from(secret, "utf8"))
-      .update(`${id}.${timestamp}.${body}`)
-      .digest("base64")}`;
+    const { body, headers } = createSignedWebhookDelivery(secret, id);
 
-    const event = callMethod(verifier, [], "parse", [
-      {
-        "webhook-id": id,
-        "webhook-timestamp": String(timestamp),
-        "webhook-signature": signature,
-      },
-      body,
-    ]);
+    const event = callMethod(verifier, [], "parse", [headers, body]);
     expect(event).toMatchObject({ type: "message.delivered" });
   });
 });
@@ -972,6 +907,37 @@ function createInMemoryEnqueueOnce(): EnqueueOnce {
     if (acceptedWebhookIds.has(webhookId)) return false;
     acceptedWebhookIds.add(webhookId);
     return true;
+  };
+}
+
+function createSignedWebhookDelivery(secret: string, webhookId: string): SignedWebhookDelivery {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const body = JSON.stringify({
+    type: "message.delivered",
+    webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
+    timestamp: new Date().toISOString(),
+    data: {
+      id: webhookId,
+      account_id: ACCOUNT_ID,
+      event: "on_delivered",
+      from: "sender@example.test",
+      recipient: "recipient@example.test",
+      subject: "Integration",
+      message_id_header: `<${webhookId}@example.test>`,
+    },
+  });
+  const signature = `v1,${createHmac("sha256", Buffer.from(secret, "utf8"))
+    .update(`${webhookId}.${timestamp}.${body}`)
+    .digest("base64")}`;
+
+  return {
+    body,
+    headers: {
+      "content-type": "application/json",
+      "webhook-id": webhookId,
+      "webhook-timestamp": String(timestamp),
+      "webhook-signature": signature,
+    },
   };
 }
 
