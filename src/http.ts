@@ -2,6 +2,7 @@ import type { ResolvedConfig } from "./config.js";
 import { assertHeaders, assertRequestRetryOverride, assertTimeoutMs } from "./config.js";
 import {
   AhaSendAbortError,
+  AhaSendConfigurationError,
   AhaSendConnectionError,
   AhaSendIdempotencyConflictError,
   AhaSendResponseParseError,
@@ -103,6 +104,7 @@ export class HttpClient {
   ): Promise<AhaSendResponse<T>> {
     const url = this.buildUrl(options.path, options.query);
     const init = this.buildRequestInit(options);
+    this.assertRequestConstructible(url, init, options);
     const execution = this.buildExecutionRecord(options, url, init);
 
     const maxAttempts = retry.enabled && this.isRetryAllowed(execution) ? retry.maxRetries + 1 : 1;
@@ -302,6 +304,25 @@ export class HttpClient {
 
     Object.freeze(headers);
     return Object.freeze(init);
+  }
+
+  private assertRequestConstructible(
+    url: string,
+    init: RequestInit,
+    options: RequestOptions,
+  ): void {
+    try {
+      // Native fetch reports both invalid Request inputs and network failures
+      // as rejected TypeErrors. Validate the stable request inputs before the
+      // retry loop so deterministic construction failures cannot be mistaken
+      // for retryable connection failures.
+      void new Request(url, init);
+    } catch (err) {
+      throw new AhaSendConfigurationError(
+        `AhaSend: failed to construct request for ${options.method} ${options.path}.`,
+        err,
+      );
+    }
   }
 
   private shouldAutoIdempotency(options: RequestOptions): boolean {
