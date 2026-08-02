@@ -62,6 +62,7 @@ const releaseWorkflowSource = readFileSync(
   resolve(repositoryRoot, ".github/workflows/release.yml"),
   "utf8",
 );
+const authoritativeOpenApiTest = "tests/openapi-authoritative-contract.test.ts";
 
 function validReport(bindings: SourceBindings): SourceGateReport {
   return {
@@ -225,6 +226,23 @@ afterAll(() => {
 });
 
 describe("source gate report validation", () => {
+  it("retains the authoritative OpenAPI contract test in the release unit gate", () => {
+    const trackedTest = spawnSync(
+      "git",
+      ["ls-files", "--error-unmatch", authoritativeOpenApiTest],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+      },
+    );
+
+    expect(trackedTest.status, trackedTest.stderr).toBe(0);
+    expect(trackedTest.stdout.trim()).toBe(authoritativeOpenApiTest);
+    expect(releaseWorkflowSource).toContain(
+      `run: npm run test:unit -- ${authoritativeOpenApiTest}`,
+    );
+  });
+
   it("does not produce or consume a renderer handoff after sample regeneration", () => {
     expect(documentationGeneratorSource).not.toMatch(/renderer[-A-Za-z]*handoff/iu);
     expect(releaseWorkflowSource).not.toMatch(/renderer[-A-Za-z]*handoff/iu);

@@ -197,7 +197,9 @@ describe("single-run release workflow", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
     const sourceGate = jobs["source-gate"];
 
-    expect(namedStep(sourceGate, "source gate", "Unit test gate")["run"]).toBe("npm run test:unit");
+    expect(namedStep(sourceGate, "source gate", "Unit test gate")["run"]).toBe(
+      "npm run test:unit -- tests/openapi-authoritative-contract.test.ts",
+    );
     expect(namedStep(sourceGate, "source gate", "Coverage gate")["run"]).toBe(
       "npm run test:coverage",
     );

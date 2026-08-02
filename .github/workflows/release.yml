@@ -53,7 +53,7 @@ jobs:
         run: npm run lint
 
       - name: Unit test gate
-        run: npm run test:unit
+        run: npm run test:unit -- tests/openapi-authoritative-contract.test.ts
 
       - name: State test gate
         run: npx vitest run tests/state-machines.test.ts
