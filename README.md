@@ -64,7 +64,7 @@ const res = await client.messages.send({
   text_content: "Hi there",
 });
 
-console.log({ messageId: res.data[0]?.id, status: res.data[0]?.status });
+console.log({ messageId: res.data[0]?.id });
 ```
 
 ### Configuration
