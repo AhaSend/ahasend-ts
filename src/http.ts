@@ -4,6 +4,7 @@ import {
   AhaSendAbortError,
   AhaSendConfigurationError,
   AhaSendConnectionError,
+  AhaSendError,
   AhaSendIdempotencyConflictError,
   AhaSendResponseParseError,
   AhaSendTimeoutError,
@@ -205,8 +206,8 @@ export class HttpClient {
         if (controller.signal.aborted) {
           throw this.createAttemptAbortError(controller, options, "during fetch", err);
         }
-        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
-        if (err instanceof Error && err.name === "AbortError") {
+        if (AhaSendError.is(err)) throw err;
+        if (isAbortError(err)) {
           throw new AhaSendAbortError("Request aborted", err);
         }
         throw new AhaSendConnectionError(
@@ -229,11 +230,14 @@ export class HttpClient {
           if (controller.signal.aborted) {
             throw this.createAttemptAbortError(controller, options, "during body read", err);
           }
-          if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
-          if (err instanceof Error && err.name === "AbortError") {
+          if (AhaSendError.is(err)) throw err;
+          if (isAbortError(err)) {
             throw new AhaSendAbortError("Request aborted during body read", err);
           }
-          throw err;
+          throw new AhaSendConnectionError(
+            `Network error while reading the response body for ${options.method} ${options.path}`,
+            err,
+          );
         }
         this.throwIfAttemptAborted(controller, options, "during body read");
 
@@ -519,6 +523,15 @@ function safeJsonParse(text: string): { ok: true; value: unknown } | { ok: false
     return { ok: true, value: JSON.parse(text) };
   } catch (error) {
     return { ok: false, error };
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  if ((typeof error !== "object" && typeof error !== "function") || error === null) return false;
+  try {
+    return Reflect.get(error, "name") === "AbortError";
+  } catch {
+    return false;
   }
 }
 

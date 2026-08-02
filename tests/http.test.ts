@@ -18,6 +18,7 @@ import {
   AhaSendIdempotencyMismatchError,
   AhaSendNotFoundError,
   AhaSendRateLimitError,
+  AhaSendResponseParseError,
   AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
 } from "../src/errors.js";
@@ -40,6 +41,29 @@ function makeAbortError(): Error {
   const error = new Error("aborted");
   error.name = "AbortError";
   return error;
+}
+
+function makeForeignAbortError(): { readonly name: "AbortError"; readonly message: string } {
+  return { name: "AbortError", message: "aborted outside this Error realm" };
+}
+
+function responseWithRejectedBody(error: unknown): Response {
+  const prefix = new TextEncoder().encode('{"partial":');
+  let sentPrefix = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (!sentPrefix) {
+        sentPrefix = true;
+        controller.enqueue(prefix);
+        return;
+      }
+      controller.error(error);
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 function makeClient(
@@ -250,6 +274,70 @@ describe("HttpClient", () => {
     await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
       AhaSendConnectionError,
     );
+  });
+
+  it("normalizes a foreign AbortError value rejected by fetch", async () => {
+    const abortError = makeForeignAbortError();
+    const fetchImpl = mockFetch(() => Promise.reject(abortError));
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    const request = client.request({ method: "GET", path: "/x" });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendAbortError);
+    await expect(request).rejects.toMatchObject({ cause: abortError });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("normalizes a foreign AbortError value rejected while reading the response body", async () => {
+    const abortError = makeForeignAbortError();
+    const fetchImpl = mockFetch(() => responseWithRejectedBody(abortError));
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    const request = client.request({ method: "GET", path: "/x" });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendAbortError);
+    await expect(request).rejects.toMatchObject({ cause: abortError });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("preserves SDK errors rejected while reading the response body", async () => {
+    const bodyError = new AhaSendConfigurationError("body fixture failed deterministically");
+    const fetchImpl = mockFetch(() => responseWithRejectedBody(bodyError));
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    await expect(client.request({ method: "GET", path: "/x" })).rejects.toBe(bodyError);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("preserves malformed successful JSON as AhaSendResponseParseError", async () => {
+    const fetchImpl = mockFetch(() =>
+      Promise.resolve(
+        new Response("not-json", {
+          status: 200,
+          headers: { "x-request-id": "req_parse" },
+        }),
+      ),
+    );
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    const request = client.request({ method: "GET", path: "/x" });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendResponseParseError);
+    await expect(request).rejects.toMatchObject({
+      code: "response_parse_error",
+      status: 200,
+      body: "not-json",
+      requestId: "req_parse",
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it("classifies native request-construction failures without retrying them", async () => {
@@ -1105,6 +1193,66 @@ describe("HttpClient retry behaviour", () => {
         retry: { enabled: true, maxRetries: 2 },
       }),
     ).rejects.toMatchObject({ status: 500 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("retries a generated safe GET after a mid-body reset and surfaces a connection error", async () => {
+    const bodyError = new TypeError("socket reset while reading response body");
+    const fetchImpl = mockFetch(() => responseWithRejectedBody(bodyError));
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, {
+        retry: { ...fastRetry, enabled: true, maxRetries: 1 },
+      }),
+    );
+
+    const request = executor.execute("ping", {});
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendConnectionError);
+    await expect(request).rejects.toMatchObject({
+      code: "connection_error",
+      cause: bodyError,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a generated keyed operation after a mid-body reset with the same key", async () => {
+    const bodyError = new TypeError("socket reset while reading response body");
+    const keys: Array<string | undefined> = [];
+    const fetchImpl = mockFetch((_url, init) => {
+      keys.push((init.headers as Record<string, string>)["idempotency-key"]);
+      return responseWithRejectedBody(bodyError);
+    });
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, {
+        retry: { ...fastRetry, enabled: true, maxRetries: 1 },
+      }),
+    );
+
+    const request = executor.execute("createDomain", {
+      path: { account_id: ACCOUNT_ID },
+      body: { domain: "example.com" },
+    });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendConnectionError);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(keys[0]).toBeDefined();
+    expect(keys[1]).toBe(keys[0]);
+  });
+
+  it("does not retry a generated never-retry operation after a mid-body reset", async () => {
+    const bodyError = new TypeError("socket reset while reading response body");
+    const fetchImpl = mockFetch(() => responseWithRejectedBody(bodyError));
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, {
+        retry: { ...fastRetry, enabled: true, maxRetries: 2 },
+      }),
+    );
+
+    const request = executor.execute("checkDomainDNS", {
+      path: { account_id: ACCOUNT_ID, domain: "example.com" },
+    });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendConnectionError);
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
