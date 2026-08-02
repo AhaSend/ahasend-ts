@@ -26,12 +26,19 @@ import {
   validateCapturedManifestSchema,
   validateCodeSamples,
   validateInternalReferences,
+  validateNodeSampleRegistry,
   validateSecretScanAllowlist,
   validateSignedFixture,
   validateWebhookEvidence,
   validateWebhookContract,
 } from "../scripts/generate-contracts.mjs";
-import { NODE_CODE_SAMPLES, NODE_OPERATION_KEYS } from "../scripts/node-code-samples.mjs";
+import {
+  NODE_CODE_SAMPLES,
+  NODE_OPERATION_KEYS,
+  NODE_SAMPLE_REGISTRY,
+} from "../scripts/node-code-samples.mjs";
+import type { NodeSampleRegistryEntry } from "../scripts/node-code-samples.mjs";
+import { OPENAPI_SHA256 } from "../src/generated/contract-digests.js";
 
 interface CodeSample {
   lang: string;
@@ -81,6 +88,15 @@ function samplesFor(operation: JsonRecord): CodeSample[] {
   return operation["x-code-samples"] as CodeSample[];
 }
 
+function changedRegistryEntry(
+  operationId: string,
+  change: (entry: NodeSampleRegistryEntry) => NodeSampleRegistryEntry,
+): NodeSampleRegistryEntry[] {
+  return NODE_SAMPLE_REGISTRY.map((entry) =>
+    entry.operationId === operationId ? change(entry) : entry,
+  );
+}
+
 function schema(name: string): JsonRecord {
   const components = record(document.components);
   return record(record(components.schemas)[name]);
@@ -110,6 +126,7 @@ describe("REST contract normalization", () => {
     expect(digestYamlArtifact(Buffer.from(source, "utf8"))).toBe(
       lock.artifactHashes["openapi.yaml"],
     );
+    expect(OPENAPI_SHA256).toBe(lock.artifactHashes["openapi.yaml"]);
   });
 
   it("is idempotently normalized", () => {
@@ -117,7 +134,7 @@ describe("REST contract normalization", () => {
     expect(() => validateCodeSamples(document)).not.toThrow();
   });
 
-  it("retains one Go sample and adds one deterministic Node sample to every operation", () => {
+  it("retains one Go sample and adds one deterministic SDK sample to every operation", () => {
     let shellSamples = 0;
 
     for (const { operationId, operation } of collectOperations(document)) {
@@ -134,9 +151,13 @@ describe("REST contract normalization", () => {
     }
 
     expect(shellSamples).toBe(1);
+    expect(NODE_SAMPLE_REGISTRY).toHaveLength(56);
+    expect(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId)).toEqual(
+      lock.inventories.operationIds,
+    );
   });
 
-  it("emits JavaScript samples accepted by Node.js 18+ syntax", () => {
+  it("emits modern ESM JavaScript accepted by the supported Node.js runtime", () => {
     for (const [operationId, sample] of Object.entries(NODE_CODE_SAMPLES)) {
       const result = spawnSync(process.execPath, ["--check", "--input-type=module"], {
         input: sample.source,
@@ -147,18 +168,18 @@ describe("REST contract normalization", () => {
     }
   });
 
-  it("sandboxes sends, guards mutations, and never prints full response bodies", () => {
-    for (const [operationId, sample] of Object.entries(NODE_CODE_SAMPLES)) {
-      const method = NODE_OPERATION_KEYS[operationId]?.split(" ", 1)[0];
-      if (method !== "GET") {
-        expect(
-          sample.source.includes('"sandbox": true') ||
-            sample.source.includes('process.env.AHASEND_ALLOW_MUTATIONS !== "1"'),
-          operationId,
-        ).toBe(true);
-      }
-      expect(sample.source, operationId).not.toContain("console.log(await response.json())");
-      expect(sample.source, operationId).toContain('console.log("AhaSend request succeeded.")');
+  it("uses only the public client, matching facades, safe mutation controls, and safe output", () => {
+    expect(() => validateNodeSampleRegistry(document)).not.toThrow();
+
+    for (const { operationId, facade, sample } of NODE_SAMPLE_REGISTRY) {
+      expect(sample.source, operationId).toContain('import { AhaSendClient } from "@ahasend/sdk";');
+      expect(sample.source, operationId).toContain("AhaSendClient.fromEnv()");
+      expect(sample.source, operationId).toContain(`${facade}(`);
+      expect(sample.source, operationId).not.toMatch(/\bfetch\s*\(|\bnew\s+URL\s*\(/u);
+      expect(sample.source, operationId).not.toMatch(/api\.ahasend\.com|Authorization|Bearer/u);
+      expect(sample.source, operationId).not.toMatch(
+        /console\.log\([^\n]*(?:secret_key|password|idempotencyKey)/u,
+      );
     }
   });
 
@@ -179,14 +200,10 @@ describe("REST contract normalization", () => {
 
       const sample = NODE_CODE_SAMPLES[operationId];
       if (sample === undefined) throw new TypeError(`${operationId} has no generated Node sample`);
-      const bodyMatch = sample.source.match(/body: JSON\.stringify\((\{[\s\S]*?\})\),\n/);
-      if (bodyMatch?.[1] === undefined) {
-        throw new TypeError(`${operationId} has no JSON request body in its Node sample`);
+      for (const field of sample.source.matchAll(/^\s{2,4}([a-z_]+):/gmu)) {
+        if (field[1] === "idempotencyKey") continue;
+        expect(allowedFields.has(field[1]!), `${operationId}: ${field[1]}`).toBe(true);
       }
-
-      const sampleBody = record(JSON.parse(bodyMatch[1]));
-      const unknownFields = Object.keys(sampleBody).filter((field) => !allowedFields.has(field));
-      expect(unknownFields, operationId).toEqual([]);
     }
   });
 
@@ -261,7 +278,9 @@ describe("REST contract rejection checks", () => {
     expect(() =>
       assertInventoryMatches(collectContractInventory(changed), lock.inventories),
     ).toThrow(/inventory drift/);
-    expect(() => validateCodeSamples(changed)).toThrow(/Missing Node sample definitions: headPing/);
+    expect(() => validateCodeSamples(changed)).toThrow(
+      /Missing Node sample registry mappings: headPing/,
+    );
   });
 
   it("rejects operation path drift in the operation-keyed samples", () => {
@@ -285,6 +304,153 @@ describe("REST contract rejection checks", () => {
     expect(() => validateCodeSamples(document, orphan)).toThrow(
       /Orphan Node sample definitions: inventedOperation/,
     );
+  });
+
+  it("rejects missing, duplicate, and orphaned registry mappings", () => {
+    const missing = NODE_SAMPLE_REGISTRY.filter(({ operationId }) => operationId !== "ping");
+    const duplicate = [...NODE_SAMPLE_REGISTRY, NODE_SAMPLE_REGISTRY[0]!];
+    const orphaned = [
+      ...NODE_SAMPLE_REGISTRY,
+      { ...NODE_SAMPLE_REGISTRY[0]!, operationId: "inventedOperation" },
+    ];
+
+    expect(() => validateNodeSampleRegistry(document, missing)).toThrow(
+      /Missing Node sample registry mappings: ping/,
+    );
+    expect(() => validateNodeSampleRegistry(document, duplicate)).toThrow(
+      /Duplicate Node sample registry mappings: ping/,
+    );
+    expect(() => validateNodeSampleRegistry(document, orphaned)).toThrow(
+      /Orphan Node sample registry mappings: inventedOperation/,
+    );
+  });
+
+  it("rejects raw requests, non-public imports, and wrong SDK facades", () => {
+    const rawFetch = changedRegistryEntry("ping", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: `${entry.sample.source}\nawait fetch("https://api.ahasend.com/v2/ping");\n`,
+      },
+    }));
+    const internalImport = changedRegistryEntry("ping", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace('"@ahasend/sdk"', '"@ahasend/sdk/dist/client.js"'),
+      },
+    }));
+    const apiUrl = changedRegistryEntry("ping", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: `${entry.sample.source}\nconst endpoint = new URL("https://api.ahasend.com/v2/ping");\n`,
+      },
+    }));
+    const bearerHeader = changedRegistryEntry("ping", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: `${entry.sample.source}\nconst authorization = "bearer example-token";\n`,
+      },
+    }));
+    const wrongFacade = changedRegistryEntry("getDomains", (entry) => ({
+      ...entry,
+      facade: "client.routes.list",
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace("client.domains.list", "client.routes.list"),
+      },
+    }));
+
+    expect(() => validateNodeSampleRegistry(document, rawFetch)).toThrow(/raw API requests/);
+    expect(() => validateNodeSampleRegistry(document, apiUrl)).toThrow(/raw API requests/);
+    expect(() => validateNodeSampleRegistry(document, bearerHeader)).toThrow(/raw API requests/);
+    expect(() => validateNodeSampleRegistry(document, internalImport)).toThrow(
+      /non-public SDK module/,
+    );
+    expect(() => validateNodeSampleRegistry(document, wrongFacade)).toThrow(
+      /Wrong facade mapping for getDomains/,
+    );
+  });
+
+  it("rejects missing mutation guards, unsandboxed sends, unstable keys, and secret output", () => {
+    const unguarded = changedRegistryEntry("deleteRoute", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace(
+          /if \(process\.env\.AHASEND_ALLOW_MUTATIONS[\s\S]*?\n\}\n\n/u,
+          "",
+        ),
+      },
+    }));
+    const unsandboxed = changedRegistryEntry("createMessage", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace("sandbox: true", "sandbox: false"),
+      },
+    }));
+    const unstableKey = changedRegistryEntry("createDomain", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace('{ idempotencyKey: "sdk-sample-create-domain" }', "{}"),
+      },
+    }));
+    const secretOutput = changedRegistryEntry("createAPIKey", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace(
+          "{ id: apiKey.id, label: apiKey.label }",
+          "{ secret_key: apiKey.secret_key }",
+        ),
+      },
+    }));
+
+    expect(() => validateNodeSampleRegistry(document, unguarded)).toThrow(/guard the mutation/);
+    expect(() => validateNodeSampleRegistry(document, unsandboxed)).toThrow(/sandbox: true/);
+    expect(() => validateNodeSampleRegistry(document, unstableKey)).toThrow(
+      /stable caller idempotency key/,
+    );
+    expect(() => validateNodeSampleRegistry(document, secretOutput)).toThrow(/one-time secret/);
+  });
+
+  it("rejects samples that rely on values declared in another documentation tab", () => {
+    const externalValue = changedRegistryEntry("getDomain", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace('const domainName = "example.com";\n', ""),
+      },
+    }));
+
+    expect(() => validateNodeSampleRegistry(document, externalValue)).toThrow(
+      /not self-contained; undeclared values: domainName/,
+    );
+  });
+
+  it("preserves every existing Go and shell sample byte-for-byte during injection", () => {
+    const changedNodeSamples = {
+      ...NODE_CODE_SAMPLES,
+      ping: { ...NODE_CODE_SAMPLES.ping!, source: `${NODE_CODE_SAMPLES.ping!.source}// changed\n` },
+    };
+    const generated = parseOpenApi(injectNodeSamples(source, document, changedNodeSamples));
+    const generatedById = new Map(
+      collectOperations(generated).map(({ operationId, operation }) => [operationId, operation]),
+    );
+
+    for (const { operationId, operation } of collectOperations(document)) {
+      const nonNode = samplesFor(operation).filter(({ lang }) => lang !== "javascript");
+      const generatedOperation = generatedById.get(operationId);
+      if (generatedOperation === undefined) throw new TypeError(`Missing ${operationId}`);
+      expect(
+        samplesFor(generatedOperation).filter(({ lang }) => lang !== "javascript"),
+        operationId,
+      ).toEqual(nonNode);
+    }
   });
 
   it("rejects missing, duplicate, and drifted generated samples", () => {

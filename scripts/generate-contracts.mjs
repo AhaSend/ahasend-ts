@@ -3,20 +3,36 @@
 import { createHmac } from "node:crypto";
 import { execFile } from "node:child_process";
 import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import Ajv from "ajv";
 import yaml from "js-yaml";
+import ts from "typescript";
 import {
   canonicalizeJson,
   digestJsonArtifact,
   digestYamlArtifact,
   sha256Hex,
 } from "./digest-artifact.mjs";
-import { NODE_CODE_SAMPLES, NODE_OPERATION_KEYS } from "./node-code-samples.mjs";
+import {
+  NODE_CODE_SAMPLES,
+  NODE_OPERATION_KEYS,
+  NODE_SAMPLE_REGISTRY,
+} from "./node-code-samples.mjs";
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"];
+const require = createRequire(import.meta.url);
+const operationProfile = require("../src/generated/operation-profile.json");
+const PUBLIC_OPERATION_FACADES = Object.freeze(
+  Object.fromEntries(
+    operationProfile.operations.map(({ operationId, facade, method }) => [
+      operationId,
+      facade === "client" ? `client.${method}` : `client.${facade}.${method}`,
+    ]),
+  ),
+);
 const INVENTORY_KEYS = [
   "operationIds",
   "schemaNames",
@@ -34,6 +50,8 @@ const NODE_LANGUAGES = new Set([
   "nodejs",
   "node.js",
 ]);
+const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
+const SANDBOX_OPERATION_IDS = new Set(["createMessage", "createConversationMessage"]);
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const GIT_COMMIT_PATTERN = /^[a-f0-9]{40}$/;
 const SIGNATURE_PATTERN = /^v1,[A-Za-z0-9+/]{43}=$/;
@@ -743,12 +761,333 @@ function normalizeLanguage(value) {
   return typeof value === "string" ? value.toLowerCase().replaceAll(/[^a-z.]/g, "") : "";
 }
 
+function propertyPath(node) {
+  if (ts.isIdentifier(node)) return node.text;
+  if (ts.isPropertyAccessExpression(node)) {
+    const parent = propertyPath(node.expression);
+    return parent === undefined ? undefined : `${parent}.${node.name.text}`;
+  }
+  if (
+    ts.isElementAccessExpression(node) &&
+    node.argumentExpression !== undefined &&
+    ts.isStringLiteral(node.argumentExpression)
+  ) {
+    const parent = propertyPath(node.expression);
+    return parent === undefined ? undefined : `${parent}.${node.argumentExpression.text}`;
+  }
+  return undefined;
+}
+
+function sourceFileForSample(operationId, source) {
+  const sourceFile = ts.createSourceFile(
+    `${operationId}.mjs`,
+    source,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.JS,
+  );
+  if (sourceFile.parseDiagnostics.length > 0) {
+    const diagnostics = sourceFile.parseDiagnostics.map((diagnostic) =>
+      ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+    );
+    throw new TypeError(
+      `${operationId} sample is not valid ESM JavaScript: ${diagnostics.join("; ")}`,
+    );
+  }
+  return sourceFile;
+}
+
+function collectNodes(sourceFile, predicate) {
+  const nodes = [];
+  function visit(node) {
+    if (predicate(node)) nodes.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return nodes;
+}
+
+function statementTerminates(statement) {
+  if (ts.isThrowStatement(statement) || ts.isReturnStatement(statement)) return true;
+  if (ts.isBlock(statement)) {
+    const last = statement.statements.at(-1);
+    return last !== undefined && statementTerminates(last);
+  }
+  return false;
+}
+
+function isMutationGuard(statement) {
+  if (!ts.isIfStatement(statement) || !statementTerminates(statement.thenStatement)) return false;
+  const condition = statement.expression;
+  if (
+    !ts.isBinaryExpression(condition) ||
+    (condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken &&
+      condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsToken)
+  ) {
+    return false;
+  }
+  return (
+    (propertyPath(condition.left) === "process.env.AHASEND_ALLOW_MUTATIONS" &&
+      ts.isStringLiteral(condition.right) &&
+      condition.right.text === "1") ||
+    (propertyPath(condition.right) === "process.env.AHASEND_ALLOW_MUTATIONS" &&
+      ts.isStringLiteral(condition.left) &&
+      condition.left.text === "1")
+  );
+}
+
+function objectProperty(object, name) {
+  if (!ts.isObjectLiteralExpression(object)) return undefined;
+  return object.properties.find(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      ((ts.isIdentifier(property.name) && property.name.text === name) ||
+        (ts.isStringLiteral(property.name) && property.name.text === name)),
+  );
+}
+
+function nestedProperty(call, name) {
+  for (const argument of call.arguments) {
+    const properties = collectNodes(argument, (node) => objectProperty(node, name) !== undefined);
+    for (const object of properties) {
+      const property = objectProperty(object, name);
+      if (property !== undefined && ts.isPropertyAssignment(property)) return property.initializer;
+    }
+  }
+  return undefined;
+}
+
+function validatePublicImport(operationId, sourceFile) {
+  const imports = sourceFile.statements.filter(ts.isImportDeclaration);
+  if (imports.length !== 1) {
+    throw new TypeError(`${operationId} sample must have exactly one public SDK import`);
+  }
+  const declaration = imports[0];
+  if (
+    !ts.isStringLiteral(declaration.moduleSpecifier) ||
+    declaration.moduleSpecifier.text !== "@ahasend/sdk"
+  ) {
+    throw new TypeError(`${operationId} sample imports a non-public SDK module`);
+  }
+  const bindings = declaration.importClause?.namedBindings;
+  if (
+    bindings === undefined ||
+    !ts.isNamedImports(bindings) ||
+    bindings.elements.length !== 1 ||
+    bindings.elements[0]?.name.text !== "AhaSendClient"
+  ) {
+    throw new TypeError(`${operationId} sample must import only AhaSendClient from @ahasend/sdk`);
+  }
+}
+
+function validateSelfContained(operationId, sourceFile) {
+  const declared = new Set(["console", "Error", "fetch", "globalThis", "process", "URL"]);
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      for (const binding of statement.importClause?.namedBindings?.elements ?? []) {
+        declared.add(binding.name.text);
+      }
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) declared.add(declaration.name.text);
+      }
+    }
+  }
+
+  const references = collectNodes(sourceFile, (node) => {
+    if (!ts.isIdentifier(node)) return false;
+    const parent = node.parent;
+    if (
+      (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+      (ts.isPropertyAssignment(parent) && parent.name === node) ||
+      (ts.isVariableDeclaration(parent) && parent.name === node) ||
+      ts.isImportSpecifier(parent) ||
+      ts.isImportClause(parent)
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const unbound = [...new Set(references.map(({ text }) => text))].filter(
+    (identifier) => !declared.has(identifier),
+  );
+  if (unbound.length > 0) {
+    throw new TypeError(
+      `${operationId} sample is not self-contained; undeclared values: ${unbound.join(", ")}`,
+    );
+  }
+}
+
+function validateSafeOutput(operationId, sourceFile) {
+  const consoleCalls = collectNodes(
+    sourceFile,
+    (node) =>
+      ts.isCallExpression(node) &&
+      /^(?:console|log|logger)\.(?:log|debug|info|warn|error)$/u.test(
+        propertyPath(node.expression) ?? "",
+      ),
+  );
+  if (consoleCalls.length === 0) {
+    throw new TypeError(`${operationId} sample must log safe response metadata`);
+  }
+  for (const call of consoleCalls) {
+    if (call.arguments.slice(1).some((argument) => !ts.isObjectLiteralExpression(argument))) {
+      throw new TypeError(`${operationId} sample must log metadata instead of response bodies`);
+    }
+    const sensitive = collectNodes(call, (node) => {
+      const path = propertyPath(node) ?? "";
+      return /(?:^|\.)(?:secret|secret_key|password|idempotencyKey)$/u.test(path);
+    });
+    if (sensitive.length > 0) {
+      throw new TypeError(`${operationId} sample prints a credential or one-time secret`);
+    }
+  }
+}
+
+function operationHasIdempotency(operation) {
+  return (
+    Array.isArray(operation.parameters) &&
+    operation.parameters.some(
+      (parameter) =>
+        parameter !== null &&
+        typeof parameter === "object" &&
+        parameter.$ref === IDEMPOTENCY_PARAMETER,
+    )
+  );
+}
+
+function validateRegistrySample(entry, contractOperation) {
+  const { operationId, facade, sample } = entry;
+  const sourceFile = sourceFileForSample(operationId, sample.source);
+  validatePublicImport(operationId, sourceFile);
+  validateSelfContained(operationId, sourceFile);
+
+  if (
+    /\bfetch\s*\(|\bnew\s+URL\s*\(|api\.ahasend\.com|\bAuthorization\b|\bBearer\b/iu.test(
+      sample.source,
+    )
+  ) {
+    throw new TypeError(`${operationId} sample must not construct raw API requests`);
+  }
+
+  const calls = collectNodes(sourceFile, ts.isCallExpression);
+  if (!calls.some((call) => propertyPath(call.expression) === "AhaSendClient.fromEnv")) {
+    throw new TypeError(`${operationId} sample must construct AhaSendClient.fromEnv()`);
+  }
+  const clientCalls = calls.filter((call) =>
+    (propertyPath(call.expression) ?? "").startsWith("client."),
+  );
+  if (clientCalls.length !== 1 || propertyPath(clientCalls[0].expression) !== facade) {
+    const received = clientCalls.map((call) => propertyPath(call.expression)).join(", ") || "none";
+    throw new TypeError(
+      `${operationId} sample calls the wrong facade: expected ${facade}, received ${received}`,
+    );
+  }
+
+  const facadeCall = clientCalls[0];
+  if (SANDBOX_OPERATION_IDS.has(operationId)) {
+    const sandbox = nestedProperty(facadeCall, "sandbox");
+    if (sandbox?.kind !== ts.SyntaxKind.TrueKeyword) {
+      throw new TypeError(`${operationId} sample must send with sandbox: true`);
+    }
+  }
+  if (contractOperation.method !== "get") {
+    const guarded = sourceFile.statements.some(
+      (statement) =>
+        statement.getStart(sourceFile) < facadeCall.getStart(sourceFile) &&
+        isMutationGuard(statement),
+    );
+    if (!guarded) {
+      throw new TypeError(`${operationId} sample must guard the mutation before calling the SDK`);
+    }
+  }
+
+  if (operationHasIdempotency(contractOperation.operation)) {
+    const key = nestedProperty(facadeCall, "idempotencyKey");
+    if (key === undefined || !ts.isStringLiteral(key) || key.text.length < 8) {
+      throw new TypeError(`${operationId} sample must use a stable caller idempotency key`);
+    }
+  }
+
+  validateSafeOutput(operationId, sourceFile);
+}
+
+export function validateNodeSampleRegistry(document, registry = NODE_SAMPLE_REGISTRY) {
+  if (!Array.isArray(registry)) throw new TypeError("Node sample registry must be an array");
+  const operations = collectOperations(document);
+  const operationsById = new Map(operations.map((operation) => [operation.operationId, operation]));
+  const entriesById = new Map();
+
+  for (const [index, value] of registry.entries()) {
+    const entry = assertRecord(value, `Node sample registry[${index}]`);
+    assertExactKeys(
+      entry,
+      ["operationId", "operationKey", "facade", "sample"],
+      `Node sample registry[${index}]`,
+    );
+    const operationId = assertString(
+      entry.operationId,
+      `Node sample registry[${index}].operationId`,
+    );
+    assertString(entry.operationKey, `Node sample registry[${index}].operationKey`);
+    assertString(
+      entry.facade,
+      `Node sample registry[${index}].facade`,
+      /^client(?:\.[A-Za-z_$][\w$]*)+$/u,
+    );
+    const sample = assertRecord(entry.sample, `Node sample registry[${index}].sample`);
+    assertExactKeys(sample, ["lang", "label", "source"], `Node sample registry[${index}].sample`);
+    if (sample.lang !== "javascript") {
+      throw new TypeError(`${operationId} registry sample must use the javascript language tag`);
+    }
+    assertString(sample.label, `${operationId} sample label`);
+    assertString(sample.source, `${operationId} sample source`);
+    if (entriesById.has(operationId)) {
+      throw new TypeError(`Duplicate Node sample registry mappings: ${operationId}`);
+    }
+    entriesById.set(operationId, entry);
+  }
+
+  const missing = operations.filter(({ operationId }) => !entriesById.has(operationId));
+  const orphaned = [...entriesById.keys()].filter(
+    (operationId) => !operationsById.has(operationId),
+  );
+  if (missing.length > 0) {
+    throw new TypeError(
+      `Missing Node sample registry mappings: ${missing.map(({ operationId }) => operationId).join(", ")}`,
+    );
+  }
+  if (orphaned.length > 0) {
+    throw new TypeError(`Orphan Node sample registry mappings: ${orphaned.join(", ")}`);
+  }
+
+  for (const operation of operations) {
+    const registryEntry = entriesById.get(operation.operationId);
+    const actualKey = `${operation.method.toUpperCase()} ${operation.path}`;
+    if (registryEntry.operationKey !== actualKey) {
+      throw new TypeError(
+        `Node sample operation drift for ${operation.operationId}: expected ${JSON.stringify(registryEntry.operationKey)}, received ${JSON.stringify(actualKey)}`,
+      );
+    }
+    if (registryEntry.facade !== PUBLIC_OPERATION_FACADES[operation.operationId]) {
+      throw new TypeError(
+        `Wrong facade mapping for ${operation.operationId}: expected ${PUBLIC_OPERATION_FACADES[operation.operationId]}, received ${registryEntry.facade}`,
+      );
+    }
+    validateRegistrySample(registryEntry, operation);
+  }
+
+  return entriesById;
+}
+
 export function validateCodeSamples(
   document,
   nodeSamples = NODE_CODE_SAMPLES,
   { allowMissingNodeSamples = false, allowNodeSampleDrift = false } = {},
 ) {
   const operations = collectOperations(document);
+  validateNodeSampleRegistry(document);
   const operationIds = new Set(operations.map(({ operationId }) => operationId));
   const sampleOperationIds = Object.keys(assertRecord(nodeSamples, "Node code samples"));
   const missingDefinitions = [...operationIds].filter(

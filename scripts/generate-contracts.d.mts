@@ -1,4 +1,4 @@
-import type { NodeCodeSample } from "./node-code-samples.mjs";
+import type { NodeCodeSample, NodeSampleRegistryEntry } from "./node-code-samples.mjs";
 
 export type OpenApiRecord = Record<string, unknown>;
 
@@ -50,6 +50,10 @@ export function collectOperations(document: unknown): ContractOperation[];
 export function collectContractInventory(document: unknown): ContractInventory;
 export function validateInternalReferences(document: unknown): void;
 export function assertInventoryMatches(actual: unknown, expected: unknown): void;
+export function validateNodeSampleRegistry(
+  document: unknown,
+  registry?: readonly NodeSampleRegistryEntry[],
+): Map<string, NodeSampleRegistryEntry>;
 export function validateCodeSamples(
   document: unknown,
   nodeSamples?: Readonly<Record<string, NodeCodeSample>>,
