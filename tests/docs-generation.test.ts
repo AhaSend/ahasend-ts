@@ -3,16 +3,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { collectOperations, parseOpenApi } from "../scripts/generate-contracts.mjs";
-import { digestYamlArtifact, sha256Hex } from "../scripts/digest-artifact.mjs";
-import { generateApiReference, generateRendererHandoff } from "../scripts/generate-docs.mjs";
+import { generateApiReference } from "../scripts/generate-docs.mjs";
 import { NODE_SAMPLE_REGISTRY } from "../scripts/node-code-samples.mjs";
 import { RESOURCE_AUTHORIZATION } from "../src/generated/operations.js";
 import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
 
 const repositoryRoot = process.cwd();
 const referencePath = resolve(repositoryRoot, "docs/api-reference.md");
-const rendererHandoffPath = resolve(repositoryRoot, "docs/renderer-handoff.json");
-const rendererHandoffDigestPath = resolve(repositoryRoot, "docs/renderer-handoff.sha256");
 const openApiSource = readFileSync(resolve(repositoryRoot, "openapi.yaml"), "utf8");
 const clientSource = readFileSync(resolve(repositoryRoot, "src/client.ts"), "utf8");
 const document = parseOpenApi(openApiSource);
@@ -121,40 +118,7 @@ describe("generated API reference", () => {
     }
   });
 
-  it("reproduces the complete OpenAPI-bound renderer handoff and sidecar", async () => {
-    const generated = await generateRendererHandoff();
-    const committedSource = readFileSync(rendererHandoffPath, "utf8");
-    const committedDigest = readFileSync(rendererHandoffDigestPath, "utf8");
-    const handoff = JSON.parse(committedSource) as {
-      restDigest: string;
-      operations: Array<{
-        operationId: string;
-        samples: Array<{ label: string; language: string; sourceHash: string }>;
-      }>;
-    };
-
-    expect(committedSource).toBe(generated.source);
-    expect(committedDigest).toBe(`${generated.digest}\n`);
-    expect(generated.digest).toBe(sha256Hex(Buffer.from(committedSource, "utf8")));
-    expect(handoff.restDigest).toBe(digestYamlArtifact(Buffer.from(openApiSource, "utf8")));
-    expect(handoff.operations.map(({ operationId }) => operationId)).toEqual(
-      operations.map(({ operationId }) => operationId),
-    );
-
-    for (const [index, operation] of handoff.operations.entries()) {
-      const registryEntry = NODE_SAMPLE_REGISTRY[index]!;
-      expect(operation.operationId).toBe(registryEntry.operationId);
-      expect(operation.samples).toEqual([
-        {
-          label: registryEntry.sample.label,
-          language: registryEntry.sample.lang,
-          sourceHash: sha256Hex(Buffer.from(registryEntry.sample.source, "utf8")),
-        },
-      ]);
-    }
-  });
-
-  it("uses the canonical registry validator for both generated sample artifacts", async () => {
+  it("uses the canonical registry validator for generated SDK samples", async () => {
     const incompatibleOpenApi = openApiSource.replace(
       "    CreateDomainRequest:\n      type: object\n      required:\n        - domain",
       "    CreateDomainRequest:\n      type: object\n      required:\n        - domain\n        - dkim_private_key",
@@ -162,9 +126,6 @@ describe("generated API reference", () => {
     expect(incompatibleOpenApi).not.toBe(openApiSource);
 
     await expect(generateApiReference({ openApiSource: incompatibleOpenApi })).rejects.toThrow(
-      /createDomain sample request body does not match its schema/,
-    );
-    await expect(generateRendererHandoff({ openApiSource: incompatibleOpenApi })).rejects.toThrow(
       /createDomain sample request body does not match its schema/,
     );
   });

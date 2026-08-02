@@ -83,7 +83,6 @@ describe("single-run release workflow", () => {
       "source-gate",
       "candidate",
       "artifact-gates",
-      "external-gates",
       "live-gates",
       "next-publish",
       "registry-smoke",
@@ -111,7 +110,6 @@ describe("single-run release workflow", () => {
       "source-gate",
       "candidate",
       "artifact-gates",
-      "external-gates",
       "live-gates",
       "next-publish",
       "registry-smoke",
@@ -121,8 +119,7 @@ describe("single-run release workflow", () => {
     ]);
     expect(record(jobs["candidate"], "candidate")["needs"]).toBe("source-gate");
     expect(record(jobs["artifact-gates"], "artifact")["needs"]).toBe("candidate");
-    expect(record(jobs["external-gates"], "external")["needs"]).toBe("artifact-gates");
-    expect(record(jobs["live-gates"], "live")["needs"]).toBe("external-gates");
+    expect(record(jobs["live-gates"], "live")["needs"]).toBe("artifact-gates");
     expect(record(jobs["next-publish"], "next")["needs"]).toBe("live-gates");
     expect(record(jobs["registry-smoke"], "smoke")["needs"]).toBe("next-publish");
     expect(record(jobs["latest-promotion"], "promotion")["needs"]).toBe("registry-smoke");
@@ -133,8 +130,45 @@ describe("single-run release workflow", () => {
     ]);
   });
 
+  it("does not read or retain external reports", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const sourceReportCreation = String(
+      namedStep(jobs["source-gate"], "source gate", "Create detached source report")["run"],
+    );
+    const gateReportCreation = String(
+      namedStep(jobs["live-gates"], "live gates", "Create detached gate report")["run"],
+    );
+    const sourceReportUpload = jobSteps(jobs["source-gate"], "source gate").find(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/upload-artifact@") &&
+        record(step["with"], "source report upload inputs")["name"] === "source-report",
+    );
+
+    expect(jobs).not.toHaveProperty("external-gates");
+    expect(workflowSource).not.toContain("RENDERER_REPORT_JSON");
+    expect(workflowSource).not.toContain("GO_WEBHOOK_ATTESTATION_JSON");
+    expect(workflowSource).not.toContain("renderer-report.json");
+    expect(workflowSource).not.toContain("go-webhook-attestation.json");
+    expect(workflowSource).not.toContain("verify-external-attestations.mjs");
+    expect(sourceReportCreation).toMatch(
+      /^mkdir -p \/tmp\/source-report\nnode --input-type=module/u,
+    );
+    expect(gateReportCreation).toContain('{ name: "artifact", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "live", passed: true }');
+    expect(gateReportCreation).not.toContain('{ name: "external", passed: true }');
+    expect(
+      record(
+        record(sourceReportUpload, "source report upload")["with"],
+        "source report upload inputs",
+      )["path"],
+    ).toBe("/tmp/source-report/source-report.json\n/tmp/source-report/source-report.sha256\n");
+  });
+
   it("builds and packs only in candidate creation and never regenerates the artifact", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const candidateCreation = String(
+      namedStep(jobs["candidate"], "candidate", "Build and pack the retained candidate")["run"],
+    );
     const allCommands = Object.entries(jobs)
       .map(([name, job]) => commands(job, name))
       .join("\n");
@@ -144,6 +178,12 @@ describe("single-run release workflow", () => {
       .join("\n");
 
     expect(allCommands.match(/create-candidate\.mjs/gu)).toHaveLength(1);
+    expect(candidateCreation).toContain(
+      "node scripts/create-candidate.mjs \\\n" +
+        "  /tmp/source-report/source-report.json \\\n" +
+        "  /tmp/candidate \\\n" +
+        "  /tmp/source-report/source-report.sha256",
+    );
     expect(allCommands).not.toMatch(/\bnpm run build\b/u);
     expect(allCommands).not.toMatch(/\bnpm pack\b/u);
     expect(afterCandidate).not.toMatch(/create-candidate\.mjs/u);
@@ -157,7 +197,9 @@ describe("single-run release workflow", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
     const sourceGate = jobs["source-gate"];
 
-    expect(namedStep(sourceGate, "source gate", "Unit test gate")["run"]).toBe("npm run test:unit");
+    expect(namedStep(sourceGate, "source gate", "Unit test gate")["run"]).toBe(
+      "npm run test:unit -- tests/openapi-authoritative-contract.test.ts",
+    );
     expect(namedStep(sourceGate, "source gate", "Coverage gate")["run"]).toBe(
       "npm run test:coverage",
     );

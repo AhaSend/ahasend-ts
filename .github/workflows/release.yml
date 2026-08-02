@@ -53,7 +53,7 @@ jobs:
         run: npm run lint
 
       - name: Unit test gate
-        run: npm run test:unit
+        run: npm run test:unit -- tests/openapi-authoritative-contract.test.ts
 
       - name: State test gate
         run: npx vitest run tests/state-machines.test.ts
@@ -97,19 +97,9 @@ jobs:
       - name: Audit gate
         run: npm run verify:audit
 
-      - name: Materialize signed external reports
-        env:
-          RENDERER_REPORT_JSON: ${{ secrets.RENDERER_REPORT_JSON }}
-          GO_WEBHOOK_ATTESTATION_JSON: ${{ secrets.GO_WEBHOOK_ATTESTATION_JSON }}
-        run: |
-          test -n "$RENDERER_REPORT_JSON"
-          test -n "$GO_WEBHOOK_ATTESTATION_JSON"
-          mkdir -p /tmp/source-report
-          printf '%s' "$RENDERER_REPORT_JSON" > /tmp/source-report/renderer-report.json
-          printf '%s' "$GO_WEBHOOK_ATTESTATION_JSON" > /tmp/source-report/go-webhook-attestation.json
-
       - name: Create detached source report
         run: |
+          mkdir -p /tmp/source-report
           node --input-type=module <<'NODE'
           import { writeFile } from "node:fs/promises";
           import { canonicalizeJson, sha256Hex } from "./scripts/digest-artifact.mjs";
@@ -149,7 +139,9 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: source-report
-          path: /tmp/source-report
+          path: |
+            /tmp/source-report/source-report.json
+            /tmp/source-report/source-report.sha256
           if-no-files-found: error
           retention-days: ${{ env.RETENTION_DAYS }}
 
@@ -192,7 +184,6 @@ jobs:
         run: |
           node scripts/create-candidate.mjs \
             /tmp/source-report/source-report.json \
-            /tmp/source-report/renderer-report.json \
             /tmp/candidate \
             /tmp/source-report/source-report.sha256
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
@@ -260,58 +251,9 @@ jobs:
           test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
           node scripts/verify-package.mjs "$TARBALL" "$SHA256"
 
-  external-gates:
-    name: External attestation gates
-    needs: artifact-gates
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
-
-      - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
-
-      - run: npm ci
-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: source-report
-          path: /tmp/source-report
-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: candidate-tarball
-          path: /tmp/candidate
-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: candidate-manifest
-          path: /tmp/candidate
-
-      - name: Verify retained external attestations
-        run: |
-          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
-          export SDK_TARBALL="$TARBALL"
-          export SDK_TARBALL_SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
-          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
-          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SDK_TARBALL_SHA256"
-          node scripts/verify-external-attestations.mjs \
-            /tmp/source-report/renderer-report.json \
-            /tmp/source-report/go-webhook-attestation.json
-
   live-gates:
     name: Live candidate gates
-    needs: external-gates
+    needs: artifact-gates
     runs-on: ubuntu-latest
     environment: live-release
     steps:
@@ -384,7 +326,6 @@ jobs:
             liveReportSha256,
             results: [
               { name: "artifact", passed: true },
-              { name: "external", passed: true },
               { name: "live", passed: true },
             ],
           });

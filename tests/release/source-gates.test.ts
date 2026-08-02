@@ -41,15 +41,6 @@ interface SourceGateReport {
   reportSha256?: string;
 }
 
-interface RendererHandoff {
-  version: number;
-  restDigest: string;
-  operations: Array<{
-    operationId: string;
-    samples: Array<{ label: string; language: string; sourceHash: string }>;
-  }>;
-}
-
 const repositoryRoot = process.cwd();
 const temporaryDirectories: string[] = [];
 const zeroHash = "0".repeat(64);
@@ -63,6 +54,15 @@ const sourceOperationDescriptors = readFileSync(
   resolve(repositoryRoot, "src/generated/operations.ts"),
 );
 const openApiSource = readFileSync(resolve(repositoryRoot, "openapi.yaml"));
+const documentationGeneratorSource = readFileSync(
+  resolve(repositoryRoot, "scripts/generate-docs.mjs"),
+  "utf8",
+);
+const releaseWorkflowSource = readFileSync(
+  resolve(repositoryRoot, ".github/workflows/release.yml"),
+  "utf8",
+);
+const authoritativeOpenApiTest = "tests/openapi-authoritative-contract.test.ts";
 
 function validReport(bindings: SourceBindings): SourceGateReport {
   return {
@@ -89,7 +89,6 @@ function candidateBindings(bindings: SourceBindings): CandidateBindings {
     contractSha256: structuredClone(bindings.contractSha256),
     captureSha256: bindings.captureSha256,
     keysSha256: structuredClone(bindings.keysSha256),
-    rendererReportSha256: "2".repeat(64),
     profileSha256: bindings.profileSha256,
     tarballSha256: "3".repeat(64),
   };
@@ -165,22 +164,9 @@ function candidateRunnerFixture(
   const outputDirectory = join(directory, "candidate");
   const sourceReportPath = join(directory, "source-report.json");
   const sourceSidecarPath = join(directory, "source-report.sha256");
-  const rendererReportPath = join(directory, "renderer-report.json");
   const sourceReport = reportBytes(validReport(sourceBindings));
-  const handoffSource = readFileSync(resolve(repositoryRoot, "docs/renderer-handoff.json"));
-  const handoff = JSON.parse(handoffSource.toString("utf8")) as RendererHandoff;
-  const rendererReport = canonicalizeJson({
-    version: 1,
-    handoffDigest: sha256Hex(handoffSource),
-    restDigest: handoff.restDigest,
-    operations: handoff.operations.map(({ operationId, samples }) => ({
-      operationId,
-      tabs: samples,
-    })),
-  });
   writeFileSync(sourceReportPath, sourceReport);
   writeFileSync(sourceSidecarPath, `${sha256Hex(sourceReport)}\n`);
-  writeFileSync(rendererReportPath, rendererReport);
 
   const npmCalls: string[][] = [];
   const fakeTarball = Buffer.from("one candidate tarball", "utf8");
@@ -224,13 +210,11 @@ function candidateRunnerFixture(
     createOptions: {
       sourceReportPath,
       sourceReportSidecarPath: sourceSidecarPath,
-      rendererReportPath,
       outputDirectory,
       runCommand: runner,
     },
     fakeTarball,
     npmCalls,
-    rendererReport,
     sourceReport,
   };
 }
@@ -242,6 +226,28 @@ afterAll(() => {
 });
 
 describe("source gate report validation", () => {
+  it("retains the authoritative OpenAPI contract test in the release unit gate", () => {
+    const trackedTest = spawnSync(
+      "git",
+      ["ls-files", "--error-unmatch", authoritativeOpenApiTest],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+      },
+    );
+
+    expect(trackedTest.status, trackedTest.stderr).toBe(0);
+    expect(trackedTest.stdout.trim()).toBe(authoritativeOpenApiTest);
+    expect(releaseWorkflowSource).toContain(
+      `run: npm run test:unit -- ${authoritativeOpenApiTest}`,
+    );
+  });
+
+  it("does not produce or consume a renderer handoff after sample regeneration", () => {
+    expect(documentationGeneratorSource).not.toMatch(/renderer[-A-Za-z]*handoff/iu);
+    expect(releaseWorkflowSource).not.toMatch(/renderer[-A-Za-z]*handoff/iu);
+  });
+
   it("keeps the schema aligned with the importable validator", async () => {
     const bindings = await readRepositorySourceBindings();
     const report = validReport(bindings);
@@ -389,6 +395,19 @@ describe("source gate report validation", () => {
 });
 
 describe("release candidate validation", () => {
+  it("documents the simplified candidate CLI", () => {
+    const result = spawnSync(process.execPath, ["scripts/create-candidate.mjs"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "create-candidate: Usage: node scripts/create-candidate.mjs <source-report.json> <output-directory> [source-report.sha256]\n",
+    );
+  });
+
   it("binds the canonical candidate manifest to its detached sidecar", async () => {
     const sourceBindings = await readRepositorySourceBindings();
     const bindings = candidateBindings(sourceBindings);
@@ -654,10 +673,16 @@ describe("release candidate validation", () => {
       const manifestSource = readFileSync(result.manifestPath);
       const manifestSidecar = readFileSync(result.manifestSidecarPath);
       const manifest = JSON.parse(manifestSource.toString("utf8")) as CandidateBindings;
-      expect(manifest).not.toHaveProperty("manifestSha256");
-      expect(manifest.sourceReportSha256).toBe(sha256Hex(fixture.sourceReport));
-      expect(manifest.rendererReportSha256).toBe(sha256Hex(fixture.rendererReport));
-      expect(manifest.tarballSha256).toBe(sha256Hex(fixture.fakeTarball));
+      expect(manifest).toEqual({
+        version: 1,
+        commit: sourceBindings.commit,
+        sourceReportSha256: sha256Hex(fixture.sourceReport),
+        contractSha256: sourceBindings.contractSha256,
+        captureSha256: sourceBindings.captureSha256,
+        keysSha256: sourceBindings.keysSha256,
+        profileSha256: sourceBindings.profileSha256,
+        tarballSha256: sha256Hex(fixture.fakeTarball),
+      });
       expect(manifestSidecar.toString("utf8")).toBe(`${sha256Hex(manifestSource)}\n`);
     });
   }
