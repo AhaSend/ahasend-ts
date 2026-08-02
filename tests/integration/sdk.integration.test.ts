@@ -9,13 +9,15 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpServer, type Server } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import yaml from "js-yaml";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -75,6 +77,19 @@ interface PackedExampleResult {
 interface GuardedPackedExampleCase extends PackedExampleCase {
   readonly environment: Readonly<Record<string, string>>;
   readonly usesSecretFile: boolean;
+}
+
+type EnqueueOnce = (webhookId: string, event: unknown) => Promise<boolean>;
+
+interface PackedExpressApplication {
+  listen(port: number, hostname: string, listener: () => void): Server;
+}
+
+interface PackedExpressExample {
+  createWebhookApp(options: {
+    readonly secret: string;
+    readonly enqueueOnce: EnqueueOnce;
+  }): PackedExpressApplication;
 }
 
 const PAGINATION = { limit: 5 };
@@ -399,6 +414,75 @@ describe("packed offline webhook example", () => {
   });
 });
 
+describe("packed Express webhook example", () => {
+  it(
+    "accepts the first signed delivery and acknowledges its duplicate",
+    async () => {
+      const secret = "aha-whsec-express-integration-secret";
+      const webhookId = "msg_express_it_1";
+      const timestamp = Math.floor(Date.now() / 1000);
+      const body = JSON.stringify({
+        type: "message.delivered",
+        webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
+        timestamp: new Date().toISOString(),
+        data: {
+          id: webhookId,
+          account_id: ACCOUNT_ID,
+          event: "on_delivered",
+          from: "sender@example.test",
+          recipient: "recipient@example.test",
+          subject: "Integration",
+          message_id_header: "<express-integration@example.test>",
+        },
+      });
+      const signature = `v1,${createHmac("sha256", Buffer.from(secret, "utf8"))
+        .update(`${webhookId}.${timestamp}.${body}`)
+        .digest("base64")}`;
+      const headers = {
+        "content-type": "application/json",
+        "webhook-id": webhookId,
+        "webhook-timestamp": String(timestamp),
+        "webhook-signature": signature,
+      };
+
+      linkExpressHostDependency();
+      const installedCopy = copyPackedExample("webhook-express.mjs");
+      const example = (await import(pathToFileURL(installedCopy).href)) as PackedExpressExample;
+      const app = example.createWebhookApp({
+        secret,
+        enqueueOnce: createInMemoryEnqueueOnce(),
+      });
+      let server: Server | undefined;
+
+      try {
+        server = await listenOnEphemeralPort(app);
+        const address = server.address();
+        if (address === null || typeof address === "string") {
+          throw new Error("The packed Express example did not bind to a TCP port.");
+        }
+        const url = `http://127.0.0.1:${address.port}/webhooks/ahasend`;
+
+        const first = await fetch(url, { method: "POST", headers, body });
+        const firstOutput = await first.text();
+        const duplicate = await fetch(url, { method: "POST", headers, body });
+        const duplicateOutput = await duplicate.text();
+
+        expect(first.status).toBe(202);
+        expect(duplicate.status).toBe(200);
+        expect(firstOutput).toBe("");
+        expect(duplicateOutput).toBe("");
+        expect(`${firstOutput}${duplicateOutput}`).not.toContain(secret);
+        expect(`${firstOutput}${duplicateOutput}`).not.toContain(API_KEY);
+      } finally {
+        await stopHttpServer(server);
+      }
+
+      expect(server?.listening).toBe(false);
+    },
+    PACKED_EXAMPLE_TIMEOUT_MS,
+  );
+});
+
 describe("packed guarded mutation examples", () => {
   it.each(GUARDED_PACKED_EXAMPLE_CASES)(
     "refuses $file without explicit mutation approval",
@@ -680,14 +764,7 @@ async function runPackedExample(
     throw new Error("The clean installed-package consumer is not available.");
   }
 
-  const examplesDirectory = join(consumerDirectory, "examples");
-  const source = resolve(repositoryRoot, "examples", file);
-  const installedCopy = resolve(examplesDirectory, file);
-  mkdirSync(examplesDirectory, { recursive: true });
-  copyFileSync(source, installedCopy);
-  if (readFileSync(installedCopy, "utf8") !== readFileSync(source, "utf8")) {
-    throw new Error(`Packed example copy does not match the repository source: ${file}`);
-  }
+  const installedCopy = copyPackedExample(file);
 
   return await new Promise<PackedExampleResult>((resolveResult, reject) => {
     let stdout = "";
@@ -734,6 +811,59 @@ async function runPackedExample(
       settled = true;
       clearTimeout(timeout);
       resolveResult({ exitCode, signal, stdout, stderr, timedOut });
+    });
+  });
+}
+
+function copyPackedExample(file: string): string {
+  if (consumerDirectory === undefined) {
+    throw new Error("The clean installed-package consumer is not available.");
+  }
+
+  const examplesDirectory = join(consumerDirectory, "examples");
+  const source = resolve(repositoryRoot, "examples", file);
+  const installedCopy = resolve(examplesDirectory, file);
+  mkdirSync(examplesDirectory, { recursive: true });
+  copyFileSync(source, installedCopy);
+  if (readFileSync(installedCopy, "utf8") !== readFileSync(source, "utf8")) {
+    throw new Error(`Packed example copy does not match the repository source: ${file}`);
+  }
+  return installedCopy;
+}
+
+function createInMemoryEnqueueOnce(): EnqueueOnce {
+  const acceptedWebhookIds = new Set<string>();
+  return async (webhookId) => {
+    if (acceptedWebhookIds.has(webhookId)) return false;
+    acceptedWebhookIds.add(webhookId);
+    return true;
+  };
+}
+
+function linkExpressHostDependency(): void {
+  if (consumerDirectory === undefined) {
+    throw new Error("The clean installed-package consumer is not available.");
+  }
+
+  const installedExpress = join(consumerDirectory, "node_modules", "express");
+  if (existsSync(installedExpress)) return;
+  const repositoryExpress = dirname(requireFromRepository.resolve("express/package.json"));
+  symlinkSync(repositoryExpress, installedExpress, "junction");
+}
+
+async function listenOnEphemeralPort(app: PackedExpressApplication): Promise<Server> {
+  return await new Promise((resolveListening, reject) => {
+    const server = app.listen(0, "127.0.0.1", () => resolveListening(server));
+    server.once("error", reject);
+  });
+}
+
+async function stopHttpServer(server: Server | undefined): Promise<void> {
+  if (server === undefined || !server.listening) return;
+  await new Promise<void>((resolveClosed, reject) => {
+    server.close((error) => {
+      if (error === undefined) resolveClosed();
+      else reject(error);
     });
   });
 }
