@@ -209,6 +209,22 @@ const requestOptions: SDK.RequestOptions = {
   },
 };
 const noRetryOptions: SDK.RequestOptions = { retry: false };
+type Expect<Condition extends true> = Condition;
+type AsyncTelemetryHookReturns = [
+  Expect<
+    Promise<void> extends ReturnType<NonNullable<SDK.TelemetryHooks["onRequest"]>> ? true : false
+  >,
+  Expect<
+    Promise<void> extends ReturnType<NonNullable<SDK.TelemetryHooks["onResponse"]>> ? true : false
+  >,
+  Expect<
+    Promise<void> extends ReturnType<NonNullable<SDK.TelemetryHooks["onRetry"]>> ? true : false
+  >,
+  Expect<
+    Promise<void> extends ReturnType<NonNullable<SDK.TelemetryHooks["onError"]>> ? true : false
+  >,
+];
+const asyncTelemetryHookReturns: AsyncTelemetryHookReturns = [true, true, true, true];
 const telemetryHooks: SDK.TelemetryHooks = {
   onRequest: async (event) => {
     const requestEvent: SDK.RequestEvent = event;
@@ -236,7 +252,7 @@ if (requestOptions.headers) {
   requestOptions.headers["x-correlation-id"] = "changed";
 }
 
-void [accountModel, domainModel, routeModel, phaseSixClientOptions];
+void [accountModel, domainModel, routeModel, phaseSixClientOptions, asyncTelemetryHookReturns];
 
 const pingResponse: Promise<SDK.AhaSendResponse<SDK.PingResponse>> = client.ping().withResponse();
 const messageListResponse: Promise<SDK.AhaSendResponse<SDK.PaginatedResponse<SDK.MessageSummary>>> =
