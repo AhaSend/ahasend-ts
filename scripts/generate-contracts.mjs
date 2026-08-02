@@ -846,15 +846,19 @@ function objectProperty(object, name) {
   );
 }
 
-function nestedProperty(call, name) {
-  for (const argument of call.arguments) {
-    const properties = collectNodes(argument, (node) => objectProperty(node, name) !== undefined);
-    for (const object of properties) {
-      const property = objectProperty(object, name);
-      if (property !== undefined && ts.isPropertyAssignment(property)) return property.initializer;
-    }
-  }
-  return undefined;
+function argumentProperty(call, argumentIndex, name) {
+  const argument = call.arguments.at(argumentIndex);
+  const property = argument === undefined ? undefined : objectProperty(argument, name);
+  return property !== undefined && ts.isPropertyAssignment(property)
+    ? property.initializer
+    : undefined;
+}
+
+function requestOptionsArgumentIndex(contractOperation) {
+  const pathArguments = [...contractOperation.path.matchAll(/\{([^}]+)\}/gu)].filter(
+    (match) => match[1] !== "account_id",
+  ).length;
+  return pathArguments + (contractOperation.operation.requestBody === undefined ? 0 : 1);
 }
 
 function validatePublicImport(operationId, sourceFile) {
@@ -932,7 +936,13 @@ function validateSafeOutput(operationId, sourceFile) {
     throw new TypeError(`${operationId} sample must log safe response metadata`);
   }
   for (const call of consoleCalls) {
-    if (call.arguments.slice(1).some((argument) => !ts.isObjectLiteralExpression(argument))) {
+    const [message, ...metadata] = call.arguments;
+    if (
+      message === undefined ||
+      (!ts.isStringLiteral(message) && !ts.isNoSubstitutionTemplateLiteral(message)) ||
+      metadata.length === 0 ||
+      metadata.some((argument) => !ts.isObjectLiteralExpression(argument))
+    ) {
       throw new TypeError(`${operationId} sample must log metadata instead of response bodies`);
     }
     const sensitive = collectNodes(call, (node) => {
@@ -987,7 +997,7 @@ function validateRegistrySample(entry, contractOperation) {
 
   const facadeCall = clientCalls[0];
   if (SANDBOX_OPERATION_IDS.has(operationId)) {
-    const sandbox = nestedProperty(facadeCall, "sandbox");
+    const sandbox = argumentProperty(facadeCall, 0, "sandbox");
     if (sandbox?.kind !== ts.SyntaxKind.TrueKeyword) {
       throw new TypeError(`${operationId} sample must send with sandbox: true`);
     }
@@ -1004,7 +1014,11 @@ function validateRegistrySample(entry, contractOperation) {
   }
 
   if (operationHasIdempotency(contractOperation.operation)) {
-    const key = nestedProperty(facadeCall, "idempotencyKey");
+    const key = argumentProperty(
+      facadeCall,
+      requestOptionsArgumentIndex(contractOperation),
+      "idempotencyKey",
+    );
     if (key === undefined || !ts.isStringLiteral(key) || key.text.length < 8) {
       throw new TypeError(`${operationId} sample must use a stable caller idempotency key`);
     }

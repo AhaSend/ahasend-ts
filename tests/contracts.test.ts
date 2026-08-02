@@ -409,13 +409,54 @@ describe("REST contract rejection checks", () => {
         ),
       },
     }));
+    const responseBodyOutput = changedRegistryEntry("createAPIKey", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace(
+          'console.log("API key created.", { id: apiKey.id, label: apiKey.label });',
+          "console.log(apiKey);",
+        ),
+      },
+    }));
+    const nestedSandbox = changedRegistryEntry("createMessage", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source
+          .replace(
+            'recipients: [{ email: "recipient@example.net" }]',
+            'recipients: [{ email: "recipient@example.net", sandbox: true }]',
+          )
+          .replace("    sandbox: true,\n", ""),
+      },
+    }));
+    const bodyIdempotencyKey = changedRegistryEntry("createDomain", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source
+          .replace(
+            '{ domain: "example.com" }',
+            '{ domain: "example.com", idempotencyKey: "sdk-sample-create-domain" }',
+          )
+          .replace(',\n  { idempotencyKey: "sdk-sample-create-domain" }', ""),
+      },
+    }));
 
     expect(() => validateNodeSampleRegistry(document, unguarded)).toThrow(/guard the mutation/);
     expect(() => validateNodeSampleRegistry(document, unsandboxed)).toThrow(/sandbox: true/);
+    expect(() => validateNodeSampleRegistry(document, nestedSandbox)).toThrow(/sandbox: true/);
     expect(() => validateNodeSampleRegistry(document, unstableKey)).toThrow(
       /stable caller idempotency key/,
     );
+    expect(() => validateNodeSampleRegistry(document, bodyIdempotencyKey)).toThrow(
+      /stable caller idempotency key/,
+    );
     expect(() => validateNodeSampleRegistry(document, secretOutput)).toThrow(/one-time secret/);
+    expect(() => validateNodeSampleRegistry(document, responseBodyOutput)).toThrow(
+      /metadata instead of response bodies/,
+    );
   });
 
   it("rejects samples that rely on values declared in another documentation tab", () => {
