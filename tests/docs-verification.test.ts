@@ -238,6 +238,29 @@ logger.error(output);`,
 logger.error(output);`,
     ],
     [
+      "object-rest aliases",
+      `const { ...requestId } = err;
+logger.error(requestId);`,
+    ],
+    [
+      "function-scoped var aliases",
+      `function logError(err) {
+  var output = err.status;
+  {
+    var output = err.message;
+  }
+  logger.error(output);
+}`,
+    ],
+    [
+      "source-scoped var aliases",
+      `var output = err.status;
+{
+  var output = err.message;
+}
+logger.error(output);`,
+    ],
+    [
       "nested object replacements",
       `const safe = { nested: { requestId: err.requestId } };
 safe.nested = { requestId: err.message };
@@ -298,6 +321,17 @@ try {
     requestId: err.requestId,
   });
 }`,
+      ),
+    ).not.toThrow();
+
+    expect(() =>
+      verifySafeOutput(
+        "safe-block-scoped-output-fixture.mjs",
+        `var output = err.status;
+{
+  const output = err.message;
+}
+logger.error(output);`,
       ),
     ).not.toThrow();
   });

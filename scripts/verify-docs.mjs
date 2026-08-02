@@ -506,6 +506,14 @@ function bindingForName(name, identifier) {
   return undefined;
 }
 
+function isBlockScopedVariableDeclaration(node) {
+  return (
+    ts.isVariableDeclaration(node) &&
+    ts.isVariableDeclarationList(node.parent) &&
+    (node.parent.flags & ts.NodeFlags.BlockScoped) !== 0
+  );
+}
+
 function bindingInOutputScope(scope, name) {
   if (ts.isFunctionLike(scope)) {
     for (const parameter of scope.parameters) {
@@ -519,13 +527,25 @@ function bindingInOutputScope(scope, name) {
   }
 
   let binding;
-  function visit(node) {
-    if (binding !== undefined || (node !== scope && isOutputScope(node))) return;
-    if (ts.isVariableDeclaration(node)) {
-      binding = bindingForName(node.name, name);
-      if (binding !== undefined) return;
+  function visit(node, nestedScope = false) {
+    if (binding !== undefined) return;
+    if (node !== scope && isOutputScope(node)) {
+      if (!ts.isSourceFile(scope) && !ts.isFunctionLike(scope)) return;
+      if (ts.isFunctionLike(node)) return;
+      nestedScope = true;
     }
-    ts.forEachChild(node, visit);
+    if (ts.isVariableDeclaration(node)) {
+      const blockScoped = isBlockScopedVariableDeclaration(node);
+      const belongsToScope =
+        ts.isFunctionLike(scope) || nestedScope
+          ? !blockScoped
+          : blockScoped || ts.isSourceFile(scope);
+      if (belongsToScope) {
+        binding = bindingForName(node.name, name);
+        if (binding !== undefined) return;
+      }
+    }
+    ts.forEachChild(node, (child) => visit(child, nestedScope));
   }
   visit(scope);
   return binding;
@@ -780,7 +800,9 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
     const defaults = [];
     let element = binding;
     while (ts.isBindingElement(element)) {
-      if (!ts.isObjectBindingPattern(element.parent)) return undefined;
+      if (!ts.isObjectBindingPattern(element.parent) || element.dotDotDotToken !== undefined) {
+        return undefined;
+      }
       const name = staticPropertyName(element.propertyName ?? element.name);
       if (name === undefined) return undefined;
       properties.unshift(name);
