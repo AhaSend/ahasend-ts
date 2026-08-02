@@ -211,6 +211,38 @@ describe("operational documentation verification", () => {
     );
   });
 
+  it("enforces the strict output allowlist across top-level examples", async () => {
+    const index = await buildDocumentationIndex();
+    const unsafeOutput = {
+      ...structuredClone(index),
+      examples: index.examples.map((example) =>
+        example.path === "examples/ping.mjs"
+          ? { ...example, source: `${example.source}\nconsole.log(response);\n` }
+          : example,
+      ),
+    };
+
+    await expect(verifyDocumentationIndex(unsafeOutput)).rejects.toThrow(
+      /examples\/ping\.mjs contains unsafe secret or payload output/,
+    );
+  });
+
+  it("enforces the strict output allowlist across README snippets", async () => {
+    const index = await buildDocumentationIndex();
+    const unsafeOutput = {
+      ...structuredClone(index),
+      snippets: index.snippets.map((snippet) =>
+        snippet.path === "README.md" && snippet.source.includes("client.messages.send")
+          ? { ...snippet, source: `${snippet.source}\nconsole.log(err.message);\n` }
+          : snippet,
+      ),
+    };
+
+    await expect(verifyDocumentationIndex(unsafeOutput)).rejects.toThrow(
+      /README\.md:\d+ contains unsafe secret or payload output/,
+    );
+  });
+
   it.each([
     ["whole objects", "console.log(response);"],
     ["nested values", "console.log(response.data);"],

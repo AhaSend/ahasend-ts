@@ -271,10 +271,10 @@ instead of serializing errors wholesale.
 const page = await client.messages.list({ status: "Delivered", limit: 50 });
 console.log({ deliveredPageCount: page.data.length });
 
-// Or iterate everything — pages are fetched lazily
-let deliveredCount = 0;
-for await (const _message of client.messages.iterate({ status: "Delivered" })) deliveredCount++;
-console.log({ deliveredCount });
+// Or process everything — pages are fetched lazily
+for await (const _message of client.messages.iterate({ status: "Delivered" })) {
+  // Process each message without logging content, addresses, or whole objects.
+}
 ```
 
 ## Webhook verification

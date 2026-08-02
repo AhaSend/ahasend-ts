@@ -58,9 +58,7 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
     enqueueOnce: defaultWebhookDeliveries.enqueueOnce.bind(defaultWebhookDeliveries),
   });
   const port = Number.parseInt(process.env.PORT ?? "3000", 10);
-  const server = app.listen(port, () => {
-    const address = server.address();
-    const listeningPort = typeof address === "object" && address !== null ? address.port : port;
-    console.log(`listening on :${listeningPort} — POST /webhooks/ahasend`);
+  app.listen(port, () => {
+    console.log("✓ webhook server listening");
   });
 }

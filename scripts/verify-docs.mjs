@@ -1119,10 +1119,7 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
   return unsafe;
 }
 
-/**
- * Verify one focused source fixture against the documented output allowlist.
- * Repository-wide enforcement is enabled after the example correction matrix lands.
- */
+/** Verify one focused source fixture against the documented output allowlist. */
 export function verifySafeOutput(label, source) {
   verifyJavaScriptSyntax(label, source);
   if (hasUnsafeConsoleOutput(sourceFileFor(label, source), true)) {
@@ -1532,7 +1529,25 @@ function verifyExamples(index) {
       throw new TypeError(`Node sample ${operationId} contains unsafe secret output.`);
     }
   }
-  for (const example of [...index.examples, ...index.supportingExamples]) {
+  for (const snippet of index.snippets.filter(({ path }) => path === "README.md")) {
+    const label = `${snippet.path}:${snippet.line}`;
+    if (hasUnsafeConsoleOutput(sourceFileFor(label, snippet.source), true)) {
+      throw new TypeError(`${label} contains unsafe secret or payload output.`);
+    }
+  }
+  for (const example of index.examples) {
+    const sourceFile = sourceFileFor(example.path, example.source);
+    verifyJavaScriptSyntax(example.path, example.source);
+    for (const pattern of SECRET_PATTERNS) {
+      if (pattern.test(example.source)) {
+        throw new TypeError(`${example.path} contains unsafe secret or payload output.`);
+      }
+    }
+    if (hasUnsafeConsoleOutput(sourceFile, true)) {
+      throw new TypeError(`${example.path} contains unsafe secret or payload output.`);
+    }
+  }
+  for (const example of index.supportingExamples) {
     const sourceFile = sourceFileFor(example.path, example.source);
     verifyJavaScriptSyntax(example.path, example.source);
     for (const pattern of SECRET_PATTERNS) {
