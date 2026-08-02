@@ -1022,9 +1022,13 @@ export async function verifyPackagedJavaScript(
   tarballPath,
   expectedChecksum,
   root = repositoryRoot,
+  nodeSamples = NODE_CODE_SAMPLES,
 ) {
   const tarball = resolve(tarballPath);
   await assertTarball(tarball, expectedChecksum);
+  if (Object.keys(nodeSamples).length !== EXPECTED_NODE_SAMPLE_COUNT) {
+    throw new TypeError(`Expected ${EXPECTED_NODE_SAMPLE_COUNT} packaged Node samples.`);
+  }
   const index = await buildDocumentationIndex(root);
   const temporaryRoot = await mkdtemp(join(tmpdir(), "ahasend-sdk-docs-"));
   try {
@@ -1075,7 +1079,7 @@ export async function verifyPackagedJavaScript(
       await writeFile(path, source);
       run(process.execPath, ["--check", path], temporaryRoot);
     }
-    for (const [operationId, sample] of Object.entries(NODE_CODE_SAMPLES)) {
+    for (const [operationId, sample] of Object.entries(nodeSamples)) {
       const path = resolve(samplesDirectory, `${operationId}.mjs`);
       await writeFile(path, sample.source);
       run(process.execPath, ["--check", path], temporaryRoot);
@@ -1135,7 +1139,6 @@ declare global {
           },
           include: [
             "examples/**/*.mjs",
-            "node-samples/**/*.mjs",
             "snippets/**/*.mjs",
             "snippets/**/*.ts",
             "snippets/**/*.d.ts",
@@ -1144,6 +1147,37 @@ declare global {
         null,
         2,
       )}\n`,
+    );
+    await writeFile(
+      resolve(temporaryRoot, "tsconfig.node-samples.json"),
+      `${JSON.stringify(
+        {
+          compilerOptions: {
+            allowJs: true,
+            checkJs: true,
+            noEmit: true,
+            target: "ES2023",
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            strict: true,
+            skipLibCheck: true,
+          },
+          include: ["node-samples/**/*.mjs"],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    run(
+      process.execPath,
+      [
+        resolve(root, "node_modules/typescript/bin/tsc"),
+        "--project",
+        "tsconfig.node-samples.json",
+        "--pretty",
+        "false",
+      ],
+      temporaryRoot,
     );
     run(
       process.execPath,

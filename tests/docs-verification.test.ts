@@ -1,25 +1,96 @@
 import { spawnSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { NODE_CODE_SAMPLES } from "../scripts/node-code-samples.mjs";
 import {
   buildDocumentationIndex,
   loadDocumentation,
   verifyDocumentation,
   verifyDocumentationIndex,
+  verifyPackagedJavaScript,
 } from "../scripts/verify-docs.mjs";
 
+const repositoryRoot = process.cwd();
+const packedSdkDirectory = mkdtempSync(join(tmpdir(), "ahasend-docs-verification-test-"));
+let packedSdkTarball = "";
+let packedSdkChecksum = "";
+
+beforeAll(() => {
+  const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  expect(build.status, `${build.stdout}${build.stderr}`).toBe(0);
+
+  const npmExecutable = process.env.npm_execpath;
+  const command = npmExecutable === undefined ? "npm" : process.execPath;
+  const args = [
+    ...(npmExecutable === undefined ? [] : [npmExecutable]),
+    "pack",
+    "--ignore-scripts",
+    "--pack-destination",
+    packedSdkDirectory,
+  ];
+  const pack = spawnSync(command, args, {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  expect(pack.status, `${pack.stdout}${pack.stderr}`).toBe(0);
+
+  const tarballs = readdirSync(packedSdkDirectory).filter((name) => name.endsWith(".tgz"));
+  expect(tarballs).toHaveLength(1);
+  packedSdkTarball = resolve(packedSdkDirectory, tarballs[0]!);
+  packedSdkChecksum = createHash("sha256").update(readFileSync(packedSdkTarball)).digest("hex");
+});
+
+afterAll(() => {
+  rmSync(packedSdkDirectory, { recursive: true, force: true });
+});
+
 describe("operational documentation verification", () => {
-  it("accepts the committed operational and security guidance", async () => {
+  it("supports source-only verification of the committed guidance", async () => {
     const documents = await loadDocumentation();
 
     expect(() => verifyDocumentation(documents)).not.toThrow();
 
+    const environment = { ...process.env };
+    delete environment.SDK_TARBALL;
+    delete environment.SDK_TARBALL_SHA256;
     const check = spawnSync(process.execPath, ["scripts/verify-docs.mjs"], {
       cwd: process.cwd(),
       encoding: "utf8",
+      env: environment,
     });
     expect(check.stderr).toBe("");
     expect(check.stdout).toContain("10 documents passed");
     expect(check.status).toBe(0);
+  });
+
+  it("strict-checks all 56 SDK samples against the packed declarations", async () => {
+    expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(56);
+
+    await expect(
+      verifyPackagedJavaScript(packedSdkTarball, packedSdkChecksum),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects a packed sample that is outside the public facade declarations", async () => {
+    const pingSample = NODE_CODE_SAMPLES.ping;
+    expect(pingSample).toBeDefined();
+    const invalidSamples = {
+      ...NODE_CODE_SAMPLES,
+      ping: {
+        ...pingSample!,
+        source: pingSample!.source.replace("client.ping()", "client.notAnSdkMethod()"),
+      },
+    };
+
+    await expect(
+      verifyPackagedJavaScript(packedSdkTarball, packedSdkChecksum, repositoryRoot, invalidSamples),
+    ).rejects.toThrow(/Property 'notAnSdkMethod' does not exist on type 'AhaSendClient'/u);
   });
 
   it("indexes and verifies commands, links, snippets, examples, samples, and profile counts", async () => {

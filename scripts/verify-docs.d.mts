@@ -39,4 +39,5 @@ export function verifyPackagedJavaScript(
   tarballPath: string,
   expectedChecksum: string,
   root?: string,
+  nodeSamples?: DocumentationIndex["nodeSamples"],
 ): Promise<void>;
