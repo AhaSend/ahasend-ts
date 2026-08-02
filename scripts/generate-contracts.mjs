@@ -854,11 +854,17 @@ function argumentProperty(call, argumentIndex, name) {
     : undefined;
 }
 
-function requestOptionsArgumentIndex(contractOperation) {
-  const pathArguments = [...contractOperation.path.matchAll(/\{([^}]+)\}/gu)].filter(
+function requestBodyArgumentIndex(contractOperation) {
+  return [...contractOperation.path.matchAll(/\{([^}]+)\}/gu)].filter(
     (match) => match[1] !== "account_id",
   ).length;
-  return pathArguments + (contractOperation.operation.requestBody === undefined ? 0 : 1);
+}
+
+function requestOptionsArgumentIndex(contractOperation) {
+  return (
+    requestBodyArgumentIndex(contractOperation) +
+    (contractOperation.operation.requestBody === undefined ? 0 : 1)
+  );
 }
 
 function validatePublicImport(operationId, sourceFile) {
@@ -967,7 +973,15 @@ function validateSafeOutput(operationId, sourceFile) {
       message === undefined ||
       (!ts.isStringLiteral(message) && !ts.isNoSubstitutionTemplateLiteral(message)) ||
       metadata.length === 0 ||
-      metadata.some((argument) => !ts.isObjectLiteralExpression(argument))
+      metadata.some(
+        (argument) =>
+          !ts.isObjectLiteralExpression(argument) ||
+          argument.properties.some(
+            (property) =>
+              !ts.isPropertyAssignment(property) ||
+              propertyPath(property.initializer)?.includes(".") !== true,
+          ),
+      )
     ) {
       throw new TypeError(`${operationId} sample must log metadata instead of response bodies`);
     }
@@ -978,6 +992,79 @@ function validateSafeOutput(operationId, sourceFile) {
     if (sensitive.length > 0) {
       throw new TypeError(`${operationId} sample prints a credential or one-time secret`);
     }
+  }
+}
+
+function sampleLiteralValue(operationId, node, location) {
+  if (ts.isObjectLiteralExpression(node)) {
+    const value = {};
+    for (const property of node.properties) {
+      if (!ts.isPropertyAssignment(property)) {
+        throw new TypeError(`${operationId} sample ${location} must use literal values`);
+      }
+      const name =
+        ts.isIdentifier(property.name) ||
+        ts.isStringLiteral(property.name) ||
+        ts.isNumericLiteral(property.name)
+          ? property.name.text
+          : undefined;
+      if (name === undefined) {
+        throw new TypeError(`${operationId} sample ${location} must use literal property names`);
+      }
+      value[name] = sampleLiteralValue(operationId, property.initializer, `${location}.${name}`);
+    }
+    return value;
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.map((element, index) =>
+      sampleLiteralValue(operationId, element, `${location}[${index}]`),
+    );
+  }
+  if (
+    ts.isStringLiteral(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node) ||
+    ts.isNumericLiteral(node)
+  ) {
+    return ts.isNumericLiteral(node) ? Number(node.text) : node.text;
+  }
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+  if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+  if (
+    ts.isPrefixUnaryExpression(node) &&
+    ts.isNumericLiteral(node.operand) &&
+    (node.operator === ts.SyntaxKind.PlusToken || node.operator === ts.SyntaxKind.MinusToken)
+  ) {
+    const value = Number(node.operand.text);
+    return node.operator === ts.SyntaxKind.MinusToken ? -value : value;
+  }
+  throw new TypeError(`${operationId} sample ${location} must use literal values`);
+}
+
+function validateRequestBody(operationId, facadeCall, contractOperation, components) {
+  const requestBody = contractOperation.operation.requestBody;
+  if (requestBody === undefined) return;
+
+  const body = facadeCall.arguments.at(requestBodyArgumentIndex(contractOperation));
+  if (body === undefined) {
+    throw new TypeError(`${operationId} sample must pass the operation request body`);
+  }
+  const content = assertRecord(assertRecord(requestBody, `${operationId} request body`).content);
+  const mediaType = assertRecord(content["application/json"], `${operationId} JSON request body`);
+  const requestSchema = assertRecord(mediaType.schema, `${operationId} request body schema`);
+  const validate = new Ajv({
+    allErrors: true,
+    jsonPointers: true,
+    logger: false,
+    nullable: true,
+    unknownFormats: "ignore",
+  }).compile({ ...requestSchema, components });
+  const value = sampleLiteralValue(operationId, body, "request body");
+  if (!validate(value)) {
+    const details = (validate.errors ?? [])
+      .map(({ dataPath, message }) => `${dataPath || "/"} ${message ?? "is invalid"}`)
+      .join("; ");
+    throw new TypeError(`${operationId} sample request body does not match its schema: ${details}`);
   }
 }
 
@@ -993,7 +1080,7 @@ function operationHasIdempotency(operation) {
   );
 }
 
-function validateRegistrySample(entry, contractOperation) {
+function validateRegistrySample(entry, contractOperation, components) {
   const { operationId, facade, sample } = entry;
   const sourceFile = sourceFileForSample(operationId, sample.source);
   validatePublicImport(operationId, sourceFile);
@@ -1006,10 +1093,26 @@ function validateRegistrySample(entry, contractOperation) {
     throw new TypeError(`${operationId} sample must not construct raw API requests`);
   }
 
-  const calls = collectNodes(sourceFile, ts.isCallExpression);
-  if (!calls.some((call) => propertyPath(call.expression) === "AhaSendClient.fromEnv")) {
-    throw new TypeError(`${operationId} sample must construct AhaSendClient.fromEnv()`);
+  const clientDeclarations = collectNodes(
+    sourceFile,
+    (node) =>
+      ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "client",
+  );
+  const clientDeclaration = clientDeclarations[0];
+  const clientInitializer = clientDeclaration?.initializer;
+  if (
+    clientDeclarations.length !== 1 ||
+    clientDeclaration === undefined ||
+    !ts.isVariableDeclarationList(clientDeclaration.parent) ||
+    (clientDeclaration.parent.flags & ts.NodeFlags.Const) === 0 ||
+    clientInitializer === undefined ||
+    !ts.isCallExpression(clientInitializer) ||
+    propertyPath(clientInitializer.expression) !== "AhaSendClient.fromEnv" ||
+    clientInitializer.arguments.length !== 0
+  ) {
+    throw new TypeError(`${operationId} sample must assign client from AhaSendClient.fromEnv()`);
   }
+  const calls = collectNodes(sourceFile, ts.isCallExpression);
   const clientCalls = calls.filter((call) =>
     (propertyPath(call.expression) ?? "").startsWith("client."),
   );
@@ -1049,11 +1152,16 @@ function validateRegistrySample(entry, contractOperation) {
     }
   }
 
+  validateRequestBody(operationId, facadeCall, contractOperation, components);
   validateSafeOutput(operationId, sourceFile);
 }
 
 export function validateNodeSampleRegistry(document, registry = NODE_SAMPLE_REGISTRY) {
   if (!Array.isArray(registry)) throw new TypeError("Node sample registry must be an array");
+  const components = assertRecord(
+    assertRecord(document, "OpenAPI document").components,
+    "OpenAPI components",
+  );
   const operations = collectOperations(document);
   const operationsById = new Map(operations.map((operation) => [operation.operationId, operation]));
   const entriesById = new Map();
@@ -1114,7 +1222,7 @@ export function validateNodeSampleRegistry(document, registry = NODE_SAMPLE_REGI
         `Wrong facade mapping for ${operation.operationId}: expected ${PUBLIC_OPERATION_FACADES[operation.operationId]}, received ${registryEntry.facade}`,
       );
     }
-    validateRegistrySample(registryEntry, operation);
+    validateRegistrySample(registryEntry, operation, components);
   }
 
   return entriesById;

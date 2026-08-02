@@ -249,30 +249,6 @@ describe("REST contract normalization", () => {
     }
   });
 
-  it("uses request body fields defined by each operation's schema", () => {
-    for (const { operationId, operation } of collectOperations(document)) {
-      if (operation.requestBody === undefined) continue;
-
-      const content = record(record(operation.requestBody).content);
-      const requestSchema = record(record(content["application/json"]).schema);
-      const reference = requestSchema.$ref;
-      if (typeof reference !== "string") {
-        throw new TypeError(`${operationId} does not use a referenced request body schema`);
-      }
-
-      const schemaName = reference.split("/").at(-1);
-      if (schemaName === undefined) throw new TypeError(`${operationId} has an invalid schema ref`);
-      const allowedFields = new Set(Object.keys(record(schema(schemaName).properties)));
-
-      const sample = NODE_CODE_SAMPLES[operationId];
-      if (sample === undefined) throw new TypeError(`${operationId} has no generated Node sample`);
-      for (const field of sample.source.matchAll(/^\s{2,4}([a-z_]+):/gmu)) {
-        if (field[1] === "idempotencyKey") continue;
-        expect(allowedFields.has(field[1]!), `${operationId}: ${field[1]}`).toBe(true);
-      }
-    }
-  });
-
   it("preserves OpenAPI 3.1 null unions and quoted replay header values", () => {
     const apiKeyProperties = record(schema("APIKey").properties);
     expect(record(apiKeyProperties.last_used_at).type).toEqual(["string", "null"]);
@@ -452,6 +428,16 @@ describe("REST contract rejection checks", () => {
         source: entry.sample.source.replace("client.domains.list", "client.routes.list"),
       },
     }));
+    const detachedClient = changedRegistryEntry("ping", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace(
+          "const client = AhaSendClient.fromEnv();",
+          "const client = console;\nAhaSendClient.fromEnv();",
+        ),
+      },
+    }));
 
     expect(() => validateNodeSampleRegistry(document, rawFetch)).toThrow(/raw API requests/);
     expect(() => validateNodeSampleRegistry(document, bracketedGlobalFetch)).toThrow(
@@ -470,6 +456,46 @@ describe("REST contract rejection checks", () => {
     );
     expect(() => validateNodeSampleRegistry(document, wrongFacade)).toThrow(
       /Wrong facade mapping for getDomains/,
+    );
+    expect(() => validateNodeSampleRegistry(document, detachedClient)).toThrow(
+      /assign client from AhaSendClient\.fromEnv/,
+    );
+  });
+
+  it("rejects request bodies with unknown fields, missing required fields, or invalid values", () => {
+    const unknownOneLineField = changedRegistryEntry("createDomain", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace(
+          '{ domain: "example.com" }',
+          '{ invented: "example.com" }',
+        ),
+      },
+    }));
+    const missingRequiredField = changedRegistryEntry("createDomain", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace('{ domain: "example.com" }', "{}"),
+      },
+    }));
+    const invalidEnumValue = changedRegistryEntry("createWebhook", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace('scope: "global"', 'scope: "invented"'),
+      },
+    }));
+
+    expect(() => validateNodeSampleRegistry(document, unknownOneLineField)).toThrow(
+      /request body does not match its schema/,
+    );
+    expect(() => validateNodeSampleRegistry(document, missingRequiredField)).toThrow(
+      /request body does not match its schema/,
+    );
+    expect(() => validateNodeSampleRegistry(document, invalidEnumValue)).toThrow(
+      /request body does not match its schema/,
     );
   });
 
@@ -518,6 +544,16 @@ describe("REST contract rejection checks", () => {
         ),
       },
     }));
+    const nestedResponseBodyOutput = changedRegistryEntry("createAPIKey", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace(
+          "{ id: apiKey.id, label: apiKey.label }",
+          "{ response: { apiKey } }",
+        ),
+      },
+    }));
     const nestedSandbox = changedRegistryEntry("createMessage", (entry) => ({
       ...entry,
       sample: {
@@ -554,6 +590,9 @@ describe("REST contract rejection checks", () => {
     );
     expect(() => validateNodeSampleRegistry(document, secretOutput)).toThrow(/one-time secret/);
     expect(() => validateNodeSampleRegistry(document, responseBodyOutput)).toThrow(
+      /metadata instead of response bodies/,
+    );
+    expect(() => validateNodeSampleRegistry(document, nestedResponseBodyOutput)).toThrow(
       /metadata instead of response bodies/,
     );
   });
