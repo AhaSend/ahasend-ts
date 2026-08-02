@@ -13,6 +13,10 @@ const workflow = yaml.load(
   readFileSync(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8"),
   { schema: yaml.JSON_SCHEMA },
 ) as unknown;
+const packagePreflightSource = readFileSync(
+  resolve(repositoryRoot, "scripts/create-preflight-pack.mjs"),
+  "utf8",
+);
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -104,10 +108,12 @@ describe("CI policy", () => {
     expect(actionReferences.every((reference) => /@[0-9a-f]{40}$/.test(reference))).toBe(true);
   });
 
-  it("delegates CI package and audit checks to their tested orchestrators", () => {
+  it("keeps the complete packed example preflight on the blocking CI path", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
     const testSteps = array(record(jobs["test"], "test job")["steps"], "test steps");
-    const commands = testSteps.map((step, index) => record(step, `test step ${index}`)["run"]);
+    const requiredGatesStep = testSteps
+      .map((step, index) => record(step, `test step ${index}`))
+      .find(({ name }) => name === "Required package gates and packed example preflight");
 
     expect(packageJson.scripts["ci"]?.split(" && ")).toEqual([
       "npm run typecheck",
@@ -117,13 +123,20 @@ describe("CI policy", () => {
       "npm run verify:audit",
       "npm run test:package:preflight",
     ]);
-    expect(commands).toContain("npm run ci");
+    expect(requiredGatesStep).toMatchObject({ run: "npm run ci" });
+    expect(requiredGatesStep?.["continue-on-error"]).toBeUndefined();
     expect(packageJson.scripts["verify:audit"]).toBe("node scripts/verify-audit.mjs");
     expect(packageJson.scripts["docs:check"]).toBe(
       "node scripts/generate-docs.mjs --check && node scripts/verify-docs.mjs",
     );
     expect(packageJson.scripts["test:package:preflight"]).toBe(
       "npm run build && node scripts/create-preflight-pack.mjs",
+    );
+    expect(packageJson.scripts["test:integration:tarball"]).toBe(
+      "vitest run --config vitest.integration.config.ts",
+    );
+    expect(packagePreflightSource).toContain(
+      'verificationScripts: ["test:docs:tarball", "test:package:tarball", "test:integration:tarball"]',
     );
   });
 });

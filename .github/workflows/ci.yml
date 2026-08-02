@@ -42,7 +42,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Required package gates
+      - name: Required package gates and packed example preflight
         run: npm run ci
 
   coverage:
