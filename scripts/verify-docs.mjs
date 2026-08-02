@@ -447,18 +447,6 @@ function sourceFileFor(label, source, scriptKind = ts.ScriptKind.JS) {
   return ts.createSourceFile(label, source, ts.ScriptTarget.ESNext, true, scriptKind);
 }
 
-function outputPropertyName(node) {
-  if (ts.isPropertyAccessExpression(node)) return node.name.text;
-  if (
-    ts.isElementAccessExpression(node) &&
-    node.argumentExpression !== undefined &&
-    ts.isStringLiteral(node.argumentExpression)
-  ) {
-    return node.argumentExpression.text;
-  }
-  return undefined;
-}
-
 function isAllowedOutputName(name) {
   return (
     /^(?:count|status|code|errorCode|requestId|request_id)$/u.test(name) ||
@@ -466,39 +454,6 @@ function isAllowedOutputName(name) {
     name === "id" ||
     name === "length"
   );
-}
-
-function collectOutputAliases(sourceFile) {
-  const aliases = new Map();
-  function collectBindingName(name, initializer) {
-    if (ts.isIdentifier(name)) {
-      aliases.set(name.text, initializer);
-      return;
-    }
-    if (ts.isObjectBindingPattern(name)) {
-      for (const element of name.elements) {
-        const propertyName = element.propertyName ?? element.name;
-        if (!ts.isIdentifier(element.name)) continue;
-        aliases.set(element.name.text, {
-          allowed: ts.isIdentifier(propertyName) && isAllowedOutputName(propertyName.text),
-        });
-      }
-      return;
-    }
-    for (const element of name.elements) {
-      if (!ts.isOmittedExpression(element) && ts.isIdentifier(element.name)) {
-        aliases.set(element.name.text, { allowed: false });
-      }
-    }
-  }
-  function visit(node) {
-    if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
-      collectBindingName(node.name, node.initializer);
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
-  return aliases;
 }
 
 function unwrapOutputExpression(node) {
@@ -528,8 +483,107 @@ function isStaticOutputValue(node) {
   );
 }
 
+function isOutputScope(node) {
+  return (
+    ts.isSourceFile(node) ||
+    ts.isBlock(node) ||
+    ts.isCaseBlock(node) ||
+    ts.isFunctionLike(node) ||
+    ts.isCatchClause(node) ||
+    ts.isForStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isForOfStatement(node)
+  );
+}
+
+function bindingForName(name, identifier) {
+  if (ts.isIdentifier(name)) return name.text === identifier ? name.parent : undefined;
+  for (const element of name.elements) {
+    if (ts.isOmittedExpression(element)) continue;
+    const binding = bindingForName(element.name, identifier);
+    if (binding !== undefined) return binding;
+  }
+  return undefined;
+}
+
+function bindingInOutputScope(scope, name) {
+  if (ts.isFunctionLike(scope)) {
+    for (const parameter of scope.parameters) {
+      const binding = bindingForName(parameter.name, name);
+      if (binding !== undefined) return binding;
+    }
+  }
+  if (ts.isCatchClause(scope) && scope.variableDeclaration !== undefined) {
+    const binding = bindingForName(scope.variableDeclaration.name, name);
+    if (binding !== undefined) return binding;
+  }
+
+  let binding;
+  function visit(node) {
+    if (binding !== undefined || (node !== scope && isOutputScope(node))) return;
+    if (ts.isVariableDeclaration(node)) {
+      binding = bindingForName(node.name, name);
+      if (binding !== undefined) return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(scope);
+  return binding;
+}
+
+function outputBindingAt(identifier) {
+  for (let ancestor = identifier.parent; ancestor !== undefined; ancestor = ancestor.parent) {
+    if (!isOutputScope(ancestor)) continue;
+    const binding = bindingInOutputScope(ancestor, identifier.text);
+    if (binding !== undefined) return binding;
+  }
+  return undefined;
+}
+
+function isAssignmentOperator(kind) {
+  return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+}
+
+function staticPropertyName(name) {
+  if (
+    ts.isIdentifier(name) ||
+    ts.isStringLiteral(name) ||
+    ts.isNumericLiteral(name) ||
+    ts.isNoSubstitutionTemplateLiteral(name)
+  ) {
+    return name.text;
+  }
+  if (ts.isComputedPropertyName(name)) {
+    const expression = unwrapOutputExpression(name.expression);
+    if (
+      ts.isStringLiteral(expression) ||
+      ts.isNumericLiteral(expression) ||
+      ts.isNoSubstitutionTemplateLiteral(expression)
+    ) {
+      return expression.text;
+    }
+  }
+  return undefined;
+}
+
+function memberAccessPath(node) {
+  const expression = unwrapOutputExpression(node);
+  if (ts.isIdentifier(expression)) return { root: expression, properties: [] };
+  if (ts.isPropertyAccessExpression(expression)) {
+    const parent = memberAccessPath(expression.expression);
+    if (parent === undefined) return undefined;
+    return { root: parent.root, properties: [...parent.properties, expression.name.text] };
+  }
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined) {
+    const name = staticPropertyName(expression.argumentExpression);
+    const parent = memberAccessPath(expression.expression);
+    if (name === undefined || parent === undefined) return undefined;
+    return { root: parent.root, properties: [...parent.properties, name] };
+  }
+  return undefined;
+}
+
 function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
-  const outputAliases = collectOutputAliases(sourceFile);
   const sensitiveIdentifiers = new Set();
   function isSensitiveReference(node) {
     const expression = unwrapOutputExpression(node);
@@ -563,18 +617,175 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
   }
   collectSensitiveIdentifiers(sourceFile);
 
+  function outputBindingValues(binding, use) {
+    const values = [];
+    let unsupportedWrite = false;
+    if (ts.isVariableDeclaration(binding) || ts.isParameter(binding)) {
+      if (binding.initializer !== undefined) values.push(binding.initializer);
+      else unsupportedWrite = true;
+    } else if (!ts.isBindingElement(binding)) {
+      unsupportedWrite = true;
+    }
+
+    function visit(node) {
+      if (node.getStart(sourceFile) >= use.getStart(sourceFile)) return;
+      if (
+        node !== binding &&
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer !== undefined &&
+        outputBindingAt(node.name) === binding
+      ) {
+        values.push(node.initializer);
+      }
+      if (
+        ts.isBinaryExpression(node) &&
+        isAssignmentOperator(node.operatorToken.kind) &&
+        ts.isIdentifier(unwrapOutputExpression(node.left)) &&
+        outputBindingAt(unwrapOutputExpression(node.left)) === binding
+      ) {
+        if (node.operatorToken.kind === ts.SyntaxKind.EqualsToken) values.push(node.right);
+        else unsupportedWrite = true;
+      }
+      if (
+        (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+        ts.isIdentifier(unwrapOutputExpression(node.operand)) &&
+        outputBindingAt(unwrapOutputExpression(node.operand)) === binding
+      ) {
+        unsupportedWrite = true;
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
+    return { values, unsupportedWrite };
+  }
+
+  function objectPropertyInitializers(object, name) {
+    const values = [];
+    for (const property of object.properties) {
+      if (ts.isSpreadAssignment(property)) return undefined;
+      if (staticPropertyName(property.name) !== name) continue;
+      if (ts.isPropertyAssignment(property)) values.push(property.initializer);
+      else if (ts.isShorthandPropertyAssignment(property)) values.push(property.name);
+      else return undefined;
+    }
+    return values.length === 0 ? undefined : values;
+  }
+
+  function bindingElementPath(binding) {
+    const properties = [];
+    const defaults = [];
+    let element = binding;
+    while (ts.isBindingElement(element)) {
+      if (!ts.isObjectBindingPattern(element.parent)) return undefined;
+      const name = staticPropertyName(element.propertyName ?? element.name);
+      if (name === undefined) return undefined;
+      properties.unshift(name);
+      if (element.initializer !== undefined) defaults.push(element.initializer);
+      element = element.parent.parent;
+    }
+    if (!ts.isVariableDeclaration(element) && !ts.isParameter(element)) return undefined;
+    return { root: element.initializer, properties, defaults };
+  }
+
+  function bindingMayAlias(candidate, target, use, seenBindings = new Set()) {
+    if (candidate === target) return true;
+    if (seenBindings.has(candidate.pos) || ts.isBindingElement(candidate)) return false;
+    const nextSeen = new Set(seenBindings);
+    nextSeen.add(candidate.pos);
+    const { values } = outputBindingValues(candidate, use);
+    return values.some((value) => {
+      const expression = unwrapOutputExpression(value);
+      if (!ts.isIdentifier(expression)) return false;
+      const binding = outputBindingAt(expression);
+      return binding !== undefined && bindingMayAlias(binding, target, use, nextSeen);
+    });
+  }
+
+  function propertyWritesAreAllowed(binding, properties, use, seenAliases) {
+    let allowed = true;
+    function visit(node) {
+      if (!allowed || node.getStart(sourceFile) >= use.getStart(sourceFile)) return;
+      if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
+        const access = memberAccessPath(node.left);
+        const rootBinding = access === undefined ? undefined : outputBindingAt(access.root);
+        if (
+          access !== undefined &&
+          rootBinding !== undefined &&
+          bindingMayAlias(rootBinding, binding, use) &&
+          access.properties.length === properties.length &&
+          access.properties.every((property, index) => property === properties[index])
+        ) {
+          allowed =
+            node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+            isAllowedOutputValue(node.right, seenAliases);
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
+    return allowed;
+  }
+
+  function isAllowedPropertyFromValue(node, properties, use, seenAliases) {
+    if (properties.length === 0) return isAllowedOutputValue(node, seenAliases);
+    const [name, ...remaining] = properties;
+    if (name === undefined || !isAllowedOutputName(properties.at(-1))) return false;
+    const expression = unwrapOutputExpression(node);
+    if (ts.isObjectLiteralExpression(expression)) {
+      const initializers = objectPropertyInitializers(expression, name);
+      return (
+        initializers !== undefined &&
+        initializers.every((initializer) =>
+          isAllowedPropertyFromValue(initializer, remaining, use, seenAliases),
+        )
+      );
+    }
+    if (ts.isIdentifier(expression)) {
+      const binding = outputBindingAt(expression);
+      if (binding !== undefined) {
+        return isAllowedBindingProperties(binding, properties, use, seenAliases);
+      }
+    }
+    return true;
+  }
+
+  function isAllowedBindingProperties(binding, properties, use, seenAliases) {
+    const key = `${binding.pos}:${properties.join(".")}`;
+    if (seenAliases.has(key)) return false;
+    const nextSeen = new Set(seenAliases);
+    nextSeen.add(key);
+
+    if (ts.isBindingElement(binding)) {
+      const path = bindingElementPath(binding);
+      const writes = outputBindingValues(binding, use);
+      return (
+        path !== undefined &&
+        !writes.unsupportedWrite &&
+        isAllowedOutputName(path.properties.at(-1) ?? "") &&
+        path.defaults.every((value) => isAllowedOutputValue(value, nextSeen)) &&
+        writes.values.every((value) => isAllowedOutputValue(value, nextSeen)) &&
+        (path.root === undefined ||
+          isAllowedPropertyFromValue(path.root, [...path.properties, ...properties], use, nextSeen))
+      );
+    }
+
+    const { values, unsupportedWrite } = outputBindingValues(binding, use);
+    return (
+      !unsupportedWrite &&
+      values.length > 0 &&
+      values.every((value) => isAllowedPropertyFromValue(value, properties, use, nextSeen)) &&
+      propertyWritesAreAllowed(binding, properties, use, nextSeen)
+    );
+  }
+
   function isAllowedOutputValue(node, seenAliases = new Set()) {
     const expression = unwrapOutputExpression(node);
     if (isStaticOutputValue(expression)) return true;
     if (ts.isIdentifier(expression)) {
-      if (seenAliases.has(expression.text)) return false;
-      const alias = outputAliases.get(expression.text);
-      if (alias !== undefined) {
-        if ("allowed" in alias) return alias.allowed;
-        const nextSeen = new Set(seenAliases);
-        nextSeen.add(expression.text);
-        return isAllowedOutputValue(alias, nextSeen);
-      }
+      const binding = outputBindingAt(expression);
+      if (binding !== undefined)
+        return isAllowedBindingProperties(binding, [], expression, seenAliases);
       return isAllowedOutputName(expression.text);
     }
     if (ts.isTemplateExpression(expression)) {
@@ -597,8 +808,12 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
         isAllowedOutputValue(expression.right)
       );
     }
-    const name = outputPropertyName(expression);
-    return name !== undefined && isAllowedOutputName(name);
+    const access = memberAccessPath(expression);
+    if (access === undefined || access.properties.length === 0) return false;
+    const binding = outputBindingAt(access.root);
+    return binding === undefined
+      ? isAllowedOutputName(access.properties.at(-1) ?? "")
+      : isAllowedBindingProperties(binding, access.properties, expression, seenAliases);
   }
 
   function isAllowedOutputArgument(node) {
@@ -607,6 +822,8 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
     return expression.properties.every((property) => {
       if (ts.isPropertyAssignment(property)) {
         return (
+          (!ts.isComputedPropertyName(property.name) ||
+            isAllowedOutputValue(property.name.expression)) &&
           !ts.isObjectLiteralExpression(unwrapOutputExpression(property.initializer)) &&
           !ts.isArrayLiteralExpression(unwrapOutputExpression(property.initializer)) &&
           isAllowedOutputValue(property.initializer)

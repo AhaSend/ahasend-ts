@@ -193,8 +193,47 @@ describe("operational documentation verification", () => {
 const output = recipient;
 console.log(output);`,
     ],
+    [
+      "reassigned aliases",
+      `let output = err.status;
+output = err.message;
+logger.error(output);`,
+    ],
+    [
+      "shadowed aliases",
+      `const output = err.message;
+{
+  const output = err.status;
+}
+logger.error(output);`,
+    ],
+    [
+      "relabeled object properties",
+      `const safe = { requestId: err.message };
+logger.error(safe.requestId);`,
+    ],
+    [
+      "reassigned object properties",
+      `const safe = { requestId: err.requestId };
+safe.requestId = err.message;
+logger.error(safe.requestId);`,
+    ],
+    [
+      "reassigned object properties through aliases",
+      `const safe = { requestId: err.requestId };
+const alias = safe;
+alias.requestId = err.message;
+logger.error(safe.requestId);`,
+    ],
+    [
+      "reassigned destructured aliases",
+      `let { status: output } = err;
+output = err.message;
+logger.error(output);`,
+    ],
     ["template literals", "console.log(`recipient: ${event.data.recipient}`);"],
     ["error messages", "logger.error(err.message);"],
+    ["computed object keys", "logger.error({ [err.message]: err.status });"],
   ])("rejects unsafe output through %s", (_label, source) => {
     expect(() => verifySafeOutput("unsafe-output-fixture.mjs", source)).toThrow(
       /unsafe secret or payload output/,
