@@ -1198,9 +1198,24 @@ describe("HttpClient retry behaviour", () => {
 
   it("retries a generated safe GET after a mid-body reset and surfaces a connection error", async () => {
     const bodyError = new TypeError("socket reset while reading response body");
+    const events: string[] = [];
     const fetchImpl = mockFetch(() => responseWithRejectedBody(bodyError));
     const executor = new OperationExecutor(
       makeClient(fetchImpl, {
+        hooks: {
+          onRequest: ({ attempt }) => {
+            events.push(`request:${attempt}`);
+          },
+          onResponse: ({ attempt, status }) => {
+            events.push(`response:${attempt}:${status}`);
+          },
+          onError: ({ attempt, phase }) => {
+            events.push(`error:${attempt}:${phase}`);
+          },
+          onRetry: ({ attempt }) => {
+            events.push(`retry:${attempt}`);
+          },
+        },
         retry: { ...fastRetry, enabled: true, maxRetries: 1 },
       }),
     );
@@ -1212,7 +1227,15 @@ describe("HttpClient retry behaviour", () => {
       code: "connection_error",
       cause: bodyError,
     });
+    await Promise.resolve();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(events).toEqual([
+      "request:1",
+      "error:1:attempt",
+      "retry:1",
+      "request:2",
+      "error:2:attempt",
+    ]);
   });
 
   it("retries a generated keyed operation after a mid-body reset with the same key", async () => {

@@ -189,7 +189,7 @@ describe("HttpClient telemetry integration", () => {
       },
       onError: (e) => {
         errors.push(e);
-        events.push(`err`);
+        events.push(`err attempt=${e.attempt} phase=${e.phase}`);
       },
     };
 
@@ -213,12 +213,13 @@ describe("HttpClient telemetry integration", () => {
     });
 
     await client.ping();
-    expect(events[0]).toBe("req attempt=1");
-    expect(events).toContain("res 503");
-    expect(events).toContain("err");
-    expect(events.some((e) => e.startsWith("retry attempt=1"))).toBe(true);
-    expect(events).toContain("req attempt=2");
-    expect(events[events.length - 1]).toBe("res 200");
+    expect(events).toEqual([
+      "req attempt=1",
+      "err attempt=1 phase=attempt",
+      "retry attempt=1 delay=1",
+      "req attempt=2",
+      "res 200",
+    ]);
     expect(errors[0]).toMatchObject({
       operationId: "ping",
       method: "GET",
@@ -247,11 +248,17 @@ describe("HttpClient telemetry integration", () => {
       accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks: {
-        onError: () => {
-          events.push("error");
+        onRequest: ({ attempt }) => {
+          events.push(`request:${attempt}`);
         },
-        onRetry: () => {
-          events.push("retry");
+        onResponse: ({ attempt, status }) => {
+          events.push(`response:${attempt}:${status}`);
+        },
+        onError: ({ attempt, phase, status }) => {
+          events.push(`error:${attempt}:${phase}:${status}`);
+        },
+        onRetry: ({ attempt }) => {
+          events.push(`retry:${attempt}`);
         },
       },
       retry: { baseDelayMs: 1, maxDelayMs: 5 },
@@ -259,7 +266,125 @@ describe("HttpClient telemetry integration", () => {
     });
 
     await expect(client.ping()).rejects.toThrow();
-    expect(events).toEqual(["error"]);
+    expect(events).toEqual(["request:1", "error:1:attempt:400"]);
+  });
+
+  it("attributes cancellation in the pacing queue without starting an attempt", async () => {
+    vi.useFakeTimers();
+    try {
+      const events: string[] = [];
+      const errors: ErrorEvent[] = [];
+      const fetch = mockFetch(() => new Response("{}", { status: 200 }));
+      const client = new AhaSendClient({
+        apiKey: "aha-sk-test",
+        accountId: ACCOUNT_ID,
+        baseUrl: "https://api.test",
+        retry: { enabled: false },
+        rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+        hooks: {
+          onRequest: ({ attempt }) => {
+            events.push(`request:${attempt}`);
+          },
+          onResponse: ({ attempt, status }) => {
+            events.push(`response:${attempt}:${status}`);
+          },
+          onError: (event) => {
+            errors.push(event);
+            events.push(`error:${event.attempt}:${event.phase}`);
+          },
+          onRetry: ({ attempt }) => {
+            events.push(`retry:${attempt}`);
+          },
+        },
+        fetch,
+      });
+
+      await client.ping();
+      await Promise.resolve();
+      events.length = 0;
+      errors.length = 0;
+
+      const controller = new AbortController();
+      const queued = client.ping({ signal: controller.signal });
+      await vi.advanceTimersByTimeAsync(0);
+      controller.abort("cancelled while paced");
+
+      await expect(queued).rejects.toMatchObject({ code: "abort_error" });
+      await Promise.resolve();
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(events).toEqual(["error:1:pacing"]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        operationId: "ping",
+        method: "GET",
+        routeTemplate: "/v2/ping",
+        attempt: 1,
+        phase: "pacing",
+      });
+      expect(errors[0]!.durationMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("attributes retry-delay cancellation to backoff without another attempt outcome", async () => {
+    vi.useFakeTimers();
+    try {
+      const events: string[] = [];
+      const errors: ErrorEvent[] = [];
+      const controller = new AbortController();
+      const fetch = mockFetch(
+        () =>
+          new Response("unavailable", {
+            status: 503,
+            headers: { "x-request-id": "req_backoff" },
+          }),
+      );
+      const client = new AhaSendClient({
+        apiKey: "aha-sk-test",
+        accountId: ACCOUNT_ID,
+        baseUrl: "https://api.test",
+        retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 1000, jitter: false },
+        hooks: {
+          onRequest: ({ attempt }) => {
+            events.push(`request:${attempt}`);
+          },
+          onResponse: ({ attempt, status }) => {
+            events.push(`response:${attempt}:${status}`);
+          },
+          onError: (event) => {
+            errors.push(event);
+            events.push(`error:${event.attempt}:${event.phase}`);
+          },
+          onRetry: ({ attempt, delayMs }) => {
+            events.push(`retry:${attempt}:${delayMs}`);
+          },
+        },
+        fetch,
+      });
+
+      const request = client.ping({ signal: controller.signal });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(events).toEqual(["request:1", "error:1:attempt", "retry:1:1000"]);
+
+      controller.abort("cancelled during backoff");
+      await expect(request).rejects.toMatchObject({ code: "abort_error" });
+      await Promise.resolve();
+
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(events).toEqual(["request:1", "error:1:attempt", "retry:1:1000", "error:1:backoff"]);
+      expect(errors).toHaveLength(2);
+      expect(errors[1]).toMatchObject({
+        operationId: "ping",
+        attempt: 1,
+        phase: "backoff",
+        status: 503,
+        requestId: "req_backoff",
+      });
+      expect(errors[1]!.durationMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not await pending hooks or let rejected hooks replace the API result", async () => {
@@ -351,9 +476,10 @@ describe("HttpClient telemetry integration", () => {
     expect(observedError).toHaveBeenCalledOnce();
   });
 
-  it("reports generated operation facts and measures through response parsing", async () => {
+  it("reports generated operation facts with monotonic timing through response parsing", async () => {
     vi.useFakeTimers();
     try {
+      vi.setSystemTime(new Date("2030-01-01T00:00:00.000Z"));
       let resolveBody!: (body: string) => void;
       const body = new Promise<string>((resolve) => {
         resolveBody = resolve;
@@ -387,6 +513,7 @@ describe("HttpClient telemetry integration", () => {
       const result = client.messages.list({ limit: 1 });
       await vi.advanceTimersByTimeAsync(0);
       expect(readBody).toHaveBeenCalledOnce();
+      vi.setSystemTime(new Date("2000-01-01T00:00:00.000Z"));
       await vi.advanceTimersByTimeAsync(37);
       resolveBody("{}");
       await result;

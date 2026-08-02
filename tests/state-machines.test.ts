@@ -50,6 +50,8 @@ describe("deterministic execution state machines", () => {
     const released = fixture("released server failure");
     const calls: Array<{ url: string; body: BodyInit | null | undefined; key?: string }> = [];
     const events: string[] = [];
+    const responseStatuses: number[] = [];
+    const errorStatuses: Array<number | undefined> = [];
     const fetch = mockFetch((url, init, attempt) => {
       const key = (init.headers as Record<string, string>)["idempotency-key"];
       calls.push({ url, body: init.body, ...(key ? { key } : {}) });
@@ -88,9 +90,11 @@ describe("deterministic execution state machines", () => {
             events.push(`request:${attempt}`);
           },
           onResponse: ({ attempt, status }) => {
+            responseStatuses.push(status);
             events.push(`response:${attempt}:${status}`);
           },
           onError: ({ attempt, status }) => {
+            errorStatuses.push(status);
             events.push(`error:${attempt}:${status}`);
           },
           onRetry: ({ attempt, delayMs }) => {
@@ -143,16 +147,18 @@ describe("deterministic execution state machines", () => {
     ]);
     expect(events).toEqual([
       "request:1",
-      `response:1:${inProgress.status}`,
       `error:1:${inProgress.status}`,
       "retry:1:2000",
       "request:2",
-      `response:2:${released.status}`,
       `error:2:${released.status}`,
       "retry:2:100",
       "request:3",
       "response:3:201",
     ]);
+    expect(errorStatuses).toEqual([inProgress.status, released.status]);
+    expect(responseStatuses).toEqual([201]);
+    expect(responseStatuses).not.toContain(inProgress.status);
+    expect(responseStatuses).not.toContain(released.status);
   });
 
   it("removes caller-cancelled work from a paced FIFO without starting its timeout", async () => {
