@@ -54,6 +54,14 @@ const sourceOperationDescriptors = readFileSync(
   resolve(repositoryRoot, "src/generated/operations.ts"),
 );
 const openApiSource = readFileSync(resolve(repositoryRoot, "openapi.yaml"));
+const documentationGeneratorSource = readFileSync(
+  resolve(repositoryRoot, "scripts/generate-docs.mjs"),
+  "utf8",
+);
+const releaseWorkflowSource = readFileSync(
+  resolve(repositoryRoot, ".github/workflows/release.yml"),
+  "utf8",
+);
 
 function validReport(bindings: SourceBindings): SourceGateReport {
   return {
@@ -217,6 +225,11 @@ afterAll(() => {
 });
 
 describe("source gate report validation", () => {
+  it("does not produce or consume a renderer handoff after sample regeneration", () => {
+    expect(documentationGeneratorSource).not.toMatch(/renderer[-A-Za-z]*handoff/iu);
+    expect(releaseWorkflowSource).not.toMatch(/renderer[-A-Za-z]*handoff/iu);
+  });
+
   it("keeps the schema aligned with the importable validator", async () => {
     const bindings = await readRepositorySourceBindings();
     const report = validReport(bindings);

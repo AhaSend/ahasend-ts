@@ -15,7 +15,6 @@ import {
   validateAuthorizationRegistry,
   validateOperationProfile,
 } from "./generate-sdk.mjs";
-import { canonicalizeJson, digestYamlArtifact, sha256Hex } from "./digest-artifact.mjs";
 
 const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
@@ -26,8 +25,6 @@ const GENERATED_HEADER =
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const outputPath = "docs/api-reference.md";
-const rendererHandoffPath = "docs/renderer-handoff.json";
-const rendererHandoffDigestPath = "docs/renderer-handoff.sha256";
 
 function record(value, location) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -463,50 +460,6 @@ export async function generateApiReference({ openApiSource, profileSource, clien
   });
 }
 
-export async function generateRendererHandoff({ openApiSource } = {}) {
-  const openApi =
-    openApiSource ?? (await readFile(resolve(repositoryRoot, "openapi.yaml"), "utf8"));
-  const document = parseOpenApi(openApi);
-  const operations = collectOperations(document);
-
-  if (operations.length !== EXPECTED_OPERATION_COUNT) {
-    throw new TypeError(
-      `Renderer handoff must contain ${EXPECTED_OPERATION_COUNT} operations, received ${operations.length}`,
-    );
-  }
-
-  const sampleById = validateNodeSampleRegistry(document);
-
-  const handoff = {
-    version: 1,
-    restDigest: digestYamlArtifact(openApi),
-    operations: operations.map(({ operationId }) => {
-      const registryEntry = sampleById.get(operationId);
-      if (registryEntry === undefined) {
-        throw new TypeError(`Renderer sample is missing for operation ${operationId}`);
-      }
-      const sample = registryEntry.sample;
-
-      return {
-        operationId,
-        samples: [
-          {
-            label: sample.label,
-            language: sample.lang,
-            sourceHash: sha256Hex(Buffer.from(sample.source, "utf8")),
-          },
-        ],
-      };
-    }),
-  };
-  const source = canonicalizeJson(handoff);
-
-  return {
-    source: source.toString("utf8"),
-    digest: sha256Hex(source),
-  };
-}
-
 async function readOptional(path) {
   try {
     return await readFile(path, "utf8");
@@ -518,12 +471,7 @@ async function readOptional(path) {
 
 async function run(check) {
   const expectedReference = await generateApiReference();
-  const expectedHandoff = await generateRendererHandoff();
-  const outputs = [
-    [outputPath, expectedReference],
-    [rendererHandoffPath, expectedHandoff.source],
-    [rendererHandoffDigestPath, `${expectedHandoff.digest}\n`],
-  ];
+  const outputs = [[outputPath, expectedReference]];
 
   if (check) {
     for (const [path, expected] of outputs) {

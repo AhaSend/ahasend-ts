@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { canonicalizeJson, sha256Hex } from "../../scripts/digest-artifact.mjs";
+import { canonicalizeJson, digestYamlArtifact, sha256Hex } from "../../scripts/digest-artifact.mjs";
+import { NODE_SAMPLE_REGISTRY } from "../../scripts/node-code-samples.mjs";
 
 interface Sample {
   label: string;
@@ -31,15 +32,24 @@ interface RendererReport {
   operations: ReportOperation[];
 }
 
-export const rendererHandoffSource = readFileSync(
-  resolve(process.cwd(), "docs/renderer-handoff.json"),
-);
-export const rendererHandoffSidecar = readFileSync(
-  resolve(process.cwd(), "docs/renderer-handoff.sha256"),
-);
-export const rendererHandoff = JSON.parse(
-  rendererHandoffSource.toString("utf8"),
-) as RendererHandoff;
+const openApiSource = readFileSync(resolve(process.cwd(), "openapi.yaml"));
+
+export const rendererHandoff: RendererHandoff = {
+  version: 1,
+  restDigest: digestYamlArtifact(openApiSource),
+  operations: NODE_SAMPLE_REGISTRY.map(({ operationId, sample }) => ({
+    operationId,
+    samples: [
+      {
+        label: sample.label,
+        language: sample.lang,
+        sourceHash: sha256Hex(Buffer.from(sample.source, "utf8")),
+      },
+    ],
+  })),
+};
+export const rendererHandoffSource = canonicalizeJson(rendererHandoff);
+export const rendererHandoffSidecar = Buffer.from(`${sha256Hex(rendererHandoffSource)}\n`, "utf8");
 
 export function validRendererReport(): RendererReport {
   return {
