@@ -12,6 +12,7 @@ import {
   AhaSendAbortError,
   AhaSendAuthenticationError,
   AhaSendConflictError,
+  AhaSendConfigurationError,
   AhaSendConnectionError,
   AhaSendIdempotencyConflictError,
   AhaSendIdempotencyMismatchError,
@@ -249,6 +250,29 @@ describe("HttpClient", () => {
     await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
       AhaSendConnectionError,
     );
+  });
+
+  it("classifies native request-construction failures without retrying them", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = makeClient(fetchImpl, {
+      retry: {
+        enabled: true,
+        maxRetries: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitter: false,
+      },
+    });
+
+    const request = client.request({ method: "CONNECT" as "GET", path: "/x" });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendConfigurationError);
+    await expect(request).rejects.not.toBeInstanceOf(AhaSendConnectionError);
+    await expect(request).rejects.toMatchObject({
+      code: "configuration_error",
+      cause: expect.any(TypeError),
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("auto-injects Idempotency-Key only when autoIdempotency:true is set (POST allowlist)", async () => {

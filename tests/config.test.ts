@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
 import type { ClientOptions } from "../src/config.js";
@@ -9,6 +10,17 @@ import {
 } from "../src/config.js";
 import { MIN_REQUESTS_PER_SECOND } from "../src/rate-limit.js";
 import { MAX_RETRIES } from "../src/retry.js";
+
+function renderErrorDiagnostics(error: unknown): string[] {
+  return [
+    String(error),
+    error instanceof Error ? error.message : undefined,
+    error instanceof Error ? error.stack : undefined,
+    JSON.stringify(error),
+    inspect(error),
+    inspect(error, { showHidden: true }),
+  ].filter((diagnostic): diagnostic is string => diagnostic !== undefined);
+}
 
 describe("resolveConfig", () => {
   it("requires an apiKey", () => {
@@ -513,18 +525,56 @@ describe("resolveConfig", () => {
 });
 
 describe("optionsFromEnv", () => {
-  it("throws when neither AHASEND_API_KEY nor AHASEND_TOKEN is set", () => {
-    expect(() => optionsFromEnv({})).toThrow(/AHASEND_API_KEY/);
+  it.each([
+    ["reads AHASEND_API_KEY", { AHASEND_API_KEY: "aha-sk-env" }, "aha-sk-env"],
+    ["falls back to AHASEND_TOKEN", { AHASEND_TOKEN: "aha-sk-token" }, "aha-sk-token"],
+    [
+      "falls back to AHASEND_TOKEN when AHASEND_API_KEY is empty",
+      { AHASEND_API_KEY: "", AHASEND_TOKEN: "aha-sk-token" },
+      "aha-sk-token",
+    ],
+    [
+      "prefers a non-empty AHASEND_API_KEY",
+      { AHASEND_API_KEY: "aha-sk-env", AHASEND_TOKEN: "aha-sk-token" },
+      "aha-sk-env",
+    ],
+  ])("%s", (_case, env, expected) => {
+    expect(optionsFromEnv(env).apiKey).toBe(expected);
   });
 
-  it("reads AHASEND_API_KEY", () => {
-    const options = optionsFromEnv({ AHASEND_API_KEY: "aha-sk-env" });
-    expect(options.apiKey).toBe("aha-sk-env");
+  it("throws when neither AHASEND_API_KEY nor AHASEND_TOKEN has a credential", () => {
+    expect(() => optionsFromEnv({ AHASEND_API_KEY: "", AHASEND_TOKEN: "" })).toThrow(
+      /AHASEND_API_KEY/,
+    );
   });
 
-  it("falls back to AHASEND_TOKEN", () => {
-    const options = optionsFromEnv({ AHASEND_TOKEN: "aha-sk-token" });
-    expect(options.apiKey).toBe("aha-sk-token");
+  it.each([
+    [
+      "API key",
+      {
+        AHASEND_API_KEY: "aha-sk-secret\nmaterial",
+        AHASEND_TOKEN: "aha-token-backup-secret",
+      },
+      ["aha-sk-secret\nmaterial", "aha-token-backup-secret"],
+    ],
+    [
+      "fallback token",
+      { AHASEND_API_KEY: "", AHASEND_TOKEN: "aha-token-secret\nmaterial" },
+      ["aha-token-secret\nmaterial"],
+    ],
+  ])("keeps a rejected %s out of credential diagnostics", (_case, env, secrets) => {
+    let error: unknown;
+    try {
+      optionsFromEnv(env);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toMatch(/HTTP header/);
+    for (const diagnostic of renderErrorDiagnostics(error)) {
+      for (const secret of secrets) expect(diagnostic).not.toContain(secret);
+    }
   });
 
   it("reads AHASEND_BASE_URL", () => {
@@ -535,13 +585,55 @@ describe("optionsFromEnv", () => {
     expect(options.baseUrl).toBe("https://example.ahasend.com");
   });
 
+  it("gives AHASEND_BASE_URL precedence over AHASEND_SCHEME and AHASEND_HOST", () => {
+    const options = optionsFromEnv({
+      AHASEND_API_KEY: "aha-sk-test",
+      AHASEND_BASE_URL: "https://primary.example.com",
+      AHASEND_SCHEME: "http",
+      AHASEND_HOST: "ignored.example.com",
+    });
+
+    expect(options.baseUrl).toBe("https://primary.example.com");
+  });
+
   it("builds baseUrl from scheme and host when AHASEND_BASE_URL is not set", () => {
     const options = optionsFromEnv({
       AHASEND_API_KEY: "aha-sk-test",
       AHASEND_HOST: "localhost:4010",
       AHASEND_SCHEME: "http",
+      AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL: "true",
     });
     expect(options.baseUrl).toBe("http://localhost:4010");
+  });
+
+  it.each([
+    ["explicit true", "true", false],
+    ["explicit false", "false", true],
+    ["absent", undefined, true],
+    ["malformed", "sometimes", true],
+  ])("%s controls environment-derived insecure HTTP base URLs", (_case, optIn, shouldReject) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchImpl);
+    const optInEnv =
+      optIn === undefined ? {} : { AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL: optIn };
+    const construct = () =>
+      AhaSendClient.fromEnv({
+        AHASEND_API_KEY: "aha-sk-test",
+        AHASEND_ACCOUNT_ID: "account-id",
+        AHASEND_BASE_URL: "http://api.example.com",
+        ...optInEnv,
+      });
+
+    try {
+      if (shouldReject) {
+        expect(construct).toThrow(/insecure|boolean|https/i);
+      } else {
+        expect(construct).not.toThrow();
+      }
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it.each([
@@ -676,5 +768,32 @@ describe("optionsFromEnv", () => {
         AHASEND_BASE_URL: "http://api.example.com",
       }),
     ).toThrow(/insecure|https/i);
+  });
+
+  it("uses the Node.js 22 support wording without exposing environment credentials", () => {
+    const apiKey = "aha-sk-environment-secret";
+    const token = "aha-token-environment-secret";
+    vi.stubGlobal("fetch", undefined);
+
+    try {
+      let error: unknown;
+      try {
+        AhaSendClient.fromEnv({
+          AHASEND_API_KEY: apiKey,
+          AHASEND_TOKEN: token,
+          AHASEND_ACCOUNT_ID: "account-id",
+        });
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(String(error)).toMatch(/Node\.js 22 or later/);
+      for (const diagnostic of renderErrorDiagnostics(error)) {
+        expect(diagnostic).not.toContain(apiKey);
+        expect(diagnostic).not.toContain(token);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
