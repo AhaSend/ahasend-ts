@@ -7,6 +7,7 @@ import {
   AhaSendRateLimitError,
   AhaSendServerError,
   AhaSendTimeoutError,
+  parseRetryAfter,
 } from "./errors.js";
 
 export type RetryStrategy = "exponential" | "linear" | "constant";
@@ -156,18 +157,39 @@ export function computeRetryDelayMs(
 ): number {
   const backoff = computeBackoffMs(attempt, config, random);
 
-  if (
-    (err instanceof AhaSendRateLimitError || err instanceof AhaSendIdempotencyConflictError) &&
-    err.retryAfterSeconds !== undefined &&
-    Number.isSafeInteger(err.retryAfterSeconds) &&
-    err.retryAfterSeconds > 0
-  ) {
+  const retryAfterSeconds = retryAfterForError(err);
+  if (retryAfterSeconds !== undefined) {
     // A valid server delay is authoritative, while the caller's configured
     // maximum remains the upper bound on how long one retry can sleep.
-    return Math.min(err.retryAfterSeconds * 1000, config.maxDelayMs);
+    return Math.min(retryAfterSeconds * 1000, config.maxDelayMs);
   }
 
   return backoff;
+}
+
+function retryAfterForError(err: unknown): number | undefined {
+  if (err instanceof AhaSendIdempotencyConflictError) {
+    return isValidRetryAfterSeconds(err.retryAfterSeconds, false)
+      ? err.retryAfterSeconds
+      : undefined;
+  }
+
+  if (
+    err instanceof AhaSendAPIError &&
+    (err.status === 408 || err.status === 429 || err.status >= 500)
+  ) {
+    const retryAfterSeconds =
+      err instanceof AhaSendRateLimitError && err.retryAfterSeconds !== undefined
+        ? err.retryAfterSeconds
+        : parseRetryAfter(err.headers["retry-after"]);
+    return isValidRetryAfterSeconds(retryAfterSeconds, true) ? retryAfterSeconds : undefined;
+  }
+
+  return undefined;
+}
+
+function isValidRetryAfterSeconds(value: number | undefined, allowZero: boolean): value is number {
+  return value !== undefined && Number.isSafeInteger(value) && (allowZero ? value >= 0 : value > 0);
 }
 
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
