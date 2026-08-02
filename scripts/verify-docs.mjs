@@ -602,7 +602,13 @@ function memberAccessPath(node) {
     return { root: parent.root, properties: [...parent.properties, expression.name.text] };
   }
   if (ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined) {
-    const name = staticPropertyName(expression.argumentExpression);
+    const argument = unwrapOutputExpression(expression.argumentExpression);
+    const name =
+      ts.isStringLiteral(argument) ||
+      ts.isNumericLiteral(argument) ||
+      ts.isNoSubstitutionTemplateLiteral(argument)
+        ? argument.text
+        : undefined;
     const parent = memberAccessPath(expression.expression);
     if (name === undefined || parent === undefined) return undefined;
     return { root: parent.root, properties: [...parent.properties, name] };
@@ -941,7 +947,9 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
     const externalValueIsAllowed =
       isExternalOutputBinding(binding) &&
       ((properties.length > 0 && isAllowedOutputName(properties.at(-1) ?? "")) ||
-        (ts.isIdentifier(binding.name) && isAllowedOutputName(binding.name.text)));
+        (ts.isParameter(binding) &&
+          ts.isIdentifier(binding.name) &&
+          isAllowedOutputName(binding.name.text)));
     return (
       !unsupportedWrite &&
       (values.length > 0 || selections.length > 0 || externalValueIsAllowed) &&

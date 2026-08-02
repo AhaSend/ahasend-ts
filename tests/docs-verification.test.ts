@@ -276,9 +276,22 @@ logger.error(safe.nested.requestId);`,
     ["template literals", "console.log(`recipient: ${event.data.recipient}`);"],
     ["error messages", "logger.error(err.message);"],
     [
+      "computed element-access aliases",
+      `const requestId = "message";
+logger.error(err[requestId]);`,
+    ],
+    [
       "error messages on callback parameters",
       `function onError(err) {
   logger.error(err.message);
+}`,
+    ],
+    [
+      "allowlist-named catch bindings",
+      `try {
+  runRequest();
+} catch (requestId) {
+  logger.error(requestId);
 }`,
     ],
     ["computed object keys", "logger.error({ [err.message]: err.status });"],
