@@ -406,6 +406,13 @@ describe("REST contract rejection checks", () => {
         source: `${entry.sample.source}\nawait globalThis["fetch"]("https://example.com");\n`,
       },
     }));
+    const aliasedGlobalFetch = changedRegistryEntry("ping", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: `${entry.sample.source}\nconst fetchName = "fetch";\nconst request = globalThis[fetchName];\nawait request("https://api." + "ahasend.com/v2/ping");\n`,
+      },
+    }));
     const apiUrl = changedRegistryEntry("ping", (entry) => ({
       ...entry,
       sample: {
@@ -438,9 +445,19 @@ describe("REST contract rejection checks", () => {
         ),
       },
     }));
+    const aliasedWrongFacade = changedRegistryEntry("getDomains", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: `${entry.sample.source}\nconst routes = client.routes;\nawait routes.list({ limit: 20 });\n`,
+      },
+    }));
 
     expect(() => validateNodeSampleRegistry(document, rawFetch)).toThrow(/raw API requests/);
     expect(() => validateNodeSampleRegistry(document, bracketedGlobalFetch)).toThrow(
+      /raw API requests/,
+    );
+    expect(() => validateNodeSampleRegistry(document, aliasedGlobalFetch)).toThrow(
       /raw API requests/,
     );
     expect(() => validateNodeSampleRegistry(document, apiUrl)).toThrow(/raw API requests/);
@@ -459,6 +476,9 @@ describe("REST contract rejection checks", () => {
     );
     expect(() => validateNodeSampleRegistry(document, detachedClient)).toThrow(
       /assign client from AhaSendClient\.fromEnv/,
+    );
+    expect(() => validateNodeSampleRegistry(document, aliasedWrongFacade)).toThrow(
+      /calls the wrong facade/,
     );
   });
 
@@ -534,6 +554,30 @@ describe("REST contract rejection checks", () => {
         ),
       },
     }));
+    const aliasedSecretOutput = changedRegistryEntry("createAPIKey", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: `${entry.sample.source}\nconst emit = console.log;\nemit(apiKey.secret_key);\n`,
+      },
+    }));
+    const callInsideGuard = changedRegistryEntry("deleteRoute", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: `import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const routeId = "00000000-0000-4000-8000-000000000006";
+let result;
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  result = await client.routes.delete(routeId);
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+console.log("Route deleted.", { message: result.message });
+`,
+      },
+    }));
     const responseBodyOutput = changedRegistryEntry("createAPIKey", (entry) => ({
       ...entry,
       sample: {
@@ -580,6 +624,9 @@ describe("REST contract rejection checks", () => {
     }));
 
     expect(() => validateNodeSampleRegistry(document, unguarded)).toThrow(/guard the mutation/);
+    expect(() => validateNodeSampleRegistry(document, callInsideGuard)).toThrow(
+      /guard the mutation/,
+    );
     expect(() => validateNodeSampleRegistry(document, unsandboxed)).toThrow(/sandbox: true/);
     expect(() => validateNodeSampleRegistry(document, nestedSandbox)).toThrow(/sandbox: true/);
     expect(() => validateNodeSampleRegistry(document, unstableKey)).toThrow(
@@ -589,6 +636,9 @@ describe("REST contract rejection checks", () => {
       /stable caller idempotency key/,
     );
     expect(() => validateNodeSampleRegistry(document, secretOutput)).toThrow(/one-time secret/);
+    expect(() => validateNodeSampleRegistry(document, aliasedSecretOutput)).toThrow(
+      /one-time secret/,
+    );
     expect(() => validateNodeSampleRegistry(document, responseBodyOutput)).toThrow(
       /metadata instead of response bodies/,
     );

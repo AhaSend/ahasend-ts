@@ -778,6 +778,59 @@ function propertyPath(node) {
   return undefined;
 }
 
+function expressionAliases(sourceFile) {
+  return new Map(
+    collectNodes(
+      sourceFile,
+      (node) =>
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer !== undefined,
+    ).map((declaration) => [declaration.name.text, declaration.initializer]),
+  );
+}
+
+function staticString(node, aliases, resolving = new Set()) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isIdentifier(node)) {
+    if (resolving.has(node.text)) return undefined;
+    const initializer = aliases.get(node.text);
+    if (initializer === undefined) return undefined;
+    const nextResolving = new Set(resolving).add(node.text);
+    return staticString(initializer, aliases, nextResolving);
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = staticString(node.left, aliases, resolving);
+    const right = staticString(node.right, aliases, resolving);
+    return left === undefined || right === undefined ? undefined : `${left}${right}`;
+  }
+  return undefined;
+}
+
+function resolvedPropertyPath(node, aliases, resolving = new Set()) {
+  if (ts.isIdentifier(node)) {
+    if (!resolving.has(node.text)) {
+      const initializer = aliases.get(node.text);
+      if (initializer !== undefined) {
+        const nextResolving = new Set(resolving).add(node.text);
+        const resolved = resolvedPropertyPath(initializer, aliases, nextResolving);
+        if (resolved !== undefined) return resolved;
+      }
+    }
+    return node.text;
+  }
+  if (ts.isPropertyAccessExpression(node)) {
+    const parent = resolvedPropertyPath(node.expression, aliases, resolving);
+    return parent === undefined ? undefined : `${parent}.${node.name.text}`;
+  }
+  if (ts.isElementAccessExpression(node) && node.argumentExpression !== undefined) {
+    const parent = resolvedPropertyPath(node.expression, aliases, resolving);
+    const property = staticString(node.argumentExpression, aliases, resolving);
+    return parent === undefined || property === undefined ? undefined : `${parent}.${property}`;
+  }
+  return undefined;
+}
+
 function sourceFileForSample(operationId, source) {
   const sourceFile = ts.createSourceFile(
     `${operationId}.mjs`,
@@ -902,17 +955,19 @@ function validatePublicImport(operationId, sourceFile) {
   }
 }
 
-function containsFetchReference(sourceFile) {
+function containsFetchReference(sourceFile, aliases) {
   return (
-    collectNodes(
-      sourceFile,
-      (node) =>
-        (ts.isIdentifier(node) && node.text === "fetch") ||
-        (ts.isElementAccessExpression(node) &&
-          node.argumentExpression !== undefined &&
-          ts.isStringLiteral(node.argumentExpression) &&
-          node.argumentExpression.text === "fetch"),
-    ).length > 0
+    collectNodes(sourceFile, (node) => {
+      if (
+        !ts.isIdentifier(node) &&
+        !ts.isPropertyAccessExpression(node) &&
+        !ts.isElementAccessExpression(node)
+      ) {
+        return false;
+      }
+      const path = resolvedPropertyPath(node, aliases);
+      return path === "fetch" || path?.startsWith("fetch.") || path === "globalThis.fetch";
+    }).length > 0
   );
 }
 
@@ -955,19 +1010,26 @@ function validateSelfContained(operationId, sourceFile) {
   }
 }
 
-function validateSafeOutput(operationId, sourceFile) {
+function validateSafeOutput(operationId, sourceFile, aliases) {
   const consoleCalls = collectNodes(
     sourceFile,
     (node) =>
       ts.isCallExpression(node) &&
       /^(?:console|log|logger)\.(?:log|debug|info|warn|error)$/u.test(
-        propertyPath(node.expression) ?? "",
+        resolvedPropertyPath(node.expression, aliases) ?? "",
       ),
   );
   if (consoleCalls.length === 0) {
     throw new TypeError(`${operationId} sample must log safe response metadata`);
   }
   for (const call of consoleCalls) {
+    const sensitive = collectNodes(call, (node) => {
+      const path = propertyPath(node) ?? "";
+      return /(?:^|\.)(?:secret|secret_key|password|idempotencyKey)$/u.test(path);
+    });
+    if (sensitive.length > 0) {
+      throw new TypeError(`${operationId} sample prints a credential or one-time secret`);
+    }
     const [message, ...metadata] = call.arguments;
     if (
       message === undefined ||
@@ -984,13 +1046,6 @@ function validateSafeOutput(operationId, sourceFile) {
       )
     ) {
       throw new TypeError(`${operationId} sample must log metadata instead of response bodies`);
-    }
-    const sensitive = collectNodes(call, (node) => {
-      const path = propertyPath(node) ?? "";
-      return /(?:^|\.)(?:secret|secret_key|password|idempotencyKey)$/u.test(path);
-    });
-    if (sensitive.length > 0) {
-      throw new TypeError(`${operationId} sample prints a credential or one-time secret`);
     }
   }
 }
@@ -1083,11 +1138,12 @@ function operationHasIdempotency(operation) {
 function validateRegistrySample(entry, contractOperation, components) {
   const { operationId, facade, sample } = entry;
   const sourceFile = sourceFileForSample(operationId, sample.source);
+  const aliases = expressionAliases(sourceFile);
   validatePublicImport(operationId, sourceFile);
   validateSelfContained(operationId, sourceFile);
 
   if (
-    containsFetchReference(sourceFile) ||
+    containsFetchReference(sourceFile, aliases) ||
     /\bnew\s+URL\s*\(|api\.ahasend\.com|\bAuthorization\b|\bBearer\b/iu.test(sample.source)
   ) {
     throw new TypeError(`${operationId} sample must not construct raw API requests`);
@@ -1114,10 +1170,15 @@ function validateRegistrySample(entry, contractOperation, components) {
   }
   const calls = collectNodes(sourceFile, ts.isCallExpression);
   const clientCalls = calls.filter((call) =>
-    (propertyPath(call.expression) ?? "").startsWith("client."),
+    (resolvedPropertyPath(call.expression, aliases) ?? "").startsWith("client."),
   );
-  if (clientCalls.length !== 1 || propertyPath(clientCalls[0].expression) !== facade) {
-    const received = clientCalls.map((call) => propertyPath(call.expression)).join(", ") || "none";
+  if (
+    clientCalls.length !== 1 ||
+    resolvedPropertyPath(clientCalls[0].expression, aliases) !== facade
+  ) {
+    const received =
+      clientCalls.map((call) => resolvedPropertyPath(call.expression, aliases)).join(", ") ||
+      "none";
     throw new TypeError(
       `${operationId} sample calls the wrong facade: expected ${facade}, received ${received}`,
     );
@@ -1133,8 +1194,7 @@ function validateRegistrySample(entry, contractOperation, components) {
   if (contractOperation.method !== "get") {
     const guarded = sourceFile.statements.some(
       (statement) =>
-        statement.getStart(sourceFile) < facadeCall.getStart(sourceFile) &&
-        isMutationGuard(statement),
+        statement.getEnd() <= facadeCall.getStart(sourceFile) && isMutationGuard(statement),
     );
     if (!guarded) {
       throw new TypeError(`${operationId} sample must guard the mutation before calling the SDK`);
@@ -1153,7 +1213,7 @@ function validateRegistrySample(entry, contractOperation, components) {
   }
 
   validateRequestBody(operationId, facadeCall, contractOperation, components);
-  validateSafeOutput(operationId, sourceFile);
+  validateSafeOutput(operationId, sourceFile, aliases);
 }
 
 export function validateNodeSampleRegistry(document, registry = NODE_SAMPLE_REGISTRY) {
