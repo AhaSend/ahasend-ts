@@ -52,22 +52,43 @@ afterAll(() => {
 });
 
 describe("operational documentation verification", () => {
-  it("supports source-only verification of the committed guidance", async () => {
+  it("verifies the committed guidance through the packed SDK", async () => {
     const documents = await loadDocumentation();
 
     expect(() => verifyDocumentation(documents)).not.toThrow();
 
+    const check = spawnSync(
+      process.execPath,
+      ["scripts/verify-docs.mjs", packedSdkTarball, packedSdkChecksum],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      },
+    );
+    expect(check.stderr).toBe("");
+    expect(check.stdout).toContain("10 documents passed");
+    expect(check.status).toBe(0);
+  });
+
+  it.each([
+    ["both artifact inputs", undefined, undefined],
+    ["the checksum", packedSdkTarball, undefined],
+    ["the tarball", undefined, packedSdkChecksum],
+  ])("rejects verification without %s", (_label, tarball, checksum) => {
     const environment = { ...process.env };
     delete environment.SDK_TARBALL;
     delete environment.SDK_TARBALL_SHA256;
+    if (tarball !== undefined) environment.SDK_TARBALL = tarball;
+    if (checksum !== undefined) environment.SDK_TARBALL_SHA256 = checksum;
     const check = spawnSync(process.execPath, ["scripts/verify-docs.mjs"], {
       cwd: process.cwd(),
       encoding: "utf8",
       env: environment,
     });
-    expect(check.stderr).toBe("");
-    expect(check.stdout).toContain("10 documents passed");
-    expect(check.status).toBe(0);
+
+    expect(check.stdout).toBe("");
+    expect(check.stderr).toContain("Provide both SDK_TARBALL and SDK_TARBALL_SHA256.");
+    expect(check.status).toBe(1);
   });
 
   it("strict-checks all 56 SDK samples against the packed declarations", async () => {

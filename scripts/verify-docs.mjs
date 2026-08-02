@@ -1927,18 +1927,16 @@ export function verifyDocumentation(documents) {
 
 async function main() {
   if (process.argv.length > 4) {
-    throw new TypeError("Usage: node scripts/verify-docs.mjs [tarball sha256]");
+    throw new TypeError("Usage: node scripts/verify-docs.mjs <tarball> <sha256>");
+  }
+  const tarball = process.argv[2] ?? process.env.SDK_TARBALL;
+  const checksum = process.argv[3] ?? process.env.SDK_TARBALL_SHA256;
+  if (tarball === undefined || checksum === undefined) {
+    throw new TypeError("Provide both SDK_TARBALL and SDK_TARBALL_SHA256.");
   }
   const index = await buildDocumentationIndex();
   await verifyDocumentationIndex(index);
-  const tarball = process.argv[2] ?? process.env.SDK_TARBALL;
-  const checksum = process.argv[3] ?? process.env.SDK_TARBALL_SHA256;
-  if ((tarball === undefined) !== (checksum === undefined)) {
-    throw new TypeError("Provide both SDK_TARBALL and SDK_TARBALL_SHA256.");
-  }
-  if (tarball !== undefined && checksum !== undefined) {
-    await verifyPackagedJavaScript(tarball, checksum);
-  }
+  await verifyPackagedJavaScript(tarball, checksum);
   process.stdout.write(
     `verify-docs: ${REQUIRED_DOCUMENT_PATHS.length} documents passed; ${index.examples.length} examples and ${Object.keys(index.nodeSamples).length} Node samples passed\n`,
   );

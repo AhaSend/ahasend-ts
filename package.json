@@ -82,7 +82,7 @@
     "sdk:generate": "node scripts/generate-sdk.mjs",
     "sdk:check": "node scripts/generate-sdk.mjs --check",
     "docs:generate": "node scripts/generate-docs.mjs",
-    "docs:check": "node scripts/generate-docs.mjs --check && node scripts/verify-docs.mjs",
+    "docs:check": "node scripts/generate-docs.mjs --check && npm run test:docs:preflight",
     "release:source-gate": "node scripts/run-source-gates.mjs",
     "release:candidate": "node scripts/create-candidate.mjs",
     "release:live": "node scripts/run-live-acceptance.mjs",
@@ -90,7 +90,7 @@
     "lint": "eslint \"src/**/*.ts\" \"examples/**/*.mjs\" --max-warnings 0",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run test && npm run test:docs:preflight"
+    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run test"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",

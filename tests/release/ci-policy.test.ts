@@ -13,8 +13,16 @@ const workflow = yaml.load(
   readFileSync(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8"),
   { schema: yaml.JSON_SCHEMA },
 ) as unknown;
+const releaseWorkflow = yaml.load(
+  readFileSync(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8"),
+  { schema: yaml.JSON_SCHEMA },
+) as unknown;
 const packagePreflightSource = readFileSync(
   resolve(repositoryRoot, "scripts/create-preflight-pack.mjs"),
+  "utf8",
+);
+const documentationPreflightSource = readFileSync(
+  resolve(repositoryRoot, "scripts/create-docs-preflight-pack.mjs"),
   "utf8",
 );
 
@@ -47,6 +55,69 @@ function expectAssertedNpmToolchain(job: unknown, label: string): void {
     name: "Verify asserted npm version",
     run: 'test "$(npm --version)" = "11.12.0"',
   });
+}
+
+function steps(job: unknown, label: string): readonly Readonly<Record<string, unknown>>[] {
+  return array(record(job, label)["steps"], `${label} steps`).map((step, index) =>
+    record(step, `${label} step ${index}`),
+  );
+}
+
+function namedStep(
+  job: unknown,
+  jobLabel: string,
+  stepName: string,
+): Readonly<Record<string, unknown>> {
+  const step = steps(job, jobLabel).find((candidate) => candidate["name"] === stepName);
+  if (step === undefined) throw new TypeError(`${jobLabel} is missing ${stepName}.`);
+  return step;
+}
+
+function expectDocumentationCallerPolicy(
+  scripts: Readonly<Record<string, string>>,
+  ciWorkflow: unknown,
+  candidateWorkflow: unknown,
+  preflightSource = documentationPreflightSource,
+): void {
+  expect(scripts["test:docs:tarball"]).toBe("node scripts/verify-docs.mjs");
+  expect(scripts["test:docs:preflight"]).toBe("node scripts/create-docs-preflight-pack.mjs");
+  expect(scripts["docs:check"]).toBe(
+    "node scripts/generate-docs.mjs --check && npm run test:docs:preflight",
+  );
+  expect(scripts["ci"]?.split(" && ")).toEqual([
+    "npm run typecheck",
+    "npm run lint",
+    "npm run docs:check",
+    "npm test",
+    "npm run verify:audit",
+    "npm run test:package:preflight",
+  ]);
+  expect(scripts["prepublishOnly"]).toBe(
+    "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run test",
+  );
+  expect(preflightSource).toContain("build: true");
+  expect(preflightSource).toContain('verificationScripts: ["test:docs:tarball"]');
+
+  const ciJobs = record(record(ciWorkflow, "CI workflow")["jobs"], "CI jobs");
+  expect(
+    namedStep(ciJobs["test"], "CI test job", "Required source gates and packed preflights"),
+  ).toMatchObject({ run: "npm run ci" });
+
+  const releaseJobs = record(record(candidateWorkflow, "release workflow")["jobs"], "release jobs");
+  expect(namedStep(releaseJobs["source-gate"], "source gate", "Generation gate")["run"]).toBe(
+    "npm run contracts:check && npm run sdk:check && npm run docs:check",
+  );
+  const artifactVerification = String(
+    namedStep(releaseJobs["artifact-gates"], "artifact gates", "Verify retained package artifact")[
+      "run"
+    ],
+  );
+  expect(artifactVerification.match(/node scripts\/verify-docs\.mjs[^\n]*/gu)).toEqual([
+    'node scripts/verify-docs.mjs "$TARBALL" "$SHA256"',
+  ]);
+  expect(
+    artifactVerification.indexOf('node scripts/verify-package.mjs "$TARBALL" "$SHA256"'),
+  ).toBeLessThan(artifactVerification.indexOf('node scripts/verify-docs.mjs "$TARBALL" "$SHA256"'));
 }
 
 describe("CI policy", () => {
@@ -113,7 +184,7 @@ describe("CI policy", () => {
     const testSteps = array(record(jobs["test"], "test job")["steps"], "test steps");
     const requiredGatesStep = testSteps
       .map((step, index) => record(step, `test step ${index}`))
-      .find(({ name }) => name === "Required package gates and packed example preflight");
+      .find(({ name }) => name === "Required source gates and packed preflights");
 
     expect(packageJson.scripts["ci"]?.split(" && ")).toEqual([
       "npm run typecheck",
@@ -126,9 +197,7 @@ describe("CI policy", () => {
     expect(requiredGatesStep).toMatchObject({ run: "npm run ci" });
     expect(requiredGatesStep?.["continue-on-error"]).toBeUndefined();
     expect(packageJson.scripts["verify:audit"]).toBe("node scripts/verify-audit.mjs");
-    expect(packageJson.scripts["docs:check"]).toBe(
-      "node scripts/generate-docs.mjs --check && node scripts/verify-docs.mjs",
-    );
+    expectDocumentationCallerPolicy(packageJson.scripts, workflow, releaseWorkflow);
     expect(packageJson.scripts["test:package:preflight"]).toBe(
       "npm run build && node scripts/create-preflight-pack.mjs",
     );
@@ -138,5 +207,86 @@ describe("CI policy", () => {
     expect(packagePreflightSource).toContain(
       'verificationScripts: ["test:docs:tarball", "test:package:tarball", "test:integration:tarball"]',
     );
+  });
+
+  it.each([
+    [
+      "an obsolete source-only docs command",
+      (scripts: Record<string, string>, _ci: unknown, _release: unknown) => {
+        scripts["docs:check"] =
+          "node scripts/generate-docs.mjs --check && node scripts/verify-docs.mjs";
+      },
+    ],
+    [
+      "a docs command without its preflight producer",
+      (scripts: Record<string, string>, _ci: unknown, _release: unknown) => {
+        scripts["docs:check"] = "node scripts/generate-docs.mjs --check";
+      },
+    ],
+    [
+      "a prepublish command that bypasses docs:check",
+      (scripts: Record<string, string>, _ci: unknown, _release: unknown) => {
+        scripts["prepublishOnly"] = scripts["prepublishOnly"]!.replace(
+          "npm run docs:check",
+          "npm run test:docs:tarball",
+        );
+      },
+    ],
+    [
+      "a CI command chain that invokes the verifier without a producer",
+      (scripts: Record<string, string>, _ci: unknown, _release: unknown) => {
+        scripts["ci"] = scripts["ci"]!.replace("npm run docs:check", "npm run test:docs:tarball");
+      },
+    ],
+    [
+      "a source gate that invokes the verifier without a producer",
+      (_scripts: Record<string, string>, _ci: unknown, release: unknown) => {
+        const jobs = record(record(release, "release workflow")["jobs"], "release jobs");
+        const generation = namedStep(jobs["source-gate"], "source gate", "Generation gate") as {
+          run: string;
+        };
+        generation.run = generation.run.replace(
+          "npm run docs:check",
+          "node scripts/verify-docs.mjs",
+        );
+      },
+    ],
+    [
+      "an artifact gate that omits retained inputs",
+      (_scripts: Record<string, string>, _ci: unknown, release: unknown) => {
+        const jobs = record(record(release, "release workflow")["jobs"], "release jobs");
+        const artifact = namedStep(
+          jobs["artifact-gates"],
+          "artifact gates",
+          "Verify retained package artifact",
+        ) as { run: string };
+        artifact.run = artifact.run.replace(
+          'node scripts/verify-docs.mjs "$TARBALL" "$SHA256"',
+          "node scripts/verify-docs.mjs",
+        );
+      },
+    ],
+    [
+      "an artifact gate that substitutes a source preflight tarball",
+      (_scripts: Record<string, string>, _ci: unknown, release: unknown) => {
+        const jobs = record(record(release, "release workflow")["jobs"], "release jobs");
+        const artifact = namedStep(
+          jobs["artifact-gates"],
+          "artifact gates",
+          "Verify retained package artifact",
+        ) as { run: string };
+        artifact.run = artifact.run.replace(
+          'node scripts/verify-docs.mjs "$TARBALL" "$SHA256"',
+          "npm run test:docs:preflight",
+        );
+      },
+    ],
+  ])("rejects %s", (_label, mutate) => {
+    const scripts = { ...packageJson.scripts };
+    const ciFixture = structuredClone(workflow);
+    const releaseFixture = structuredClone(releaseWorkflow);
+    mutate(scripts, ciFixture, releaseFixture);
+
+    expect(() => expectDocumentationCallerPolicy(scripts, ciFixture, releaseFixture)).toThrow();
   });
 });

@@ -250,6 +250,7 @@ jobs:
           test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
           test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
           node scripts/verify-package.mjs "$TARBALL" "$SHA256"
+          node scripts/verify-docs.mjs "$TARBALL" "$SHA256"
 
   live-gates:
     name: Live candidate gates
