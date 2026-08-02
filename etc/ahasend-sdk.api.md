@@ -795,6 +795,8 @@ export interface ErrorEvent extends RequestEvent {
     durationMs: number;
     // (undocumented)
     error: unknown;
+    // (undocumented)
+    phase: "pacing" | "attempt" | "backoff";
     requestId?: string;
     status?: number;
 }

@@ -25,6 +25,7 @@ export interface RetryEvent extends RequestEvent {
 }
 
 export interface ErrorEvent extends RequestEvent {
+  phase: "pacing" | "attempt" | "backoff";
   durationMs: number;
   error: unknown;
   /** HTTP status from the failed response, when a response was received. */

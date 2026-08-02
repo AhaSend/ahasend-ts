@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AhaSendAbortError,
   AhaSendAuthenticationError,
@@ -155,7 +155,7 @@ describe("computeBackoffMs", () => {
 });
 
 describe("computeRetryDelayMs", () => {
-  it("returns plain backoff for non-RateLimit errors", () => {
+  it("returns plain backoff for a server error without Retry-After", () => {
     const delay = computeRetryDelayMs(
       new AhaSendServerError({ status: 500, message: "boom", body: null }),
       1,
@@ -217,8 +217,77 @@ describe("computeRetryDelayMs", () => {
     expect(computeRetryDelayMs(err, 1, { ...NO_JITTER, maxDelayMs: 5000 })).toBe(5000);
   });
 
-  it.each([undefined, 0, -1, 1.5, Number.POSITIVE_INFINITY])(
-    "falls back to bounded backoff for malformed/nonpositive server delay %s",
+  it.each([
+    [408, "2", 2000],
+    [429, "0", 0],
+    [503, "3", 3000],
+  ])("honours bounded Retry-After timing for HTTP %i", async (status, retryAfter, expectedMs) => {
+    vi.useFakeTimers();
+    try {
+      const error = createApiError({
+        status,
+        body: null,
+        headers: { "retry-after": retryAfter },
+      });
+      const delayed = sleep(
+        computeRetryDelayMs(error, 1, {
+          ...NO_JITTER,
+          baseDelayMs: 100,
+          maxDelayMs: 5000,
+        }),
+      );
+      let settled = false;
+      void delayed.then(() => {
+        settled = true;
+      });
+
+      if (expectedMs > 0) {
+        await vi.advanceTimersByTimeAsync(expectedMs - 1);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+      } else {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+
+      await delayed;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps an oversized Retry-After before sleeping", async () => {
+    vi.useFakeTimers();
+    try {
+      const error = createApiError({
+        status: 503,
+        body: null,
+        headers: { "retry-after": "999" },
+      });
+      const delayed = sleep(
+        computeRetryDelayMs(error, 1, {
+          ...NO_JITTER,
+          baseDelayMs: 100,
+          maxDelayMs: 5000,
+        }),
+      );
+      let settled = false;
+      void delayed.then(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await delayed;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([undefined, -1, 1.5, Number.POSITIVE_INFINITY])(
+    "falls back to bounded backoff for malformed/negative server delay %s",
     (retryAfterSeconds) => {
       const err = new AhaSendRateLimitError({
         status: 429,

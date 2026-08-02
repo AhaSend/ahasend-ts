@@ -4,6 +4,7 @@ import {
   AhaSendAbortError,
   AhaSendConfigurationError,
   AhaSendConnectionError,
+  AhaSendError,
   AhaSendIdempotencyConflictError,
   AhaSendResponseParseError,
   AhaSendTimeoutError,
@@ -112,33 +113,46 @@ export class HttpClient {
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      let startedAt: number | undefined;
+      const attemptEvent = this.buildAttemptEvent(execution, options, attempt);
+      const pacingStartedAt = performance.now();
       try {
-        const envelope = await this.executeAttempt<T>(
-          execution,
-          options,
-          () => {
-            startedAt = Date.now();
-            void hooks.onRequest(this.buildAttemptEvent(execution, options, attempt));
-          },
-          (response, requestId) => {
-            const responseEvent: import("./telemetry.js").ResponseEvent = {
-              ...this.buildAttemptEvent(execution, options, attempt),
-              status: response.status,
-              durationMs: elapsedSince(startedAt),
-            };
-            if (requestId) responseEvent.requestId = requestId;
-            void hooks.onResponse(Object.freeze(responseEvent));
-          },
-        );
+        await this.rateLimiter.acquire(options.method, options.path, options.signal);
+      } catch (err) {
+        const errorEvent: import("./telemetry.js").ErrorEvent = {
+          ...attemptEvent,
+          phase: "pacing",
+          durationMs: elapsedSince(pacingStartedAt),
+          error: err,
+        };
+        void hooks.onError(Object.freeze(errorEvent));
+        throw err;
+      }
+
+      const controller = this.linkAbortSignal(
+        options.signal,
+        options.timeoutMs ?? this.config.timeoutMs,
+      );
+      const attemptStartedAt = performance.now();
+      void hooks.onRequest(attemptEvent);
+
+      try {
+        const envelope = await this.executeOnce<T>(execution, options, controller);
+        const responseEvent: import("./telemetry.js").ResponseEvent = {
+          ...attemptEvent,
+          status: envelope.response.status,
+          durationMs: elapsedSince(attemptStartedAt),
+        };
+        if (envelope.requestId) responseEvent.requestId = envelope.requestId;
+        void hooks.onResponse(Object.freeze(responseEvent));
         return envelope;
       } catch (err) {
         lastError = err;
-        const durationMs = elapsedSince(startedAt);
+        const durationMs = elapsedSince(attemptStartedAt);
         const requestId = extractRequestId(err);
         const status = extractStatus(err);
         const errorEvent: import("./telemetry.js").ErrorEvent = {
-          ...this.buildAttemptEvent(execution, options, attempt),
+          ...attemptEvent,
+          phase: "attempt",
           durationMs,
           error: err,
         };
@@ -151,7 +165,7 @@ export class HttpClient {
         if (!isRetryableError(err)) throw err;
         const delayMs = computeRetryDelayMs(err, attempt, retry);
         const retryEvent: import("./telemetry.js").RetryEvent = {
-          ...this.buildAttemptEvent(execution, options, attempt),
+          ...attemptEvent,
           delayMs,
           durationMs,
           error: err,
@@ -159,36 +173,30 @@ export class HttpClient {
         if (status !== undefined) retryEvent.status = status;
         if (requestId) retryEvent.requestId = requestId;
         void hooks.onRetry(Object.freeze(retryEvent));
-        await sleep(delayMs, options.signal);
+        const backoffStartedAt = performance.now();
+        try {
+          await sleep(delayMs, options.signal);
+        } catch (backoffError) {
+          const backoffEvent: import("./telemetry.js").ErrorEvent = {
+            ...attemptEvent,
+            phase: "backoff",
+            durationMs: elapsedSince(backoffStartedAt),
+            error: backoffError,
+          };
+          if (status !== undefined) backoffEvent.status = status;
+          if (requestId) backoffEvent.requestId = requestId;
+          void hooks.onError(Object.freeze(backoffEvent));
+          throw backoffError;
+        }
       }
     }
     throw lastError;
-  }
-
-  private async executeAttempt<T>(
-    execution: HttpExecutionRecord,
-    options: RequestOptions,
-    onStarted: () => void,
-    onResponseComplete: (response: Response, requestId: string | undefined) => void,
-  ): Promise<AhaSendResponse<T>> {
-    // Local pacing is part of the total call, so it observes caller cancellation,
-    // but it is outside the per-attempt network timeout budget.
-    await this.rateLimiter.acquire(options.method, options.path, options.signal);
-
-    const controller = this.linkAbortSignal(
-      options.signal,
-      options.timeoutMs ?? this.config.timeoutMs,
-    );
-    onStarted();
-
-    return this.executeOnce<T>(execution, options, controller, onResponseComplete);
   }
 
   private async executeOnce<T>(
     execution: HttpExecutionRecord,
     options: RequestOptions,
     controller: LinkedAbortSignal,
-    onResponseComplete: (response: Response, requestId: string | undefined) => void,
   ): Promise<AhaSendResponse<T>> {
     const { url, init } = execution;
     try {
@@ -205,8 +213,8 @@ export class HttpClient {
         if (controller.signal.aborted) {
           throw this.createAttemptAbortError(controller, options, "during fetch", err);
         }
-        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
-        if (err instanceof Error && err.name === "AbortError") {
+        if (AhaSendError.is(err)) throw err;
+        if (isAbortError(err)) {
           throw new AhaSendAbortError("Request aborted", err);
         }
         throw new AhaSendConnectionError(
@@ -221,33 +229,32 @@ export class HttpClient {
       // attempt's timeout budget.
       const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
 
+      let data: T;
       try {
-        let data: T;
-        try {
-          data = await this.parseResponse<T>(response, execution.idempotency, requestId);
-        } catch (err) {
-          if (controller.signal.aborted) {
-            throw this.createAttemptAbortError(controller, options, "during body read", err);
-          }
-          if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
-          if (err instanceof Error && err.name === "AbortError") {
-            throw new AhaSendAbortError("Request aborted during body read", err);
-          }
-          throw err;
+        data = await this.parseResponse<T>(response, execution.idempotency, requestId);
+      } catch (err) {
+        if (controller.signal.aborted) {
+          throw this.createAttemptAbortError(controller, options, "during body read", err);
         }
-        this.throwIfAttemptAborted(controller, options, "during body read");
-
-        return {
-          data,
-          response,
-          ...(requestId ? { requestId } : {}),
-          ...(response.headers.get(IDEMPOTENT_REPLAYED_HEADER) === "true"
-            ? { idempotentReplayed: true as const }
-            : {}),
-        };
-      } finally {
-        onResponseComplete(response, requestId);
+        if (AhaSendError.is(err)) throw err;
+        if (isAbortError(err)) {
+          throw new AhaSendAbortError("Request aborted during body read", err);
+        }
+        throw new AhaSendConnectionError(
+          `Network error while reading the response body for ${options.method} ${options.path}`,
+          err,
+        );
       }
+      this.throwIfAttemptAborted(controller, options, "during body read");
+
+      return {
+        data,
+        response,
+        ...(requestId ? { requestId } : {}),
+        ...(response.headers.get(IDEMPOTENT_REPLAYED_HEADER) === "true"
+          ? { idempotentReplayed: true as const }
+          : {}),
+      };
     } finally {
       controller.cleanup();
     }
@@ -522,6 +529,15 @@ function safeJsonParse(text: string): { ok: true; value: unknown } | { ok: false
   }
 }
 
+function isAbortError(error: unknown): boolean {
+  if ((typeof error !== "object" && typeof error !== "function") || error === null) return false;
+  try {
+    return Reflect.get(error, "name") === "AbortError";
+  } catch {
+    return false;
+  }
+}
+
 function extractRequestId(err: unknown): string | undefined {
   if (typeof err !== "object" || err === null) return undefined;
   const candidate = (err as { requestId?: unknown }).requestId;
@@ -549,8 +565,8 @@ function finalizeIdempotencyConflict(error: unknown, key: string | undefined): u
   });
 }
 
-function elapsedSince(startedAt: number | undefined): number {
-  return startedAt === undefined ? 0 : Date.now() - startedAt;
+function elapsedSince(startedAt: number): number {
+  return Math.max(0, performance.now() - startedAt);
 }
 
 /**
