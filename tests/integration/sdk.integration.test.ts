@@ -92,6 +92,14 @@ interface PackedExpressExample {
   }): PackedExpressApplication;
 }
 
+interface PackedNextExample {
+  readonly POST: (request: Request) => Promise<Response>;
+  createWebhookRoute(options: {
+    readonly secret: string;
+    readonly enqueueOnce: EnqueueOnce;
+  }): (request: Request) => Promise<Response>;
+}
+
 const PAGINATION = { limit: 5 };
 const STATISTICS = {
   from_time: "2026-04-01T00:00:00Z",
@@ -478,6 +486,81 @@ describe("packed Express webhook example", () => {
       }
 
       expect(server?.listening).toBe(false);
+    },
+    PACKED_EXAMPLE_TIMEOUT_MS,
+  );
+});
+
+describe("packed Next webhook example", () => {
+  it(
+    "accepts the first signed delivery and acknowledges its duplicate",
+    async () => {
+      const secret = "aha-whsec-next-integration-secret";
+      const webhookId = "msg_next_it_1";
+      const timestamp = Math.floor(Date.now() / 1000);
+      const body = JSON.stringify({
+        type: "message.delivered",
+        webhook_id: "fb801bb3-717b-47e8-8746-616535eff05b",
+        timestamp: new Date().toISOString(),
+        data: {
+          id: webhookId,
+          account_id: ACCOUNT_ID,
+          event: "on_delivered",
+          from: "sender@example.test",
+          recipient: "recipient@example.test",
+          subject: "Integration",
+          message_id_header: "<next-integration@example.test>",
+        },
+      });
+      const signature = `v1,${createHmac("sha256", Buffer.from(secret, "utf8"))
+        .update(`${webhookId}.${timestamp}.${body}`)
+        .digest("base64")}`;
+      const headers = {
+        "content-type": "application/json",
+        "webhook-id": webhookId,
+        "webhook-timestamp": String(timestamp),
+        "webhook-signature": signature,
+      };
+
+      const previousSecret = process.env.AHASEND_WEBHOOK_SECRET;
+      process.env.AHASEND_WEBHOOK_SECRET = secret;
+      let example: PackedNextExample;
+      try {
+        const installedCopy = copyPackedExample("next-webhook-route.mjs");
+        example = (await import(pathToFileURL(installedCopy).href)) as PackedNextExample;
+      } finally {
+        if (previousSecret === undefined) delete process.env.AHASEND_WEBHOOK_SECRET;
+        else process.env.AHASEND_WEBHOOK_SECRET = previousSecret;
+      }
+
+      expect(example.POST).toBeTypeOf("function");
+      const route = example.createWebhookRoute({
+        secret,
+        enqueueOnce: createInMemoryEnqueueOnce(),
+      });
+      const first = await route(
+        new Request("https://example.test/webhooks/ahasend", {
+          method: "POST",
+          headers,
+          body,
+        }),
+      );
+      const duplicate = await route(
+        new Request("https://example.test/webhooks/ahasend", {
+          method: "POST",
+          headers,
+          body,
+        }),
+      );
+      const firstOutput = await first.text();
+      const duplicateOutput = await duplicate.text();
+
+      expect(first.status).toBe(202);
+      expect(duplicate.status).toBe(200);
+      expect(firstOutput).toBe("");
+      expect(duplicateOutput).toBe("");
+      expect(`${firstOutput}${duplicateOutput}`).not.toContain(secret);
+      expect(`${firstOutput}${duplicateOutput}`).not.toContain(API_KEY);
     },
     PACKED_EXAMPLE_TIMEOUT_MS,
   );
