@@ -2,7 +2,7 @@
 
 # API reference
 
-This file is generated from the canonical operation profile, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
+This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
 It contains exactly 56 API methods and 9 async iterators.
 
@@ -26,6 +26,18 @@ client.ping(options?: RequestOptions): AhaSendPromise<PingResponse>
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: ping -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const health = await client.ping();
+console.log("AhaSend API is reachable.", { message: health.message });
+```
+
 <!-- operation: getAPIKeys -->
 
 ### apiKeys.list
@@ -45,6 +57,18 @@ client.apiKeys.list(params?: PaginationParams, options?: RequestOptions): AhaSen
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getAPIKeys -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.apiKeys.list({ limit: 20 });
+console.log("API keys listed.", { count: page.data.length });
+```
+
 <!-- operation: createAPIKey -->
 
 ### apiKeys.create
@@ -62,6 +86,25 @@ client.apiKeys.create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOpt
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: createAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const apiKey = await client.apiKeys.create(
+  { label: "Production API key", scopes: ["messages:send:all"] },
+  { idempotencyKey: "sdk-sample-create-api-key" },
+);
+console.log("API key created.", { id: apiKey.id, label: apiKey.label });
+```
 
 <!-- operation: getAPIKey -->
 
@@ -81,6 +124,19 @@ client.apiKeys.get(keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const keyId = "00000000-0000-4000-8000-000000000001";
+const apiKey = await client.apiKeys.get(keyId);
+console.log("API key found.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: updateAPIKey -->
 
 ### apiKeys.update
@@ -99,6 +155,23 @@ client.apiKeys.update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestO
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: updateAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const keyId = "00000000-0000-4000-8000-000000000001";
+const apiKey = await client.apiKeys.update(keyId, { label: "Renamed API key" });
+console.log("API key updated.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: deleteAPIKey -->
 
 ### apiKeys.delete
@@ -116,6 +189,23 @@ client.apiKeys.delete(keyId: UUID, options?: RequestOptions): AhaSendPromise<Suc
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const keyId = "00000000-0000-4000-8000-000000000001";
+const result = await client.apiKeys.delete(keyId);
+console.log("API key deleted.", { message: result.message });
+```
 
 <!-- operation: getDomains -->
 
@@ -136,6 +226,18 @@ client.domains.list(params?: ListDomainsParams, options?: RequestOptions): AhaSe
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getDomains -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.domains.list({ limit: 20 });
+console.log("Domains listed.", { count: page.data.length });
+```
+
 <!-- operation: createDomain -->
 
 ### domains.create
@@ -153,6 +255,25 @@ client.domains.create(body: CreateDomainRequest, options?: IdempotencyRequestOpt
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: createDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const domain = await client.domains.create(
+  { domain: "example.com" },
+  { idempotencyKey: "sdk-sample-create-domain" },
+);
+console.log("Domain created.", { id: domain.id, domain: domain.domain });
+```
 
 <!-- operation: getDomain -->
 
@@ -172,6 +293,19 @@ client.domains.get(domain: string, options?: RequestOptions): AhaSendPromise<Dom
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const domainName = "example.com";
+const domain = await client.domains.get(domainName);
+console.log("Domain found.", { domain: domain.domain, dnsValid: domain.dns_valid });
+```
+
 <!-- operation: updateDomain -->
 
 ### domains.update
@@ -189,6 +323,23 @@ client.domains.update(domain: string, body: UpdateDomainRequest, options?: Reque
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: updateDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const domainName = "example.com";
+const domain = await client.domains.update(domainName, { tracking_subdomain: "click" });
+console.log("Domain updated.", { domain: domain.domain });
+```
 
 <!-- operation: deleteDomain -->
 
@@ -208,6 +359,23 @@ client.domains.delete(domain: string, options?: RequestOptions): AhaSendPromise<
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: deleteDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const domainName = "example.com";
+const result = await client.domains.delete(domainName);
+console.log("Domain deleted.", { message: result.message });
+```
+
 <!-- operation: checkDomainDNS -->
 
 ### domains.checkDns
@@ -225,6 +393,23 @@ client.domains.checkDns(domain: string, options?: RequestOptions): AhaSendPromis
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: checkDomainDNS -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const domainName = "example.com";
+const domain = await client.domains.checkDns(domainName);
+console.log("DNS check completed.", { domain: domain.domain, dnsValid: domain.dns_valid });
+```
 
 <!-- operation: getMessages -->
 
@@ -245,6 +430,18 @@ client.messages.list(params?: ListMessagesParams, options?: RequestOptions): Aha
 - **Authorization rule:** `authorized_domain_filter`; global role `messages:read:all`; domain role `messages:read:{domain}`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getMessages -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.messages.list({ limit: 20 });
+console.log("Messages listed.", { count: page.data.length });
+```
+
 <!-- operation: createMessage -->
 
 ### messages.send
@@ -262,6 +459,31 @@ client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOpt
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.
 - **Authorization rule:** `body_domain`; global role `messages:send:all`; domain role `messages:send:{domain}`
+
+<!-- sdk-sample: createMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.messages.send(
+  {
+    from: { email: "sender@example.com", name: "Example" },
+    recipients: [{ email: "recipient@example.net" }],
+    subject: "Hello from AhaSend",
+    html_content: "<p>Hello!</p>",
+    sandbox: true,
+  },
+  { idempotencyKey: "sdk-sample-send-message" },
+);
+console.log("Sandbox message accepted.", { count: result.data.length });
+```
 
 <!-- operation: createConversationMessage -->
 
@@ -281,6 +503,31 @@ client.messages.sendConversation(body: CreateConversationMessageRequest, options
 - **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.
 - **Authorization rule:** `body_domain`; global role `messages:send:all`; domain role `messages:send:{domain}`
 
+<!-- sdk-sample: createConversationMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.messages.sendConversation(
+  {
+    from: { email: "sender@example.com", name: "Example" },
+    to: [{ email: "recipient@example.net" }],
+    subject: "Hello from AhaSend",
+    html_content: "<p>Hello!</p>",
+    sandbox: true,
+  },
+  { idempotencyKey: "sdk-sample-send-conversation" },
+);
+console.log("Sandbox conversation accepted.", { count: result.data.length });
+```
+
 <!-- operation: getMessage -->
 
 ### messages.get
@@ -298,6 +545,19 @@ client.messages.get(messageId: string, options?: RequestOptions): AhaSendPromise
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** Authorization requires `messages:read:all` or `messages:read:{domain}` matching the message's `sender` domain.
 - **Authorization rule:** `existing_resource_domains`; global role `messages:read:all`; domain role `messages:read:{domain}`
+
+<!-- sdk-sample: getMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const messageId = "00000000-0000-4000-8000-000000000002";
+const message = await client.messages.get(messageId);
+console.log("Message found.", { id: message.id, status: message.status });
+```
 
 <!-- operation: cancelMessage -->
 
@@ -317,6 +577,23 @@ client.messages.cancel(messageId: string, options?: RequestOptions): AhaSendProm
 - **Resource authorization:** Authorization requires `messages:cancel:all` or `messages:cancel:{domain}` matching the message's `sender` domain.
 - **Authorization rule:** `existing_resource_domains`; global role `messages:cancel:all`; domain role `messages:cancel:{domain}`
 
+<!-- sdk-sample: cancelMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const messageId = "00000000-0000-4000-8000-000000000002";
+const result = await client.messages.cancel(messageId);
+console.log("Message cancellation requested.", { message: result.message });
+```
+
 <!-- operation: getAccount -->
 
 ### accounts.get
@@ -334,6 +611,18 @@ client.accounts.get(options?: RequestOptions): AhaSendPromise<Account>
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: getAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const account = await client.accounts.get();
+console.log("Account found.", { id: account.id, name: account.name });
+```
 
 <!-- operation: updateAccount -->
 
@@ -353,6 +642,22 @@ client.accounts.update(body: UpdateAccountRequest, options?: RequestOptions): Ah
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: updateAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const account = await client.accounts.update({ name: "Example, Inc." });
+console.log("Account updated.", { id: account.id, name: account.name });
+```
+
 <!-- operation: getAccountMembers -->
 
 ### accounts.listMembers
@@ -370,6 +675,18 @@ client.accounts.listMembers(options?: RequestOptions): AhaSendPromise<ListAccoun
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: getAccountMembers -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const members = await client.accounts.listMembers();
+console.log("Account members listed.", { count: members.data.length });
+```
 
 <!-- operation: addAccountMember -->
 
@@ -389,6 +706,25 @@ client.accounts.addMember(body: AddAccountMemberRequest, options?: IdempotencyRe
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: addAccountMember -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const member = await client.accounts.addMember(
+  { email: "developer@example.com", role: "Developer" },
+  { idempotencyKey: "sdk-sample-add-account-member" },
+);
+console.log("Account member added.", { userId: member.user_id, role: member.role });
+```
+
 <!-- operation: removeAccountMember -->
 
 ### accounts.removeMember
@@ -406,6 +742,23 @@ client.accounts.removeMember(userId: UUID, options?: RequestOptions): AhaSendPro
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: removeAccountMember -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const userId = "00000000-0000-4000-8000-000000000003";
+const result = await client.accounts.removeMember(userId);
+console.log("Account member removed.", { message: result.message });
+```
 
 <!-- operation: listSubAccounts -->
 
@@ -426,6 +779,18 @@ client.subAccounts.list(params?: ListSubAccountsParams, options?: RequestOptions
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: listSubAccounts -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.subAccounts.list({ limit: 20 });
+console.log("Sub-accounts listed.", { count: page.data.length });
+```
+
 <!-- operation: createSubAccount -->
 
 ### subAccounts.create
@@ -443,6 +808,25 @@ client.subAccounts.create(body: CreateSubAccountRequest, options?: IdempotencyRe
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: createSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccount = await client.subAccounts.create(
+  { name: "Example subsidiary", website: "subsidiary.example.com" },
+  { idempotencyKey: "sdk-sample-create-sub-account" },
+);
+console.log("Sub-account created.", { id: subAccount.id, status: subAccount.status });
+```
 
 <!-- operation: getSubAccountsUsage -->
 
@@ -462,6 +846,21 @@ client.subAccounts.usage(options?: RequestOptions): AhaSendPromise<SubAccountUsa
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getSubAccountsUsage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const usage = await client.subAccounts.usage();
+console.log("Sub-account usage loaded.", {
+  currency: usage.currency,
+  subAccountCount: usage.sub_accounts.length,
+});
+```
+
 <!-- operation: getSubAccount -->
 
 ### subAccounts.get
@@ -479,6 +878,19 @@ client.subAccounts.get(subAccountId: UUID, options?: RequestOptions): AhaSendPro
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: getSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const subAccount = await client.subAccounts.get(subAccountId);
+console.log("Sub-account found.", { id: subAccount.id, status: subAccount.status });
+```
 
 <!-- operation: updateSubAccount -->
 
@@ -498,6 +910,25 @@ client.subAccounts.update(subAccountId: UUID, body: UpdateSubAccountRequest, opt
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: updateSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const subAccount = await client.subAccounts.update(subAccountId, {
+  name: "Renamed subsidiary",
+});
+console.log("Sub-account updated.", { id: subAccount.id, status: subAccount.status });
+```
+
 <!-- operation: deleteSubAccount -->
 
 ### subAccounts.delete
@@ -515,6 +946,23 @@ client.subAccounts.delete(subAccountId: UUID, options?: RequestOptions): AhaSend
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const result = await client.subAccounts.delete(subAccountId);
+console.log("Sub-account deleted.", { message: result.message });
+```
 
 <!-- operation: suspendSubAccount -->
 
@@ -534,6 +982,25 @@ client.subAccounts.suspend(subAccountId: UUID, body: SuspendSubAccountRequest, o
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: suspendSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const subAccount = await client.subAccounts.suspend(subAccountId, {
+  reason: "Requested by account administrator",
+});
+console.log("Sub-account suspended.", { id: subAccount.id, status: subAccount.status });
+```
+
 <!-- operation: unsuspendSubAccount -->
 
 ### subAccounts.unsuspend
@@ -551,6 +1018,23 @@ client.subAccounts.unsuspend(subAccountId: UUID, options?: RequestOptions): AhaS
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: unsuspendSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const subAccount = await client.subAccounts.unsuspend(subAccountId);
+console.log("Sub-account unsuspended.", { id: subAccount.id, status: subAccount.status });
+```
 
 <!-- operation: listSubAccountAPIKeys -->
 
@@ -571,6 +1055,19 @@ client.subAccounts.apiKeys.list(subAccountId: UUID, params?: PaginationParams, o
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: listSubAccountAPIKeys -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const page = await client.subAccounts.apiKeys.list(subAccountId, { limit: 20 });
+console.log("Sub-account API keys listed.", { count: page.data.length });
+```
+
 <!-- operation: createSubAccountAPIKey -->
 
 ### subAccounts.apiKeys.create
@@ -588,6 +1085,27 @@ client.subAccounts.apiKeys.create(subAccountId: UUID, body: CreateAPIKeyRequest,
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: createSubAccountAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const apiKey = await client.subAccounts.apiKeys.create(
+  subAccountId,
+  { label: "Bootstrap key", scopes: ["messages:send:all"] },
+  { idempotencyKey: "sdk-sample-create-sub-account-api-key" },
+);
+console.log("Sub-account API key created.", { id: apiKey.id, label: apiKey.label });
+```
 
 <!-- operation: getSubAccountAPIKey -->
 
@@ -607,6 +1125,20 @@ client.subAccounts.apiKeys.get(subAccountId: UUID, keyId: UUID, options?: Reques
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getSubAccountAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const keyId = "00000000-0000-4000-8000-000000000005";
+const apiKey = await client.subAccounts.apiKeys.get(subAccountId, keyId);
+console.log("Sub-account API key found.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: updateSubAccountAPIKey -->
 
 ### subAccounts.apiKeys.update
@@ -625,6 +1157,26 @@ client.subAccounts.apiKeys.update(subAccountId: UUID, keyId: UUID, body: UpdateA
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: updateSubAccountAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const keyId = "00000000-0000-4000-8000-000000000005";
+const apiKey = await client.subAccounts.apiKeys.update(subAccountId, keyId, {
+  label: "Renamed bootstrap key",
+});
+console.log("Sub-account API key updated.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: deleteSubAccountAPIKey -->
 
 ### subAccounts.apiKeys.delete
@@ -642,6 +1194,24 @@ client.subAccounts.apiKeys.delete(subAccountId: UUID, keyId: UUID, options?: Req
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteSubAccountAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const keyId = "00000000-0000-4000-8000-000000000005";
+const result = await client.subAccounts.apiKeys.delete(subAccountId, keyId);
+console.log("Sub-account API key deleted.", { message: result.message });
+```
 
 <!-- operation: getSuppressions -->
 
@@ -662,6 +1232,18 @@ client.suppressions.list(params?: ListSuppressionsParams, options?: RequestOptio
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getSuppressions -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.suppressions.list({ limit: 20 });
+console.log("Suppressions listed.", { count: page.data.length });
+```
+
 <!-- operation: createSuppression -->
 
 ### suppressions.create
@@ -679,6 +1261,29 @@ client.suppressions.create(body: CreateSuppressionRequest, options?: Idempotency
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: createSuppression -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.suppressions.create(
+  {
+    email: "recipient@example.net",
+    reason: "User requested removal",
+    expires_at: "2030-01-01T00:00:00Z",
+  },
+  { idempotencyKey: "sdk-sample-create-suppression" },
+);
+console.log("Suppression created.", { count: result.data.length });
+```
 
 <!-- operation: deleteSuppression -->
 
@@ -698,6 +1303,22 @@ client.suppressions.delete(params: DeleteSuppressionParams, options?: RequestOpt
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: deleteSuppression -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.suppressions.delete({ email: "recipient@example.net" });
+console.log("Suppression deleted.", { message: result.message });
+```
+
 <!-- operation: deleteAllSuppressions -->
 
 ### suppressions.wipe
@@ -715,6 +1336,22 @@ client.suppressions.wipe(params?: WipeSuppressionsParams, options?: RequestOptio
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteAllSuppressions -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.suppressions.wipe({ domain: "example.com" });
+console.log("Domain suppressions deleted.", { message: result.message });
+```
 
 <!-- operation: getRoutes -->
 
@@ -735,6 +1372,18 @@ client.routes.list(params?: ListRoutesParams, options?: RequestOptions): AhaSend
 - **Authorization rule:** `query_domain_required_for_scoped`; global role `routes:read:all`; domain role `routes:read:{domain}`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getRoutes -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.routes.list({ domain: "example.com", limit: 20 });
+console.log("Routes listed.", { count: page.data.length });
+```
+
 <!-- operation: createRoute -->
 
 ### routes.create
@@ -752,6 +1401,29 @@ client.routes.create(body: CreateRouteRequest, options?: IdempotencyRequestOptio
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** Authorization requires `routes:write:all` or `routes:write:{domain}` matching the domain in `recipient`.
 - **Authorization rule:** `body_domain`; global role `routes:write:all`; domain role `routes:write:{domain}`
+
+<!-- sdk-sample: createRoute -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const route = await client.routes.create(
+  {
+    name: "Inbound messages",
+    url: "https://example.com/inbound",
+    recipient: "inbound@example.com",
+  },
+  { idempotencyKey: "sdk-sample-create-route" },
+);
+console.log("Route created.", { id: route.id, name: route.name });
+```
 
 <!-- operation: getRoute -->
 
@@ -771,6 +1443,19 @@ client.routes.get(routeId: UUID, options?: RequestOptions): AhaSendPromise<Route
 - **Resource authorization:** Authorization requires `routes:read:all` or `routes:read:{domain}` matching the route's `recipient` domain.
 - **Authorization rule:** `existing_resource_domains`; global role `routes:read:all`; domain role `routes:read:{domain}`
 
+<!-- sdk-sample: getRoute -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const routeId = "00000000-0000-4000-8000-000000000006";
+const route = await client.routes.get(routeId);
+console.log("Route found.", { id: route.id, name: route.name });
+```
+
 <!-- operation: updateRoute -->
 
 ### routes.update
@@ -789,6 +1474,25 @@ client.routes.update(routeId: UUID, body: UpdateRouteRequest, options?: RequestO
 - **Resource authorization:** Authorization requires `routes:write:all`, or `routes:write:{domain}` for both the existing and replacement `recipient` domains.
 - **Authorization rule:** `existing_and_replacement_domain`; global role `routes:write:all`; domain role `routes:write:{domain}`
 
+<!-- sdk-sample: updateRoute -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const routeId = "00000000-0000-4000-8000-000000000006";
+const route = await client.routes.update(routeId, {
+  url: "https://example.com/inbound-v2",
+});
+console.log("Route updated.", { id: route.id, name: route.name });
+```
+
 <!-- operation: deleteRoute -->
 
 ### routes.delete
@@ -806,6 +1510,23 @@ client.routes.delete(routeId: UUID, options?: RequestOptions): AhaSendPromise<Su
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** Authorization requires `routes:delete:all` or `routes:delete:{domain}` matching the route's `recipient` domain.
 - **Authorization rule:** `existing_resource_domains`; global role `routes:delete:all`; domain role `routes:delete:{domain}`
+
+<!-- sdk-sample: deleteRoute -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const routeId = "00000000-0000-4000-8000-000000000006";
+const result = await client.routes.delete(routeId);
+console.log("Route deleted.", { message: result.message });
+```
 
 <!-- operation: getWebhooks -->
 
@@ -826,6 +1547,18 @@ client.webhooks.list(params?: ListWebhooksParams, options?: RequestOptions): Aha
 - **Authorization rule:** `authorized_domain_filter`; global role `webhooks:read:all`; domain role `webhooks:read:{domain}`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getWebhooks -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.webhooks.list({ limit: 20 });
+console.log("Webhooks listed.", { count: page.data.length });
+```
+
 <!-- operation: createWebhook -->
 
 ### webhooks.create
@@ -843,6 +1576,30 @@ client.webhooks.create(body: CreateWebhookRequest, options?: IdempotencyRequestO
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** A `scoped` webhook requires `webhooks:write:{domain}` for every `domains` entry; `scope: "global"` requires `webhooks:write:all`.
 - **Authorization rule:** `all_body_domains`; global role `webhooks:write:all`; domain role `webhooks:write:{domain}`
+
+<!-- sdk-sample: createWebhook -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const webhook = await client.webhooks.create(
+  {
+    name: "Delivery events",
+    url: "https://example.com/webhooks/ahasend",
+    scope: "global",
+    on_delivered: true,
+  },
+  { idempotencyKey: "sdk-sample-create-webhook" },
+);
+console.log("Webhook created.", { id: webhook.id, name: webhook.name });
+```
 
 <!-- operation: getWebhook -->
 
@@ -862,6 +1619,19 @@ client.webhooks.get(webhookId: UUID, options?: RequestOptions): AhaSendPromise<W
 - **Resource authorization:** Authorization requires `webhooks:read:all` or `webhooks:read:{domain}` matching at least one webhook `domains` entry.
 - **Authorization rule:** `existing_resource_domains`; global role `webhooks:read:all`; domain role `webhooks:read:{domain}`
 
+<!-- sdk-sample: getWebhook -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const webhookId = "00000000-0000-4000-8000-000000000007";
+const webhook = await client.webhooks.get(webhookId);
+console.log("Webhook found.", { id: webhook.id, name: webhook.name });
+```
+
 <!-- operation: updateWebhook -->
 
 ### webhooks.update
@@ -880,6 +1650,25 @@ client.webhooks.update(webhookId: UUID, body: UpdateWebhookRequest, options?: Re
 - **Resource authorization:** Authorization requires `webhooks:write:{domain}` for the existing webhook and every new `domains` entry; changing `scope` to `global` requires `webhooks:write:all`.
 - **Authorization rule:** `existing_and_new_domains`; global role `webhooks:write:all`; domain role `webhooks:write:{domain}`
 
+<!-- sdk-sample: updateWebhook -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const webhookId = "00000000-0000-4000-8000-000000000007";
+const webhook = await client.webhooks.update(webhookId, {
+  name: "Transactional delivery events",
+});
+console.log("Webhook updated.", { id: webhook.id, name: webhook.name });
+```
+
 <!-- operation: deleteWebhook -->
 
 ### webhooks.delete
@@ -897,6 +1686,23 @@ client.webhooks.delete(webhookId: UUID, options?: RequestOptions): AhaSendPromis
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** Authorization requires `webhooks:delete:all` or `webhooks:delete:{domain}` matching at least one webhook `domains` entry.
 - **Authorization rule:** `existing_resource_domains`; global role `webhooks:delete:all`; domain role `webhooks:delete:{domain}`
+
+<!-- sdk-sample: deleteWebhook -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const webhookId = "00000000-0000-4000-8000-000000000007";
+const result = await client.webhooks.delete(webhookId);
+console.log("Webhook deleted.", { message: result.message });
+```
 
 <!-- operation: getSMTPCredentials -->
 
@@ -917,6 +1723,18 @@ client.smtpCredentials.list(params?: PaginationParams, options?: RequestOptions)
 - **Authorization rule:** `authorized_domain_filter`; global role `smtp-credentials:read:all`; domain role `smtp-credentials:read:{domain}`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getSMTPCredentials -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.smtpCredentials.list({ limit: 20 });
+console.log("SMTP credentials listed.", { count: page.data.length });
+```
+
 <!-- operation: createSMTPCredential -->
 
 ### smtpCredentials.create
@@ -934,6 +1752,25 @@ client.smtpCredentials.create(body: CreateSMTPCredentialRequest, options?: Idemp
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** A `scoped` SMTP credential requires `smtp-credentials:write:{domain}` for every `domains` entry; `scope: "global"` requires `smtp-credentials:write:all`.
 - **Authorization rule:** `all_body_domains`; global role `smtp-credentials:write:all`; domain role `smtp-credentials:write:{domain}`
+
+<!-- sdk-sample: createSMTPCredential -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const credential = await client.smtpCredentials.create(
+  { name: "Production SMTP", scope: "global" },
+  { idempotencyKey: "sdk-sample-create-smtp-credential" },
+);
+console.log("SMTP credential created.", { id: credential.id, name: credential.name });
+```
 
 <!-- operation: getSMTPCredential -->
 
@@ -953,6 +1790,19 @@ client.smtpCredentials.get(credentialId: UUID, options?: RequestOptions): AhaSen
 - **Resource authorization:** Authorization requires `smtp-credentials:read:all` or `smtp-credentials:read:{domain}` matching at least one credential `domains` entry.
 - **Authorization rule:** `existing_resource_domains`; global role `smtp-credentials:read:all`; domain role `smtp-credentials:read:{domain}`
 
+<!-- sdk-sample: getSMTPCredential -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const credentialId = "00000000-0000-4000-8000-000000000008";
+const credential = await client.smtpCredentials.get(credentialId);
+console.log("SMTP credential found.", { id: credential.id, name: credential.name });
+```
+
 <!-- operation: deleteSMTPCredential -->
 
 ### smtpCredentials.delete
@@ -970,6 +1820,23 @@ client.smtpCredentials.delete(credentialId: UUID, options?: RequestOptions): Aha
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** Authorization requires `smtp-credentials:delete:all` or `smtp-credentials:delete:{domain}` matching at least one credential `domains` entry.
 - **Authorization rule:** `existing_resource_domains`; global role `smtp-credentials:delete:all`; domain role `smtp-credentials:delete:{domain}`
+
+<!-- sdk-sample: deleteSMTPCredential -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const credentialId = "00000000-0000-4000-8000-000000000008";
+const result = await client.smtpCredentials.delete(credentialId);
+console.log("SMTP credential deleted.", { message: result.message });
+```
 
 <!-- operation: getDeliverabilityStatistics -->
 
@@ -989,6 +1856,21 @@ client.statistics.deliverability(params?: StatisticsParams, options?: RequestOpt
 - **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
 - **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
 
+<!-- sdk-sample: getDeliverabilityStatistics -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const statistics = await client.statistics.deliverability({
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-01-02T00:00:00Z",
+});
+console.log("Deliverability statistics loaded.", { buckets: statistics.data.length });
+```
+
 <!-- operation: getBounceStatistics -->
 
 ### statistics.bounces
@@ -1007,6 +1889,21 @@ client.statistics.bounces(params?: StatisticsParams, options?: RequestOptions): 
 - **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
 - **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
 
+<!-- sdk-sample: getBounceStatistics -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const statistics = await client.statistics.bounces({
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-01-02T00:00:00Z",
+});
+console.log("Bounce statistics loaded.", { buckets: statistics.data.length });
+```
+
 <!-- operation: getDeliveryTimeStatistics -->
 
 ### statistics.deliveryTimes
@@ -1024,6 +1921,21 @@ client.statistics.deliveryTimes(params?: StatisticsParams, options?: RequestOpti
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
 - **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
+
+<!-- sdk-sample: getDeliveryTimeStatistics -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const statistics = await client.statistics.deliveryTimes({
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-01-02T00:00:00Z",
+});
+console.log("Delivery-time statistics loaded.", { buckets: statistics.data.length });
+```
 
 ## Async iterators
 

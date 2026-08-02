@@ -12,11 +12,7 @@ import {
   validateOperationProfile,
 } from "./generate-sdk.mjs";
 import { canonicalizeJson, digestYamlArtifact, sha256Hex } from "./digest-artifact.mjs";
-import {
-  NODE_CODE_SAMPLES,
-  NODE_OPERATION_KEYS,
-  NODE_SAMPLE_LANGUAGE,
-} from "./node-code-samples.mjs";
+import { NODE_SAMPLE_REGISTRY, NODE_SAMPLE_LANGUAGE } from "./node-code-samples.mjs";
 
 const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
@@ -342,6 +338,43 @@ function validateProfile(document, profile, operationById) {
   }
 }
 
+function collectSdkSamples(operations) {
+  if (NODE_SAMPLE_REGISTRY.length !== operations.length) {
+    throw new TypeError(
+      `SDK sample registry must contain ${operations.length} entries, received ${NODE_SAMPLE_REGISTRY.length}`,
+    );
+  }
+
+  const operationById = new Map(operations.map((operation) => [operation.operationId, operation]));
+  const sampleById = new Map();
+  for (const registryEntry of NODE_SAMPLE_REGISTRY) {
+    if (sampleById.has(registryEntry.operationId)) {
+      throw new TypeError(`Duplicate SDK sample registry entry for ${registryEntry.operationId}`);
+    }
+    const operation = operationById.get(registryEntry.operationId);
+    if (operation === undefined) {
+      throw new TypeError(
+        `SDK sample registry contains unknown operation ${registryEntry.operationId}`,
+      );
+    }
+    const operationKey = `${operation.method.toUpperCase()} ${operation.path}`;
+    if (registryEntry.operationKey !== operationKey) {
+      throw new TypeError(`SDK sample operation key is stale for ${registryEntry.operationId}`);
+    }
+    if (registryEntry.sample.lang !== NODE_SAMPLE_LANGUAGE) {
+      throw new TypeError(`SDK sample language is inconsistent for ${registryEntry.operationId}`);
+    }
+    sampleById.set(registryEntry.operationId, registryEntry);
+  }
+
+  return sampleById;
+}
+
+function expectedFacade(mapping) {
+  const owner = mapping.facade === "client" ? "client" : `client.${mapping.facade}`;
+  return `${owner}.${mapping.method}`;
+}
+
 export async function generateApiReference({ openApiSource, profileSource, clientSource } = {}) {
   const openApi =
     openApiSource ?? (await readFile(resolve(repositoryRoot, "openapi.yaml"), "utf8"));
@@ -353,6 +386,7 @@ export async function generateApiReference({ openApiSource, profileSource, clien
   const profile = record(JSON.parse(profileJson), "Operation profile");
   const operations = collectOperations(document);
   const operationById = new Map(operations.map((entry) => [entry.operationId, entry]));
+  const sampleById = collectSdkSamples(operations);
 
   validateProfile(document, profile, operationById);
 
@@ -362,8 +396,8 @@ export async function generateApiReference({ openApiSource, profileSource, clien
     "",
     "# API reference",
     "",
-    "This file is generated from the canonical operation profile, OpenAPI contract, " +
-      "resource-authorization registry, and exported TypeScript declarations.",
+    "This file is generated from the canonical operation profile, SDK sample registry, " +
+      "OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.",
     "",
     `It contains exactly ${EXPECTED_OPERATION_COUNT} API methods and ${EXPECTED_ITERATOR_COUNT} async iterators.`,
     "",
@@ -382,6 +416,16 @@ export async function generateApiReference({ openApiSource, profileSource, clien
     const models = operationModels(document, entry.operationId, entry.operation);
     const pagination = paginationFacts(document, entry);
     const authorization = AUTHORIZATION_REGISTRY[entry.operationId];
+    const registryEntry = sampleById.get(entry.operationId);
+    if (registryEntry === undefined) {
+      throw new TypeError(`SDK sample is missing for operation ${entry.operationId}`);
+    }
+    const facade = expectedFacade(mapping);
+    if (registryEntry.facade !== facade) {
+      throw new TypeError(
+        `SDK sample facade for ${entry.operationId} must be ${facade}, received ${registryEntry.facade}`,
+      );
+    }
 
     lines.push(
       `<!-- operation: ${entry.operationId} -->`,
@@ -401,7 +445,16 @@ export async function generateApiReference({ openApiSource, profileSource, clien
       ...renderAuthorization(authorization),
     );
     if (pagination !== null) lines.push(`- **Pagination:** ${renderPagination(pagination)}`);
-    lines.push("");
+    lines.push(
+      "",
+      `<!-- sdk-sample: ${entry.operationId} -->`,
+      `#### ${registryEntry.sample.label}`,
+      "",
+      `\`\`\`${registryEntry.sample.lang}`,
+      registryEntry.sample.source.trimEnd(),
+      "```",
+      "",
+    );
   }
 
   lines.push("## Async iterators", "");
@@ -451,30 +504,17 @@ export async function generateRendererHandoff({ openApiSource } = {}) {
     );
   }
 
-  const operationIds = new Set(operations.map(({ operationId }) => operationId));
-  const sampleIds = Object.keys(NODE_CODE_SAMPLES);
-  const unexpectedSampleIds = sampleIds.filter((operationId) => !operationIds.has(operationId));
-  if (sampleIds.length !== operations.length || unexpectedSampleIds.length > 0) {
-    throw new TypeError(
-      `Renderer sample inventory does not match REST operations: unexpected ${JSON.stringify(unexpectedSampleIds)}`,
-    );
-  }
+  const sampleById = collectSdkSamples(operations);
 
   const handoff = {
     version: 1,
     restDigest: digestYamlArtifact(openApi),
-    operations: operations.map(({ operationId, method, path }) => {
-      const sample = NODE_CODE_SAMPLES[operationId];
-      if (sample === undefined) {
+    operations: operations.map(({ operationId }) => {
+      const registryEntry = sampleById.get(operationId);
+      if (registryEntry === undefined) {
         throw new TypeError(`Renderer sample is missing for operation ${operationId}`);
       }
-      const operationKey = `${method.toUpperCase()} ${path}`;
-      if (NODE_OPERATION_KEYS[operationId] !== operationKey) {
-        throw new TypeError(`Renderer sample operation key is stale for ${operationId}`);
-      }
-      if (sample.lang !== NODE_SAMPLE_LANGUAGE) {
-        throw new TypeError(`Renderer sample language is inconsistent for ${operationId}`);
-      }
+      const sample = registryEntry.sample;
 
       return {
         operationId,
