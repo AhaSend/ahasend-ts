@@ -544,6 +544,13 @@ function isAssignmentOperator(kind) {
   return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
 }
 
+function isExternalOutputBinding(binding) {
+  return (
+    ts.isParameter(binding) ||
+    (ts.isVariableDeclaration(binding) && ts.isCatchClause(binding.parent))
+  );
+}
+
 function staticPropertyName(name) {
   if (
     ts.isIdentifier(name) ||
@@ -619,12 +626,92 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
 
   function outputBindingValues(binding, use) {
     const values = [];
+    const selections = [];
     let unsupportedWrite = false;
     if (ts.isVariableDeclaration(binding) || ts.isParameter(binding)) {
       if (binding.initializer !== undefined) values.push(binding.initializer);
-      else unsupportedWrite = true;
+      else if (!isExternalOutputBinding(binding)) unsupportedWrite = true;
     } else if (!ts.isBindingElement(binding)) {
       unsupportedWrite = true;
+    }
+
+    function assignmentSelections(node, properties = [], defaults = []) {
+      const target = unwrapOutputExpression(node);
+      if (ts.isIdentifier(target)) {
+        return outputBindingAt(target) === binding
+          ? { found: true, unsupported: false, values: [{ properties, defaults }] }
+          : { found: false, unsupported: false, values: [] };
+      }
+      if (
+        ts.isBinaryExpression(target) &&
+        target.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ) {
+        return assignmentSelections(target.left, properties, [...defaults, target.right]);
+      }
+      if (ts.isObjectLiteralExpression(target)) {
+        let found = false;
+        let unsupported = false;
+        const values = [];
+        for (const property of target.properties) {
+          if (ts.isSpreadAssignment(property)) {
+            const result = assignmentSelections(property.expression, properties, defaults);
+            found ||= result.found;
+            unsupported ||= result.found || result.unsupported;
+            values.push(...result.values);
+            continue;
+          }
+          const name = staticPropertyName(property.name);
+          if (name === undefined) {
+            unsupported = true;
+            continue;
+          }
+          if (ts.isPropertyAssignment(property)) {
+            const result = assignmentSelections(
+              property.initializer,
+              [...properties, name],
+              defaults,
+            );
+            found ||= result.found;
+            unsupported ||= result.unsupported;
+            values.push(...result.values);
+          } else if (ts.isShorthandPropertyAssignment(property)) {
+            const propertyDefaults =
+              property.objectAssignmentInitializer === undefined
+                ? defaults
+                : [...defaults, property.objectAssignmentInitializer];
+            const result = assignmentSelections(
+              property.name,
+              [...properties, name],
+              propertyDefaults,
+            );
+            found ||= result.found;
+            unsupported ||= result.unsupported;
+            values.push(...result.values);
+          }
+        }
+        return { found, unsupported, values };
+      }
+      if (ts.isArrayLiteralExpression(target)) {
+        let found = false;
+        let unsupported = false;
+        const values = [];
+        for (const [index, element] of target.elements.entries()) {
+          if (ts.isOmittedExpression(element)) continue;
+          if (ts.isSpreadElement(element)) {
+            const result = assignmentSelections(element.expression, properties, defaults);
+            found ||= result.found;
+            unsupported ||= result.found || result.unsupported;
+            values.push(...result.values);
+            continue;
+          }
+          const result = assignmentSelections(element, [...properties, String(index)], defaults);
+          found ||= result.found;
+          unsupported ||= result.unsupported;
+          values.push(...result.values);
+        }
+        return { found, unsupported, values };
+      }
+      return { found: false, unsupported: false, values: [] };
     }
 
     function visit(node) {
@@ -648,6 +735,22 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
         else unsupportedWrite = true;
       }
       if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        (ts.isObjectLiteralExpression(unwrapOutputExpression(node.left)) ||
+          ts.isArrayLiteralExpression(unwrapOutputExpression(node.left)))
+      ) {
+        const result = assignmentSelections(node.left);
+        unsupportedWrite ||= result.unsupported;
+        selections.push(
+          ...result.values.map(({ properties, defaults }) => ({
+            root: node.right,
+            properties,
+            defaults,
+          })),
+        );
+      }
+      if (
         (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
         ts.isIdentifier(unwrapOutputExpression(node.operand)) &&
         outputBindingAt(unwrapOutputExpression(node.operand)) === binding
@@ -657,7 +760,7 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
       ts.forEachChild(node, visit);
     }
     visit(sourceFile);
-    return { values, unsupportedWrite };
+    return { values, selections, unsupportedWrite };
   }
 
   function objectPropertyInitializers(object, name) {
@@ -688,18 +791,37 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
     return { root: element.initializer, properties, defaults };
   }
 
-  function bindingMayAlias(candidate, target, use, seenBindings = new Set()) {
-    if (candidate === target) return true;
-    if (seenBindings.has(candidate.pos) || ts.isBindingElement(candidate)) return false;
+  function objectLocations(binding, properties, use, seenBindings = new Set()) {
+    if (seenBindings.has(binding.pos)) return [];
     const nextSeen = new Set(seenBindings);
-    nextSeen.add(candidate.pos);
-    const { values } = outputBindingValues(candidate, use);
-    return values.some((value) => {
-      const expression = unwrapOutputExpression(value);
-      if (!ts.isIdentifier(expression)) return false;
-      const binding = outputBindingAt(expression);
-      return binding !== undefined && bindingMayAlias(binding, target, use, nextSeen);
-    });
+    nextSeen.add(binding.pos);
+    const locations = [{ binding, properties }];
+
+    function addValue(value, selectedProperties = []) {
+      const access = memberAccessPath(value);
+      if (access === undefined) return;
+      const rootBinding = outputBindingAt(access.root);
+      if (rootBinding === undefined) return;
+      locations.push(
+        ...objectLocations(
+          rootBinding,
+          [...access.properties, ...selectedProperties, ...properties],
+          use,
+          nextSeen,
+        ),
+      );
+    }
+
+    if (ts.isBindingElement(binding)) {
+      const path = bindingElementPath(binding);
+      if (path?.root !== undefined) addValue(path.root, path.properties);
+      return locations;
+    }
+
+    const { values, selections } = outputBindingValues(binding, use);
+    for (const value of values) addValue(value);
+    for (const selection of selections) addValue(selection.root, selection.properties);
+    return locations;
   }
 
   function propertyWritesAreAllowed(binding, properties, use, seenAliases) {
@@ -709,16 +831,29 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
       if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
         const access = memberAccessPath(node.left);
         const rootBinding = access === undefined ? undefined : outputBindingAt(access.root);
-        if (
-          access !== undefined &&
-          rootBinding !== undefined &&
-          bindingMayAlias(rootBinding, binding, use) &&
-          access.properties.length === properties.length &&
-          access.properties.every((property, index) => property === properties[index])
-        ) {
-          allowed =
-            node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-            isAllowedOutputValue(node.right, seenAliases);
+        if (access !== undefined && rootBinding !== undefined) {
+          for (const location of objectLocations(rootBinding, access.properties, use)) {
+            if (location.binding !== binding) continue;
+            const writeIsPrefix = location.properties.every(
+              (property, index) => property === properties[index],
+            );
+            const outputIsPrefix = properties.every(
+              (property, index) => property === location.properties[index],
+            );
+            if (writeIsPrefix) {
+              allowed =
+                node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+                isAllowedPropertyFromValue(
+                  node.right,
+                  properties.slice(location.properties.length),
+                  use,
+                  seenAliases,
+                );
+            } else if (outputIsPrefix) {
+              allowed = false;
+            }
+            if (!allowed) return;
+          }
         }
       }
       ts.forEachChild(node, visit);
@@ -765,16 +900,40 @@ function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
         isAllowedOutputName(path.properties.at(-1) ?? "") &&
         path.defaults.every((value) => isAllowedOutputValue(value, nextSeen)) &&
         writes.values.every((value) => isAllowedOutputValue(value, nextSeen)) &&
+        writes.selections.every(
+          (selection) =>
+            selection.defaults.every((value) => isAllowedOutputValue(value, nextSeen)) &&
+            isAllowedPropertyFromValue(
+              selection.root,
+              [...selection.properties, ...properties],
+              use,
+              nextSeen,
+            ),
+        ) &&
         (path.root === undefined ||
           isAllowedPropertyFromValue(path.root, [...path.properties, ...properties], use, nextSeen))
       );
     }
 
-    const { values, unsupportedWrite } = outputBindingValues(binding, use);
+    const { values, selections, unsupportedWrite } = outputBindingValues(binding, use);
+    const externalValueIsAllowed =
+      isExternalOutputBinding(binding) &&
+      ((properties.length > 0 && isAllowedOutputName(properties.at(-1) ?? "")) ||
+        (ts.isIdentifier(binding.name) && isAllowedOutputName(binding.name.text)));
     return (
       !unsupportedWrite &&
-      values.length > 0 &&
+      (values.length > 0 || selections.length > 0 || externalValueIsAllowed) &&
       values.every((value) => isAllowedPropertyFromValue(value, properties, use, nextSeen)) &&
+      selections.every(
+        (selection) =>
+          selection.defaults.every((value) => isAllowedOutputValue(value, nextSeen)) &&
+          isAllowedPropertyFromValue(
+            selection.root,
+            [...selection.properties, ...properties],
+            use,
+            nextSeen,
+          ),
+      ) &&
       propertyWritesAreAllowed(binding, properties, use, nextSeen)
     );
   }

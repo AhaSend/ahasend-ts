@@ -231,8 +231,33 @@ logger.error(safe.requestId);`,
 output = err.message;
 logger.error(output);`,
     ],
+    [
+      "destructuring assignment aliases",
+      `let output = err.status;
+({ message: output } = err);
+logger.error(output);`,
+    ],
+    [
+      "nested object replacements",
+      `const safe = { nested: { requestId: err.requestId } };
+safe.nested = { requestId: err.message };
+logger.error(safe.nested.requestId);`,
+    ],
+    [
+      "nested object mutations through aliases",
+      `const safe = { nested: { requestId: err.requestId } };
+const nested = safe.nested;
+nested.requestId = err.message;
+logger.error(safe.nested.requestId);`,
+    ],
     ["template literals", "console.log(`recipient: ${event.data.recipient}`);"],
     ["error messages", "logger.error(err.message);"],
+    [
+      "error messages on callback parameters",
+      `function onError(err) {
+  logger.error(err.message);
+}`,
+    ],
     ["computed object keys", "logger.error({ [err.message]: err.status });"],
   ])("rejects unsafe output through %s", (_label, source) => {
     expect(() => verifySafeOutput("unsafe-output-fixture.mjs", source)).toThrow(
@@ -251,6 +276,28 @@ logger.error(output);`,
   errorCode: err.code,
   requestId: err.requestId,
 });`,
+      ),
+    ).not.toThrow();
+
+    expect(() =>
+      verifySafeOutput(
+        "safe-callback-output-fixture.mjs",
+        `function onResponse(event) {
+  logger.info({
+    status: event.status,
+    requestId: event.requestId,
+  });
+}
+
+try {
+  runRequest();
+} catch (err) {
+  logger.error({
+    status: err.status,
+    errorCode: err.code,
+    requestId: err.requestId,
+  });
+}`,
       ),
     ).not.toThrow();
   });
