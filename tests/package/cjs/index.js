@@ -1,8 +1,11 @@
 const assert = require("node:assert/strict");
+const { inspect } = require("node:util");
 const {
+  AhaSendAPIError,
   AhaSendClient,
   AhaSendConfigurationError,
   AhaSendError,
+  AhaSendIdempotencyConflictError,
   isAhaSendError,
 } = require("@ahasend/sdk");
 const { AhaSendWebhookVerificationError, WebhookVerifier } = require("@ahasend/sdk/webhooks");
@@ -79,8 +82,30 @@ async function verifyInstalledPackageBehavior() {
   assert.notEqual(esmRoot.AhaSendError, AhaSendError);
   assert.equal(esmVerificationError instanceof AhaSendError, false);
   assert.equal(isAhaSendError(esmVerificationError), true);
+  assert.equal(AhaSendError.is(esmVerificationError), true);
   assert.equal(verificationError instanceof esmRoot.AhaSendError, false);
   assert.equal(esmRoot.isAhaSendError(verificationError), true);
+  assert.equal(esmRoot.AhaSendError.is(verificationError), true);
+
+  const cjsApiError = new AhaSendAPIError({
+    status: 418,
+    message: "CommonJS API error",
+    body: null,
+  });
+  const esmApiError = new esmRoot.AhaSendAPIError({
+    status: 418,
+    message: "ESM API error",
+    body: null,
+  });
+
+  assert.equal(esmApiError instanceof AhaSendAPIError, false);
+  assert.equal(AhaSendError.is(esmApiError), true);
+  assert.equal(AhaSendAPIError.is(esmApiError), true);
+  assert.equal(cjsApiError instanceof esmRoot.AhaSendAPIError, false);
+  assert.equal(esmRoot.AhaSendError.is(cjsApiError), true);
+  assert.equal(esmRoot.AhaSendAPIError.is(cjsApiError), true);
+  assert.equal(AhaSendAPIError.is(esmVerificationError), false);
+  assert.equal(esmRoot.AhaSendAPIError.is(verificationError), false);
 
   const accountRequest = client.accounts.get();
   const account = await accountRequest;
@@ -91,6 +116,59 @@ async function verifyInstalledPackageBehavior() {
   assert.equal(envelope.response.status, 200);
   assert.equal(envelope.requestId, "req_cjs_account");
   assert.equal(requestCount, 1);
+
+  const conflictKeys = [];
+  const conflictClient = new AhaSendClient({
+    apiKey: "aha-sk-test",
+    accountId: "11111111-1111-4111-8111-111111111111",
+    baseUrl: "https://api.test",
+    retry: {
+      enabled: true,
+      maxRetries: 1,
+      baseDelayMs: 0,
+      maxDelayMs: 0,
+      strategy: "constant",
+      jitter: false,
+    },
+    fetch: async (_input, init) => {
+      conflictKeys.push(new Headers(init.headers).get("idempotency-key"));
+      return Response.json(
+        { message: "idempotent request is still processing" },
+        {
+          status: 409,
+          headers: { "idempotent-replayed": "false", "retry-after": "1" },
+        },
+      );
+    },
+  });
+
+  let conflictError;
+  try {
+    await conflictClient.domains.create({ domain: "conflict.example.com" });
+  } catch (error) {
+    conflictError = error;
+  }
+
+  assert.ok(conflictError instanceof AhaSendIdempotencyConflictError);
+  const recoveryKey = conflictKeys[0];
+  assert.equal(typeof recoveryKey, "string");
+  assert.ok(recoveryKey.length > 0);
+  assert.deepEqual(conflictKeys, [recoveryKey, recoveryKey]);
+  assert.equal(conflictError.idempotencyKey, recoveryKey);
+  const recoveryKeyDescriptor = Object.getOwnPropertyDescriptor(conflictError, "idempotencyKey");
+  assert.equal(recoveryKeyDescriptor.enumerable, false);
+  assert.equal(recoveryKeyDescriptor.value, recoveryKey);
+  assert.equal(recoveryKeyDescriptor.writable, false);
+  assert.equal(Object.keys(conflictError).includes("idempotencyKey"), false);
+
+  for (const diagnostic of [
+    JSON.stringify(conflictError),
+    inspect(conflictError),
+    inspect(conflictError, { showHidden: true }),
+  ]) {
+    assert.equal(diagnostic.includes(recoveryKey), false);
+    assert.equal(diagnostic.includes("idempotencyKey"), false);
+  }
 }
 
 verifyInstalledPackageBehavior().catch((error) => {
