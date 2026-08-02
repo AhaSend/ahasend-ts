@@ -489,7 +489,7 @@ function assertTelemetryHooks(hooks: unknown): void {
   assertPlainRecord(hooks, "hooks");
   assertKnownKeys(hooks, HOOK_NAMES, "hooks");
   for (const [name, hook] of Object.entries(hooks)) {
-    if (typeof hook !== "function") {
+    if (hook !== undefined && typeof hook !== "function") {
       throw new AhaSendConfigurationError(`AhaSend: \`hooks.${name}\` must be a function.`);
     }
   }

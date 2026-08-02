@@ -402,6 +402,18 @@ describe("resolveConfig", () => {
     );
   });
 
+  it.each(["onRequest", "onResponse", "onRetry", "onError"] as const)(
+    "accepts an explicitly undefined hooks.%s member",
+    (hookName) => {
+      const resolved = resolveConfig({
+        apiKey: "aha-sk-test",
+        hooks: { [hookName]: undefined },
+      } as unknown as ClientOptions);
+
+      expect(resolved.hooks[hookName]).toBeTypeOf("function");
+    },
+  );
+
   it("rejects invalid per-request options synchronously before fetch", () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new AhaSendClient({
