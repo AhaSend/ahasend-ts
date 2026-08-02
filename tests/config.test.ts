@@ -535,13 +535,55 @@ describe("optionsFromEnv", () => {
     expect(options.baseUrl).toBe("https://example.ahasend.com");
   });
 
+  it("gives AHASEND_BASE_URL precedence over AHASEND_SCHEME and AHASEND_HOST", () => {
+    const options = optionsFromEnv({
+      AHASEND_API_KEY: "aha-sk-test",
+      AHASEND_BASE_URL: "https://primary.example.com",
+      AHASEND_SCHEME: "http",
+      AHASEND_HOST: "ignored.example.com",
+    });
+
+    expect(options.baseUrl).toBe("https://primary.example.com");
+  });
+
   it("builds baseUrl from scheme and host when AHASEND_BASE_URL is not set", () => {
     const options = optionsFromEnv({
       AHASEND_API_KEY: "aha-sk-test",
       AHASEND_HOST: "localhost:4010",
       AHASEND_SCHEME: "http",
+      AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL: "true",
     });
     expect(options.baseUrl).toBe("http://localhost:4010");
+  });
+
+  it.each([
+    ["explicit true", "true", false],
+    ["explicit false", "false", true],
+    ["absent", undefined, true],
+    ["malformed", "sometimes", true],
+  ])("%s controls environment-derived insecure HTTP base URLs", (_case, optIn, shouldReject) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchImpl);
+    const optInEnv =
+      optIn === undefined ? {} : { AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL: optIn };
+    const construct = () =>
+      AhaSendClient.fromEnv({
+        AHASEND_API_KEY: "aha-sk-test",
+        AHASEND_ACCOUNT_ID: "account-id",
+        AHASEND_BASE_URL: "http://api.example.com",
+        ...optInEnv,
+      });
+
+    try {
+      if (shouldReject) {
+        expect(construct).toThrow(/insecure|boolean|https/i);
+      } else {
+        expect(construct).not.toThrow();
+      }
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it.each([
@@ -676,5 +718,27 @@ describe("optionsFromEnv", () => {
         AHASEND_BASE_URL: "http://api.example.com",
       }),
     ).toThrow(/insecure|https/i);
+  });
+
+  it("uses the Node.js 22 support wording without exposing environment secrets", () => {
+    const apiKey = "aha-sk-environment-secret";
+    vi.stubGlobal("fetch", undefined);
+
+    try {
+      let error: unknown;
+      try {
+        AhaSendClient.fromEnv({
+          AHASEND_API_KEY: apiKey,
+          AHASEND_ACCOUNT_ID: "account-id",
+        });
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(String(error)).toMatch(/Node\.js 22 or later/);
+      expect(String(error)).not.toContain(apiKey);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -145,7 +145,7 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
   const fetchImpl = options.fetch ?? globalThis.fetch;
   if (typeof fetchImpl !== "function") {
     throw new AhaSendConfigurationError(
-      "AhaSend: `fetch` is not available. Use Node.js 18+ or inject a `fetch` implementation via `options.fetch`.",
+      "AhaSend: `fetch` is not available. Use Node.js 22 or later, or inject a `fetch` implementation via `options.fetch`.",
     );
   }
 
@@ -183,8 +183,21 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
 
   const options: ClientOptions = { apiKey };
 
+  const allowInsecureBaseUrl =
+    env.AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL === undefined
+      ? false
+      : parseBool(
+          env.AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL,
+          "AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL",
+        );
+  if (env.AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL !== undefined) {
+    options.dangerouslyAllowInsecureBaseUrl = allowInsecureBaseUrl;
+  }
+
   const baseUrl = env.AHASEND_BASE_URL ?? buildBaseUrl(env.AHASEND_SCHEME, env.AHASEND_HOST);
-  if (baseUrl !== undefined) options.baseUrl = normalizeBaseUrl(baseUrl, false);
+  if (baseUrl !== undefined) {
+    options.baseUrl = normalizeBaseUrl(baseUrl, allowInsecureBaseUrl, false);
+  }
 
   if (env.AHASEND_USER_AGENT !== undefined) {
     assertNonEmptyString(env.AHASEND_USER_AGENT, "AHASEND_USER_AGENT");
@@ -352,7 +365,7 @@ function assertNotBrowser(allow: boolean): void {
   }
 }
 
-function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
+function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean, allowLocalhost = true): string {
   assertNonEmptyString(baseUrl, "baseUrl");
 
   let parsed: URL;
@@ -388,7 +401,7 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
   }
 
   const isLocalhost = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\/?$/i.test(baseUrl);
-  if (parsed.protocol === "http:" && !isLocalhost && !allowInsecure) {
+  if (parsed.protocol === "http:" && (!isLocalhost || !allowLocalhost) && !allowInsecure) {
     throw new AhaSendConfigurationError(
       "AhaSend: refusing to send the bearer API key over an insecure baseUrl. " +
         `Use https:// or set { dangerouslyAllowInsecureBaseUrl: true } to override.`,

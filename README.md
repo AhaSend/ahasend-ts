@@ -75,6 +75,7 @@ const client = new AhaSendClient({
   apiKey: "aha-sk-…", // required
   accountId: "uuid", // required — one client per account
   baseUrl: "https://api.ahasend.com", // HTTPS enforced (localhost exempt)
+  dangerouslyAllowInsecureBaseUrl: false, // dangerous: permits bearer keys over HTTP
   timeoutMs: 30_000, // default per-attempt timeout in MILLISECONDS
   userAgent: "ahasend-node/x.y.z",
   debug: false, // true = log every request to stderr
@@ -108,6 +109,7 @@ official Go SDK reads:
 | `AHASEND_API_KEY` / `AHASEND_TOKEN`                                | API key (either name works)                                                                      |
 | `AHASEND_ACCOUNT_ID`                                               | Account UUID                                                                                     |
 | `AHASEND_BASE_URL` (or `AHASEND_SCHEME` + `AHASEND_HOST`)          | API endpoint                                                                                     |
+| `AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL`                      | Explicit opt-in for an HTTP environment endpoint                                                 |
 | `AHASEND_TIMEOUT`                                                  | Request timeout in **seconds** (note: the constructor option `timeoutMs` is in **milliseconds**) |
 | `AHASEND_MAX_RETRIES`                                              | Retry attempts                                                                                   |
 | `AHASEND_ENABLE_RATE_LIMIT`                                        | Master rate-limit switch                                                                         |
@@ -118,6 +120,13 @@ official Go SDK reads:
 ```ts
 const client = AhaSendClient.fromEnv();
 ```
+
+`AHASEND_BASE_URL` takes precedence when it is set; `AHASEND_SCHEME` and
+`AHASEND_HOST` are used only when it is absent. Environment-derived HTTP
+endpoints are rejected unless `AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL`
+parses as true. Leave this opt-in unset or false in production: it permits the
+SDK to send the bearer API key over plaintext HTTP. The SDK requires Node.js 22
+or later and uses its built-in `fetch` unless you inject another implementation.
 
 `optionsFromEnv()` is also exported if you want the env-derived options
 to compose with your own overrides (see `examples/telemetry.mjs`).
@@ -443,6 +452,7 @@ npx -y @stoplight/prism-cli@5 mock openapi.yaml -p 4010
 export AHASEND_API_KEY="anything"
 export AHASEND_ACCOUNT_ID="00000000-0000-0000-0000-000000000000"
 export AHASEND_BASE_URL="http://127.0.0.1:4010"
+export AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL="true"
 node examples/ping.mjs
 ```
 
