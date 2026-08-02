@@ -18,8 +18,9 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { format } from "node:util";
 import yaml from "js-yaml";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const ACCOUNT_ID = "00000000-0000-4000-8000-000000000001";
 const RESOURCE_ID = "00000000-0000-4000-8000-000000000002";
@@ -522,45 +523,82 @@ describe("packed Next webhook example", () => {
         "webhook-signature": signature,
       };
 
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+        stdout.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+        return true;
+      });
+      const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+        stderr.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+        return true;
+      });
+      const consoleLog = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+        stdout.push(format(...args));
+      });
+      const consoleInfo = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => {
+        stdout.push(format(...args));
+      });
+      const consoleDebug = vi.spyOn(console, "debug").mockImplementation((...args: unknown[]) => {
+        stdout.push(format(...args));
+      });
+      const consoleError = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+        stderr.push(format(...args));
+      });
+      const consoleWarn = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+        stderr.push(format(...args));
+      });
       const previousSecret = process.env.AHASEND_WEBHOOK_SECRET;
       process.env.AHASEND_WEBHOOK_SECRET = secret;
-      let example: PackedNextExample;
+      let responses: readonly [Response, Response] | undefined;
       try {
         const installedCopy = copyPackedExample("next-webhook-route.mjs");
-        example = (await import(pathToFileURL(installedCopy).href)) as PackedNextExample;
+        const example = (await import(pathToFileURL(installedCopy).href)) as PackedNextExample;
+        expect(example.POST).toBeTypeOf("function");
+        const route = example.createWebhookRoute({
+          secret,
+          enqueueOnce: createInMemoryEnqueueOnce(),
+        });
+        responses = [
+          await route(
+            new Request("https://example.test/webhooks/ahasend", {
+              method: "POST",
+              headers,
+              body,
+            }),
+          ),
+          await route(
+            new Request("https://example.test/webhooks/ahasend", {
+              method: "POST",
+              headers,
+              body,
+            }),
+          ),
+        ];
       } finally {
         if (previousSecret === undefined) delete process.env.AHASEND_WEBHOOK_SECRET;
         else process.env.AHASEND_WEBHOOK_SECRET = previousSecret;
+        stdoutWrite.mockRestore();
+        stderrWrite.mockRestore();
+        consoleLog.mockRestore();
+        consoleInfo.mockRestore();
+        consoleDebug.mockRestore();
+        consoleError.mockRestore();
+        consoleWarn.mockRestore();
       }
 
-      expect(example.POST).toBeTypeOf("function");
-      const route = example.createWebhookRoute({
-        secret,
-        enqueueOnce: createInMemoryEnqueueOnce(),
-      });
-      const first = await route(
-        new Request("https://example.test/webhooks/ahasend", {
-          method: "POST",
-          headers,
-          body,
-        }),
-      );
-      const duplicate = await route(
-        new Request("https://example.test/webhooks/ahasend", {
-          method: "POST",
-          headers,
-          body,
-        }),
-      );
+      if (!responses) throw new Error("The packed Next example did not return both responses.");
+      const [first, duplicate] = responses;
       const firstOutput = await first.text();
       const duplicateOutput = await duplicate.text();
+      const processOutput = `${stdout.join("")}${stderr.join("")}`;
 
       expect(first.status).toBe(202);
       expect(duplicate.status).toBe(200);
       expect(firstOutput).toBe("");
       expect(duplicateOutput).toBe("");
-      expect(`${firstOutput}${duplicateOutput}`).not.toContain(secret);
-      expect(`${firstOutput}${duplicateOutput}`).not.toContain(API_KEY);
+      expect(processOutput).not.toContain(secret);
+      expect(processOutput).not.toContain(API_KEY);
     },
     PACKED_EXAMPLE_TIMEOUT_MS,
   );
