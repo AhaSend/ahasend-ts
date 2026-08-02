@@ -1061,9 +1061,8 @@ export interface RequestEvent {
     routeTemplate: string;
 }
 
-// @public (undocumented)
+// @public
 export interface RequestOptions {
-    // (undocumented)
     headers?: Readonly<Record<string, string>>;
     retry?: false | Partial<RetryConfig>;
     // (undocumented)
@@ -1409,15 +1408,11 @@ export interface SuspendSubAccountRequest {
     reason: string;
 }
 
-// @public (undocumented)
+// @public
 export interface TelemetryHooks {
-    // (undocumented)
     onError?(event: ErrorEvent): void | Promise<void>;
-    // (undocumented)
     onRequest?(event: RequestEvent): void | Promise<void>;
-    // (undocumented)
     onResponse?(event: ResponseEvent): void | Promise<void>;
-    // (undocumented)
     onRetry?(event: RetryEvent): void | Promise<void>;
 }
 

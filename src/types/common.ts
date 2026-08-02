@@ -35,8 +35,10 @@ export interface SuccessResponse {
   message: string;
 }
 
+/** Controls applied to one API operation without changing the client defaults. */
 export interface RequestOptions {
   signal?: AbortSignal;
+  /** Additional request headers. SDK- and fetch-controlled headers are rejected. */
   headers?: Readonly<Record<string, string>>;
   /** Timeout for each network attempt, including response-body reading. */
   timeoutMs?: number;

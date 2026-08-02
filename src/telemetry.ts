@@ -33,10 +33,18 @@ export interface ErrorEvent extends RequestEvent {
   requestId?: string;
 }
 
+/** Isolated observability callbacks for the request attempt lifecycle. */
 export interface TelemetryHooks {
+  /** Runs when an attempt starts. The request does not wait for the returned promise. */
   onRequest?(event: RequestEvent): void | Promise<void>;
+  /** Runs after a response is read. The request does not wait for the returned promise. */
   onResponse?(event: ResponseEvent): void | Promise<void>;
+  /** Runs before a retry delay. The request does not wait for the returned promise. */
   onRetry?(event: RetryEvent): void | Promise<void>;
+  /**
+   * Runs after each failed attempt, even if a retry later succeeds.
+   * The request does not wait for the returned promise.
+   */
   onError?(event: ErrorEvent): void | Promise<void>;
 }
 
