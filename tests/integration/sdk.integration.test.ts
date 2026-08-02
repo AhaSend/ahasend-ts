@@ -13,7 +13,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer as createHttpServer, type Server } from "node:http";
+import { createServer as createHttpServer, type IncomingMessage, type Server } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -63,6 +63,12 @@ interface ObservedRequest {
   readonly pathname: string;
 }
 
+interface ObservedExampleRequest extends ObservedRequest {
+  readonly body: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly query: Readonly<Record<string, string>>;
+}
+
 interface PackedExampleCaseBase {
   readonly file: string;
   readonly runtimeCase: string;
@@ -101,6 +107,7 @@ type PackedExampleCase =
 
 interface PackedExampleResult {
   readonly exitCode: number | null;
+  readonly requests: readonly ObservedExampleRequest[];
   readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
   readonly stderr: string;
@@ -394,9 +401,12 @@ const OPERATION_CASES = [
 const SPEC_OPERATIONS = loadSpecOperations();
 
 let consumerDirectory: string | undefined;
+let exampleRequestProxy: Server | undefined;
+const observedExampleRequests: ObservedExampleRequest[] = [];
 let prismProcess: ChildProcess | undefined;
 let prismOutput = "";
 let baseUrl = "";
+let prismBaseUrl = "";
 let installedSdk: InstalledSdk;
 let installedWebhooks: InstalledWebhooks;
 let resolvedPackageEntry = "";
@@ -414,11 +424,13 @@ beforeAll(async () => {
 
   const port = await availablePort();
   prismProcess = startPrism(port);
-  baseUrl = `http://127.0.0.1:${port}`;
-  await waitForPrism(prismProcess, `${baseUrl}/v2/ping`, 60_000);
+  prismBaseUrl = `http://127.0.0.1:${port}`;
+  await waitForPrism(prismProcess, `${prismBaseUrl}/v2/ping`, 60_000);
+  ({ server: exampleRequestProxy, baseUrl } = await startExampleRequestProxy(prismBaseUrl));
 }, 120_000);
 
 afterAll(async () => {
+  await stopHttpServer(exampleRequestProxy);
   await stopProcess(prismProcess);
   if (consumerDirectory !== undefined) {
     rmSync(consumerDirectory, { recursive: true, force: true });
@@ -488,6 +500,7 @@ describe("packed readonly examples", () => {
     expect(result.stderr).toBe("");
     for (const marker of example.expectedMarkers) expect(output).toContain(marker);
     expect(output).not.toContain(API_KEY);
+    assertPackedApiRequests(example, result.requests);
   });
 });
 
@@ -497,7 +510,9 @@ describe("packed typed error example", () => {
     const rawResponseMessage = "private upstream diagnostic must not be logged";
     const suppliedApiKey = "aha-sk-error-example-secret";
     const requestId = "req_error_example_404";
-    const responder = createHttpServer((_request, response) => {
+    const observedRequests: ObservedExampleRequest[] = [];
+    const responder = createHttpServer(async (request, response) => {
+      observedRequests.push(await observeIncomingRequest(request));
       response.writeHead(404, {
         "content-type": "application/json",
         "x-request-id": requestId,
@@ -531,6 +546,16 @@ describe("packed typed error example", () => {
       expect(output).not.toContain(rawResponseMessage);
       expect(output).not.toContain(suppliedApiKey);
       expect(output).not.toContain(API_KEY);
+      expect(result.requests).toEqual([]);
+      expect(observedRequests).toHaveLength(1);
+      const observedRequest = requiredObservedRequest(observedRequests, 0);
+      expect(observedRequest.httpMethod).toBe("GET");
+      expect(observedRequest.pathname).toBe(
+        `/v2/accounts/${ACCOUNT_ID}/messages/00000000-0000-0000-0000-000000000000`,
+      );
+      expect(observedRequest.query).toEqual({});
+      expect(observedRequest.body).toBe("");
+      expect(observedRequest.headers["authorization"]).toBe(`Bearer ${suppliedApiKey}`);
     } finally {
       await new Promise<void>((resolveClosed, reject) => {
         responder.close((error) => {
@@ -709,6 +734,7 @@ describe("packed guarded mutation examples", () => {
           expect(output).not.toContain(suppliedValue);
         }
         expect(existsSync(secretFile)).toBe(false);
+        expect(result.requests).toEqual([]);
       } finally {
         rmSync(temporaryDirectory, { recursive: true, force: true });
       }
@@ -740,6 +766,7 @@ describe("packed guarded mutation examples", () => {
         for (const suppliedValue of Object.values(example.environment)) {
           expect(output).not.toContain(suppliedValue);
         }
+        assertPackedApiRequests(example, result.requests);
 
         if (example.usesSecretFile) {
           const secretFileStats = statSync(secretFile);
@@ -884,6 +911,229 @@ function observeRequest(input: string | URL | Request, init?: RequestInit): Obse
   };
 }
 
+async function observeIncomingRequest(request: IncomingMessage): Promise<ObservedExampleRequest> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (typeof value === "string") headers[name] = value;
+    else if (value !== undefined) headers[name] = value.join(", ");
+  }
+
+  return {
+    httpMethod: (request.method ?? "GET").toUpperCase(),
+    pathname: url.pathname,
+    query: Object.fromEntries(url.searchParams),
+    headers,
+    body: Buffer.concat(chunks).toString("utf8"),
+  };
+}
+
+function assertPackedApiRequests(
+  example: ReadonlyPackedExampleCase | GuardedPackedExampleCase,
+  requests: readonly ObservedExampleRequest[],
+): void {
+  switch (example.file) {
+    case "bootstrap-subaccount.mjs": {
+      expect(requests).toHaveLength(2);
+      const createAccount = assertExampleRequest(
+        requests,
+        0,
+        "POST",
+        `/v2/accounts/${ACCOUNT_ID}/sub-accounts`,
+      );
+      expectJsonBody(createAccount, {
+        name: "Integration child",
+        website: `child.${DOMAIN}`,
+      });
+      const createKey = assertExampleRequest(requests, 1, "POST");
+      expect(
+        pathMatchesTemplate(
+          createKey.pathname,
+          "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys",
+        ),
+      ).toBe(true);
+      expect(createKey.pathname).toMatch(
+        new RegExp(`^/v2/accounts/${ACCOUNT_ID}/sub-accounts/[^/]+/api-keys$`),
+      );
+      expectJsonBody(createKey, {
+        label: "Bootstrap message sender",
+        scopes: ["messages:send:all"],
+      });
+      expectAutoIdempotencyKey(createAccount);
+      expectAutoIdempotencyKey(createKey);
+      expect(createKey.headers["idempotency-key"]).not.toBe(
+        createAccount.headers["idempotency-key"],
+      );
+      return;
+    }
+    case "get-account.mjs":
+      expectSingleReadonlyRequest(requests, `/v2/accounts/${ACCOUNT_ID}`);
+      return;
+    case "idempotency.mjs": {
+      expect(requests).toHaveLength(2);
+      const first = assertExampleRequest(
+        requests,
+        0,
+        "POST",
+        `/v2/accounts/${ACCOUNT_ID}/messages`,
+      );
+      const replay = assertExampleRequest(
+        requests,
+        1,
+        "POST",
+        `/v2/accounts/${ACCOUNT_ID}/messages`,
+      );
+      const expectedBody = {
+        from: { email: `sender@${DOMAIN}` },
+        recipients: [{ email: "to@example.com" }],
+        subject: "Receipt for order-12345",
+        text_content: "Thanks for your order.",
+        sandbox: true,
+      };
+      expectJsonBody(first, expectedBody);
+      expectJsonBody(replay, expectedBody);
+      expect(first.headers["idempotency-key"]).toBe("receipt-order-12345");
+      expect(replay.headers["idempotency-key"]).toBe("receipt-order-12345");
+      return;
+    }
+    case "iterate.mjs":
+      expectSingleReadonlyRequest(requests, `/v2/accounts/${ACCOUNT_ID}/messages`, {
+        status: "Delivered",
+        limit: "50",
+      });
+      return;
+    case "list-api-keys.mjs":
+      expectSingleReadonlyRequest(requests, `/v2/accounts/${ACCOUNT_ID}/api-keys`, {
+        limit: "10",
+      });
+      return;
+    case "list-domains.mjs":
+      expectSingleReadonlyRequest(requests, `/v2/accounts/${ACCOUNT_ID}/domains`, {
+        limit: "10",
+      });
+      return;
+    case "list-routes.mjs":
+      expectSingleReadonlyRequest(requests, `/v2/accounts/${ACCOUNT_ID}/routes`, {
+        limit: "10",
+      });
+      return;
+    case "list-suppressions.mjs":
+      expectSingleReadonlyRequest(requests, `/v2/accounts/${ACCOUNT_ID}/suppressions`, {
+        limit: "10",
+      });
+      return;
+    case "ping.mjs":
+    case "telemetry.mjs":
+      expectSingleReadonlyRequest(requests, "/v2/ping");
+      return;
+    case "send-sandbox.mjs": {
+      expect(requests).toHaveLength(1);
+      const request = assertExampleRequest(
+        requests,
+        0,
+        "POST",
+        `/v2/accounts/${ACCOUNT_ID}/messages`,
+      );
+      expectJsonBody(request, {
+        from: { email: `sender@${DOMAIN}`, name: "AhaSend SDK Test" },
+        recipients: [{ email: "to@example.com", name: "Test Recipient" }],
+        subject: "SDK sandbox test",
+        text_content: "This is a sandbox-mode send from the AhaSend Node SDK.",
+        html_content: "<p>This is a <b>sandbox-mode</b> send from the AhaSend Node SDK.</p>",
+        sandbox: true,
+        sandbox_result: "deliver",
+        tags: ["sdk-smoketest"],
+      });
+      expectAutoIdempotencyKey(request);
+      return;
+    }
+    case "statistics.mjs": {
+      expect(requests).toHaveLength(1);
+      const request = assertExampleRequest(
+        requests,
+        0,
+        "GET",
+        `/v2/accounts/${ACCOUNT_ID}/statistics/transactional/deliverability`,
+      );
+      expect(Object.keys(request.query).sort()).toEqual(["from_time", "group_by", "to_time"]);
+      expect(request.query["group_by"]).toBe("day");
+      const fromTime = Date.parse(request.query["from_time"] ?? "");
+      const toTime = Date.parse(request.query["to_time"] ?? "");
+      expect(Number.isNaN(fromTime)).toBe(false);
+      expect(Number.isNaN(toTime)).toBe(false);
+      expect(toTime - fromTime).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000 - 1_000);
+      expect(toTime - fromTime).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000 + 1_000);
+      return;
+    }
+    case "update-api-key-ip-list.mjs": {
+      expect(requests).toHaveLength(1);
+      const request = assertExampleRequest(
+        requests,
+        0,
+        "PUT",
+        `/v2/accounts/${ACCOUNT_ID}/api-keys/${RESOURCE_ID}`,
+      );
+      expectJsonBody(request, { ip_allow_list: ["203.0.113.0/24", "198.51.100.7"] });
+      expect(request.headers["idempotency-key"]).toBeUndefined();
+      return;
+    }
+    default:
+      throw new Error(`No API request contract is registered for ${example.file}.`);
+  }
+}
+
+function expectSingleReadonlyRequest(
+  requests: readonly ObservedExampleRequest[],
+  pathname: string,
+  query: Readonly<Record<string, string>> = {},
+): void {
+  expect(requests).toHaveLength(1);
+  const request = assertExampleRequest(requests, 0, "GET", pathname);
+  expect(request.query).toEqual(query);
+  expect(request.body).toBe("");
+  expect(request.headers["idempotency-key"]).toBeUndefined();
+}
+
+function assertExampleRequest(
+  requests: readonly ObservedExampleRequest[],
+  index: number,
+  method: string,
+  pathname?: string,
+): ObservedExampleRequest {
+  const request = requiredObservedRequest(requests, index);
+  expect(request.httpMethod).toBe(method);
+  if (pathname !== undefined) expect(request.pathname).toBe(pathname);
+  expect(request.headers["authorization"]).toBe(`Bearer ${API_KEY}`);
+  if (method !== "GET") {
+    expect(request.query).toEqual({});
+    expect(request.headers["content-type"]).toContain("application/json");
+  }
+  return request;
+}
+
+function requiredObservedRequest(
+  requests: readonly ObservedExampleRequest[],
+  index: number,
+): ObservedExampleRequest {
+  const request = requests[index];
+  if (request === undefined) throw new Error(`Missing observed example request at index ${index}.`);
+  return request;
+}
+
+function expectJsonBody(request: ObservedExampleRequest, expected: unknown): void {
+  expect(JSON.parse(request.body) as unknown).toEqual(expected);
+}
+
+function expectAutoIdempotencyKey(request: ObservedExampleRequest): void {
+  expect(request.headers["idempotency-key"]).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+}
+
 function pathMatchesTemplate(pathname: string, pathTemplate: string): boolean {
   const actualSegments = pathname.split("/");
   const templateSegments = pathTemplate.split("/");
@@ -981,6 +1231,7 @@ async function runPackedExample(
   }
 
   const installedCopy = copyPackedExample(example.file);
+  const firstRequestIndex = observedExampleRequests.length;
 
   return await new Promise<PackedExampleResult>((resolveResult, reject) => {
     let stdout = "";
@@ -1027,7 +1278,14 @@ async function runPackedExample(
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      resolveResult({ exitCode, signal, stdout, stderr, timedOut });
+      resolveResult({
+        exitCode,
+        requests: observedExampleRequests.slice(firstRequestIndex),
+        signal,
+        stdout,
+        stderr,
+        timedOut,
+      });
     });
   });
 }
@@ -1229,6 +1487,48 @@ function callMethod(
     throw new TypeError(`${[...target, method].join(".")} is not callable.`);
   }
   return Reflect.apply(callable, receiver, args);
+}
+
+async function startExampleRequestProxy(
+  upstreamBaseUrl: string,
+): Promise<{ readonly server: Server; readonly baseUrl: string }> {
+  const server = createHttpServer(async (request, response) => {
+    try {
+      const observedRequest = await observeIncomingRequest(request);
+      observedExampleRequests.push(observedRequest);
+
+      const headers = new Headers(observedRequest.headers);
+      headers.delete("connection");
+      headers.delete("content-length");
+      headers.delete("host");
+      const init: RequestInit = { method: observedRequest.httpMethod, headers };
+      if (observedRequest.httpMethod !== "GET" && observedRequest.httpMethod !== "HEAD") {
+        init.body = observedRequest.body;
+      }
+      const upstreamUrl = new URL(request.url ?? "/", upstreamBaseUrl);
+      const upstreamResponse = await fetch(upstreamUrl, init);
+      response.statusCode = upstreamResponse.status;
+      upstreamResponse.headers.forEach((value, name) => {
+        if (!["connection", "content-length", "transfer-encoding"].includes(name)) {
+          response.setHeader(name, value);
+        }
+      });
+      response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+    } catch (error) {
+      response.statusCode = 502;
+      response.end(error instanceof Error ? error.message : "Example request proxy failed.");
+    }
+  });
+  await new Promise<void>((resolveListening, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolveListening);
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    await stopHttpServer(server);
+    throw new Error("The example request proxy did not bind to a TCP port.");
+  }
+  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
 }
 
 async function availablePort(): Promise<number> {
