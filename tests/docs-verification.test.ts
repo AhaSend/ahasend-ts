@@ -167,7 +167,7 @@ describe("operational documentation verification", () => {
           ? {
               ...example,
               source: example.source.replace(
-                "console.log(`✓ created child account and stored its one-time key in ${secretFile}`);",
+                "console.log(`✓ created child account id=${subAccount.id}; stored its one-time key`);",
                 `console.log({
   secret: key.secret_key,
 });`,

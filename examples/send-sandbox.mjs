@@ -1,13 +1,18 @@
 // Exercises the full send path in SANDBOX mode — AhaSend accepts the request
 // but does not actually deliver the email. No real email is sent.
 //
-// Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars.
+// Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars and the explicit
+//           AHASEND_ALLOW_MUTATIONS=1 acknowledgement.
 //           AHASEND_FROM_EMAIL must be an address on a verified sending
 //           domain on your account. The API rejects unverified-domain
 //           sends even in sandbox mode.
 // Run:  node examples/send-sandbox.mjs
 
-import { AhaSendClient } from "../dist/index.js";
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
+
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Refusing mutation; set AHASEND_ALLOW_MUTATIONS=1 after reviewing the script.");
+}
 
 const fromEmail = process.env.AHASEND_FROM_EMAIL;
 if (!fromEmail) {
@@ -33,6 +38,8 @@ try {
   });
   console.log(`✓ sandbox send accepted for ${res.data.length} recipient(s)`);
 } catch (err) {
-  console.error("✗ send failed:", err.name, err.status ?? "", err.message);
+  console.error("✗ send failed", {
+    errorCode: isAhaSendError(err) ? err.code : "unknown",
+  });
   process.exit(1);
 }

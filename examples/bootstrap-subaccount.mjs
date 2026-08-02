@@ -8,7 +8,7 @@
 // AHASEND_ALLOW_MUTATIONS=1 acknowledgement.
 
 import { writeFile } from "node:fs/promises";
-import { AhaSendClient } from "../dist/index.js";
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
 
 if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
   throw new Error("Refusing mutation; set AHASEND_ALLOW_MUTATIONS=1 after reviewing the script.");
@@ -24,11 +24,19 @@ if (!name || !website || !secretFile) {
 }
 
 const client = AhaSendClient.fromEnv();
-const subAccount = await client.subAccounts.create({ name, website });
-const key = await client.subAccounts.apiKeys.create(subAccount.id, {
-  label: "Bootstrap message sender",
-  scopes: ["messages:send:all"],
-});
 
-await writeFile(secretFile, key.secret_key, { encoding: "utf8", mode: 0o600, flag: "wx" });
-console.log(`✓ created child account and stored its one-time key in ${secretFile}`);
+try {
+  const subAccount = await client.subAccounts.create({ name, website });
+  const key = await client.subAccounts.apiKeys.create(subAccount.id, {
+    label: "Bootstrap message sender",
+    scopes: ["messages:send:all"],
+  });
+
+  await writeFile(secretFile, key.secret_key, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  console.log(`✓ created child account id=${subAccount.id}; stored its one-time key`);
+} catch (err) {
+  console.error("✗ bootstrap failed", {
+    errorCode: isAhaSendError(err) ? err.code : "unknown",
+  });
+  process.exit(1);
+}

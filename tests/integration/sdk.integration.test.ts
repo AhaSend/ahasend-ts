@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -70,6 +71,11 @@ interface PackedExampleResult {
   readonly timedOut: boolean;
 }
 
+interface GuardedPackedExampleCase extends PackedExampleCase {
+  readonly environment: Readonly<Record<string, string>>;
+  readonly usesSecretFile: boolean;
+}
+
 const PAGINATION = { limit: 5 };
 const STATISTICS = {
   from_time: "2026-04-01T00:00:00Z",
@@ -92,6 +98,38 @@ const PACKED_EXAMPLE_CASES = [
     expectedMarkers: ["→ request started", "← response received", "✓ done"],
   },
 ] as const satisfies readonly PackedExampleCase[];
+const GUARDED_PACKED_EXAMPLE_CASES = [
+  {
+    file: "bootstrap-subaccount.mjs",
+    expectedMarkers: ["✓ created child account id=", "stored its one-time key"],
+    environment: {
+      AHASEND_SUBACCOUNT_NAME: "Integration child",
+      AHASEND_SUBACCOUNT_WEBSITE: `child.${DOMAIN}`,
+    },
+    usesSecretFile: true,
+  },
+  {
+    file: "idempotency.mjs",
+    expectedMarkers: ["✓ first send:", "✓ replay send:", "(no duplicate email)"],
+    environment: { AHASEND_FROM_EMAIL: `sender@${DOMAIN}` },
+    usesSecretFile: false,
+  },
+  {
+    file: "send-sandbox.mjs",
+    expectedMarkers: ["✓ sandbox send accepted for ", "recipient(s)"],
+    environment: { AHASEND_FROM_EMAIL: `sender@${DOMAIN}` },
+    usesSecretFile: false,
+  },
+  {
+    file: "update-api-key-ip-list.mjs",
+    expectedMarkers: ["✓ updated IP allow-list with ", "canonical entries"],
+    environment: {
+      AHASEND_API_KEY_ID: RESOURCE_ID,
+      AHASEND_IP_ALLOW_LIST: "203.0.113.0/24,198.51.100.7",
+    },
+    usesSecretFile: false,
+  },
+] as const satisfies readonly GuardedPackedExampleCase[];
 
 const OPERATION_CASES = [
   operation("ping", [], "ping"),
@@ -288,6 +326,82 @@ describe("packed readonly examples", () => {
     for (const marker of example.expectedMarkers) expect(output).toContain(marker);
     expect(output).not.toContain(API_KEY);
   });
+});
+
+describe("packed guarded mutation examples", () => {
+  it.each(GUARDED_PACKED_EXAMPLE_CASES)(
+    "refuses $file without explicit mutation approval",
+    async (example) => {
+      const temporaryDirectory = mkdtempSync(join(tmpdir(), "ahasend-guarded-example-"));
+      const secretFile = join(temporaryDirectory, "child-api-key.secret");
+      const environment = example.usesSecretFile
+        ? { ...example.environment, AHASEND_CHILD_SECRET_FILE: secretFile }
+        : example.environment;
+
+      try {
+        const result = await runPackedExample(example.file, environment);
+        const output = `${result.stdout}${result.stderr}`;
+
+        expect(result.timedOut).toBe(false);
+        expect(result.signal).toBeNull();
+        expect(result.exitCode).toBe(1);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain("Refusing mutation; set AHASEND_ALLOW_MUTATIONS=1");
+        expect(output).not.toContain(API_KEY);
+        expect(output).not.toContain(secretFile);
+        for (const suppliedValue of Object.values(example.environment)) {
+          expect(output).not.toContain(suppliedValue);
+        }
+        expect(existsSync(secretFile)).toBe(false);
+      } finally {
+        rmSync(temporaryDirectory, { recursive: true, force: true });
+      }
+      expect(existsSync(temporaryDirectory)).toBe(false);
+    },
+  );
+
+  it.each(GUARDED_PACKED_EXAMPLE_CASES)(
+    "executes the approved $file mutation against Prism",
+    async (example) => {
+      const temporaryDirectory = mkdtempSync(join(tmpdir(), "ahasend-guarded-example-"));
+      const secretFile = join(temporaryDirectory, "child-api-key.secret");
+      const environment = {
+        ...example.environment,
+        AHASEND_ALLOW_MUTATIONS: "1",
+        ...(example.usesSecretFile ? { AHASEND_CHILD_SECRET_FILE: secretFile } : {}),
+      };
+
+      try {
+        const result = await runPackedExample(example.file, environment);
+        const output = `${result.stdout}${result.stderr}`;
+
+        expect(result.timedOut).toBe(false);
+        expect(result.signal).toBeNull();
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        for (const marker of example.expectedMarkers) expect(output).toContain(marker);
+        expect(output).not.toContain(API_KEY);
+        expect(output).not.toContain(secretFile);
+        for (const suppliedValue of Object.values(example.environment)) {
+          expect(output).not.toContain(suppliedValue);
+        }
+
+        if (example.usesSecretFile) {
+          const secretFileStats = statSync(secretFile);
+          expect(secretFileStats.isFile()).toBe(true);
+          expect(secretFileStats.mode & 0o777).toBe(0o600);
+          expect(secretFileStats.size).toBeGreaterThan(0);
+          const secretWasPrinted = output.includes(readFileSync(secretFile, "utf8"));
+          expect(secretWasPrinted).toBe(false);
+        } else {
+          expect(existsSync(secretFile)).toBe(false);
+        }
+      } finally {
+        rmSync(temporaryDirectory, { recursive: true, force: true });
+      }
+      expect(existsSync(temporaryDirectory)).toBe(false);
+    },
+  );
 });
 
 describe("packed SDK operation contract", () => {
@@ -487,7 +601,10 @@ function installTarball(tarball: string): string {
   return directory;
 }
 
-async function runPackedExample(file: string): Promise<PackedExampleResult> {
+async function runPackedExample(
+  file: string,
+  environment: Readonly<Record<string, string>> = {},
+): Promise<PackedExampleResult> {
   if (consumerDirectory === undefined) {
     throw new Error("The clean installed-package consumer is not available.");
   }
@@ -517,6 +634,7 @@ async function runPackedExample(file: string): Promise<PackedExampleResult> {
         AHASEND_MAX_RETRIES: "0",
         AHASEND_TIMEOUT: "5",
         NO_COLOR: "1",
+        ...environment,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

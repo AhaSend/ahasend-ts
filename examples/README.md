@@ -59,6 +59,7 @@ Uses AhaSend's sandbox mode (`sandbox: true`). The API validates the request and
 `AHASEND_FROM_EMAIL` is required and must be on a **verified sending domain** on your account — sandbox mode does not bypass domain validation.
 
 ```bash
+export AHASEND_ALLOW_MUTATIONS="1"
 export AHASEND_FROM_EMAIL="sender@your-verified-domain.com"
 node examples/send-sandbox.mjs
 ```
@@ -85,10 +86,12 @@ node examples/send-sandbox.mjs
 
 ## Guarded mutations
 
-The IP-list and subaccount bootstrap examples refuse to run unless
-`AHASEND_ALLOW_MUTATIONS=1` is set. Review the target IDs, allow-list, scopes,
-and output file before opting in. In particular, an IP-list change can remove
-access for other workloads even when the API's self-lockout check allows it.
+All four request examples that create or update state (`send-sandbox.mjs`,
+`idempotency.mjs`, `update-api-key-ip-list.mjs`, and `bootstrap-subaccount.mjs`) refuse to run
+unless `AHASEND_ALLOW_MUTATIONS=1` is set. This includes sandbox sends even though they do not
+deliver email. Review the sender, target IDs, allow-list, scopes, and output file before opting in.
+In particular, an IP-list change can remove access for other workloads even when the API's
+self-lockout check allows it.
 
 ```bash
 export AHASEND_ALLOW_MUTATIONS="1"

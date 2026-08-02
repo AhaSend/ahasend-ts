@@ -7,7 +7,7 @@
 // Updating the credential currently making this request to exclude its source
 // IP is rejected by the API with HTTP 409.
 
-import { AhaSendClient } from "../dist/index.js";
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
 
 if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
   throw new Error("Refusing mutation; set AHASEND_ALLOW_MUTATIONS=1 after reviewing the script.");
@@ -28,5 +28,13 @@ if (ipAllowList.length === 0) {
 }
 
 const client = AhaSendClient.fromEnv();
-const updated = await client.apiKeys.update(keyId, { ip_allow_list: ipAllowList });
-console.log(`✓ updated IP allow-list with ${updated.ip_allow_list.length} canonical entries`);
+
+try {
+  const updated = await client.apiKeys.update(keyId, { ip_allow_list: ipAllowList });
+  console.log(`✓ updated IP allow-list with ${updated.ip_allow_list.length} canonical entries`);
+} catch (err) {
+  console.error("✗ IP allow-list update failed", {
+    errorCode: isAhaSendError(err) ? err.code : "unknown",
+  });
+  process.exit(1);
+}
