@@ -93,8 +93,12 @@ interface PackedExpressExample {
   }): PackedExpressApplication;
 }
 
-interface PackedNextExample {
+interface PackedNextRouteModule {
   readonly POST: (request: Request) => Promise<Response>;
+  readonly runtime: "nodejs";
+}
+
+interface PackedNextRouteFactory {
   createWebhookRoute(options: {
     readonly secret: string;
     readonly enqueueOnce: EnqueueOnce;
@@ -552,10 +556,20 @@ describe("packed Next webhook example", () => {
       process.env.AHASEND_WEBHOOK_SECRET = secret;
       let responses: readonly [Response, Response] | undefined;
       try {
+        const installedFactoryCopy = copyPackedExample(
+          "next-webhook-route/create-webhook-route.mjs",
+        );
         const installedCopy = copyPackedExample("next-webhook-route.mjs");
-        const example = (await import(pathToFileURL(installedCopy).href)) as PackedNextExample;
-        expect(example.POST).toBeTypeOf("function");
-        const route = example.createWebhookRoute({
+        const routeModule = (await import(
+          pathToFileURL(installedCopy).href
+        )) as PackedNextRouteModule;
+        const routeFactory = (await import(
+          pathToFileURL(installedFactoryCopy).href
+        )) as PackedNextRouteFactory;
+        expect(Object.keys(routeModule).sort()).toEqual(["POST", "runtime"]);
+        expect(routeModule.POST).toBeTypeOf("function");
+        expect(routeModule.runtime).toBe("nodejs");
+        const route = routeFactory.createWebhookRoute({
           secret,
           enqueueOnce: createInMemoryEnqueueOnce(),
         });
@@ -944,7 +958,7 @@ function copyPackedExample(file: string): string {
   const examplesDirectory = join(consumerDirectory, "examples");
   const source = resolve(repositoryRoot, "examples", file);
   const installedCopy = resolve(examplesDirectory, file);
-  mkdirSync(examplesDirectory, { recursive: true });
+  mkdirSync(dirname(installedCopy), { recursive: true });
   copyFileSync(source, installedCopy);
   if (readFileSync(installedCopy, "utf8") !== readFileSync(source, "utf8")) {
     throw new Error(`Packed example copy does not match the repository source: ${file}`);

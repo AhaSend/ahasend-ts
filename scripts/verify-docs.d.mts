@@ -24,6 +24,7 @@ export interface DocumentationIndex {
   readonly links: readonly DocumentationLink[];
   readonly snippets: readonly (DocumentationSource & { readonly language: string })[];
   readonly examples: readonly { readonly path: string; readonly source: string }[];
+  readonly supportingExamples: readonly { readonly path: string; readonly source: string }[];
   readonly nodeSamples: Readonly<
     Record<string, { readonly lang: "javascript"; readonly label: string; readonly source: string }>
   >;

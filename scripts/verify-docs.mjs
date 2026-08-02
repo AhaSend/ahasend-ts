@@ -18,6 +18,9 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const EXPECTED_NODE_SAMPLE_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
+const SUPPORTING_EXAMPLE_PATHS = Object.freeze([
+  "examples/next-webhook-route/create-webhook-route.mjs",
+]);
 export const REQUIRED_DOCUMENT_PATHS = Object.freeze([
   "README.md",
   "CHANGELOG.md",
@@ -373,6 +376,15 @@ async function loadExamples(root) {
   );
 }
 
+async function loadSupportingExamples(root) {
+  return Promise.all(
+    SUPPORTING_EXAMPLE_PATHS.map(async (path) => ({
+      path,
+      source: await readFile(resolve(root, path), "utf8"),
+    })),
+  );
+}
+
 /**
  * Build one deterministic inventory used by every documentation check.
  */
@@ -403,6 +415,7 @@ export async function buildDocumentationIndex(root = repositoryRoot) {
       ),
     ),
     examples: Object.freeze(await loadExamples(root)),
+    supportingExamples: Object.freeze(await loadSupportingExamples(root)),
     nodeSamples: NODE_CODE_SAMPLES,
     profileSummary: Object.freeze({
       operations: profile.operations?.length,
@@ -1300,6 +1313,7 @@ async function verifyLint(index, root) {
   });
   const sources = [
     ...index.examples.map((example) => ({ ...example, language: "mjs" })),
+    ...index.supportingExamples.map((example) => ({ ...example, language: "mjs" })),
     ...index.snippets.filter(({ path }) => path !== "docs/api-reference.md"),
   ];
   const results = (
@@ -1518,7 +1532,7 @@ function verifyExamples(index) {
       throw new TypeError(`Node sample ${operationId} contains unsafe secret output.`);
     }
   }
-  for (const example of index.examples) {
+  for (const example of [...index.examples, ...index.supportingExamples]) {
     const sourceFile = sourceFileFor(example.path, example.source);
     verifyJavaScriptSyntax(example.path, example.source);
     for (const pattern of SECRET_PATTERNS) {
@@ -1544,8 +1558,13 @@ function verifyExamples(index) {
     }
   }
 
-  for (const path of ["examples/webhook-express.mjs", "examples/next-webhook-route.mjs"]) {
-    const example = index.examples.find((candidate) => candidate.path === path);
+  for (const path of [
+    "examples/webhook-express.mjs",
+    "examples/next-webhook-route/create-webhook-route.mjs",
+  ]) {
+    const example = [...index.examples, ...index.supportingExamples].find(
+      (candidate) => candidate.path === path,
+    );
     if (
       example === undefined ||
       !hasDurableWebhookDeduplication(sourceFileFor(example.path, example.source))
@@ -1561,6 +1580,34 @@ function verifyExamples(index) {
   if (!next?.source.includes('export const runtime = "nodejs"')) {
     throw new TypeError("The Next.js example must select the Node.js runtime explicitly.");
   }
+  const nextSourceFile = sourceFileFor("examples/next-webhook-route.mjs", next.source);
+  const nextExports = nextSourceFile.statements.flatMap((statement) => {
+    if (ts.isExportDeclaration(statement)) {
+      return statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)
+        ? statement.exportClause.elements.map((element) => element.name.text)
+        : ["unsupported export"];
+    }
+    if (ts.isExportAssignment(statement)) return ["unsupported export"];
+    const exported = statement.modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    );
+    if (!exported) return [];
+    if (ts.isVariableStatement(statement)) {
+      return statement.declarationList.declarations.flatMap((declaration) =>
+        ts.isIdentifier(declaration.name) ? [declaration.name.text] : [],
+      );
+    }
+    if (
+      (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
+      statement.name !== undefined
+    ) {
+      return [statement.name.text];
+    }
+    return ["unsupported export"];
+  });
+  if (nextExports.sort().join(",") !== "POST,runtime") {
+    throw new TypeError("The Next.js route module may export only POST and runtime.");
+  }
 }
 
 async function verifyFormatting(index, root) {
@@ -1568,6 +1615,7 @@ async function verifyFormatting(index, root) {
   for (const [path, source] of [
     ...Object.entries(index.documents),
     ...index.examples.map((example) => [example.path, example.source]),
+    ...index.supportingExamples.map((example) => [example.path, example.source]),
   ]) {
     const formatted = await format(source, { ...config, filepath: resolve(root, path) });
     if (formatted !== source) {

@@ -24,9 +24,10 @@ Get these from the [AhaSend dashboard](https://dashboard.ahasend.com).
 ## Examples (in recommended order)
 
 The packed documentation runtime matrix installs the candidate SDK and syntax- and
-declaration-checks all 17 `examples/*.mjs` files. It does not make live API calls or start framework
-servers. The inventory contains 15 executable smoke-test scripts and two framework examples
-(`webhook-express.mjs` and `next-webhook-route.mjs`), which require their host framework setup.
+declaration-checks all 17 top-level `examples/*.mjs` files plus the Next route's companion
+construction module. It does not make live API calls or start framework servers. The inventory
+contains 15 executable smoke-test scripts and two framework examples (`webhook-express.mjs` and
+`next-webhook-route.mjs`), which require their host framework setup.
 
 ### 1. `ping.mjs` — safest first test
 
@@ -77,7 +78,7 @@ node examples/send-sandbox.mjs
 | `list-suppressions.mjs`      | Read-only suppression listing                                                                                     |
 | `statistics.mjs`             | Read-only deliverability statistics                                                                               |
 | `webhook-express.mjs`        | Express webhook endpoint with application-owned, durable `webhook-id` deduplication (needs `npm install express`) |
-| `next-webhook-route.mjs`     | Next.js App Router webhook route with explicit Node.js runtime and durable deduplication boundary                 |
+| `next-webhook-route.mjs`     | Next.js App Router webhook route with a companion factory, explicit Node.js runtime, and durable deduplication    |
 | `verify-webhook.mjs`         | Offline HMAC sign + verify round-trip — runs without any credentials                                              |
 | `update-api-key-ip-list.mjs` | Guarded replacement of an API key IP allow-list                                                                   |
 | `bootstrap-subaccount.mjs`   | Guarded child-account and child-key bootstrap without printing the one-time secret                                |

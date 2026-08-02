@@ -108,6 +108,9 @@ describe("operational documentation verification", () => {
         "examples/webhook-express.mjs",
       ]),
     );
+    expect(index.supportingExamples.map(({ path }) => path)).toEqual([
+      "examples/next-webhook-route/create-webhook-route.mjs",
+    ]);
     expect(Object.keys(index.nodeSamples)).toHaveLength(56);
     expect(index.profileSummary).toEqual({ operations: 56, iterators: 9 });
     await expect(verifyDocumentationIndex(index)).resolves.toBeUndefined();
@@ -155,6 +158,32 @@ describe("operational documentation verification", () => {
     };
     await expect(verifyDocumentationIndex(missingDeduplication)).rejects.toThrow(
       /application-owned webhook-id deduplication/,
+    );
+
+    const missingNextDeduplication = {
+      ...structuredClone(index),
+      supportingExamples: index.supportingExamples.map((example) => ({
+        ...example,
+        source: example.source.replace(
+          `if (!accepted) return new Response(null, { status: 200 });`,
+          `return new Response(null, { status: accepted ? 202 : 200 });`,
+        ),
+      })),
+    };
+    await expect(verifyDocumentationIndex(missingNextDeduplication)).rejects.toThrow(
+      /application-owned webhook-id deduplication/,
+    );
+
+    const unsupportedNextExport = {
+      ...structuredClone(index),
+      examples: index.examples.map((example) =>
+        example.path === "examples/next-webhook-route.mjs"
+          ? { ...example, source: `${example.source}\nexport function createWebhookRoute() {}\n` }
+          : example,
+      ),
+    };
+    await expect(verifyDocumentationIndex(unsupportedNextExport)).rejects.toThrow(
+      /may export only POST and runtime/,
     );
   });
 

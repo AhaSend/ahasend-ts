@@ -1,7 +1,8 @@
 // Next.js App Router route module (for example, app/api/ahasend/route.mjs).
+// Copy ./next-webhook-route/create-webhook-route.mjs alongside this module.
 // AhaSend webhook verification requires the Node.js runtime.
 
-import { WebhookVerifier, nextRouteHandler } from "@ahasend/sdk/webhooks";
+import { createWebhookRoute } from "./next-webhook-route/create-webhook-route.mjs";
 
 export const runtime = "nodejs";
 
@@ -13,22 +14,6 @@ const defaultWebhookDeliveries = {
     throw new Error("Connect webhookDeliveries.enqueueOnce() to a durable transaction.");
   },
 };
-
-export function createWebhookRoute({ secret, enqueueOnce }) {
-  const verifier = new WebhookVerifier(secret);
-  const webhookDeliveries = { enqueueOnce };
-
-  return nextRouteHandler(verifier, async (event, request) => {
-    const webhookId = request.headers.get("webhook-id");
-    if (!webhookId) throw new Error("verified webhook-id missing");
-
-    // Timestamp-window verification is not replay deduplication.
-    const accepted = await webhookDeliveries.enqueueOnce(webhookId, event);
-    if (!accepted) return new Response(null, { status: 200 });
-
-    return new Response(null, { status: 202 });
-  });
-}
 
 const secret = process.env.AHASEND_WEBHOOK_SECRET;
 if (!secret) throw new Error("AHASEND_WEBHOOK_SECRET is required.");
