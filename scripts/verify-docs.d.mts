@@ -4,6 +4,8 @@ export function loadDocumentation(root?: string): Promise<Record<string, string>
 
 export function verifyDocumentation(documents: Readonly<Record<string, string>>): void;
 
+export function verifySafeOutput(label: string, source: string): void;
+
 export interface DocumentationSource {
   readonly path: string;
   readonly line: number;

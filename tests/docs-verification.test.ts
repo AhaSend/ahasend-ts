@@ -11,6 +11,7 @@ import {
   verifyDocumentation,
   verifyDocumentationIndex,
   verifyPackagedJavaScript,
+  verifySafeOutput,
 } from "../scripts/verify-docs.mjs";
 
 const repositoryRoot = process.cwd();
@@ -178,6 +179,80 @@ describe("operational documentation verification", () => {
 
     await expect(verifyDocumentationIndex(unsafeOutput)).rejects.toThrow(
       /unsafe secret or payload output/,
+    );
+  });
+
+  it.each([
+    ["whole objects", "console.log(response);"],
+    ["nested values", "console.log(response.data);"],
+    ["nested objects", "console.log({ request: { status: err.status } });"],
+    ["arrays", "console.log([response.id]);"],
+    [
+      "aliases",
+      `const recipient = event.data.recipient;
+const output = recipient;
+console.log(output);`,
+    ],
+    ["template literals", "console.log(`recipient: ${event.data.recipient}`);"],
+    ["error messages", "logger.error(err.message);"],
+  ])("rejects unsafe output through %s", (_label, source) => {
+    expect(() => verifySafeOutput("unsafe-output-fixture.mjs", source)).toThrow(
+      /unsafe secret or payload output/,
+    );
+  });
+
+  it("accepts only selected allowlisted SDK output", () => {
+    expect(() =>
+      verifySafeOutput(
+        "safe-output-fixture.mjs",
+        `console.log({
+  count: response.data.length,
+  messageId: response.data[0]?.id,
+  status: err.status,
+  errorCode: err.code,
+  requestId: err.requestId,
+});`,
+      ),
+    ).not.toThrow();
+  });
+
+  it.each([
+    [
+      "missing",
+      (source: string) =>
+        source.replace(
+          "| `statistics.mjs`             | Read-only deliverability statistics                                                                               |\n",
+          "",
+        ),
+    ],
+    [
+      "duplicate",
+      (source: string) =>
+        source.replace(
+          "| `statistics.mjs`             | Read-only deliverability statistics                                                                               |\n",
+          "| `statistics.mjs`             | Read-only deliverability statistics                                                                               |\n| `statistics.mjs`             | Duplicate fixture                                                                                                 |\n",
+        ),
+    ],
+    [
+      "orphan",
+      (source: string) =>
+        source.replace(
+          "| `statistics.mjs`             | Read-only deliverability statistics                                                                               |\n",
+          "| `statistics.mjs`             | Read-only deliverability statistics                                                                               |\n| `not-an-example.mjs`         | Orphan fixture                                                                                                    |\n",
+        ),
+    ],
+  ])("rejects a %s advertised example inventory entry", async (kind, mutate) => {
+    const index = await buildDocumentationIndex();
+    const invalidInventory = {
+      ...structuredClone(index),
+      documents: {
+        ...index.documents,
+        "examples/README.md": mutate(index.documents["examples/README.md"]!),
+      },
+    };
+
+    await expect(verifyDocumentationIndex(invalidInventory)).rejects.toThrow(
+      new RegExp(`advertised example inventory.*${kind}`, "u"),
     );
   });
 

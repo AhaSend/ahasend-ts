@@ -447,21 +447,96 @@ function sourceFileFor(label, source, scriptKind = ts.ScriptKind.JS) {
   return ts.createSourceFile(label, source, ts.ScriptTarget.ESNext, true, scriptKind);
 }
 
-function hasUnsafeConsoleOutput(sourceFile) {
+function outputPropertyName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (
+    ts.isElementAccessExpression(node) &&
+    node.argumentExpression !== undefined &&
+    ts.isStringLiteral(node.argumentExpression)
+  ) {
+    return node.argumentExpression.text;
+  }
+  return undefined;
+}
+
+function isAllowedOutputName(name) {
+  return (
+    /^(?:count|status|code|errorCode|requestId|request_id)$/u.test(name) ||
+    /(?:Count|_count|Id|_id)$/u.test(name) ||
+    name === "id" ||
+    name === "length"
+  );
+}
+
+function collectOutputAliases(sourceFile) {
+  const aliases = new Map();
+  function collectBindingName(name, initializer) {
+    if (ts.isIdentifier(name)) {
+      aliases.set(name.text, initializer);
+      return;
+    }
+    if (ts.isObjectBindingPattern(name)) {
+      for (const element of name.elements) {
+        const propertyName = element.propertyName ?? element.name;
+        if (!ts.isIdentifier(element.name)) continue;
+        aliases.set(element.name.text, {
+          allowed: ts.isIdentifier(propertyName) && isAllowedOutputName(propertyName.text),
+        });
+      }
+      return;
+    }
+    for (const element of name.elements) {
+      if (!ts.isOmittedExpression(element) && ts.isIdentifier(element.name)) {
+        aliases.set(element.name.text, { allowed: false });
+      }
+    }
+  }
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
+      collectBindingName(node.name, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return aliases;
+}
+
+function unwrapOutputExpression(node) {
+  let expression = node;
+  while (
+    ts.isAwaitExpression(expression) ||
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isNonNullExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+  return expression;
+}
+
+function isStaticOutputValue(node) {
+  return (
+    ts.isStringLiteral(node) ||
+    ts.isNumericLiteral(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node) ||
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword ||
+    node.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isIdentifier(node) && node.text === "undefined")
+  );
+}
+
+function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
+  const outputAliases = collectOutputAliases(sourceFile);
   const sensitiveIdentifiers = new Set();
   function isSensitiveReference(node) {
-    if (
-      ts.isAwaitExpression(node) ||
-      ts.isParenthesizedExpression(node) ||
-      ts.isAsExpression(node) ||
-      ts.isTypeAssertionExpression(node)
-    ) {
-      return isSensitiveReference(node.expression);
-    }
-    const path = propertyPath(node);
+    const expression = unwrapOutputExpression(node);
+    const path = propertyPath(expression);
     return (
-      (ts.isIdentifier(node) &&
-        (node.text === "idempotencyKey" || sensitiveIdentifiers.has(node.text))) ||
+      (ts.isIdentifier(expression) &&
+        (expression.text === "idempotencyKey" || sensitiveIdentifiers.has(expression.text))) ||
       path?.endsWith(".secret_key") === true ||
       /(?:^|\.)(?:err|error)\.body$/u.test(path ?? "") ||
       /(?:^|\.)event\.data\.(?:recipient|subject)$/u.test(path ?? "")
@@ -488,6 +563,62 @@ function hasUnsafeConsoleOutput(sourceFile) {
   }
   collectSensitiveIdentifiers(sourceFile);
 
+  function isAllowedOutputValue(node, seenAliases = new Set()) {
+    const expression = unwrapOutputExpression(node);
+    if (isStaticOutputValue(expression)) return true;
+    if (ts.isIdentifier(expression)) {
+      if (seenAliases.has(expression.text)) return false;
+      const alias = outputAliases.get(expression.text);
+      if (alias !== undefined) {
+        if ("allowed" in alias) return alias.allowed;
+        const nextSeen = new Set(seenAliases);
+        nextSeen.add(expression.text);
+        return isAllowedOutputValue(alias, nextSeen);
+      }
+      return isAllowedOutputName(expression.text);
+    }
+    if (ts.isTemplateExpression(expression)) {
+      return expression.templateSpans.every((span) => isAllowedOutputValue(span.expression));
+    }
+    if (ts.isConditionalExpression(expression)) {
+      return (
+        isAllowedOutputValue(expression.whenTrue) && isAllowedOutputValue(expression.whenFalse)
+      );
+    }
+    if (ts.isBinaryExpression(expression)) {
+      return (
+        [
+          ts.SyntaxKind.PlusToken,
+          ts.SyntaxKind.QuestionQuestionToken,
+          ts.SyntaxKind.BarBarToken,
+          ts.SyntaxKind.AmpersandAmpersandToken,
+        ].includes(expression.operatorToken.kind) &&
+        isAllowedOutputValue(expression.left) &&
+        isAllowedOutputValue(expression.right)
+      );
+    }
+    const name = outputPropertyName(expression);
+    return name !== undefined && isAllowedOutputName(name);
+  }
+
+  function isAllowedOutputArgument(node) {
+    const expression = unwrapOutputExpression(node);
+    if (!ts.isObjectLiteralExpression(expression)) return isAllowedOutputValue(expression);
+    return expression.properties.every((property) => {
+      if (ts.isPropertyAssignment(property)) {
+        return (
+          !ts.isObjectLiteralExpression(unwrapOutputExpression(property.initializer)) &&
+          !ts.isArrayLiteralExpression(unwrapOutputExpression(property.initializer)) &&
+          isAllowedOutputValue(property.initializer)
+        );
+      }
+      if (ts.isShorthandPropertyAssignment(property)) {
+        return isAllowedOutputValue(property.name);
+      }
+      return false;
+    });
+  }
+
   let unsafe = false;
   function visit(node) {
     if (unsafe) return;
@@ -497,12 +628,25 @@ function hasUnsafeConsoleOutput(sourceFile) {
         propertyPath(node.expression) ?? "",
       )
     ) {
-      unsafe = node.arguments.some(containsSensitiveValue);
+      unsafe = enforceAllowlist
+        ? node.arguments.some((argument) => !isAllowedOutputArgument(argument))
+        : node.arguments.some(containsSensitiveValue);
     }
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
   return unsafe;
+}
+
+/**
+ * Verify one focused source fixture against the documented output allowlist.
+ * Repository-wide enforcement is enabled after the example correction matrix lands.
+ */
+export function verifySafeOutput(label, source) {
+  verifyJavaScriptSyntax(label, source);
+  if (hasUnsafeConsoleOutput(sourceFileFor(label, source), true)) {
+    throw new TypeError(`${label} contains unsafe secret or payload output.`);
+  }
 }
 
 function statementTerminates(statement) {
@@ -826,7 +970,38 @@ async function verifyCommands(index, manifest, root) {
   }
 }
 
+function advertisedExamplePaths(source) {
+  const paths = [];
+  for (const pattern of [
+    /^###\s+\d+\.\s+`([A-Za-z0-9_-]+\.mjs)`/gmu,
+    /^\|\s*`([A-Za-z0-9_-]+\.mjs)`\s*\|/gmu,
+  ]) {
+    for (const match of source.matchAll(pattern)) paths.push(`examples/${match[1]}`);
+  }
+  return paths;
+}
+
+function verifyExampleInventory(index) {
+  const advertised = advertisedExamplePaths(index.documents["examples/README.md"] ?? "");
+  const examples = index.examples.map(({ path }) => path);
+  const duplicate = advertised.find((path, position) => advertised.indexOf(path) !== position);
+  if (duplicate !== undefined) {
+    throw new TypeError(
+      `The advertised example inventory contains a duplicate entry: ${duplicate}`,
+    );
+  }
+  const orphan = advertised.find((path) => !examples.includes(path));
+  if (orphan !== undefined) {
+    throw new TypeError(`The advertised example inventory contains an orphan entry: ${orphan}`);
+  }
+  const missing = examples.find((path) => !advertised.includes(path));
+  if (missing !== undefined) {
+    throw new TypeError(`The advertised example inventory is missing: ${missing}`);
+  }
+}
+
 function verifyExamples(index) {
+  verifyExampleInventory(index);
   if (Object.keys(index.nodeSamples).length !== EXPECTED_NODE_SAMPLE_COUNT) {
     throw new TypeError(`Expected ${EXPECTED_NODE_SAMPLE_COUNT} Node samples.`);
   }
