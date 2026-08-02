@@ -5,7 +5,7 @@ export type { IdempotencyRequestOptions } from "../types/common.js";
 
 interface ForwardedOptions {
   readonly signal?: AbortSignal;
-  readonly headers?: Record<string, string>;
+  readonly headers?: Readonly<Record<string, string>>;
   readonly timeoutMs?: number;
   readonly retry?: false | Readonly<Partial<RetryConfig>>;
   readonly idempotencyKey?: string;

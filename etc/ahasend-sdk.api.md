@@ -1064,7 +1064,7 @@ export interface RequestEvent {
 // @public (undocumented)
 export interface RequestOptions {
     // (undocumented)
-    headers?: Record<string, string>;
+    headers?: Readonly<Record<string, string>>;
     retry?: false | Partial<RetryConfig>;
     // (undocumented)
     signal?: AbortSignal;

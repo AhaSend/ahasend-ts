@@ -82,15 +82,42 @@ const HOOK_NAMES = new Set(["onRequest", "onResponse", "onRetry", "onError"]);
 const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const INVALID_HEADER_VALUE_PATTERN = /[\u0000-\u0008\u000a-\u001f\u007f]|[^\u0000-\u00ff]/;
 const HTTP_ORIGIN_PATTERN = /^https?:\/\/[^\s/?#\\]+\/?$/i;
-const TRANSPORT_OWNED_HEADERS = new Set([
+const CONTROLLED_REQUEST_HEADERS = new Set([
   "accept",
+  "accept-charset",
+  "accept-encoding",
+  "access-control-request-headers",
+  "access-control-request-method",
   "authorization",
+  "connection",
   "content-length",
   "content-type",
+  "cookie",
+  "cookie2",
+  "date",
+  "dnt",
+  "expect",
   "host",
   "idempotency-key",
+  "keep-alive",
+  "origin",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "referer",
+  "set-cookie",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
   "user-agent",
+  "via",
 ]);
+const METHOD_OVERRIDE_HEADERS = new Set([
+  "x-http-method",
+  "x-http-method-override",
+  "x-method-override",
+]);
+const FORBIDDEN_METHODS = new Set(["connect", "trace", "track"]);
 
 export function resolveConfig(options: ClientOptions): ResolvedConfig {
   assertPlainRecord(options, "options");
@@ -258,7 +285,7 @@ export function assertRequestRetryOverride(
 export function assertHeaders(
   headers: unknown,
   name: string,
-): asserts headers is Record<string, string> {
+): asserts headers is Readonly<Record<string, string>> {
   if (headers === undefined) return;
   assertPlainRecord(headers, name);
   for (const [headerName, value] of Object.entries(headers)) {
@@ -271,12 +298,25 @@ export function assertHeaders(
       throw new AhaSendConfigurationError(`AhaSend: \`${name}.${headerName}\` must be a string.`);
     }
     assertHeaderValue(value, `${name}.${headerName}`);
-    if (TRANSPORT_OWNED_HEADERS.has(headerName.toLowerCase())) {
+    if (isControlledRequestHeader(headerName, value)) {
       throw new AhaSendConfigurationError(
-        `AhaSend: \`${name}.${headerName}\` is owned by the SDK transport and cannot be overridden.`,
+        `AhaSend: \`${name}.${headerName}\` is controlled by the SDK transport or Fetch and cannot be overridden.`,
       );
     }
   }
+}
+
+function isControlledRequestHeader(name: string, value: string): boolean {
+  const normalizedName = name.toLowerCase();
+  if (
+    CONTROLLED_REQUEST_HEADERS.has(normalizedName) ||
+    normalizedName.startsWith("proxy-") ||
+    normalizedName.startsWith("sec-")
+  ) {
+    return true;
+  }
+  if (!METHOD_OVERRIDE_HEADERS.has(normalizedName)) return false;
+  return value.split(",").some((method) => FORBIDDEN_METHODS.has(method.trim().toLowerCase()));
 }
 
 function buildBaseUrl(scheme: string | undefined, host: string | undefined): string | undefined {

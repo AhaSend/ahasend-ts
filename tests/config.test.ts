@@ -307,13 +307,36 @@ describe("resolveConfig", () => {
 
   it.each([
     "Accept",
+    "Accept-Charset",
+    "Accept-Encoding",
+    "Access-Control-Request-Headers",
+    "Access-Control-Request-Method",
     "AUTHORIZATION",
+    "Connection",
     "Content-Length",
     "content-TYPE",
+    "Cookie",
+    "Cookie2",
+    "Date",
+    "DNT",
+    "Expect",
     "HOST",
     "Idempotency-Key",
+    "Keep-Alive",
+    "Origin",
+    "Proxy-Authenticate",
+    "Proxy-Authorization",
+    "Referer",
+    "Set-Cookie",
+    "TE",
+    "Trailer",
+    "Transfer-Encoding",
+    "Upgrade",
     "User-Agent",
-  ])("rejects the transport-owned default header %s case-insensitively", (header) => {
+    "Via",
+    "Proxy-Custom",
+    "Sec-Custom",
+  ])("rejects the controlled default header %s case-insensitively", (header) => {
     expect(() =>
       resolveConfig({ apiKey: "aha-sk-test", defaultHeaders: { [header]: "override" } }),
     ).toThrow(/owned|cannot be overridden/i);
@@ -400,13 +423,36 @@ describe("resolveConfig", () => {
 
   it.each([
     "aCcEpT",
+    "Accept-Charset",
+    "ACCEPT-ENCODING",
+    "Access-Control-Request-Headers",
+    "Access-Control-Request-Method",
     "Authorization",
+    "Connection",
     "CONTENT-LENGTH",
     "Content-Type",
+    "Cookie",
+    "Cookie2",
+    "Date",
+    "DNT",
+    "Expect",
     "Host",
     "IDEMPOTENCY-KEY",
+    "Keep-Alive",
+    "Origin",
+    "Proxy-Authenticate",
+    "Proxy-Authorization",
+    "Referer",
+    "Set-Cookie",
+    "TE",
+    "Trailer",
+    "Transfer-Encoding",
+    "Upgrade",
     "USER-AGENT",
-  ])("rejects the transport-owned request header %s before fetch", (header) => {
+    "Via",
+    "Proxy-Custom",
+    "Sec-Custom",
+  ])("rejects the controlled request header %s before fetch", (header) => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
@@ -417,6 +463,51 @@ describe("resolveConfig", () => {
     expect(() => client.ping({ headers: { [header]: "override" } })).toThrow(
       /owned|cannot be overridden/i,
     );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each(["X-HTTP-Method", "x-http-method-override", "X-Method-Override"])(
+    "rejects a forbidden method in the fetch-controlled request header %s before fetch",
+    (header) => {
+      const fetchImpl = vi.fn<typeof fetch>();
+      const client = new AhaSendClient({
+        apiKey: "aha-sk-test",
+        accountId: "account-id",
+        fetch: fetchImpl,
+      });
+
+      expect(() => client.ping({ headers: { [header]: "POST, TRACE" } })).toThrow(
+        /controlled|cannot be overridden/i,
+      );
+      expect(fetchImpl).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows a method-override header whose value is not a forbidden Fetch method", () => {
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      defaultHeaders: { "X-HTTP-Method-Override": "POST" },
+    });
+
+    expect(resolved.defaultHeaders).toEqual({ "X-HTTP-Method-Override": "POST" });
+  });
+
+  it("does not mutate the caller's readonly headers when controlled-header validation fails", () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: "account-id",
+      fetch: fetchImpl,
+    });
+    const headers: Readonly<Record<string, string>> = {
+      Connection: "keep-alive",
+      "X-Trace-Id": "trace-1",
+    };
+    const originalHeaders = { ...headers };
+
+    expect(() => client.ping({ headers })).toThrow(/controlled|cannot be overridden/i);
+
+    expect(headers).toEqual(originalHeaders);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
