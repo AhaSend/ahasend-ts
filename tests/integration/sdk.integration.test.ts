@@ -1,6 +1,15 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -48,6 +57,19 @@ interface ObservedRequest {
   readonly pathname: string;
 }
 
+interface PackedExampleCase {
+  readonly file: string;
+  readonly expectedMarkers: readonly string[];
+}
+
+interface PackedExampleResult {
+  readonly exitCode: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly timedOut: boolean;
+}
+
 const PAGINATION = { limit: 5 };
 const STATISTICS = {
   from_time: "2026-04-01T00:00:00Z",
@@ -55,6 +77,21 @@ const STATISTICS = {
   sender_domain: DOMAIN,
   group_by: "day",
 };
+const PACKED_EXAMPLE_TIMEOUT_MS = 15_000;
+const PACKED_EXAMPLE_CASES = [
+  { file: "get-account.mjs", expectedMarkers: ["✓ account id=", "status=200"] },
+  { file: "iterate.mjs", expectedMarkers: ["✓ iterated 1 message(s)"] },
+  { file: "list-api-keys.mjs", expectedMarkers: ["API key(s) status=200"] },
+  { file: "list-domains.mjs", expectedMarkers: ["domain(s) status=200"] },
+  { file: "list-routes.mjs", expectedMarkers: ["route(s) status=200"] },
+  { file: "list-suppressions.mjs", expectedMarkers: ["suppression(s) status=200"] },
+  { file: "ping.mjs", expectedMarkers: ["✓ ping status=200"] },
+  { file: "statistics.mjs", expectedMarkers: ["bucket(s) returned status=200"] },
+  {
+    file: "telemetry.mjs",
+    expectedMarkers: ["→ request started", "← response received", "✓ done"],
+  },
+] as const satisfies readonly PackedExampleCase[];
 
 const OPERATION_CASES = [
   operation("ping", [], "ping"),
@@ -236,6 +273,20 @@ describe("enforcing Prism", () => {
     });
 
     expect(response.status).toBe(422);
+  });
+});
+
+describe("packed readonly examples", () => {
+  it.each(PACKED_EXAMPLE_CASES)("executes $file from the clean consumer", async (example) => {
+    const result = await runPackedExample(example.file);
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.timedOut).toBe(false);
+    expect(result.signal).toBeNull();
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    for (const marker of example.expectedMarkers) expect(output).toContain(marker);
+    expect(output).not.toContain(API_KEY);
   });
 });
 
@@ -434,6 +485,68 @@ function installTarball(tarball: string): string {
     throw new Error(`Failed to install SDK tarball:\n${result.stdout}${result.stderr}`);
   }
   return directory;
+}
+
+async function runPackedExample(file: string): Promise<PackedExampleResult> {
+  if (consumerDirectory === undefined) {
+    throw new Error("The clean installed-package consumer is not available.");
+  }
+
+  const examplesDirectory = join(consumerDirectory, "examples");
+  const source = resolve(repositoryRoot, "examples", file);
+  const installedCopy = resolve(examplesDirectory, file);
+  mkdirSync(examplesDirectory, { recursive: true });
+  copyFileSync(source, installedCopy);
+  if (readFileSync(installedCopy, "utf8") !== readFileSync(source, "utf8")) {
+    throw new Error(`Packed example copy does not match the repository source: ${file}`);
+  }
+
+  return await new Promise<PackedExampleResult>((resolveResult, reject) => {
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let settled = false;
+    const child = spawn(process.execPath, [installedCopy], {
+      cwd: consumerDirectory,
+      env: {
+        AHASEND_ACCOUNT_ID: ACCOUNT_ID,
+        AHASEND_API_KEY: API_KEY,
+        AHASEND_BASE_URL: baseUrl,
+        AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL: "true",
+        AHASEND_DEBUG: "false",
+        AHASEND_MAX_RETRIES: "0",
+        AHASEND_TIMEOUT: "5",
+        NO_COLOR: "1",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, PACKED_EXAMPLE_TIMEOUT_MS);
+
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("close", (exitCode, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolveResult({ exitCode, signal, stdout, stderr, timedOut });
+    });
+  });
 }
 
 function loadInstalledPackage(directory: string): {

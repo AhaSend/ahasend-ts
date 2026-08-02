@@ -1,22 +1,21 @@
-// Async pagination: walk every message matching a filter without
-// manual cursor management. `iterate()` fetches pages lazily as the
-// loop consumes them.
+// Async pagination: consume a bounded prefix without manual cursor
+// management. `iterate()` fetches pages lazily as the iterator advances.
 //
 // Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars.
 // Run:  node examples/iterate.mjs
 
-import { AhaSendClient } from "../dist/index.js";
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
 
-let count = 0;
 try {
-  for await (const msg of client.messages.iterate({ status: "Delivered", limit: 50 })) {
-    console.log(`  - ${msg.id}  ${msg.subject}  → ${msg.recipient}`);
-    if (++count >= 200) break; // stop early — pages are fetched lazily
-  }
-  console.log(`✓ iterated ${count} message(s)`);
+  const messages = client.messages.iterate({ status: "Delivered", limit: 50 });
+  const first = await messages.next();
+  if (first.done) console.log("✓ iterated 0 message(s)");
+  else console.log("✓ iterated 1 message(s)");
 } catch (err) {
-  console.error("✗ iterate failed:", err.name, err.status ?? "", err.message);
+  console.error("✗ iterate failed", {
+    errorCode: isAhaSendError(err) ? err.code : "unknown",
+  });
   process.exit(1);
 }

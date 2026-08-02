@@ -2,17 +2,18 @@
 // Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars.
 // Run:  node examples/list-routes.mjs
 
-import { AhaSendClient } from "../dist/index.js";
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
 
 try {
-  const res = await client.routes.list({ limit: 10 });
-  console.log(`✓ found ${res.data.length} route(s)`);
-  for (const r of res.data) {
-    console.log(`  - ${r.name}  recipient=${r.recipient ?? "*"}  enabled=${r.enabled}`);
-  }
+  const result = await client.routes.list({ limit: 10 }).withResponse();
+  console.log(
+    `✓ found ${result.data.data.length} route(s) status=${result.response.status} request-id=${result.requestId ?? "n/a"}`,
+  );
 } catch (err) {
-  console.error("✗ list routes failed:", err.name, err.status ?? "", err.message);
+  console.error("✗ list routes failed", {
+    errorCode: isAhaSendError(err) ? err.code : "unknown",
+  });
   process.exit(1);
 }

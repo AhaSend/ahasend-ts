@@ -2,17 +2,18 @@
 // Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars.
 // Run:  node examples/list-domains.mjs
 
-import { AhaSendClient } from "../dist/index.js";
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
 
 try {
-  const res = await client.domains.list({ limit: 10 });
-  console.log(`✓ found ${res.data.length} domain(s) (has_more: ${res.pagination.has_more})`);
-  for (const d of res.data) {
-    console.log(`  - ${d.domain}  dns_valid=${d.dns_valid}  id=${d.id}`);
-  }
+  const result = await client.domains.list({ limit: 10 }).withResponse();
+  console.log(
+    `✓ found ${result.data.data.length} domain(s) status=${result.response.status} request-id=${result.requestId ?? "n/a"}`,
+  );
 } catch (err) {
-  console.error("✗ list domains failed:", err.name, err.status ?? "", err.message);
+  console.error("✗ list domains failed", {
+    errorCode: isAhaSendError(err) ? err.code : "unknown",
+  });
   process.exit(1);
 }
