@@ -154,6 +154,21 @@ describe("generated API reference", () => {
     }
   });
 
+  it("uses the canonical registry validator for both generated sample artifacts", async () => {
+    const incompatibleOpenApi = openApiSource.replace(
+      "    CreateDomainRequest:\n      type: object\n      required:\n        - domain",
+      "    CreateDomainRequest:\n      type: object\n      required:\n        - domain\n        - dkim_private_key",
+    );
+    expect(incompatibleOpenApi).not.toBe(openApiSource);
+
+    await expect(generateApiReference({ openApiSource: incompatibleOpenApi })).rejects.toThrow(
+      /createDomain sample request body does not match its schema/,
+    );
+    await expect(generateRendererHandoff({ openApiSource: incompatibleOpenApi })).rejects.toThrow(
+      /createDomain sample request body does not match its schema/,
+    );
+  });
+
   it("retains OpenAPI scopes, security alternatives, idempotency, and authorization", async () => {
     const reference = await generateApiReference();
 

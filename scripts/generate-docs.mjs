@@ -5,14 +5,17 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { format, resolveConfig } from "prettier";
 import ts from "typescript";
-import { collectOperations, parseOpenApi } from "./generate-contracts.mjs";
+import {
+  collectOperations,
+  parseOpenApi,
+  validateNodeSampleRegistry,
+} from "./generate-contracts.mjs";
 import {
   AUTHORIZATION_REGISTRY,
   validateAuthorizationRegistry,
   validateOperationProfile,
 } from "./generate-sdk.mjs";
 import { canonicalizeJson, digestYamlArtifact, sha256Hex } from "./digest-artifact.mjs";
-import { NODE_SAMPLE_REGISTRY, NODE_SAMPLE_LANGUAGE } from "./node-code-samples.mjs";
 
 const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
@@ -338,38 +341,6 @@ function validateProfile(document, profile, operationById) {
   }
 }
 
-function collectSdkSamples(operations) {
-  if (NODE_SAMPLE_REGISTRY.length !== operations.length) {
-    throw new TypeError(
-      `SDK sample registry must contain ${operations.length} entries, received ${NODE_SAMPLE_REGISTRY.length}`,
-    );
-  }
-
-  const operationById = new Map(operations.map((operation) => [operation.operationId, operation]));
-  const sampleById = new Map();
-  for (const registryEntry of NODE_SAMPLE_REGISTRY) {
-    if (sampleById.has(registryEntry.operationId)) {
-      throw new TypeError(`Duplicate SDK sample registry entry for ${registryEntry.operationId}`);
-    }
-    const operation = operationById.get(registryEntry.operationId);
-    if (operation === undefined) {
-      throw new TypeError(
-        `SDK sample registry contains unknown operation ${registryEntry.operationId}`,
-      );
-    }
-    const operationKey = `${operation.method.toUpperCase()} ${operation.path}`;
-    if (registryEntry.operationKey !== operationKey) {
-      throw new TypeError(`SDK sample operation key is stale for ${registryEntry.operationId}`);
-    }
-    if (registryEntry.sample.lang !== NODE_SAMPLE_LANGUAGE) {
-      throw new TypeError(`SDK sample language is inconsistent for ${registryEntry.operationId}`);
-    }
-    sampleById.set(registryEntry.operationId, registryEntry);
-  }
-
-  return sampleById;
-}
-
 function expectedFacade(mapping) {
   const owner = mapping.facade === "client" ? "client" : `client.${mapping.facade}`;
   return `${owner}.${mapping.method}`;
@@ -386,7 +357,7 @@ export async function generateApiReference({ openApiSource, profileSource, clien
   const profile = record(JSON.parse(profileJson), "Operation profile");
   const operations = collectOperations(document);
   const operationById = new Map(operations.map((entry) => [entry.operationId, entry]));
-  const sampleById = collectSdkSamples(operations);
+  const sampleById = validateNodeSampleRegistry(document);
 
   validateProfile(document, profile, operationById);
 
@@ -504,7 +475,7 @@ export async function generateRendererHandoff({ openApiSource } = {}) {
     );
   }
 
-  const sampleById = collectSdkSamples(operations);
+  const sampleById = validateNodeSampleRegistry(document);
 
   const handoff = {
     version: 1,
