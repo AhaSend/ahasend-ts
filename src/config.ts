@@ -172,7 +172,7 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
 }
 
 export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOptions {
-  const apiKey = env.AHASEND_API_KEY ?? env.AHASEND_TOKEN;
+  const apiKey = env.AHASEND_API_KEY || env.AHASEND_TOKEN;
   if (!apiKey) {
     throw new AhaSendConfigurationError(
       "AhaSend: missing API key. Set AHASEND_API_KEY (or AHASEND_TOKEN) environment variable.",

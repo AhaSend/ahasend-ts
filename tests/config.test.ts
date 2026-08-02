@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
 import type { ClientOptions } from "../src/config.js";
@@ -9,6 +10,17 @@ import {
 } from "../src/config.js";
 import { MIN_REQUESTS_PER_SECOND } from "../src/rate-limit.js";
 import { MAX_RETRIES } from "../src/retry.js";
+
+function renderErrorDiagnostics(error: unknown): string[] {
+  return [
+    String(error),
+    error instanceof Error ? error.message : undefined,
+    error instanceof Error ? error.stack : undefined,
+    JSON.stringify(error),
+    inspect(error),
+    inspect(error, { showHidden: true }),
+  ].filter((diagnostic): diagnostic is string => diagnostic !== undefined);
+}
 
 describe("resolveConfig", () => {
   it("requires an apiKey", () => {
@@ -513,18 +525,56 @@ describe("resolveConfig", () => {
 });
 
 describe("optionsFromEnv", () => {
-  it("throws when neither AHASEND_API_KEY nor AHASEND_TOKEN is set", () => {
-    expect(() => optionsFromEnv({})).toThrow(/AHASEND_API_KEY/);
+  it.each([
+    ["reads AHASEND_API_KEY", { AHASEND_API_KEY: "aha-sk-env" }, "aha-sk-env"],
+    ["falls back to AHASEND_TOKEN", { AHASEND_TOKEN: "aha-sk-token" }, "aha-sk-token"],
+    [
+      "falls back to AHASEND_TOKEN when AHASEND_API_KEY is empty",
+      { AHASEND_API_KEY: "", AHASEND_TOKEN: "aha-sk-token" },
+      "aha-sk-token",
+    ],
+    [
+      "prefers a non-empty AHASEND_API_KEY",
+      { AHASEND_API_KEY: "aha-sk-env", AHASEND_TOKEN: "aha-sk-token" },
+      "aha-sk-env",
+    ],
+  ])("%s", (_case, env, expected) => {
+    expect(optionsFromEnv(env).apiKey).toBe(expected);
   });
 
-  it("reads AHASEND_API_KEY", () => {
-    const options = optionsFromEnv({ AHASEND_API_KEY: "aha-sk-env" });
-    expect(options.apiKey).toBe("aha-sk-env");
+  it("throws when neither AHASEND_API_KEY nor AHASEND_TOKEN has a credential", () => {
+    expect(() => optionsFromEnv({ AHASEND_API_KEY: "", AHASEND_TOKEN: "" })).toThrow(
+      /AHASEND_API_KEY/,
+    );
   });
 
-  it("falls back to AHASEND_TOKEN", () => {
-    const options = optionsFromEnv({ AHASEND_TOKEN: "aha-sk-token" });
-    expect(options.apiKey).toBe("aha-sk-token");
+  it.each([
+    [
+      "API key",
+      {
+        AHASEND_API_KEY: "aha-sk-secret\nmaterial",
+        AHASEND_TOKEN: "aha-token-backup-secret",
+      },
+      ["aha-sk-secret\nmaterial", "aha-token-backup-secret"],
+    ],
+    [
+      "fallback token",
+      { AHASEND_API_KEY: "", AHASEND_TOKEN: "aha-token-secret\nmaterial" },
+      ["aha-token-secret\nmaterial"],
+    ],
+  ])("keeps a rejected %s out of credential diagnostics", (_case, env, secrets) => {
+    let error: unknown;
+    try {
+      optionsFromEnv(env);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toMatch(/HTTP header/);
+    for (const diagnostic of renderErrorDiagnostics(error)) {
+      for (const secret of secrets) expect(diagnostic).not.toContain(secret);
+    }
   });
 
   it("reads AHASEND_BASE_URL", () => {
@@ -720,8 +770,9 @@ describe("optionsFromEnv", () => {
     ).toThrow(/insecure|https/i);
   });
 
-  it("uses the Node.js 22 support wording without exposing environment secrets", () => {
+  it("uses the Node.js 22 support wording without exposing environment credentials", () => {
     const apiKey = "aha-sk-environment-secret";
+    const token = "aha-token-environment-secret";
     vi.stubGlobal("fetch", undefined);
 
     try {
@@ -729,6 +780,7 @@ describe("optionsFromEnv", () => {
       try {
         AhaSendClient.fromEnv({
           AHASEND_API_KEY: apiKey,
+          AHASEND_TOKEN: token,
           AHASEND_ACCOUNT_ID: "account-id",
         });
       } catch (caught) {
@@ -736,7 +788,10 @@ describe("optionsFromEnv", () => {
       }
 
       expect(String(error)).toMatch(/Node\.js 22 or later/);
-      expect(String(error)).not.toContain(apiKey);
+      for (const diagnostic of renderErrorDiagnostics(error)) {
+        expect(diagnostic).not.toContain(apiKey);
+        expect(diagnostic).not.toContain(token);
+      }
     } finally {
       vi.unstubAllGlobals();
     }
