@@ -158,6 +158,7 @@ function candidateRunnerFixture(
   sourceBindings: SourceBindings,
   packResult: unknown,
   packFiles: readonly string[] = ["ahasend-sdk-0.1.0.tgz"],
+  mutateDuringBuild?: () => void,
 ) {
   const directory = mkdtempSync(join(tmpdir(), "ahasend-candidate-test-"));
   temporaryDirectories.push(directory);
@@ -186,8 +187,14 @@ function candidateRunnerFixture(
   const runner: CandidateCommandRunner = (command, args) => {
     if (command === "git" && args[0] === "rev-parse") return `${sourceBindings.commit}\n`;
     if (command === "git" && args[0] === "status") return "?? .betterborg-task/task.md\n";
+    if (command === "git" && args[0] === "ls-files") {
+      const result = spawnSync("git", ["ls-files", "-z"], { cwd: repositoryRoot });
+      if (result.status !== 0) throw new TypeError(result.stderr.toString("utf8"));
+      return result.stdout;
+    }
     if (args.includes("build")) {
       npmCalls.push([...args]);
+      mutateDuringBuild?.();
       return "";
     }
     if (args.includes("pack")) {
@@ -566,6 +573,64 @@ describe("release candidate validation", () => {
         status: " M src/index.ts\n",
       }),
     ).toThrow("requires a clean commit");
+    expect(() =>
+      validateCleanCommit({
+        commit: `${bindings.commit}\n`,
+        expectedCommit: bindings.commit,
+        status: "?? unexpected-candidate-input.txt\n",
+      }),
+    ).toThrow("requires a clean commit");
+  });
+
+  it("rejects a governed mutation during build before npm pack", async () => {
+    const sourceBindings = await readRepositorySourceBindings();
+    const openApiPath = resolve(repositoryRoot, "openapi.yaml");
+    const originalOpenApi = readFileSync(openApiPath);
+    const fixture = candidateRunnerFixture(
+      sourceBindings,
+      [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+      undefined,
+      () => {
+        writeFileSync(
+          openApiPath,
+          originalOpenApi.toString("utf8").replace("title: AhaSend API v2", "title: Mutated API"),
+        );
+      },
+    );
+
+    try {
+      await expect(createCandidate(fixture.createOptions)).rejects.toThrow(
+        "Candidate inputs references a stale openapi.yaml",
+      );
+      expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
+      expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(0);
+    } finally {
+      writeFileSync(openApiPath, originalOpenApi);
+    }
+  });
+
+  it("rejects a package-source mutation during build before npm pack", async () => {
+    const sourceBindings = await readRepositorySourceBindings();
+    const sourcePath = resolve(repositoryRoot, "src/index.ts");
+    const originalSource = readFileSync(sourcePath);
+    const fixture = candidateRunnerFixture(
+      sourceBindings,
+      [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+      undefined,
+      () => {
+        writeFileSync(sourcePath, Buffer.concat([originalSource, Buffer.from("\n// mutation\n")]));
+      },
+    );
+
+    try {
+      await expect(createCandidate(fixture.createOptions)).rejects.toThrow(
+        "Candidate package-source inputs changed during build: src/index.ts",
+      );
+      expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
+      expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(0);
+    } finally {
+      writeFileSync(sourcePath, originalSource);
+    }
   });
 
   for (const testCase of [

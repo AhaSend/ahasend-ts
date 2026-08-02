@@ -463,6 +463,50 @@ function runNpm(runCommand, args, cwd) {
   return runCommand(invocation.command, invocation.args, { cwd, encoding: "utf8" });
 }
 
+async function readPackageSourceDigests(runCommand) {
+  const trackedPaths = String(
+    runCommand("git", ["ls-files", "-z"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    }),
+  )
+    .split("\0")
+    .filter(Boolean);
+  const entries = await Promise.all(
+    trackedPaths.map(async (path) => [
+      path,
+      sha256Hex(await readFile(resolve(repositoryRoot, path))),
+    ]),
+  );
+  return Object.fromEntries(entries);
+}
+
+function comparePackageSourceDigests(actual, expected) {
+  const paths = new Set([...Object.keys(actual), ...Object.keys(expected)]);
+  const changed = [...paths].filter((path) => actual[path] !== expected[path]);
+  if (changed.length > 0) {
+    throw new TypeError(
+      `Candidate package-source inputs changed during build: ${changed.join(", ")}.`,
+    );
+  }
+}
+
+function compareRepositorySourceBindings(actual, expected) {
+  compareSourceArtifactBindings(actual, expected, "Candidate inputs");
+  requireSourceBinding(
+    actual.lockfileSha256,
+    expected.lockfileSha256,
+    "package lockfile",
+    "Candidate inputs",
+  );
+  requireSourceBinding(
+    actual.auditPolicySha256,
+    expected.auditPolicySha256,
+    "audit policy",
+    "Candidate inputs",
+  );
+}
+
 function extractPackageFile(runCommand, tarballPath, packagePath, cwd) {
   return runCommand("tar", ["-xOf", tarballPath, `package/${packagePath}`], { cwd });
 }
@@ -517,7 +561,7 @@ export async function createCandidate({
   const rendererPath = resolve(rendererReportPath);
   const destination = resolve(outputDirectory);
 
-  const [sourceReport, sourceSidecar, rendererReport, expectedSourceBindings] = await Promise.all([
+  const [sourceReport, sourceSidecar, rendererReport, initialSourceBindings] = await Promise.all([
     readFile(sourcePath),
     readFile(sourceSidecarPath),
     readFile(rendererPath),
@@ -530,7 +574,7 @@ export async function createCandidate({
         encoding: "utf8",
       }),
     ),
-    expectedCommit: expectedSourceBindings.commit,
+    expectedCommit: initialSourceBindings.commit,
     status: String(
       runCommand("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
         cwd: repositoryRoot,
@@ -538,6 +582,10 @@ export async function createCandidate({
       }),
     ),
   });
+  const [expectedSourceBindings, packageSourceDigests] = await Promise.all([
+    readRepositorySourceBindings(),
+    readPackageSourceDigests(runCommand),
+  ]);
   const sourceSummary = validateSourceGateReport({
     reportSource: sourceReport,
     reportSidecar: sourceSidecar,
@@ -562,6 +610,27 @@ export async function createCandidate({
   const stagingDirectory = await mkdtemp(join(tmpdir(), "ahasend-sdk-candidate-"));
   try {
     runNpm(runCommand, ["run", "build"], repositoryRoot);
+    const [currentSourceBindings, currentPackageSourceDigests] = await Promise.all([
+      readRepositorySourceBindings(),
+      readPackageSourceDigests(runCommand),
+    ]);
+    compareRepositorySourceBindings(currentSourceBindings, expectedSourceBindings);
+    comparePackageSourceDigests(currentPackageSourceDigests, packageSourceDigests);
+    validateCleanCommit({
+      commit: String(
+        runCommand("git", ["rev-parse", "--verify", "HEAD"], {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+        }),
+      ),
+      expectedCommit: commit,
+      status: String(
+        runCommand("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+        }),
+      ),
+    });
     const packOutput = runNpm(
       runCommand,
       ["pack", "--json", "--ignore-scripts", "--pack-destination", stagingDirectory],
