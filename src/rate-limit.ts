@@ -212,8 +212,9 @@ class TokenBucket {
   }
 
   private cancelWait(): void {
-    this.waitController?.abort();
+    const controller = this.waitController;
     this.waitController = undefined;
+    controller?.abort();
   }
 
   private cleanup(pending: PendingAcquisition): void {

@@ -11,6 +11,59 @@ import {
 } from "../src/rate-limit.js";
 import { isRetryableError } from "../src/retry.js";
 
+interface ScheduledRateLimitSleep {
+  delay: number;
+  dueAt: number;
+  signal: AbortSignal | undefined;
+  wake: () => void;
+  woke: boolean;
+}
+
+function createRateLimitClock() {
+  let now = 0;
+  const scheduled: ScheduledRateLimitSleep[] = [];
+  const sleep = vi.fn(
+    (delay: number, signal?: AbortSignal) =>
+      new Promise<void>((resolve) => {
+        scheduled.push({
+          delay,
+          dueAt: now + delay,
+          signal,
+          wake: resolve,
+          woke: false,
+        });
+      }),
+  );
+
+  return {
+    clock: { now: () => now, sleep },
+    scheduled,
+    async advanceBy(elapsedMs: number): Promise<void> {
+      now += elapsedMs;
+      let woke: boolean;
+      do {
+        woke = false;
+        for (const pending of scheduled) {
+          if (!pending.woke && pending.dueAt <= now) {
+            pending.woke = true;
+            pending.wake();
+            woke = true;
+          }
+        }
+        await Promise.resolve();
+      } while (woke && scheduled.some((pending) => !pending.woke && pending.dueAt <= now));
+    },
+  };
+}
+
+function trackSettlements(promises: Promise<void>[]): ReturnType<typeof vi.fn>[] {
+  return promises.map((promise) => {
+    const settlement = vi.fn();
+    void promise.then(settlement, settlement);
+    return settlement;
+  });
+}
+
 describe("detectCategory", () => {
   it("uses the statistics tier only for statistics paths", () => {
     expect(detectCategory("GET", "/v2/accounts/abc/statistics/deliverability")).toBe("statistics");
@@ -238,80 +291,159 @@ describe("RateLimiter", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("releases queued acquisitions when master pacing is disabled", async () => {
-    const limiter = new RateLimiter(
-      resolveRateLimitConfig({
-        enabled: true,
-        standard: { requestsPerSecond: 1, burst: 1 },
-      }),
-    );
-    await limiter.acquire("GET", "/v2/ping");
-    const queued = [limiter.acquire("GET", "/v2/ping"), limiter.acquire("GET", "/v2/ping")];
-    expect(vi.getTimerCount()).toBe(1);
-
-    limiter.setEnabled(false);
-    await Promise.all(queued);
-    expect(vi.getTimerCount()).toBe(0);
-    await limiter.acquire("GET", "/v2/ping");
-
-    limiter.setEnabled(true);
-    await limiter.acquire("GET", "/v2/ping");
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("disables one category without releasing another category's queue", async () => {
+  it("releases both queues once and invalidates stale wakeups on master disablement", async () => {
+    const fakeClock = createRateLimitClock();
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
         standard: { requestsPerSecond: 1, burst: 1 },
         statistics: { requestsPerSecond: 1, burst: 1 },
       }),
+      fakeClock.clock,
     );
     await Promise.all([
       limiter.acquire("GET", "/v2/ping"),
       limiter.acquire("GET", "/v2/accounts/a/statistics/bounce"),
     ]);
-    const standard = limiter.acquire("GET", "/v2/ping");
-    const statistics = limiter.acquire("GET", "/v2/accounts/a/statistics/bounce");
-    expect(vi.getTimerCount()).toBe(2);
+    const queued = [
+      limiter.acquire("GET", "/v2/ping"),
+      limiter.acquire("GET", "/v2/ping"),
+      limiter.acquire("GET", "/v2/accounts/a/statistics/bounce"),
+      limiter.acquire("GET", "/v2/accounts/a/statistics/bounce"),
+    ];
+    const settlements = trackSettlements(queued);
+    expect(fakeClock.scheduled).toHaveLength(2);
 
-    limiter.setCategoryEnabled("standard", false);
-    await standard;
-    expect(vi.getTimerCount()).toBe(1);
+    limiter.setEnabled(false);
+    await Promise.all(queued);
+    expect(fakeClock.scheduled.every(({ signal }) => signal?.aborted)).toBe(true);
+    expect(settlements.every((settlement) => settlement.mock.calls.length === 1)).toBe(true);
 
-    let statisticsComplete = false;
-    void statistics.then(() => {
-      statisticsComplete = true;
-    });
-    await Promise.resolve();
-    expect(statisticsComplete).toBe(false);
-    await vi.advanceTimersByTimeAsync(1000);
-    await statistics;
+    // This fake deliberately wakes aborted sleeps so the stale callback guard is exercised.
+    await fakeClock.advanceBy(1_000);
+    expect(settlements.every((settlement) => settlement.mock.calls.length === 1)).toBe(true);
+    expect(fakeClock.scheduled).toHaveLength(2);
   });
 
-  it("reschedules queued work when a category limit changes", async () => {
+  it("releases one category once without invalidating another category's timer", async () => {
+    const fakeClock = createRateLimitClock();
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
+        statistics: { requestsPerSecond: 1, burst: 1 },
+      }),
+      fakeClock.clock,
+    );
+    await Promise.all([
+      limiter.acquire("GET", "/v2/ping"),
+      limiter.acquire("GET", "/v2/accounts/a/statistics/bounce"),
+    ]);
+    const standard = [limiter.acquire("GET", "/v2/ping"), limiter.acquire("GET", "/v2/ping")];
+    const statistics = limiter.acquire("GET", "/v2/accounts/a/statistics/bounce");
+    const standardSettlements = trackSettlements(standard);
+    const statisticsSettlement = trackSettlements([statistics])[0];
+    const [standardSleep, statisticsSleep] = fakeClock.scheduled;
+    expect(standardSleep).toBeDefined();
+    expect(statisticsSleep).toBeDefined();
+
+    limiter.setCategoryEnabled("standard", false);
+    await Promise.all(standard);
+    expect(standardSleep?.signal?.aborted).toBe(true);
+    expect(statisticsSleep?.signal?.aborted).toBe(false);
+    expect(standardSettlements.every((settlement) => settlement.mock.calls.length === 1)).toBe(
+      true,
+    );
+    expect(statisticsSettlement).not.toHaveBeenCalled();
+
+    await fakeClock.advanceBy(1_000);
+    await statistics;
+    expect(standardSettlements.every((settlement) => settlement.mock.calls.length === 1)).toBe(
+      true,
+    );
+    expect(statisticsSettlement).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { direction: "lower", initialRps: 2, nextRps: 1, oldDelay: 500, nextDelay: 800 },
+    { direction: "higher", initialRps: 1, nextRps: 2, oldDelay: 1_000, nextDelay: 450 },
+  ])(
+    "retains queued work and recomputes its wakeup after a $direction rate change",
+    async ({ initialRps, nextRps, oldDelay, nextDelay }) => {
+      const fakeClock = createRateLimitClock();
+      const limiter = new RateLimiter(
+        resolveRateLimitConfig({
+          enabled: true,
+          standard: { requestsPerSecond: initialRps, burst: 1 },
+        }),
+        fakeClock.clock,
+      );
+      await limiter.acquire("GET", "/v2/ping");
+      const queued = [limiter.acquire("GET", "/v2/ping"), limiter.acquire("GET", "/v2/ping")];
+      const settlements = trackSettlements(queued);
+      const initialSleep = fakeClock.scheduled[0];
+      expect(initialSleep?.delay).toBe(oldDelay);
+
+      await fakeClock.advanceBy(100);
+      limiter.setLimit("standard", nextRps, 1);
+
+      expect(initialSleep?.signal?.aborted).toBe(true);
+      expect(fakeClock.scheduled[1]?.delay).toBe(nextDelay);
+      expect(settlements.every((settlement) => settlement.mock.calls.length === 0)).toBe(true);
+
+      await fakeClock.advanceBy(nextDelay - 1);
+      expect(settlements.every((settlement) => settlement.mock.calls.length === 0)).toBe(true);
+      await fakeClock.advanceBy(1);
+      expect(settlements.map((settlement) => settlement.mock.calls.length)).toEqual([1, 0]);
+
+      const oldWakeRemaining = oldDelay - (100 + nextDelay);
+      if (oldWakeRemaining > 0) {
+        await fakeClock.advanceBy(oldWakeRemaining);
+        expect(settlements.map((settlement) => settlement.mock.calls.length)).toEqual([1, 0]);
+      }
+
+      await fakeClock.advanceBy(1_000 / nextRps - Math.max(0, oldWakeRemaining));
+      await Promise.all(queued);
+      expect(settlements.map((settlement) => settlement.mock.calls.length)).toEqual([1, 1]);
+    },
+  );
+
+  it("retains every queued acquisition and invalidates the old wakeup after a burst change", async () => {
+    const fakeClock = createRateLimitClock();
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
         standard: { requestsPerSecond: 1, burst: 1 },
       }),
+      fakeClock.clock,
     );
     await limiter.acquire("GET", "/v2/ping");
-    const queued = limiter.acquire("GET", "/v2/ping");
-    expect(vi.getTimerCount()).toBe(1);
+    const queued = [
+      limiter.acquire("GET", "/v2/ping"),
+      limiter.acquire("GET", "/v2/ping"),
+      limiter.acquire("GET", "/v2/ping"),
+    ];
+    const settlements = trackSettlements(queued);
+    const initialSleep = fakeClock.scheduled[0];
 
-    limiter.setLimit("standard", 2, 1);
-    expect(vi.getTimerCount()).toBe(1);
-    await vi.advanceTimersByTimeAsync(499);
-    expect(vi.getTimerCount()).toBe(1);
-    await vi.advanceTimersByTimeAsync(1);
-    await queued;
+    await fakeClock.advanceBy(250);
+    limiter.setLimit("standard", 1, 3);
+
+    expect(initialSleep?.signal?.aborted).toBe(true);
+    expect(fakeClock.scheduled[1]?.delay).toBe(750);
+    expect(settlements.every((settlement) => settlement.mock.calls.length === 0)).toBe(true);
+
+    await fakeClock.advanceBy(750);
+    expect(settlements.map((settlement) => settlement.mock.calls.length)).toEqual([1, 0, 0]);
+    await fakeClock.advanceBy(1_000);
+    expect(settlements.map((settlement) => settlement.mock.calls.length)).toEqual([1, 1, 0]);
+    await fakeClock.advanceBy(1_000);
+    await Promise.all(queued);
+    expect(settlements.map((settlement) => settlement.mock.calls.length)).toEqual([1, 1, 1]);
   });
 
   it("schedules a timer-safe integer delay at the minimum live pacing rate", async () => {
-    const sleep = vi.fn(
-      (_ms: number, _signal?: AbortSignal) => new Promise<void>(() => undefined),
-    );
+    const sleep = vi.fn((_ms: number, _signal?: AbortSignal) => new Promise<void>(() => undefined));
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
