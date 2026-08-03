@@ -18,6 +18,7 @@ import {
   createSuppressionScenarioRegistry,
   createWebhookScenarioRegistry,
   installLiveCandidate,
+  redactLiveValue,
   runAccountLiveScenarios,
   runAPIKeyLiveScenarios,
   runDomainLiveScenarios,
@@ -44,6 +45,7 @@ const configKeys = Object.freeze([
   "verifiedDomain",
   "webhookUrl",
 ]);
+let failureRedactionSecrets = [];
 
 function parseLiveConfig(source) {
   let parsed;
@@ -94,12 +96,120 @@ function requireEnvironment(name) {
   return requireString(process.env[name], name);
 }
 
-function collectRun(target, run) {
-  if (run.failure !== null) {
-    const operation = run.failure.operationId === undefined ? "" : ` ${run.failure.operationId}`;
-    throw new TypeError(`Live ${target}${operation} failed during ${run.failure.phase}.`);
-  }
+function collectRun(_target, run) {
   return run;
+}
+
+function safeFailureEvidence(error) {
+  try {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      typeof error.serialized === "object" &&
+      error.serialized !== null
+    ) {
+      return error.serialized;
+    }
+  } catch {
+    // Continue with a bounded representation for hostile thrown values.
+  }
+  let name = "ThrownValue";
+  let message = "Live acceptance threw an unreadable value.";
+  try {
+    message = typeof error === "string" ? error : String(error);
+    if (error instanceof Error) {
+      name = typeof error.name === "string" ? error.name : "Error";
+      message = typeof error.message === "string" ? error.message : "Live acceptance failed.";
+    }
+  } catch {
+    // Failure finalization must not trust arbitrary thrown values.
+  }
+  return Object.freeze({ name, message });
+}
+
+function originalFailure(error) {
+  try {
+    if (typeof error === "object" && error !== null && Object.hasOwn(error, "error")) {
+      return error.error;
+    }
+  } catch {
+    // Preserve the thrown wrapper when it cannot be inspected safely.
+  }
+  return error;
+}
+
+function failureOperationResults(results, failure) {
+  const supplied = Array.isArray(results.operationResults) ? results.operationResults : [];
+  if (failure === null) return supplied;
+  const operationId =
+    typeof failure === "object" && failure !== null && typeof failure.operationId === "string"
+      ? failure.operationId
+      : undefined;
+  if (operationId === undefined) return supplied;
+  const evidence = {
+    phase:
+      typeof failure === "object" && failure !== null && typeof failure.phase === "string"
+        ? failure.phase
+        : "operation",
+    ...safeFailureEvidence(failure),
+  };
+  return supplied.map((result) =>
+    result.operationId === operationId && result.status === "failed"
+      ? { ...result, failure: evidence }
+      : result,
+  );
+}
+
+export async function persistLiveAcceptanceEvidence({
+  candidate,
+  results = {},
+  failure = results.failure ?? null,
+  reportPath,
+  reportSidecarPath,
+  secrets = [],
+}) {
+  let fatalFailure = failure;
+  let report;
+  try {
+    report = createLiveReport({
+      candidate,
+      ...results,
+      operationResults: failureOperationResults(results, fatalFailure),
+      secrets,
+    });
+  } catch (error) {
+    fatalFailure ??= error;
+    const firstOperation = candidate.profile.operations[0];
+    if (firstOperation === undefined) {
+      throw error;
+    }
+    report = createLiveReport({
+      candidate,
+      operationResults: [
+        {
+          operationId: firstOperation.operationId,
+          status: "failed",
+          failure: { phase: "report-finalization", ...safeFailureEvidence(error) },
+        },
+      ],
+      secrets,
+    });
+  }
+
+  const written = await writeLiveReport({
+    report,
+    candidate,
+    reportPath,
+    reportSidecarPath,
+    secrets,
+  });
+  if (fatalFailure !== null) throw originalFailure(fatalFailure);
+
+  const [reportSource, reportSidecar] = await Promise.all([
+    readFile(written.reportPath),
+    readFile(written.reportSidecarPath),
+  ]);
+  return validateLiveReportArtifacts({ reportSource, reportSidecar, candidate });
 }
 
 async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, accountId, config }) {
@@ -359,32 +469,30 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
         pagination,
       }),
   );
-  if (combined.failure !== null || combined.subAccountAPIKeys === null) {
-    const operation =
-      combined.failure?.operationId === undefined ? "" : ` ${combined.failure.operationId}`;
-    const phase = combined.failure?.phase ?? "setup";
-    throw new TypeError(`Live sub-account${operation} failed during ${phase}.`);
-  }
-
+  const childOperationResults =
+    combined.subAccountAPIKeys === null ? [] : combined.subAccountAPIKeys.operationResults;
+  const childIteratorResults =
+    combined.subAccountAPIKeys === null ? [] : combined.subAccountAPIKeys.iteratorResults;
   return Object.freeze({
     operationResults: Object.freeze([
       ...runs.flatMap((run) => run.operationResults),
       ...combined.subAccounts.operationResults,
-      ...combined.subAccountAPIKeys.operationResults,
+      ...childOperationResults,
     ]),
     iteratorResults: Object.freeze([
       ...runs.flatMap((run) => run.iteratorResults),
       ...combined.subAccounts.iteratorResults,
-      ...combined.subAccountAPIKeys.iteratorResults,
+      ...childIteratorResults,
     ]),
     cleanupResults: Object.freeze([
       ...runs.flatMap((run) => run.cleanupResults),
       ...combined.cleanupResults,
     ]),
+    failure: runs.find((run) => run.failure !== null)?.failure ?? combined.failure,
   });
 }
 
-async function main() {
+export async function main() {
   const [
     manifestPath,
     tarballPath,
@@ -409,46 +517,55 @@ async function main() {
   const apiKey = requireEnvironment("AHASEND_API_KEY");
   const accountId = requireEnvironment("AHASEND_ACCOUNT_ID");
   const config = parseLiveConfig(requireEnvironment("AHASEND_LIVE_CONFIG_JSON"));
+  const secrets = [apiKey, accountId, ...Object.values(config)];
+  failureRedactionSecrets = secrets;
   const candidate = await installLiveCandidate({
     manifestPath,
     tarballPath,
     installDirectory,
     ...(manifestSidecarPath === undefined ? {} : { manifestSidecarPath }),
   });
-  const installedModule = await import(
-    pathToFileURL(resolve(candidate.installedRoot, "dist/index.js")).href
-  );
-  if (typeof installedModule.AhaSendClient !== "function") {
-    throw new TypeError("Installed candidate does not export AhaSendClient.");
+  let results = {};
+  let failure = null;
+  try {
+    const installedModule = await import(
+      pathToFileURL(resolve(candidate.installedRoot, "dist/index.js")).href
+    );
+    if (typeof installedModule.AhaSendClient !== "function") {
+      throw new TypeError("Installed candidate does not export AhaSendClient.");
+    }
+    results = await executeLiveAcceptance({
+      candidate,
+      AhaSendClient: installedModule.AhaSendClient,
+      apiKey,
+      accountId,
+      config,
+    });
+  } catch (error) {
+    failure = error;
   }
-  const results = await executeLiveAcceptance({
+
+  const summary = await persistLiveAcceptanceEvidence({
     candidate,
-    AhaSendClient: installedModule.AhaSendClient,
-    apiKey,
-    accountId,
-    config,
-  });
-  const secrets = [apiKey, accountId, ...Object.values(config)];
-  const report = createLiveReport({ candidate, ...results, secrets });
-  await writeLiveReport({
-    report,
-    candidate,
+    results,
+    failure: failure ?? results.failure ?? null,
     reportPath,
     reportSidecarPath,
     secrets,
   });
-  const [reportSource, reportSidecar] = await Promise.all([
-    readFile(reportPath),
-    readFile(reportSidecarPath),
-  ]);
-  const summary = validateLiveReportArtifacts({ reportSource, reportSidecar, candidate });
   process.stdout.write(
     `Live acceptance passed for ${summary.package.name}@${summary.package.version}: ${summary.operations} primary operations, ${summary.iterators} iterators, zero unexpected, cleanup, or secret-leak failures.\n`,
   );
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`run-live-acceptance: ${message}\n`);
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  main().catch((error) => {
+    const message = safeFailureEvidence(error).message;
+    const redacted = redactLiveValue(message, failureRedactionSecrets);
+    process.stderr.write(`run-live-acceptance: ${String(redacted)}\n`);
+    process.exitCode = 1;
+  });
+}
