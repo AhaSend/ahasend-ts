@@ -1012,20 +1012,12 @@ const structuralClientMock: ClientResourceSurface = {
 };
 
 type RefinementContracts = [
-  Expect<Equal<SDK.CreateMessageRequest["recipients"], SDK.NonEmptyArray<SDK.Recipient>>>,
-  Expect<Equal<SDK.CreateConversationMessageRequest["to"], SDK.NonEmptyArray<SDK.Address>>>,
-  Expect<
-    Equal<SDK.CreateConversationMessageRequest["cc"], SDK.NonEmptyArray<SDK.Address> | undefined>
-  >,
+  Expect<Equal<SDK.CreateMessageRequest["recipients"], readonly SDK.Recipient[]>>,
+  Expect<Equal<SDK.CreateConversationMessageRequest["to"], readonly SDK.Address[]>>,
+  Expect<Equal<SDK.CreateConversationMessageRequest["cc"], readonly SDK.Address[] | undefined>>,
   Expect<Equal<SDK.CreateMessageRequest["attachments"], readonly SDK.Attachment[] | undefined>>,
   Expect<Equal<SDK.CreateMessageRequest["tags"], readonly string[] | undefined>>,
-  Expect<Equal<SDK.CreateAPIKeyRequest["scopes"], SDK.NonEmptyArray<string>>>,
-  Expect<
-    Equal<
-      { label: string; scopes: readonly [] } extends SDK.CreateAPIKeyRequest ? true : false,
-      false
-    >
-  >,
+  Expect<Equal<SDK.CreateAPIKeyRequest["scopes"], readonly string[]>>,
   Expect<Equal<{} extends SDK.UpdateAPIKeyRequest ? true : false, false>>,
   Expect<
     Equal<
@@ -1039,15 +1031,11 @@ type RefinementContracts = [
       false
     >
   >,
-  Expect<Equal<{ scopes: readonly [] } extends SDK.UpdateAPIKeyRequest ? true : false, false>>,
   Expect<Extends<{ label: string }, SDK.UpdateAPIKeyRequest>>,
-  Expect<Extends<{ scopes: SDK.NonEmptyArray<string> }, SDK.UpdateAPIKeyRequest>>,
+  Expect<Extends<{ scopes: readonly string[] }, SDK.UpdateAPIKeyRequest>>,
   Expect<Extends<{ ip_allow_list: readonly string[] }, SDK.UpdateAPIKeyRequest>>,
   Expect<
-    Equal<
-      Extract<SDK.CreateWebhookRequest, { scope: "scoped" }>["domains"],
-      SDK.NonEmptyArray<string>
-    >
+    Equal<Extract<SDK.CreateWebhookRequest, { scope: "scoped" }>["domains"], readonly string[]>
   >,
   Expect<
     Equal<
@@ -1058,7 +1046,7 @@ type RefinementContracts = [
   Expect<
     Equal<
       Extract<SDK.CreateSMTPCredentialRequest, { scope: "scoped" }>["domains"],
-      SDK.NonEmptyArray<string>
+      readonly string[]
     >
   >,
   Expect<
@@ -1067,7 +1055,6 @@ type RefinementContracts = [
       readonly string[] | null | undefined
     >
   >,
-  Expect<Equal<readonly [] extends SDK.NonEmptyArray<unknown> ? true : false, false>>,
   Expect<Equal<{} extends SDK.UpdateSubAccountRequest ? true : false, false>>,
   Expect<Equal<{ name: null } extends SDK.UpdateSubAccountRequest ? true : false, false>>,
   Expect<Extends<{ name: string }, SDK.UpdateSubAccountRequest>>,
@@ -1108,8 +1095,8 @@ const readonlyAttachments: readonly SDK.Attachment[] = [
   { data: "hello", content_type: "text/plain", file_name: "hello.txt" },
 ];
 const readonlyTags: readonly string[] = ["transactional"];
-const readonlyRecipients: SDK.NonEmptyArray<SDK.Recipient> = [{ email: "recipient@example.com" }];
-const readonlyAddresses: SDK.NonEmptyArray<SDK.Address> = [{ email: "recipient@example.com" }];
+const readonlyRecipients: readonly SDK.Recipient[] = [{ email: "recipient@example.com" }];
+const readonlyAddresses: readonly SDK.Address[] = [{ email: "recipient@example.com" }];
 const messageBody: SDK.CreateMessageRequest = {
   from: { email: "sender@example.com" },
   recipients: readonlyRecipients,
@@ -1124,7 +1111,7 @@ const conversationBody: SDK.CreateConversationMessageRequest = {
   attachments: readonlyAttachments,
   tags: readonlyTags,
 };
-const readonlyWebhookDomains: SDK.NonEmptyArray<string> = ["example.com"];
+const readonlyWebhookDomains: readonly string[] = ["example.com"];
 const createWebhookBody: SDK.CreateWebhookRequest = {
   name: "Readonly webhook",
   url: "https://hooks.example.com/ahasend",
@@ -1133,7 +1120,7 @@ const createWebhookBody: SDK.CreateWebhookRequest = {
 };
 const updateWebhookDomains: readonly string[] = ["example.com", "example.net"];
 const updateWebhookBody: SDK.UpdateWebhookRequest = { domains: updateWebhookDomains };
-const readonlySMTPDomains: SDK.NonEmptyArray<string> = ["example.com"];
+const readonlySMTPDomains: readonly string[] = ["example.com"];
 const smtpBody: SDK.CreateSMTPCredentialRequest = {
   name: "Readonly SMTP credential",
   scope: "scoped",
@@ -1184,7 +1171,8 @@ operations.execute("ping", {
 });
 operations.execute("createWebhook", {
   path: { account_id: "account-id" },
-  // @ts-expect-error Scoped webhook domains are non-empty.
+  // Scoped domains are typed as a plain array so runtime-built lists assign;
+  // emptiness is rejected by assertNonEmptyArray at the resource boundary.
   body: {
     name: "Invalid empty scoped webhook",
     url: "https://hooks.example.com/ahasend",
@@ -1194,7 +1182,7 @@ operations.execute("createWebhook", {
 });
 operations.execute("createSMTPCredential", {
   path: { account_id: "account-id" },
-  // @ts-expect-error Scoped SMTP credential domains are non-empty.
+  // Emptiness is rejected at runtime; see assertNonEmptyArray.
   body: {
     name: "Invalid empty scoped SMTP credential",
     scope: "scoped",

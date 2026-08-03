@@ -6,7 +6,7 @@
  * comparison; openapi.yaml supplies the independent HTTP contract.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import yaml from "js-yaml";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -102,6 +102,7 @@ interface OpenAPIOperation {
 interface OpenAPIDocument {
   readonly security?: readonly Readonly<Record<string, readonly string[]>>[];
   readonly paths: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly components?: { readonly schemas?: Readonly<Record<string, unknown>> };
 }
 
 interface SpecOperation {
@@ -618,6 +619,47 @@ describe("Facade iterator conformance matrix", () => {
       await expectMatrixRow(row, OPERATION_PROFILE.iterators);
     });
   }
+});
+
+describe("Non-empty request array coverage", () => {
+  it("guards every resource module that carries a minItems-one request schema", () => {
+    // The spec's `minItems: 1` used to be enforced by a non-empty tuple type.
+    // It is now a runtime guard, which means a NEW resource module reusing an
+    // existing request type silently loses the guarantee — exactly what
+    // happened to the sub-account API-key paths. Derive the requirement from
+    // the spec so the next reuse cannot ship unguarded.
+    const schemas = specDocument.components?.schemas ?? {};
+    const constrained = new Set<string>();
+    const walk = (node: unknown, schemaName: string): void => {
+      if (node === null || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (const item of node) walk(item, schemaName);
+        return;
+      }
+      const record = node as Record<string, unknown>;
+      if (record["minItems"] === 1) constrained.add(schemaName);
+      for (const value of Object.values(record)) walk(value, schemaName);
+    };
+    for (const [name, schema] of Object.entries(schemas)) walk(schema, name);
+
+    expect(constrained.size).toBeGreaterThan(0);
+
+    const resourceDir = resolve(process.cwd(), "src/resources");
+    const resourceFiles = readdirSync(resourceDir).filter((name) => name.endsWith(".ts"));
+    const unguarded: string[] = [];
+
+    for (const schemaName of constrained) {
+      for (const file of resourceFiles) {
+        const source = readFileSync(resolve(resourceDir, file), "utf8");
+        // A module that names the constrained request type must also guard it.
+        if (source.includes(schemaName) && !source.includes("assertNonEmptyArray")) {
+          unguarded.push(`${file} uses ${schemaName} without assertNonEmptyArray`);
+        }
+      }
+    }
+
+    expect(unguarded).toEqual([]);
+  });
 });
 
 describe("Generated operation inventory", () => {

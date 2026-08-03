@@ -2,7 +2,6 @@ import type { RetryConfig } from "../retry.js";
 
 export type UUID = string;
 export type ISODateTime = string;
-export type NonEmptyArray<T> = readonly [T, ...T[]];
 
 export interface AhaSendResponse<T> {
   data: T;

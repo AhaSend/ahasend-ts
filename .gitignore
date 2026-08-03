@@ -12,6 +12,7 @@ coverage/
 
 # Internal working docs — not for the public repo
 CLAUDE.md
+RELEASE-REVIEW-*.md
 research.md
 breif.md
 chat.md

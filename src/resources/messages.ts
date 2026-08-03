@@ -4,7 +4,6 @@ import type {
   Address,
   AhaSendPromise,
   ISODateTime,
-  NonEmptyArray,
   PaginatedResponse,
   PaginationParams,
   RequestOptions,
@@ -12,6 +11,7 @@ import type {
   UUID,
 } from "../types/common.js";
 import {
+  assertNonEmptyArray,
   forwardOptions,
   forwardWithIdempotency,
   type IdempotencyRequestOptions,
@@ -101,7 +101,7 @@ export interface CreateMessageRequest {
   /** Sender — must be on a verified sending domain of your account. */
   from: Address;
   /** 1–100 recipients (the API rejects an empty array). */
-  recipients: NonEmptyArray<Recipient>;
+  recipients: readonly Recipient[];
   subject: string;
   reply_to?: Address;
   /** Plain-text body. Required if `html_content` is empty. */
@@ -134,10 +134,10 @@ export interface CreateMessageRequest {
 export interface CreateConversationMessageRequest {
   from: Address;
   /** 1–50 To recipients (combined To+Cc+Bcc must be ≤50). */
-  to: NonEmptyArray<Address>;
+  to: readonly Address[];
   subject: string;
-  cc?: NonEmptyArray<Address>;
-  bcc?: NonEmptyArray<Address>;
+  cc?: readonly Address[];
+  bcc?: readonly Address[];
   reply_to?: Address;
   text_content?: string;
   html_content?: string;
@@ -337,10 +337,12 @@ class MessagesClientImplementation implements MessagesClient {
     body: CreateMessageRequest,
     options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<SendMessageResponse> {
+    const forwarded = forwardWithIdempotency(options);
+    assertNonEmptyArray(body?.recipients, "recipients");
     return this.#operations.execute(
       "createMessage",
       { path: { account_id: this.#accountId }, body },
-      forwardWithIdempotency(options),
+      forwarded,
     );
   }
 
@@ -356,10 +358,15 @@ class MessagesClientImplementation implements MessagesClient {
     body: CreateConversationMessageRequest,
     options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<SendMessageResponse> {
+    const forwarded = forwardWithIdempotency(options);
+    assertNonEmptyArray(body?.to, "to");
+    for (const field of ["cc", "bcc"] as const) {
+      if (body?.[field] !== undefined) assertNonEmptyArray(body[field], field);
+    }
     return this.#operations.execute(
       "createConversationMessage",
       { path: { account_id: this.#accountId }, body },
-      forwardWithIdempotency(options),
+      forwarded,
     );
   }
 

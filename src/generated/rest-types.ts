@@ -138,12 +138,12 @@ export interface components {
     };
     CreateAPIKeyRequest: {
       label: string;
-      scopes: readonly [string, ...Array<string>];
+      scopes: ReadonlyArray<string>;
       ip_allow_list?: Array<string>;
     };
     UpdateAPIKeyRequest: {
       label?: string | null;
-      scopes?: readonly [string, ...Array<string>] | null;
+      scopes?: ReadonlyArray<string> | null;
       ip_allow_list?: Array<string> | null;
     } & (
       | {
@@ -244,10 +244,7 @@ export interface components {
     };
     CreateMessageRequest: {
       from: components["schemas"]["Address"];
-      recipients: readonly [
-        components["schemas"]["Recipient"],
-        ...Array<components["schemas"]["Recipient"]>,
-      ];
+      recipients: ReadonlyArray<components["schemas"]["Recipient"]>;
       reply_to?: components["schemas"]["Address"];
       subject: string;
       text_content?: string;
@@ -269,9 +266,9 @@ export interface components {
     };
     CreateConversationMessageRequest: {
       from: components["schemas"]["Address"];
-      to: readonly [components["schemas"]["Address"], ...Array<components["schemas"]["Address"]>];
-      cc?: readonly [components["schemas"]["Address"], ...Array<components["schemas"]["Address"]>];
-      bcc?: readonly [components["schemas"]["Address"], ...Array<components["schemas"]["Address"]>];
+      to: ReadonlyArray<components["schemas"]["Address"]>;
+      cc?: ReadonlyArray<components["schemas"]["Address"]>;
+      bcc?: ReadonlyArray<components["schemas"]["Address"]>;
       reply_to?: components["schemas"]["Address"];
       subject: string;
       text_content?: string;
@@ -587,7 +584,7 @@ export interface components {
       | ({
           scope: "scoped";
         } & {
-          domains: readonly [string, ...Array<string>];
+          domains: ReadonlyArray<string>;
         })
       | {
           scope?: Exclude<"global" | "scoped", "scoped">;
@@ -638,7 +635,7 @@ export interface components {
       | ({
           scope: "scoped";
         } & {
-          domains: readonly [string, ...Array<string>];
+          domains: ReadonlyArray<string>;
         })
       | {
           scope?: Exclude<"global" | "scoped", "scoped">;

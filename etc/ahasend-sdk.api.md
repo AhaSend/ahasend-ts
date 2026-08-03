@@ -451,7 +451,7 @@ export interface CreateAPIKeyRequest {
     ip_allow_list?: readonly string[];
     // (undocumented)
     label: string;
-    scopes: NonEmptyArray<APIKeyScopeName>;
+    scopes: readonly APIKeyScopeName[];
 }
 
 // @public (undocumented)
@@ -461,9 +461,9 @@ export interface CreateConversationMessageRequest {
     // (undocumented)
     attachments?: readonly Attachment[];
     // (undocumented)
-    bcc?: NonEmptyArray<Address>;
+    bcc?: readonly Address[];
     // (undocumented)
-    cc?: NonEmptyArray<Address>;
+    cc?: readonly Address[];
     // (undocumented)
     from: Address;
     // (undocumented)
@@ -486,7 +486,7 @@ export interface CreateConversationMessageRequest {
     tags?: readonly string[];
     // (undocumented)
     text_content?: string;
-    to: NonEmptyArray<Address>;
+    to: readonly Address[];
     // (undocumented)
     tracking?: Tracking;
 }
@@ -541,7 +541,7 @@ export interface CreateMessageRequest {
     from: Address;
     headers?: Record<string, string>;
     html_content?: string;
-    recipients: NonEmptyArray<Recipient>;
+    recipients: readonly Recipient[];
     // (undocumented)
     reply_to?: Address;
     retention?: Retention;
@@ -587,7 +587,7 @@ export type CreateSMTPCredentialRequest = {
     name: string;
     sandbox?: boolean;
     scope: "scoped";
-    domains: NonEmptyArray<string>;
+    domains: readonly string[];
 };
 
 // @public (undocumented)
@@ -639,7 +639,7 @@ export type CreateWebhookRequest = {
     domains?: readonly string[] | null;
 } | {
     scope: "scoped";
-    domains: NonEmptyArray<string>;
+    domains: readonly string[];
 });
 
 // @public (undocumented)
@@ -992,9 +992,6 @@ export interface MessageSummary {
     // (undocumented)
     updated_at: ISODateTime;
 }
-
-// @public (undocumented)
-export type NonEmptyArray<T> = readonly [T, ...T[]];
 
 // @public (undocumented)
 export function optionsFromEnv(env?: NodeJS.ProcessEnv): ClientOptions;
@@ -1449,12 +1446,12 @@ export interface UpdateAccountRequest {
 // @public
 export type UpdateAPIKeyRequest = {
     label?: string | null;
-    scopes?: NonEmptyArray<APIKeyScopeName> | null;
+    scopes?: readonly APIKeyScopeName[] | null;
     ip_allow_list?: readonly string[] | null;
 } & ({
     label: string;
 } | {
-    scopes: NonEmptyArray<APIKeyScopeName>;
+    scopes: readonly APIKeyScopeName[];
 } | {
     ip_allow_list: readonly string[];
 });

@@ -1,7 +1,29 @@
 import type { IdempotencyRequestOptions, RequestOptions } from "../types/common.js";
 import type { RetryConfig } from "../retry.js";
 import { assertRequestOptions } from "../config.js";
+import { AhaSendConfigurationError } from "../errors.js";
 export type { IdempotencyRequestOptions } from "../types/common.js";
+
+/**
+ * Enforce the spec's `minItems: 1` on a request-body array.
+ *
+ * These fields are typed `readonly T[]` rather than a non-empty tuple so that
+ * arrays built at runtime (`rows.map(...)`) assign without a cast — the tuple
+ * form rejected them with an error that never mentioned emptiness. The
+ * guarantee moves here, where it also covers JavaScript callers, and fails
+ * before the request goes out instead of as a server-side 422.
+ */
+export function assertNonEmptyArray(
+  value: unknown,
+  field: string,
+): asserts value is readonly [unknown, ...unknown[]] {
+  if (!Array.isArray(value)) {
+    throw new AhaSendConfigurationError(`AhaSend: \`${field}\` must be an array.`);
+  }
+  if (value.length === 0) {
+    throw new AhaSendConfigurationError(`AhaSend: \`${field}\` must contain at least one item.`);
+  }
+}
 
 interface ForwardedOptions {
   readonly signal?: AbortSignal;

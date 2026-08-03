@@ -140,7 +140,7 @@ export function isAhaSendError(value: unknown): value is AhaSendError {
   }
 }
 
-/** Invalid SDK construction, environment, or per-request configuration. */
+/** Invalid SDK construction, environment, per-request configuration, or request body. */
 export class AhaSendConfigurationError extends AhaSendError {
   constructor(message: string, cause?: unknown) {
     super(message, cause);

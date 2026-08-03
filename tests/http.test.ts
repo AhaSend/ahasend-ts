@@ -3,7 +3,6 @@ import type {
   AhaSendPromise,
   AhaSendResponse,
   IdempotencyRequestOptions,
-  NonEmptyArray,
   RequestOptions,
   RetryConfig,
 } from "../src/index.js";
@@ -815,8 +814,7 @@ describe("HttpClient cancellation and attempt timeouts", () => {
 });
 
 describe("HttpClient response promises", () => {
-  it("exports the shared promise, response, request-option, and non-empty-array types", () => {
-    expectTypeOf<NonEmptyArray<string>>().toEqualTypeOf<readonly [string, ...string[]]>();
+  it("exports the shared promise, response, and request-option types", () => {
     expectTypeOf<IdempotencyRequestOptions>().toExtend<RequestOptions>();
     expectTypeOf<AhaSendResponse<string>>().toEqualTypeOf<{
       data: string;

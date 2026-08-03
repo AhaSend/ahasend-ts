@@ -74,6 +74,28 @@ describe("generated hostname path validation", () => {
 });
 
 describe("WebhooksClient (account-scoped per spec)", () => {
+  it("rejects a scoped webhook with no domains", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() =>
+      client.webhooks.create({
+        name: "empty scoped",
+        url: "https://hooks.example/empty-scoped",
+        scope: "scoped",
+        domains: [],
+      }),
+    ).toThrow(/`domains` must contain at least one item/);
+
+    // A global webhook needs no domains at all.
+    await client.webhooks.create({
+      name: "global",
+      url: "https://hooks.example/g",
+      scope: "global",
+    });
+    expect(calls).toHaveLength(1);
+  });
+
   it("models scoped/global creates, partial updates, and required response fields", () => {
     const globalOmitted: CreateWebhookRequest = {
       name: "global omitted",
@@ -103,13 +125,6 @@ describe("WebhooksClient (account-scoped per spec)", () => {
       url: "https://hooks.example/scoped",
       scope: "scoped",
       domains: ["example.com"],
-    };
-    // @ts-expect-error Scoped creates require at least one domain.
-    const emptyScoped: CreateWebhookRequest = {
-      name: "empty scoped",
-      url: "https://hooks.example/empty-scoped",
-      scope: "scoped",
-      domains: [],
     };
     const requestWithSecret: CreateWebhookRequest = {
       name: "selected secret",
@@ -170,7 +185,7 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     expect(preserve).toMatchObject({ name: null, scope: null, domains: null });
     expect(clear.domains).toEqual([]);
     expect(created).toMatchObject({ domains: [], secret: "whsec_created" });
-    void [emptyScoped, requestWithSecret, missingDomains, hiddenSecret, _domains];
+    void [requestWithSecret, missingDomains, hiddenSecret, _domains];
   });
 
   it("list() hits /v2/accounts/{id}/webhooks with event-filter query params", async () => {
@@ -732,6 +747,15 @@ describe("AccountsClient", () => {
 });
 
 describe("SMTPCredentialsClient", () => {
+  it("rejects a scoped SMTP credential with no domains", () => {
+    const { fetch } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() =>
+      client.smtpCredentials.create({ name: "empty scoped", scope: "scoped", domains: [] }),
+    ).toThrow(/`domains` must contain at least one item/);
+  });
+
   it("list() dispatches getSMTPCredentials with pagination and request options", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);

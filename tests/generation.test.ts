@@ -10,6 +10,7 @@ import {
   generateSdkArtifacts,
   resolveAllOfPropertySchema,
   schemaType,
+  validationSchema,
   validateAuthorizationRegistry,
   validateOperationProfile,
 } from "../scripts/generate-sdk.mjs";
@@ -170,19 +171,40 @@ describe("SDK artifact generation", () => {
     }>().toExtend<WireSchemas["CreateSMTPCredentialRequest"]>();
   });
 
-  it("emits readonly non-empty tuples for arrays with minItems one", () => {
+  it("emits a plain readonly array for minItems one, not a non-empty tuple", () => {
+    // minItems: 1 emits a plain readonly array, not a non-empty tuple: a tuple
+    // rejects every runtime-built array. Non-emptiness is enforced at the
+    // resource boundary by assertNonEmptyArray instead.
     expect(schemaType({ type: "array", items: { type: "string" }, minItems: 1 })).toBe(
-      "readonly [string, ...Array<string>]",
+      "ReadonlyArray<string>",
     );
     expect(schemaType({ type: "array", items: { type: "string" } })).toBe("Array<string>");
 
-    expectTypeOf<WireSchemas["CreateAPIKeyRequest"]["scopes"]>().toEqualTypeOf<
-      readonly [string, ...string[]]
-    >();
+    // Inbound webhook validation deliberately does not enforce `format: email`:
+    // real deliveries carry display-name mailboxes and arbitrary external
+    // senders, and rejecting one returns 400, which disables the webhook after
+    // 100 consecutive errors. Formats that discriminate the envelope stay on.
+    expect(validationSchema({ type: "string", format: "email" })).toEqual({ type: "string" });
+    expect(validationSchema({ type: "string", format: "uuid" })).toEqual({
+      type: "string",
+      format: "uuid",
+    });
+    expect(validationSchema({ type: "string", format: "date-time" })).toEqual({
+      type: "string",
+      format: "date-time",
+    });
+    expect(
+      validationSchema({
+        type: "object",
+        properties: { from: { type: "string", format: "email" } },
+      }),
+    ).toEqual({ type: "object", properties: { from: { type: "string" } } });
+
+    expectTypeOf<WireSchemas["CreateAPIKeyRequest"]["scopes"]>().toEqualTypeOf<readonly string[]>();
     expectTypeOf<readonly [{ email: string }]>().toExtend<
       WireSchemas["CreateMessageRequest"]["recipients"]
     >();
-    expectTypeOf<readonly []>().not.toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
+    expectTypeOf<readonly []>().toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
   });
 
   it("indexes parameters, request bodies, inputs, and successes for all 56 operations", () => {
@@ -222,7 +244,7 @@ describe("SDK artifact generation", () => {
       NonNullable<MessageBody["tags"]>
     >();
     expectTypeOf<readonly [{ email: string }]>().toExtend<MessageBody["recipients"]>();
-    expectTypeOf<readonly []>().not.toExtend<MessageBody["recipients"]>();
+    expectTypeOf<readonly []>().toExtend<MessageBody["recipients"]>();
 
     expectTypeOf<{
       name: string;
@@ -230,12 +252,14 @@ describe("SDK artifact generation", () => {
       scope: "scoped";
       domains: readonly [string];
     }>().toExtend<OperationRequestBodyById["createWebhook"]>();
+    // An empty scoped domains list is accepted by the type (so runtime-built
+    // arrays assign) and rejected by assertNonEmptyArray at the resource boundary.
     expectTypeOf<{
       name: string;
       url: string;
       scope: "scoped";
       domains: readonly [];
-    }>().not.toExtend<OperationRequestBodyById["createWebhook"]>();
+    }>().toExtend<OperationRequestBodyById["createWebhook"]>();
 
     expectTypeOf<{
       name: string;
@@ -246,7 +270,7 @@ describe("SDK artifact generation", () => {
       name: string;
       scope: "scoped";
       domains: readonly [];
-    }>().not.toExtend<OperationRequestBodyById["createSMTPCredential"]>();
+    }>().toExtend<OperationRequestBodyById["createSMTPCredential"]>();
   });
 
   it("requires bodies only for body-bearing operation inputs", () => {

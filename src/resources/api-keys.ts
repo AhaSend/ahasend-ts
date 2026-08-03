@@ -3,7 +3,6 @@ import { paginate } from "../pagination.js";
 import type {
   AhaSendPromise,
   ISODateTime,
-  NonEmptyArray,
   PaginatedResponse,
   PaginationParams,
   RequestOptions,
@@ -11,6 +10,7 @@ import type {
   UUID,
 } from "../types/common.js";
 import {
+  assertNonEmptyArray,
   forwardOptions,
   forwardWithIdempotency,
   type IdempotencyRequestOptions,
@@ -65,18 +65,18 @@ export interface CreatedAPIKey extends APIKey {
 export interface CreateAPIKeyRequest {
   label: string;
   /** At least one scope is required by the API. */
-  scopes: NonEmptyArray<APIKeyScopeName>;
+  scopes: readonly APIKeyScopeName[];
   ip_allow_list?: readonly string[];
 }
 
 /** At least one field must select a non-null update value. */
 export type UpdateAPIKeyRequest = {
   label?: string | null;
-  scopes?: NonEmptyArray<APIKeyScopeName> | null;
+  scopes?: readonly APIKeyScopeName[] | null;
   ip_allow_list?: readonly string[] | null;
 } & (
   | { label: string }
-  | { scopes: NonEmptyArray<APIKeyScopeName> }
+  | { scopes: readonly APIKeyScopeName[] }
   | { ip_allow_list: readonly string[] }
 );
 
@@ -152,10 +152,12 @@ class APIKeysClientImplementation implements APIKeysClient {
     body: CreateAPIKeyRequest,
     options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<CreatedAPIKey> {
+    const forwarded = forwardWithIdempotency(options);
+    assertNonEmptyArray(body?.scopes, "scopes");
     return this.#operations.execute(
       "createAPIKey",
       { path: { account_id: this.#accountId }, body },
-      forwardWithIdempotency(options),
+      forwarded,
     );
   }
 
@@ -172,10 +174,14 @@ class APIKeysClientImplementation implements APIKeysClient {
     body: UpdateAPIKeyRequest,
     options: RequestOptions = {},
   ): AhaSendPromise<APIKey> {
+    const forwarded = forwardOptions(options);
+    if (body?.scopes !== undefined && body.scopes !== null) {
+      assertNonEmptyArray(body.scopes, "scopes");
+    }
     return this.#operations.execute(
       "updateAPIKey",
       { path: { account_id: this.#accountId, key_id: keyId }, body },
-      forwardOptions(options),
+      forwarded,
     );
   }
 

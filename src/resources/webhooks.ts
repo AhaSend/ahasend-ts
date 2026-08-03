@@ -3,14 +3,13 @@ import { paginate } from "../pagination.js";
 import type {
   AhaSendPromise,
   ISODateTime,
-  NonEmptyArray,
   PaginatedResponse,
   PaginationParams,
   RequestOptions,
   SuccessResponse,
   UUID,
 } from "../types/common.js";
-import { forwardOptions, forwardWithIdempotency } from "./_helpers.js";
+import { assertNonEmptyArray, forwardOptions, forwardWithIdempotency } from "./_helpers.js";
 import type { IdempotencyRequestOptions } from "./_helpers.js";
 
 export type WebhookScope = "global" | "scoped";
@@ -67,7 +66,7 @@ export type CreateWebhookRequest = {
   on_dns_error?: boolean;
 } & (
   | { scope: "global"; domains?: readonly string[] | null }
-  | { scope: "scoped"; domains: NonEmptyArray<string> }
+  | { scope: "scoped"; domains: readonly string[] }
 );
 
 export interface UpdateWebhookRequest {
@@ -223,10 +222,12 @@ class WebhooksClientImplementation implements WebhooksClient {
     body: CreateWebhookRequest,
     options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<CreatedWebhook> {
+    const forwarded = forwardWithIdempotency(options);
+    if (body?.scope === "scoped") assertNonEmptyArray(body.domains, "domains");
     return this.#operations.execute(
       "createWebhook",
       { path: { account_id: this.#accountId }, body },
-      forwardWithIdempotency(options),
+      forwarded,
     );
   }
 

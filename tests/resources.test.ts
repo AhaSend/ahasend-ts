@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { AhaSendConfigurationError, isAhaSendError } from "../src/errors.js";
 import type { OperationRequestBodyById } from "../src/generated/operations.js";
 import type { components } from "../src/generated/rest-types.js";
 import type {
@@ -40,7 +41,7 @@ import type {
   SMTPCredentialsClient,
 } from "../src/resources/smtp-credentials.js";
 import type { Route, UpdateRouteRequest } from "../src/resources/routes.js";
-import type { NonEmptyArray, PaginationMeta, PaginationParams } from "../src/types/common.js";
+import type { PaginationMeta, PaginationParams } from "../src/types/common.js";
 import {
   ACCOUNT_ID,
   API_KEY_ID,
@@ -238,12 +239,6 @@ describe("SMTP credential declarations", () => {
       name: "scoped missing",
       scope: "scoped",
     };
-    // @ts-expect-error Scoped credential domains must be non-empty.
-    const scopedEmpty: CreateSMTPCredentialRequest = {
-      name: "scoped empty",
-      scope: "scoped",
-      domains: [],
-    };
     if (false) {
       // @ts-expect-error Request domain arrays are readonly.
       scoped.domains.push("another.example");
@@ -254,7 +249,7 @@ describe("SMTP credential declarations", () => {
     expect(globalEmpty.domains).toEqual([]);
     expect(globalNonEmpty.domains).toEqual(["ignored.example"]);
     expect(scoped.domains).toEqual(["example.com"]);
-    void [scopedMissing, scopedEmpty];
+    void [scopedMissing];
   });
 
   it("requires non-null response domains and exposes no update method", () => {
@@ -287,8 +282,8 @@ describe("SMTP credential declarations", () => {
 });
 
 describe("MessagesClient", () => {
-  it("matches nested substitution, nullability, non-empty array, and response declarations", () => {
-    const recipients: NonEmptyArray<Recipient> = [
+  it("matches nested substitution, nullability, array, and response declarations", () => {
+    const recipients: readonly Recipient[] = [
       {
         email: "recipient@example.com",
         substitutions: {
@@ -321,14 +316,6 @@ describe("MessagesClient", () => {
       tracking: null,
       retention: null,
     };
-    // @ts-expect-error recipients has minItems: 1.
-    const emptyRecipients: CreateMessageRequest = { ...request, recipients: [] };
-    // @ts-expect-error to has minItems: 1.
-    const emptyTo: CreateConversationMessageRequest = { ...conversation, to: [] };
-    // @ts-expect-error cc has minItems: 1 when present.
-    const emptyCc: CreateConversationMessageRequest = { ...conversation, cc: [] };
-    // @ts-expect-error bcc has minItems: 1 when present.
-    const emptyBcc: CreateConversationMessageRequest = { ...conversation, bcc: [] };
     if (false) {
       // @ts-expect-error request arrays are readonly.
       request.recipients.push({ email: "another@example.com" });
@@ -402,10 +389,6 @@ describe("MessagesClient", () => {
 
     // Keep compile-only negative cases referenced without treating their runtime values as evidence.
     void [
-      emptyRecipients,
-      emptyTo,
-      emptyCc,
-      emptyBcc,
       missingId,
       missingError,
       missingSentAt,
@@ -480,6 +463,101 @@ describe("MessagesClient", () => {
 
     expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages/conversation`);
     expect(calls[0]!.operationId).toBe("createConversationMessage");
+  });
+
+  it("accepts recipient arrays built at runtime", async () => {
+    // The canonical fan-out. This assigned only with a cast while the field
+    // was typed as a non-empty tuple, which is why the tuple was dropped.
+    const rows = [{ email: "a@example.com" }, { email: "b@example.com" }];
+    const recipients = rows.map((row) => ({ email: row.email }));
+
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.messages.send({
+      from: { email: "a@b.com" },
+      recipients,
+      subject: "hi",
+      text_content: "hi",
+    });
+
+    expect(JSON.parse(calls[0]!.body!)).toMatchObject({ recipients });
+  });
+
+  it("rejects empty recipient, to, cc, and bcc arrays before sending", async () => {
+    // The non-emptiness guarantee the tuple type used to provide, now enforced
+    // at runtime so it also covers JavaScript callers. Input validation throws
+    // synchronously here, matching the rest of the resource surface.
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() =>
+      client.messages.send({
+        from: { email: "a@b.com" },
+        recipients: [],
+        subject: "hi",
+        text_content: "hi",
+      }),
+    ).toThrow(/`recipients` must contain at least one item/);
+
+    const conversation = {
+      from: { email: "a@b.com" },
+      to: [{ email: "x@y.com" }],
+      subject: "hi",
+      text_content: "hi",
+    };
+    expect(() => client.messages.sendConversation({ ...conversation, to: [] })).toThrow(
+      /`to` must contain at least one item/,
+    );
+    expect(() => client.messages.sendConversation({ ...conversation, cc: [] })).toThrow(
+      /`cc` must contain at least one item/,
+    );
+    expect(() => client.messages.sendConversation({ ...conversation, bcc: [] })).toThrow(
+      /`bcc` must contain at least one item/,
+    );
+
+    // Nothing reached the network. Flush the microtask+timer queues first —
+    // without this the assertion passes even if the guard ran AFTER dispatch,
+    // because fetch is only invoked asynchronously.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects a missing or non-array recipients value from JavaScript callers", () => {
+    // The guard's other half: TypeScript callers cannot reach these, but the
+    // JS consumers it exists for can.
+    const { fetch } = captureFetch();
+    const client = makeClient(fetch);
+    const send = client.messages.send as unknown as (body: unknown) => unknown;
+
+    for (const recipients of [undefined, null, "a@b.com", { email: "a@b.com" }, 42]) {
+      expect(() =>
+        send({ from: { email: "a@b.com" }, recipients, subject: "hi", text_content: "hi" }),
+      ).toThrow(/`recipients` must be an array/);
+    }
+
+    // A missing body at all is still a guard failure, not a TypeError.
+    expect(() => send(undefined)).toThrow(AhaSendConfigurationError);
+  });
+
+  it("reports an empty recipients array as a catchable AhaSend error", () => {
+    const { fetch } = captureFetch();
+    const client = makeClient(fetch);
+
+    let caught: unknown;
+    try {
+      client.messages.send({
+        from: { email: "a@b.com" },
+        recipients: [],
+        subject: "hi",
+        text_content: "hi",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AhaSendConfigurationError);
+    expect(isAhaSendError(caught)).toBe(true);
   });
 
   it("list() GETs /messages with query params", async () => {
@@ -775,9 +853,26 @@ describe("DomainsClient", () => {
 });
 
 describe("APIKeysClient", () => {
+  it("rejects empty scopes on create and on a scopes-bearing update", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() => client.apiKeys.create({ label: "CI", scopes: [] })).toThrow(
+      /`scopes` must contain at least one item/,
+    );
+    expect(() => client.apiKeys.update(API_KEY_ID, { scopes: [] })).toThrow(
+      /`scopes` must contain at least one item/,
+    );
+
+    // A null scopes update means "leave unchanged" and is still allowed, so
+    // long as some other field actually selects an update.
+    await client.apiKeys.update(API_KEY_ID, { label: "CI", scopes: null });
+    expect(calls).toHaveLength(1);
+  });
+
   it("requires readonly non-empty scopes and a concrete API-key update", () => {
-    const createScopes: NonEmptyArray<string> = ["messages:send:all"];
-    const updateScopes: NonEmptyArray<string> = ["domains:read"];
+    const createScopes: readonly string[] = ["messages:send:all"];
+    const updateScopes: readonly string[] = ["domains:read"];
     const ipAllowList: readonly string[] = ["203.0.113.0/24"];
     const create: CreateAPIKeyRequest = {
       label: "CI",
@@ -786,8 +881,6 @@ describe("APIKeysClient", () => {
     };
     const update: UpdateAPIKeyRequest = { scopes: updateScopes };
     const clearIPAllowList: UpdateAPIKeyRequest = { ip_allow_list: [] };
-    // @ts-expect-error API-key creation scopes must be non-empty.
-    const emptyCreateScopes: CreateAPIKeyRequest = { label: "CI", scopes: [] };
     // @ts-expect-error API-key updates must select at least one field.
     const emptyUpdate: UpdateAPIKeyRequest = {};
     // @ts-expect-error Null-only fields do not select an API-key update.
@@ -796,8 +889,6 @@ describe("APIKeysClient", () => {
       scopes: null,
       ip_allow_list: null,
     };
-    // @ts-expect-error Selected API-key scopes must be non-empty.
-    const emptyUpdateScopes: UpdateAPIKeyRequest = { scopes: [] };
     if (false) {
       // @ts-expect-error API-key creation scopes are readonly.
       create.scopes.push("domains:read");
@@ -812,7 +903,7 @@ describe("APIKeysClient", () => {
     expect(clearIPAllowList.ip_allow_list).toEqual([]);
     expectTypeOf<CreateAPIKeyRequest>().toExtend<OperationRequestBodyById["createAPIKey"]>();
     expectTypeOf<UpdateAPIKeyRequest>().toExtend<OperationRequestBodyById["updateAPIKey"]>();
-    void [emptyCreateScopes, emptyUpdate, nullOnlyUpdate, emptyUpdateScopes];
+    void [emptyUpdate, nullOnlyUpdate];
   });
 
   it("requires response IP lists and scopes while exposing the secret only after create", () => {

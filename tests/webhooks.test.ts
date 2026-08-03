@@ -289,7 +289,12 @@ describe("generated webhook schema", () => {
     ).toBe(false);
   });
 
-  it("validates email fields as RFC 5321 mailboxes", () => {
+  it("does not reject address fields on their shape", () => {
+    // Previously these fields were validated as strict RFC 5321 mailboxes.
+    // That rejected shapes AhaSend actually sends (campaign display-name
+    // mailboxes) and shapes arbitrary inbound senders use (SMTPUTF8), and a
+    // rejection costs the customer their whole webhook. Address fields are
+    // now carried through verbatim; consumers parse them as they see fit.
     const clicked = {
       type: "message.clicked",
       timestamp: "2024-05-06T09:49:16Z",
@@ -308,40 +313,30 @@ describe("generated webhook schema", () => {
     };
 
     for (const email of [
-      '"a@b"@example.com',
-      '"a\\"b"@example.com',
+      // Shapes the old RFC 5321 check accepted.
+      '\"a@b\"@example.com',
       "postbox@mailserver1",
-      "customer/department=shipping@example.com",
       "user@[127.0.0.1]",
       "user@[IPv6:2001:db8::1]",
-      "user@[IPv6:2001:db8:0:0:0:0:0:1]",
-      "user@[IPv6:::ffff:192.0.2.1]",
-      "user@[example:address-literal]",
+      // Shapes it rejected that AhaSend or an inbound sender really sends.
+      "Acme Campaigns <news@example.com>",
+      "dörte@example.com",
+      "sender@bad_domain.com",
+      "sender..name@example.com",
+      "a,b@example.com",
     ]) {
       expect(
         validateKnownWebhookEvent({ ...clicked, data: { ...clicked.data, from: email } }),
         email,
       ).toBe(true);
     }
-    for (const email of [
-      "sender@bad_domain.com",
-      "a,b@example.com",
-      ".sender@example.com",
-      "sender..name@example.com",
-      "sender@-example.com",
-      "sender@example-.com",
-      "user@[300.0.0.1]",
-      "user@[IPv6:2001:db8::1::2]",
-      "user@[IPv6:]",
-      "user@[bad_tag:value]",
-      "user@[example:bad\\value]",
-      '"unterminated@example.com',
-      '"line\nbreak"@example.com',
-      "dörte@example.com",
-    ]) {
+
+    // The field must still be a string — a structural mismatch is not an
+    // address-shape question.
+    for (const notAString of [42, null, { address: "sender@example.com" }]) {
       expect(
-        validateKnownWebhookEvent({ ...clicked, data: { ...clicked.data, from: email } }),
-        email,
+        validateKnownWebhookEvent({ ...clicked, data: { ...clicked.data, from: notAString } }),
+        JSON.stringify(notAString),
       ).toBe(false);
     }
   });
@@ -925,6 +920,79 @@ describe("WebhookVerifier", () => {
         new WebhookVerifier(SECRET).parse(incompleteUnknown.headers, incompleteUnknown.body),
       ),
     ).toBe("invalid_payload");
+  });
+
+  it("accepts sender and recipient mailboxes that are not bare RFC 5321 addresses", () => {
+    // Campaign deliveries carry a display-name mailbox built from the
+    // campaign's from-name, and inbound routes carry whatever an arbitrary
+    // external sender used. Rejecting these returns 400 to AhaSend, and 100
+    // consecutive 400s disable the webhook — including its transactional
+    // events. A receiver must be liberal about address shape.
+    const mailboxes = [
+      "Acme Campaigns <news@example.com>",
+      '"Doe, John" <john@example.com>',
+      "josé@example.com",
+      "user@localhost",
+    ];
+
+    for (const mailbox of mailboxes) {
+      const payload = {
+        ...validDelivery,
+        data: { ...validDelivery.data, from: mailbox, recipient: mailbox },
+      };
+      const { headers, body } = buildEnvelope(SECRET, payload);
+      expect(new WebhookVerifier(SECRET).parse(headers, body), mailbox).toEqual(payload);
+    }
+  });
+
+  it("keeps enforcing structural formats that discriminate the envelope", () => {
+    // Relaxing address formats must not relax uuid or date-time, which
+    // identify the account and order the event stream.
+    const badAccountId = buildEnvelope(SECRET, {
+      ...validDelivery,
+      data: { ...validDelivery.data, account_id: "not-a-uuid" },
+    });
+    expect(
+      reasonFrom(() => new WebhookVerifier(SECRET).parse(badAccountId.headers, badAccountId.body)),
+    ).toBe("invalid_event");
+
+    const badTimestamp = buildEnvelope(SECRET, { ...validDelivery, timestamp: "last Tuesday" });
+    expect(
+      reasonFrom(() => new WebhookVerifier(SECRET).parse(badTimestamp.headers, badTimestamp.body)),
+    ).toBe("invalid_event");
+  });
+
+  it("accepts is_bot as a boolean or absent, matching the wire contract", () => {
+    // The producer sends `IsBot *bool` with omitempty, so the wire carries
+    // `true`, `false`, or nothing at all. Pinned so a producer regression to
+    // a non-boolean is caught here rather than by a disabled webhook.
+    const opened = {
+      type: "message.opened" as const,
+      timestamp: validDelivery.timestamp,
+      data: {
+        ...validDelivery.data,
+        event: "on_opened" as const,
+        user_agent: "Mozilla/5.0",
+        ip: "192.0.2.1",
+      },
+    };
+
+    for (const isBot of [true, false]) {
+      const payload = { ...opened, data: { ...opened.data, is_bot: isBot } };
+      const { headers, body } = buildEnvelope(SECRET, payload);
+      expect(new WebhookVerifier(SECRET).parse(headers, body), String(isBot)).toEqual(payload);
+    }
+
+    const absent = buildEnvelope(SECRET, opened);
+    expect(new WebhookVerifier(SECRET).parse(absent.headers, absent.body)).toEqual(opened);
+
+    const stringified = buildEnvelope(SECRET, {
+      ...opened,
+      data: { ...opened.data, is_bot: "" },
+    });
+    expect(
+      reasonFrom(() => new WebhookVerifier(SECRET).parse(stringified.headers, stringified.body)),
+    ).toBe("invalid_event");
   });
 
   it("reports malformed JSON separately from invalid envelopes", () => {

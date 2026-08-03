@@ -221,11 +221,9 @@ const SCHEMAS = {
       },
       from: {
         type: "string",
-        format: "email",
       },
       recipient: {
         type: "string",
-        format: "email",
       },
       subject: {
         type: "string",
@@ -271,11 +269,9 @@ const SCHEMAS = {
       },
       from: {
         type: "string",
-        format: "email",
       },
       recipient: {
         type: "string",
-        format: "email",
       },
       subject: {
         type: "string",
@@ -331,7 +327,6 @@ const SCHEMAS = {
       },
       recipient: {
         type: "string",
-        format: "email",
       },
       created_at: {
         type: "string",
@@ -446,11 +441,9 @@ const SCHEMAS = {
       },
       reply_to: {
         type: "string",
-        format: "email",
       },
       to: {
         type: "string",
-        format: "email",
       },
       subject: {
         type: "string",
@@ -546,94 +539,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-// JSON Schema's email format is RFC 5321 Mailbox, including quoted local
-// parts, single-label domains, and address literals.
-const EMAIL_ATEXT = /^[A-Za-z0-9!#$%&'*+/=?^_\x60{|}~-]+$/;
-const EMAIL_DOMAIN_LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/;
-const IPV6_GROUP = /^[0-9A-Fa-f]{1,4}$/;
-
-function matchesIpv4Address(value: string): boolean {
-  const parts = value.split(".");
-  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
-}
-
-function matchesIpv6Address(value: string): boolean {
-  if (value.length === 0) return false;
-  let normalized = value;
-  if (value.includes(".")) {
-    const lastColon = value.lastIndexOf(":");
-    if (lastColon < 0 || !matchesIpv4Address(value.slice(lastColon + 1))) return false;
-    normalized = `${value.slice(0, lastColon + 1)}0:0`;
-  }
-
-  const compression = normalized.indexOf("::");
-  if (compression !== normalized.lastIndexOf("::")) return false;
-  if (compression < 0) {
-    const groups = normalized.split(":");
-    return groups.length === 8 && groups.every((group) => IPV6_GROUP.test(group));
-  }
-
-  const left = normalized.slice(0, compression);
-  const right = normalized.slice(compression + 2);
-  const groups = [
-    ...(left.length === 0 ? [] : left.split(":")),
-    ...(right.length === 0 ? [] : right.split(":")),
-  ];
-  return groups.length < 8 && groups.every((group) => IPV6_GROUP.test(group));
-}
-
-function matchesAddressLiteral(value: string): boolean {
-  if (/^IPv6:/i.test(value)) return matchesIpv6Address(value.slice(5));
-  if (matchesIpv4Address(value)) return true;
-
-  const separator = value.indexOf(":");
-  if (separator <= 0 || separator === value.length - 1) return false;
-  const tag = value.slice(0, separator);
-  if (!/^[A-Za-z0-9-]*[A-Za-z0-9]$/.test(tag)) return false;
-  return [...value.slice(separator + 1)].every((character) => {
-    const code = character.charCodeAt(0);
-    return (code >= 33 && code <= 90) || (code >= 94 && code <= 126);
-  });
-}
-
-function matchesEmail(value: string): boolean {
-  let separator: number;
-  if (value.startsWith('"')) {
-    separator = -1;
-    for (let index = 1; index < value.length; index += 1) {
-      const code = value.charCodeAt(index);
-      if (code === 34) {
-        separator = index + 1;
-        break;
-      }
-      if (code === 92) {
-        index += 1;
-        const escaped = value.charCodeAt(index);
-        if (escaped < 32 || escaped > 126) return false;
-      } else if (code < 32 || code === 34 || code === 92 || code > 126) {
-        return false;
-      }
-    }
-    if (separator < 0 || value[separator] !== "@") return false;
-  } else {
-    separator = value.indexOf("@");
-    if (separator <= 0) return false;
-    const localParts = value.slice(0, separator).split(".");
-    if (!localParts.every((part) => EMAIL_ATEXT.test(part))) return false;
-  }
-
-  const domain = value.slice(separator + 1);
-  if (domain.startsWith("[") && domain.endsWith("]")) {
-    return matchesAddressLiteral(domain.slice(1, -1));
-  }
-  return domain.split(".").every((label) => EMAIL_DOMAIN_LABEL.test(label));
-}
-
 function matchesFormat(value: string, format: string | undefined): boolean {
   if (format === "uuid") {
     return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
   }
-  if (format === "email") return matchesEmail(value);
   if (format === "date-time") {
     if (!/^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/.test(value)) {
       return false;

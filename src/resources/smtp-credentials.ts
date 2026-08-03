@@ -3,14 +3,13 @@ import { paginate } from "../pagination.js";
 import type {
   AhaSendPromise,
   ISODateTime,
-  NonEmptyArray,
   PaginatedResponse,
   PaginationParams,
   RequestOptions,
   SuccessResponse,
   UUID,
 } from "../types/common.js";
-import { forwardOptions, forwardWithIdempotency } from "./_helpers.js";
+import { assertNonEmptyArray, forwardOptions, forwardWithIdempotency } from "./_helpers.js";
 import type { IdempotencyRequestOptions } from "./_helpers.js";
 
 export type SMTPCredentialScope = "global" | "scoped";
@@ -48,7 +47,7 @@ export type CreateSMTPCredentialRequest =
       name: string;
       sandbox?: boolean;
       scope: "scoped";
-      domains: NonEmptyArray<string>;
+      domains: readonly string[];
     };
 
 /**
@@ -160,10 +159,12 @@ class SMTPCredentialsClientImplementation implements SMTPCredentialsClient {
     body: CreateSMTPCredentialRequest,
     options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<CreatedSMTPCredential> {
+    const forwarded = forwardWithIdempotency(options);
+    if (body?.scope === "scoped") assertNonEmptyArray(body.domains, "domains");
     return this.#operations.execute(
       "createSMTPCredential",
       { path: { account_id: this.#accountId }, body },
-      forwardWithIdempotency(options),
+      forwarded,
     );
   }
 

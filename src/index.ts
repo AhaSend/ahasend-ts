@@ -47,7 +47,6 @@ export type {
   AhaSendResponse,
   IdempotencyRequestOptions,
   ISODateTime,
-  NonEmptyArray,
   PaginatedResponse,
   PaginationMeta,
   PaginationParams,

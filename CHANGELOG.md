@@ -41,6 +41,11 @@ Initial release.
 - Typed error hierarchy mapping every HTTP status the API uses,
   including idempotency-specific 409/422 variants and a
   transport-level `AhaSendResponseParseError` for non-JSON 2xx bodies.
+- Local validation of request-body arrays the API requires to be
+  non-empty (`recipients`, `to`/`cc`/`bcc`, API-key `scopes`, and
+  scoped webhook / SMTP-credential `domains`). These throw
+  `AhaSendConfigurationError` synchronously, before the request is
+  dispatched, so the failure is local rather than a server 422.
 - Security guards: HTTPS-only base URL (localhost exempt) and a
   browser-environment check, both with explicit opt-outs.
 - Spec-conformance test suite validating every SDK method's verb +

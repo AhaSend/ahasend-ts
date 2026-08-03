@@ -18,6 +18,12 @@ export function schemaType(
   enclosingSchemaValue?: unknown,
   componentSchemas?: OpenApiRecord,
 ): string;
+/**
+ * Normalize a webhook schema into the runtime validation shape. Formats listed
+ * in `UNENFORCED_WEBHOOK_FORMATS` (currently `email`) are dropped, so inbound
+ * payloads are not rejected on address shape.
+ */
+export function validationSchema(schemaValue: unknown): OpenApiRecord;
 export function validateOperationProfile(document: unknown, profile: unknown): void;
 export function validateAuthorizationRegistry(
   document: unknown,

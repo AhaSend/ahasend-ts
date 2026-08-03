@@ -410,7 +410,7 @@ AhaSendError
 ├── AhaSendConnectionError               network failures
 │   └── AhaSendTimeoutError              configured timeout elapsed
 ├── AhaSendAbortError                    caller aborted the operation
-├── AhaSendConfigurationError            invalid SDK options or environment
+├── AhaSendConfigurationError            invalid options, environment, or body
 └── AhaSendResponseParseError            2xx with a non-JSON body
 ```
 

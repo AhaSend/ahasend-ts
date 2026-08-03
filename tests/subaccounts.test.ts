@@ -302,6 +302,31 @@ describe("SubAccountsClient operations", () => {
 });
 
 describe("SubAccountAPIKeysClient operations", () => {
+  it("rejects empty scopes on child-key create and on a scopes-bearing update", async () => {
+    // Child API keys reuse CreateAPIKeyRequest/UpdateAPIKeyRequest, whose
+    // scopes field carries the spec's minItems: 1. That used to be a
+    // compile-time tuple; it is now a runtime guard, and this path needs the
+    // same guard as the account-level resource or an empty array reaches the
+    // API and comes back a 422.
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() =>
+      client.subAccounts.apiKeys.create(SUB_ACCOUNT_ID, { label: "CI", scopes: [] }),
+    ).toThrow(/`scopes` must contain at least one item/);
+    expect(() =>
+      client.subAccounts.apiKeys.update(SUB_ACCOUNT_ID, API_KEY_ID, { scopes: [] }),
+    ).toThrow(/`scopes` must contain at least one item/);
+
+    expect(calls).toHaveLength(0);
+
+    await client.subAccounts.apiKeys.update(SUB_ACCOUNT_ID, API_KEY_ID, {
+      label: "Rotated",
+      scopes: null,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
   it("list() substitutes the child ID and forwards pagination and options", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);

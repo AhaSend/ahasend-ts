@@ -15,6 +15,7 @@ import type {
   UpdateAPIKeyRequest,
 } from "./api-keys.js";
 import {
+  assertNonEmptyArray,
   forwardOptions,
   forwardWithIdempotency,
   type IdempotencyRequestOptions,
@@ -136,10 +137,12 @@ class SubAccountAPIKeysClientImplementation implements SubAccountAPIKeysClient {
     body: CreateAPIKeyRequest,
     options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<CreatedAPIKey> {
+    const forwarded = forwardWithIdempotency(options);
+    assertNonEmptyArray(body?.scopes, "scopes");
     return this.#operations.execute(
       "createSubAccountAPIKey",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId }, body },
-      forwardWithIdempotency(options),
+      forwarded,
     );
   }
 
@@ -165,13 +168,17 @@ class SubAccountAPIKeysClientImplementation implements SubAccountAPIKeysClient {
     body: UpdateAPIKeyRequest,
     options: RequestOptions = {},
   ): AhaSendPromise<APIKey> {
+    const forwarded = forwardOptions(options);
+    if (body?.scopes !== undefined && body.scopes !== null) {
+      assertNonEmptyArray(body.scopes, "scopes");
+    }
     return this.#operations.execute(
       "updateSubAccountAPIKey",
       {
         path: { account_id: this.#accountId, sub_account_id: subAccountId, key_id: keyId },
         body,
       },
-      forwardOptions(options),
+      forwarded,
     );
   }
 
