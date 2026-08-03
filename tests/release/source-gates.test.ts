@@ -14,6 +14,7 @@ import {
 } from "../../scripts/create-candidate.mjs";
 import candidateManifestSchema from "../../scripts/candidate-manifest.schema.json";
 import { canonicalizeJson, sha256Hex } from "../../scripts/digest-artifact.mjs";
+import { validateGateReport } from "../../scripts/report-validation.mjs";
 import {
   readRepositorySourceBindings,
   REQUIRED_SOURCE_GATES,
@@ -39,6 +40,15 @@ interface SourceGateReport {
   auditPolicySha256: string;
   results: GateResult[];
   reportSha256?: string;
+}
+
+interface FinalGateReport {
+  version: number;
+  commit: string;
+  manifestSha256: string;
+  tarballSha256: string;
+  liveReportSha256: string;
+  results: GateResult[];
 }
 
 const repositoryRoot = process.cwd();
@@ -82,6 +92,12 @@ const expectedSourceGates = [
   "audit",
   "documentation-workflows",
 ] as const;
+const requiredFinalGates = [
+  "artifact",
+  "installed-documentation-links",
+  "documentation-workflows",
+  "live",
+] as const;
 
 function declaredSourceGates(): string[] {
   const declaration =
@@ -105,7 +121,7 @@ function validReport(bindings: SourceBindings): SourceGateReport {
   };
 }
 
-function requireGate(report: SourceGateReport, name: string): GateResult {
+function requireGate(report: { results: GateResult[] }, name: string): GateResult {
   const result = report.results.find((candidate) => candidate.name === name);
   if (result === undefined) throw new TypeError(`Missing fixture gate ${name}`);
   return result;
@@ -130,6 +146,89 @@ function candidateBindings(bindings: SourceBindings): CandidateBindings {
 function candidateBytes(bindings: CandidateBindings): Buffer {
   return canonicalizeJson({ version: 1, ...bindings });
 }
+
+function validFinalGateReport(): FinalGateReport {
+  return {
+    version: 1,
+    commit: "a".repeat(40),
+    manifestSha256: "1".repeat(64),
+    tarballSha256: "2".repeat(64),
+    liveReportSha256: "3".repeat(64),
+    results: requiredFinalGates.map((name) => ({ name, passed: true })),
+  };
+}
+
+function validateFinalGateFixture(report: FinalGateReport) {
+  return validateGateReport({
+    report,
+    requiredGates: requiredFinalGates,
+    expectedManifestSha256: "1".repeat(64),
+    expectedTarballSha256: "2".repeat(64),
+  });
+}
+
+const gateReportMutationFixtures: readonly {
+  name: string;
+  expectedError: string;
+  mutate: (report: FinalGateReport) => void;
+}[] = [
+  {
+    name: "missing",
+    expectedError: "missing required gates: live",
+    mutate: (report) => {
+      report.results.pop();
+    },
+  },
+  {
+    name: "duplicate",
+    expectedError: "duplicate result artifact",
+    mutate: (report) => {
+      report.results.push({ name: "artifact", passed: true });
+    },
+  },
+  {
+    name: "extra",
+    expectedError: "name is not a required gate",
+    mutate: (report) => {
+      report.results.push({ name: "unexpected-gate", passed: true });
+    },
+  },
+  {
+    name: "failed",
+    expectedError: "Required gate installed-documentation-links did not pass",
+    mutate: (report) => {
+      requireGate(report, "installed-documentation-links").passed = false;
+    },
+  },
+  {
+    name: "stale",
+    expectedError: "name is not a required gate",
+    mutate: (report) => {
+      requireGate(report, "documentation-workflows").name = "documentation-workflow";
+    },
+  },
+  {
+    name: "outdated-version",
+    expectedError: "version must be 1",
+    mutate: (report) => {
+      report.version = 2;
+    },
+  },
+  {
+    name: "manifest hash-mismatched",
+    expectedError: "stale candidate manifest",
+    mutate: (report) => {
+      report.manifestSha256 = zeroHash;
+    },
+  },
+  {
+    name: "tarball hash-mismatched",
+    expectedError: "stale candidate tarball",
+    mutate: (report) => {
+      report.tarballSha256 = zeroHash;
+    },
+  },
+];
 
 function mutateFixture(
   bindings: SourceBindings,
@@ -258,6 +357,35 @@ function candidateRunnerFixture(
 afterAll(() => {
   for (const directory of temporaryDirectories) {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+describe("final gate report validation", () => {
+  it("accepts exactly one passed result for every required retained-candidate gate", () => {
+    const report = validFinalGateReport();
+
+    expect(report.results.map(({ name }) => name)).toEqual([
+      "artifact",
+      "installed-documentation-links",
+      "documentation-workflows",
+      "live",
+    ]);
+    expect(validateFinalGateFixture(report)).toEqual({
+      commit: report.commit,
+      manifestSha256: report.manifestSha256,
+      tarballSha256: report.tarballSha256,
+      liveReportSha256: report.liveReportSha256,
+      gates: requiredFinalGates.length,
+    });
+  });
+
+  for (const fixture of gateReportMutationFixtures) {
+    it(`rejects a ${fixture.name} gate report`, () => {
+      const report = validFinalGateReport();
+      fixture.mutate(report);
+
+      expect(() => validateFinalGateFixture(report)).toThrow(fixture.expectedError);
+    });
   }
 });
 
