@@ -529,7 +529,6 @@ function shellCommands(block) {
         trimmed !== "" &&
         !trimmed.startsWith("#") &&
         !trimmed.startsWith("$env:") &&
-        !trimmed.startsWith("export ") &&
         !trimmed.startsWith("set ")
       );
     });

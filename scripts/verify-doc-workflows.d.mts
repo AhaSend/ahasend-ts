@@ -22,6 +22,8 @@ export interface DocumentedInvocation {
 }
 
 export interface DocumentedWorkflowExecutionPlan {
+  readonly clone: DocumentedInvocation;
+  readonly sourceDirectory: string;
   readonly install: DocumentedInvocation;
   readonly source: readonly {
     readonly owner: `source:${"build" | "typecheck" | "lint" | "test" | "coverage" | "format"}`;

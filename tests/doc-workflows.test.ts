@@ -26,8 +26,14 @@ describe("documented workflow registry", () => {
   it("maps every advertised command exactly once", async () => {
     const index = await buildDocumentationIndex();
 
-    expect(validateDocumentedWorkflowRegistry(index)).toEqual({ commands: 24, owners: 12 });
-    expect(DOCUMENTED_WORKFLOW_REGISTRY).toHaveLength(24);
+    expect(validateDocumentedWorkflowRegistry(index)).toEqual({ commands: 43, owners: 12 });
+    expect(DOCUMENTED_WORKFLOW_REGISTRY).toHaveLength(43);
+    expect(
+      index.commands.filter(({ source }) => source.trimStart().startsWith("export ")),
+    ).toHaveLength(19);
+    expect(
+      DOCUMENTED_WORKFLOW_REGISTRY.filter(({ command }) => command.startsWith("export ")),
+    ).toHaveLength(19);
   });
 
   it.each([
@@ -75,6 +81,12 @@ describe("documented workflow registry", () => {
 
     const plan = createDocumentedWorkflowExecutionPlan(entries);
 
+    expect(plan.clone).toEqual({
+      executable: "git",
+      args: ["clone", "https://github.com/AhaSend/ahasend-ts.git"],
+    });
+    expect(plan.sourceDirectory).toBe("ahasend-ts");
+    expect(plan.install).toEqual({ executable: "npm", args: ["ci"] });
     expect(plan.source.find(({ owner }) => owner === "source:typecheck")?.invocation).toEqual({
       executable: "npm",
       args: ["run", "typecheck:registry-fixture"],
@@ -83,6 +95,26 @@ describe("documented workflow registry", () => {
       executable: "./node_modules/.bin/prism",
       args: ["mock", "openapi.yaml", "-p", "4010", "--errors"],
     });
+  });
+
+  it.each([
+    [
+      "clone",
+      438,
+      "git clone https://invalid.example/not-the-sdk.git",
+      "clone https://github.com/AhaSend/ahasend-ts.git",
+    ],
+    ["working directory", 439, "cd not-the-sdk", "enter the cloned ahasend-ts directory"],
+  ])("rejects coordinated invalid source setup %s argv", async (_label, line, command, message) => {
+    const index = await buildDocumentationIndex();
+    const entries = DOCUMENTED_WORKFLOW_REGISTRY.map((entry) =>
+      entry.path === "README.md" && entry.line === line ? { ...entry, command } : { ...entry },
+    );
+    const commands = index.commands.map((entry) =>
+      entry.path === "README.md" && entry.line === line ? { ...entry, source: command } : entry,
+    );
+
+    expect(() => validateDocumentedWorkflowRegistry({ commands }, entries)).toThrow(message);
   });
 
   it("rejects runtime Prism argv without --errors", () => {

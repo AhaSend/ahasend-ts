@@ -2,9 +2,9 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildDocumentationIndex } from "./verify-docs.mjs";
 import { readRepositorySourceBindings, validateSourceGateReport } from "./run-source-gates.mjs";
@@ -70,6 +70,30 @@ export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
   },
   {
     path: "README.md",
+    line: 465,
+    command: 'export AHASEND_API_KEY="anything"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "README.md",
+    line: 466,
+    command: 'export AHASEND_ACCOUNT_ID="00000000-0000-0000-0000-000000000000"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "README.md",
+    line: 467,
+    command: 'export AHASEND_BASE_URL="http://127.0.0.1:4010"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "README.md",
+    line: 468,
+    command: 'export AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL="true"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "README.md",
     line: 469,
     command: "node examples/ping.mjs",
     owner: "packed-example-matrix",
@@ -106,6 +130,18 @@ export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
   },
   {
     path: "examples/README.md",
+    line: 18,
+    command: 'export AHASEND_API_KEY="aha-sk-your-64-char-key"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 19,
+    command: 'export AHASEND_ACCOUNT_ID="your-account-uuid"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
     line: 37,
     command: "node examples/ping.mjs",
     owner: "packed-example-matrix",
@@ -124,14 +160,68 @@ export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
   },
   {
     path: "examples/README.md",
+    line: 63,
+    command: 'export AHASEND_ALLOW_MUTATIONS="1"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 64,
+    command: 'export AHASEND_FROM_EMAIL="sender@your-verified-domain.com"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
     line: 65,
     command: "node examples/send-sandbox.mjs",
     owner: "packed-example-matrix",
   },
   {
     path: "examples/README.md",
+    line: 98,
+    command: 'export AHASEND_ALLOW_MUTATIONS="1"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 99,
+    command: 'export AHASEND_API_KEY_ID="key-uuid"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 100,
+    command: 'export AHASEND_IP_ALLOW_LIST="203.0.113.0/24,198.51.100.7"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
     line: 101,
     command: "node examples/update-api-key-ip-list.mjs",
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 109,
+    command: 'export AHASEND_ALLOW_MUTATIONS="1"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 110,
+    command: 'export AHASEND_SUBACCOUNT_NAME="Example subsidiary"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 111,
+    command: 'export AHASEND_SUBACCOUNT_WEBSITE="subsidiary.example.com"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 112,
+    command: 'export AHASEND_CHILD_SECRET_FILE="./child-api-key.secret"',
     owner: "packed-example-matrix",
   },
   {
@@ -145,6 +235,30 @@ export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
     line: 129,
     command: "./node_modules/.bin/prism mock openapi.yaml -p 4010 --errors",
     owner: "interactive:prism",
+  },
+  {
+    path: "examples/README.md",
+    line: 135,
+    command: 'export AHASEND_API_KEY="aha-sk-mock-key-any-value"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 136,
+    command: 'export AHASEND_ACCOUNT_ID="00000000-0000-0000-0000-000000000000"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 137,
+    command: 'export AHASEND_BASE_URL="http://127.0.0.1:4010"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 138,
+    command: 'export AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL="true"',
+    owner: "packed-example-matrix",
   },
   {
     path: "examples/README.md",
@@ -175,7 +289,9 @@ function parseDocumentedInvocation(entry) {
 }
 
 function uniqueOwnerInvocation(registry, owner) {
-  const invocations = registry.filter((entry) => entry.owner === owner).map(parseDocumentedInvocation);
+  const invocations = registry
+    .filter((entry) => entry.owner === owner)
+    .map(parseDocumentedInvocation);
   const unique = new Map(
     invocations.map((invocation) => [
       JSON.stringify([invocation.executable, ...invocation.args]),
@@ -200,15 +316,39 @@ function requireNpmInvocation(invocation, owner) {
  * The runner consumes this plan directly so command classification and execution
  * cannot drift into separate maps.
  */
-export function createDocumentedWorkflowExecutionPlan(
-  registry = DOCUMENTED_WORKFLOW_REGISTRY,
-) {
-  const installMatches = registry
+export function createDocumentedWorkflowExecutionPlan(registry = DOCUMENTED_WORKFLOW_REGISTRY) {
+  const setupInvocations = registry
     .filter((entry) => entry.owner === "source-setup")
-    .map(parseDocumentedInvocation)
-    .filter(
-      ({ executable, args }) => executable === "npm" && args.length === 1 && args[0] === "ci",
+    .map(parseDocumentedInvocation);
+  if (setupInvocations.length !== 3) {
+    throw new TypeError("Documentation source setup must contain clone, cd, and install commands.");
+  }
+  const cloneMatches = setupInvocations.filter(
+    ({ executable, args }) =>
+      executable === "git" &&
+      args.length === 2 &&
+      args[0] === "clone" &&
+      args[1] === "https://github.com/AhaSend/ahasend-ts.git",
+  );
+  if (cloneMatches.length !== 1) {
+    throw new TypeError(
+      "Documentation source setup must clone https://github.com/AhaSend/ahasend-ts.git exactly once.",
     );
+  }
+  const clone = cloneMatches[0];
+  const repositoryDirectory = basename(new URL(clone.args[1]).pathname, ".git");
+  const directoryMatches = setupInvocations.filter(
+    ({ executable, args }) =>
+      executable === "cd" && args.length === 1 && args[0] === repositoryDirectory,
+  );
+  if (directoryMatches.length !== 1) {
+    throw new TypeError(
+      `Documentation source setup must enter the cloned ${repositoryDirectory} directory exactly once.`,
+    );
+  }
+  const installMatches = setupInvocations.filter(
+    ({ executable, args }) => executable === "npm" && args.length === 1 && args[0] === "ci",
+  );
   if (installMatches.length !== 1) {
     throw new TypeError("Documentation source setup must map exactly once to npm ci.");
   }
@@ -236,6 +376,8 @@ export function createDocumentedWorkflowExecutionPlan(
   );
 
   return Object.freeze({
+    clone,
+    sourceDirectory: repositoryDirectory,
     install: installMatches[0],
     source: Object.freeze(source),
     prism,
@@ -430,25 +572,62 @@ export async function runBoundedInteractive({
   });
 }
 
-async function temporarySourceTree(root) {
+async function temporarySourceTree(root, plan) {
   const parent = await mkdtemp(join(tmpdir(), "ahasend-sdk-doc-workflows-"));
-  const target = resolve(parent, "ahasend-ts");
-  await cp(root, target, {
-    recursive: true,
-    filter(source) {
-      const relative = source.slice(root.length).replace(/^[/\\]/u, "");
-      const first = relative.split(/[/\\]/u, 1)[0];
-      return ![
-        ".betterborg-task",
-        ".orchestry",
-        ".betterborg-analysis",
-        "node_modules",
-        "dist",
-        "coverage",
-      ].includes(first);
-    },
-  });
-  return { parent, target };
+  const localOrigin = resolve(parent, "documentation-source-origin");
+  try {
+    await cp(root, localOrigin, {
+      recursive: true,
+      filter(source) {
+        const relative = source.slice(root.length).replace(/^[/\\]/u, "");
+        const first = relative.split(/[/\\]/u, 1)[0];
+        return ![
+          ".git",
+          ".betterborg-task",
+          ".orchestry",
+          ".betterborg-analysis",
+          "node_modules",
+          "dist",
+          "coverage",
+        ].includes(first);
+      },
+    });
+    run("git", ["init", "--quiet"], localOrigin);
+    run("git", ["add", "--all"], localOrigin);
+    run(
+      "git",
+      [
+        "-c",
+        "user.name=AhaSend documentation workflow",
+        "-c",
+        "user.email=documentation-workflow@invalid.example",
+        "commit",
+        "--quiet",
+        "-m",
+        "documentation workflow source",
+      ],
+      localOrigin,
+    );
+
+    const clone = runnableInvocation(plan.clone, parent);
+    run(clone.command, clone.args, parent, {
+      ...process.env,
+      GIT_ALLOW_PROTOCOL: "file",
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: `url.${pathToFileURL(localOrigin).href}.insteadOf`,
+      GIT_CONFIG_VALUE_0: plan.clone.args[1],
+    });
+    const target = resolve(parent, plan.sourceDirectory);
+    if (dirname(target) !== parent || !(await stat(target)).isDirectory()) {
+      throw new TypeError(
+        `Documented source setup did not enter cloned directory ${plan.sourceDirectory}.`,
+      );
+    }
+    return { parent, target };
+  } catch (error) {
+    await rm(parent, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function formattedSourceDigests(root) {
@@ -495,7 +674,7 @@ export async function runSourceDocumentationWorkflows(root = repositoryRoot) {
   const index = await buildDocumentationIndex(root);
   const summary = validateDocumentedWorkflowRegistry(index);
   const plan = createDocumentedWorkflowExecutionPlan();
-  const temporary = await temporarySourceTree(root);
+  const temporary = await temporarySourceTree(root, plan);
   try {
     const install = runnableInvocation(plan.install, temporary.target);
     run(install.command, install.args, temporary.target);
