@@ -45,6 +45,9 @@ jobs:
       - name: Required source gates and packed preflights
         run: npm run ci
 
+      - name: Documented workflow gate
+        run: npm run test:docs:workflows:source
+
   coverage:
     name: Coverage thresholds
     runs-on: ubuntu-latest

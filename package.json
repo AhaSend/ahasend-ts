@@ -68,6 +68,8 @@
     "test:package:preflight": "npm run build && node scripts/create-preflight-pack.mjs",
     "test:docs:tarball": "node scripts/verify-docs.mjs",
     "test:docs:preflight": "node scripts/create-docs-preflight-pack.mjs",
+    "test:docs:workflows:source": "node scripts/verify-doc-workflows.mjs --source",
+    "test:docs:workflows:artifact": "node scripts/verify-doc-workflows.mjs --artifact",
     "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.tests.json",
     "test": "npm run test:policy && vitest run --exclude 'tests/test-policy.test.ts'",
     "test:watch": "vitest",

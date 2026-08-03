@@ -81,6 +81,12 @@ function expectDocumentationCallerPolicy(
 ): void {
   expect(scripts["test:docs:tarball"]).toBe("node scripts/verify-docs.mjs");
   expect(scripts["test:docs:preflight"]).toBe("node scripts/create-docs-preflight-pack.mjs");
+  expect(scripts["test:docs:workflows:source"]).toBe(
+    "node scripts/verify-doc-workflows.mjs --source",
+  );
+  expect(scripts["test:docs:workflows:artifact"]).toBe(
+    "node scripts/verify-doc-workflows.mjs --artifact",
+  );
   expect(scripts["docs:check"]).toBe(
     "node scripts/generate-docs.mjs --check && npm run test:docs:preflight",
   );
@@ -97,27 +103,33 @@ function expectDocumentationCallerPolicy(
   );
   expect(preflightSource).toContain("build: true");
   expect(preflightSource).toContain('verificationScripts: ["test:docs:tarball"]');
+  expect(preflightSource).toContain("await runSourceDocumentationWorkflows(repositoryRoot)");
 
   const ciJobs = record(record(ciWorkflow, "CI workflow")["jobs"], "CI jobs");
   expect(
     namedStep(ciJobs["test"], "CI test job", "Required source gates and packed preflights"),
   ).toMatchObject({ run: "npm run ci" });
+  expect(namedStep(ciJobs["test"], "CI test job", "Documented workflow gate")).toMatchObject({
+    run: "npm run test:docs:workflows:source",
+  });
 
   const releaseJobs = record(record(candidateWorkflow, "release workflow")["jobs"], "release jobs");
   expect(namedStep(releaseJobs["source-gate"], "source gate", "Generation gate")["run"]).toBe(
     "npm run contracts:check && npm run sdk:check && npm run docs:check",
   );
+  expect(
+    namedStep(releaseJobs["source-gate"], "source gate", "Documentation workflow gate")["run"],
+  ).toBe("npm run test:docs:workflows:source");
   const artifactVerification = String(
     namedStep(releaseJobs["artifact-gates"], "artifact gates", "Verify retained package artifact")[
       "run"
     ],
   );
-  expect(artifactVerification.match(/node scripts\/verify-docs\.mjs[^\n]*/gu)).toEqual([
-    'node scripts/verify-docs.mjs "$TARBALL" "$SHA256"',
-  ]);
-  expect(
-    artifactVerification.indexOf('node scripts/verify-package.mjs "$TARBALL" "$SHA256"'),
-  ).toBeLessThan(artifactVerification.indexOf('node scripts/verify-docs.mjs "$TARBALL" "$SHA256"'));
+  expect(artifactVerification).toContain("node scripts/verify-doc-workflows.mjs --artifact \\");
+  expect(artifactVerification).toContain('  "$TARBALL" \\\n  "$SHA256" \\');
+  expect(artifactVerification).toContain("/tmp/source-report/source-report.json \\");
+  expect(artifactVerification).toContain("/tmp/source-report/source-report.sha256");
+  expect(artifactVerification).not.toMatch(/\bnpm run build\b|\bnpm pack\b/u);
 }
 
 describe("CI policy", () => {
@@ -260,10 +272,7 @@ describe("CI policy", () => {
           "artifact gates",
           "Verify retained package artifact",
         ) as { run: string };
-        artifact.run = artifact.run.replace(
-          'node scripts/verify-docs.mjs "$TARBALL" "$SHA256"',
-          "node scripts/verify-docs.mjs",
-        );
+        artifact.run = artifact.run.replace("/tmp/source-report/source-report.sha256", "");
       },
     ],
     [
@@ -276,9 +285,19 @@ describe("CI policy", () => {
           "Verify retained package artifact",
         ) as { run: string };
         artifact.run = artifact.run.replace(
-          'node scripts/verify-docs.mjs "$TARBALL" "$SHA256"',
+          "node scripts/verify-doc-workflows.mjs --artifact",
           "npm run test:docs:preflight",
         );
+      },
+    ],
+    [
+      "a suppressed CI documentation workflow gate",
+      (_scripts: Record<string, string>, ci: unknown, _release: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
+        const step = namedStep(jobs["test"], "CI test job", "Documented workflow gate") as {
+          run: string;
+        };
+        step.run = "true";
       },
     ],
   ])("rejects %s", (_label, mutate) => {
