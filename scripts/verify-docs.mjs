@@ -372,21 +372,149 @@ function fencedBlocks(source, path) {
   return blocks;
 }
 
+function maskMarkdownCode(source) {
+  const masked = source.split("");
+  const mask = (start, end) => {
+    for (let index = start; index < end; index += 1) {
+      if (masked[index] !== "\n" && masked[index] !== "\r") masked[index] = " ";
+    }
+  };
+  for (const match of source.matchAll(/^[ \t]{0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)/gmu)) {
+    const marker = match[1];
+    const markerIndex = match.index + match[0].indexOf(marker);
+    if (masked[markerIndex] === " ") continue;
+    const closing = new RegExp(
+      `^[ \\t]{0,3}${marker[0]}{${marker.length},}[ \\t]*(?:\\n|$)`,
+      "gmu",
+    );
+    closing.lastIndex = match.index + match[0].length;
+    const closingMatch = closing.exec(source);
+    mask(
+      match.index,
+      closingMatch === null ? source.length : closingMatch.index + closingMatch[0].length,
+    );
+  }
+  for (const match of source.matchAll(/<!--[\s\S]*?-->/gu)) {
+    mask(match.index, match.index + match[0].length);
+  }
+  const withoutBlocks = masked.join("");
+  for (let cursor = 0; cursor < withoutBlocks.length; cursor += 1) {
+    if (withoutBlocks[cursor] !== "`") continue;
+    let openingEnd = cursor + 1;
+    while (withoutBlocks[openingEnd] === "`") openingEnd += 1;
+    const marker = withoutBlocks.slice(cursor, openingEnd);
+    let closing = withoutBlocks.indexOf(marker, openingEnd);
+    while (
+      closing !== -1 &&
+      (withoutBlocks[closing - 1] === "`" || withoutBlocks[closing + marker.length] === "`")
+    ) {
+      closing = withoutBlocks.indexOf(marker, closing + marker.length);
+    }
+    if (closing === -1) {
+      cursor = openingEnd - 1;
+      continue;
+    }
+    mask(cursor, closing + marker.length);
+    cursor = closing + marker.length - 1;
+  }
+  return masked.join("");
+}
+
+function markdownClosingBracket(source, start) {
+  let depth = 1;
+  for (let index = start + 1; index < source.length; index += 1) {
+    if (source[index] === "\\") {
+      index += 1;
+    } else if (source[index] === "[") {
+      depth += 1;
+    } else if (source[index] === "]") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function markdownInlineDestination(source, openParenthesis) {
+  let cursor = openParenthesis + 1;
+  while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
+  const start = cursor;
+  if (source[cursor] === "<") {
+    const end = source.indexOf(">", cursor + 1);
+    if (end === -1 || source.indexOf(")", end + 1) === -1) return undefined;
+    return source.slice(cursor + 1, end);
+  }
+
+  let nestedParentheses = 0;
+  for (; cursor < source.length; cursor += 1) {
+    const character = source[cursor];
+    if (character === "\\") {
+      cursor += 1;
+    } else if (character === "(") {
+      nestedParentheses += 1;
+    } else if (character === ")") {
+      if (nestedParentheses === 0) return source.slice(start, cursor);
+      nestedParentheses -= 1;
+    } else if (/\s/u.test(character)) {
+      return source.indexOf(")", cursor) === -1 ? undefined : source.slice(start, cursor);
+    }
+  }
+  return undefined;
+}
+
+function trimBareUrl(target) {
+  let trimmed = target.replace(/[!*,.:;?_~]+$/u, "");
+  while (
+    trimmed.endsWith(")") &&
+    [...trimmed].filter((character) => character === ")").length >
+      [...trimmed].filter((character) => character === "(").length
+  ) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  return trimmed;
+}
+
 function markdownLinks(source, path) {
   const links = [];
+  const markdown = maskMarkdownCode(source);
+  const add = (target, index) => {
+    if (target === "") return;
+    links.push({
+      path,
+      line: source.slice(0, index).split("\n").length,
+      target,
+    });
+  };
+
+  for (let index = 0; index < markdown.length; index += 1) {
+    if (markdown[index] !== "[") continue;
+    const closingBracket = markdownClosingBracket(markdown, index);
+    if (closingBracket === -1) continue;
+    let openParenthesis = closingBracket + 1;
+    while (/\s/u.test(markdown[openParenthesis] ?? "")) openParenthesis += 1;
+    if (markdown[openParenthesis] !== "(") continue;
+    const target = markdownInlineDestination(markdown, openParenthesis);
+    if (target !== undefined) add(target, index);
+  }
+
   const patterns = [
-    /!?\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^)\s]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/gu,
-    /^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:<([^>\n]+)>|(\S+))/gmu,
+    /^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:(?:\r?\n)[ \t]+)?(?:<([^>\n]+)>|([^\s]+))/gmu,
     /<((?:https?):\/\/[^<>\s]+)>/giu,
   ];
   for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) {
-      links.push({
-        path,
-        line: source.slice(0, match.index).split("\n").length,
-        target: match[1] ?? match[2],
-      });
+    for (const match of markdown.matchAll(pattern)) add(match[1] ?? match[2], match.index);
+  }
+
+  for (const tag of markdown.matchAll(/<[A-Za-z][^<>]*>/gu)) {
+    for (const attribute of tag[0].matchAll(
+      /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/giu,
+    )) {
+      add(attribute[1] ?? attribute[2] ?? attribute[3], tag.index + attribute.index);
     }
+  }
+
+  for (const match of markdown.matchAll(/https?:\/\/[^\s<>"'\[\]]+/giu)) {
+    add(trimBareUrl(match[0]), match.index);
   }
   return links;
 }
@@ -1941,7 +2069,7 @@ async function verifyExternalTarget(target, state) {
 
 /**
  * Verify links indexed from the README and CHANGELOG present in installed package bytes.
- * Options are injection seams for network-isolated tests; release callers use fixed defaults.
+ * Options support network-isolated tests and source preflight; retained release callers use defaults.
  */
 export async function verifyInstalledLinks(documents, installedPaths, options = {}) {
   const inventory = options.externalUrls ?? INSTALLED_EXTERNAL_URLS;
@@ -1989,6 +2117,8 @@ export async function verifyInstalledLinks(documents, installedPaths, options = 
   if (missing !== undefined) {
     throw new TypeError(`Installed documentation is missing registered external URL: ${missing}`);
   }
+
+  if (options.verifyExternalTargets === false) return;
 
   const state = {
     allowedHosts: new Set(AUTHORITATIVE_LINK_HOSTS),
@@ -2238,7 +2368,10 @@ async function main() {
   }
   const index = await buildDocumentationIndex();
   await verifyDocumentationIndex(index);
-  await verifyInstalledDocumentation(tarball, checksum);
+  const retainedArtifactInvocation = process.argv[2] !== undefined && process.argv[3] !== undefined;
+  await verifyInstalledDocumentation(tarball, checksum, repositoryRoot, {
+    verifyExternalTargets: retainedArtifactInvocation,
+  });
   await verifyPackagedJavaScript(tarball, checksum);
   process.stdout.write(
     `verify-docs: ${REQUIRED_DOCUMENT_PATHS.length} documents passed; ${index.examples.length} examples and ${Object.keys(index.nodeSamples).length} Node samples passed\n`,

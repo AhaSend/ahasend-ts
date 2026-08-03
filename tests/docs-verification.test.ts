@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NODE_CODE_SAMPLES } from "../scripts/node-code-samples.mjs";
 import {
@@ -165,12 +166,36 @@ describe("operational documentation verification", () => {
       "[target][reference]\n[reference]: https://ahasend.com/unregistered\n",
     ],
     ["URL autolinks", "<https://ahasend.com/unregistered>\n"],
+    ["nested image links", "[![badge](LICENSE)](https://ahasend.com/unregistered)\n"],
+    ["bare GFM URLs", "https://ahasend.com/unregistered\n"],
+    ["HTML links", '<a href="https://ahasend.com/unregistered">target</a>\n'],
+    [
+      "multiline reference definitions",
+      "[target][reference]\n\n[reference]:\n  https://ahasend.com/unregistered\n",
+    ],
   ])("indexes installed %s", async (_label, source) => {
+    await expect(
+      verifyInstalledLinks(
+        installedDocuments([], source),
+        new Set(["README.md", "CHANGELOG.md", "LICENSE"]),
+        { externalUrls: [] },
+      ),
+    ).rejects.toThrow(/unregistered external URL.*unregistered/u);
+  });
+
+  it("does not inventory URLs inside Markdown code or comments", async () => {
+    const source = [
+      "`https://ahasend.com/inline-code`",
+      "<!-- https://ahasend.com/comment -->",
+      "```text",
+      "https://ahasend.com/fenced-code",
+      "```",
+    ].join("\n");
     await expect(
       verifyInstalledLinks(installedDocuments([], source), new Set(["README.md", "CHANGELOG.md"]), {
         externalUrls: [],
       }),
-    ).rejects.toThrow(/unregistered external URL.*unregistered/u);
+    ).resolves.toBeUndefined();
   });
 
   it("accepts the exact registered absolute versioned repository target", async () => {
@@ -355,6 +380,37 @@ describe("operational documentation verification", () => {
     expect(check.stderr).toContain("Provide both SDK_TARBALL and SDK_TARBALL_SHA256.");
     expect(check.status).toBe(1);
   });
+
+  it("keeps environment-backed preflight offline and retained-artifact checks online", () => {
+    const networkGuard = resolve(packedSdkDirectory, "reject-network.mjs");
+    writeFileSync(
+      networkGuard,
+      'globalThis.fetch = async () => { throw new Error("unexpected external request"); };\n',
+    );
+    const environment = {
+      ...process.env,
+      NODE_OPTIONS:
+        `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(networkGuard).href}`.trim(),
+      SDK_TARBALL: packedSdkTarball,
+      SDK_TARBALL_SHA256: packedSdkChecksum,
+    };
+
+    const sourcePreflight = spawnSync(process.execPath, ["scripts/verify-docs.mjs"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      env: environment,
+    });
+    expect(sourcePreflight.status, `${sourcePreflight.stdout}${sourcePreflight.stderr}`).toBe(0);
+
+    const retainedArtifact = spawnSync(
+      process.execPath,
+      ["scripts/verify-docs.mjs", packedSdkTarball, packedSdkChecksum],
+      { cwd: repositoryRoot, encoding: "utf8", env: environment },
+    );
+    expect(retainedArtifact.stdout).toBe("");
+    expect(retainedArtifact.stderr).toContain("Installed external URL request failed");
+    expect(retainedArtifact.status).toBe(1);
+  }, 20_000);
 
   it("strict-checks all 56 SDK samples against the packed declarations", async () => {
     expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(56);

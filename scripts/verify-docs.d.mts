@@ -53,6 +53,7 @@ export interface InstalledLinkVerificationOptions {
   ) => Promise<InstalledExternalResponse>;
   readonly requestCap?: number;
   readonly timeoutMs?: number;
+  readonly verifyExternalTargets?: boolean;
 }
 
 export function verifyInstalledLinks(
