@@ -416,6 +416,7 @@ describe("single-run release workflow", () => {
       "release-tools",
       "candidate-tarball",
       "candidate-manifest",
+      "live-report-evidence",
       "gate-report",
       "promotion-state",
     ]);
@@ -432,6 +433,44 @@ describe("single-run release workflow", () => {
     expect(workflowSource).toContain("candidate-manifest.sha256");
     expect(workflowSource).toContain("gate-report.sha256");
     expect(workflowSource).toContain("live-report.sha256");
+  });
+
+  it("retains failed live evidence without masking failure or authorizing publication", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const liveJob = record(jobs["live-gates"], "live gates");
+    const steps = jobSteps(liveJob, "live gates");
+    const liveIndex = steps.findIndex((step) => step["name"] === "Run live candidate acceptance");
+    const evidenceIndex = steps.findIndex(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/upload-artifact@") &&
+        record(step["with"], "live evidence upload inputs")["name"] === "live-report-evidence",
+    );
+    const gateCreationIndex = steps.findIndex(
+      (step) => step["name"] === "Create detached gate report",
+    );
+    const gateUploadIndex = steps.findIndex(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/upload-artifact@") &&
+        record(step["with"], "gate report upload inputs")["name"] === "gate-report",
+    );
+    const live = record(steps[liveIndex], "live acceptance");
+    const evidence = record(steps[evidenceIndex], "live evidence upload");
+    const gateCreation = record(steps[gateCreationIndex], "gate report creation");
+    const gateUpload = record(steps[gateUploadIndex], "gate report upload");
+
+    expect(liveJob["continue-on-error"]).toBeUndefined();
+    expect(live["continue-on-error"]).toBeUndefined();
+    expect(evidence["if"]).toBe("${{ always() }}");
+    expect(record(evidence["with"], "live evidence upload inputs")).toMatchObject({
+      name: "live-report-evidence",
+      path: "/tmp/gate-report/live-report.json\n" + "/tmp/gate-report/live-report.sha256\n",
+      "if-no-files-found": "error",
+    });
+    expect(gateCreation["if"]).toBe("${{ success() }}");
+    expect(gateUpload["if"]).toBe("${{ success() }}");
+    expect(liveIndex).toBeLessThan(evidenceIndex);
+    expect(evidenceIndex).toBeLessThan(gateCreationIndex);
+    expect(gateCreationIndex).toBeLessThan(gateUploadIndex);
   });
 
   it("executes and validates the complete installed-candidate live report", () => {

@@ -330,7 +330,19 @@ jobs:
             /tmp/gate-report/live-report.sha256 \
             /tmp/candidate/candidate-manifest.sha256
 
+      - name: Retain live report evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: live-report-evidence
+          path: |
+            /tmp/gate-report/live-report.json
+            /tmp/gate-report/live-report.sha256
+          if-no-files-found: error
+          retention-days: ${{ env.RETENTION_DAYS }}
+
       - name: Create detached gate report
+        if: ${{ success() }}
         run: |
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
@@ -368,7 +380,8 @@ jobs:
           ]);
           NODE
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - if: ${{ success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gate-report
           path: /tmp/gate-report
