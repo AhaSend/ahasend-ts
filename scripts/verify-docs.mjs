@@ -5,7 +5,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, extname, join, resolve, sep } from "node:path";
+import { dirname, extname, join, posix, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import tsParser from "@typescript-eslint/parser";
 import { ESLint } from "eslint";
@@ -34,6 +34,37 @@ export const REQUIRED_DOCUMENT_PATHS = Object.freeze([
   "docs/subaccounts.md",
 ]);
 const MARKDOWN_PATHS = Object.freeze([...REQUIRED_DOCUMENT_PATHS, "examples/README.md"]);
+const INSTALLED_DOCUMENT_PATHS = Object.freeze(["README.md", "CHANGELOG.md"]);
+const AUTHORITATIVE_LINK_HOSTS = Object.freeze([
+  "ahasend.com",
+  "www.ahasend.com",
+  "dashboard.ahasend.com",
+  "github.com",
+  "keepachangelog.com",
+  "semver.org",
+]);
+export const INSTALLED_EXTERNAL_URLS = Object.freeze([
+  "https://ahasend.com",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/CHANGELOG.md",
+  "https://dashboard.ahasend.com",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/api-reference.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/retries-and-idempotency.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/cancellation.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/rate-pacing.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/safe-logging.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/security-and-webhooks.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/subaccounts.md",
+  "https://github.com/AhaSend/ahasend-ts/tree/v0.1.0/examples",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/examples/README.md",
+  "https://github.com/AhaSend/ahasend-ts/issues",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/SECURITY.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/LICENSE",
+  "https://keepachangelog.com/en/1.1.0/",
+  "https://semver.org/",
+]);
+const INSTALLED_LINK_TIMEOUT_MS = 10_000;
+const INSTALLED_LINK_REQUEST_CAP = 64;
+const INSTALLED_LINK_REDIRECT_CAP = 2;
 
 const REQUIREMENTS = Object.freeze([
   {
@@ -1720,6 +1751,267 @@ async function assertTarball(tarballPath, expectedChecksum) {
   }
 }
 
+function archiveCommand(args, label) {
+  const result = spawnSync("tar", args, {
+    encoding: "utf8",
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  if (result.error !== undefined) throw result.error;
+  if (result.status !== 0) {
+    throw new TypeError(`${label} failed: ${result.stderr || result.stdout}`.trimEnd());
+  }
+  return result.stdout;
+}
+
+function installedArchivePaths(tarballPath) {
+  const paths = archiveCommand(["-tzf", tarballPath], "SDK tarball inventory").split("\n");
+  const installed = new Set();
+  for (const archivePath of paths) {
+    if (archivePath === "") continue;
+    if (!archivePath.startsWith("package/")) {
+      throw new TypeError(`SDK tarball contains a path outside package/: ${archivePath}`);
+    }
+    const packagePath = archivePath.slice("package/".length).replace(/\/$/u, "");
+    if (
+      packagePath !== "" &&
+      (posix.isAbsolute(packagePath) || packagePath.split("/").includes(".."))
+    ) {
+      throw new TypeError(`SDK tarball contains an unsafe package path: ${archivePath}`);
+    }
+    installed.add(packagePath);
+  }
+  return installed;
+}
+
+function installedArchiveFile(tarballPath, path) {
+  return archiveCommand(
+    ["-xOzf", tarballPath, `package/${path}`],
+    `Unable to read installed ${path}`,
+  );
+}
+
+function validateExternalInventory(inventory) {
+  const duplicate = inventory.find((target, index) => inventory.indexOf(target) !== index);
+  if (duplicate !== undefined) {
+    throw new TypeError(
+      `Installed external URL inventory contains a duplicate entry: ${duplicate}`,
+    );
+  }
+  for (const target of inventory) {
+    const url = new URL(target);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new TypeError(`Installed external URL inventory has an unsupported target: ${target}`);
+    }
+    if (url.username !== "" || url.password !== "") {
+      throw new TypeError(`Installed external URL contains credentials: ${target}`);
+    }
+    if (url.hash !== "") {
+      throw new TypeError(`Installed external URL contains an unverifiable fragment: ${target}`);
+    }
+  }
+}
+
+function installedLocalTarget(link, installedPaths) {
+  if (link.target.includes("#")) {
+    throw new TypeError(
+      `${link.path}:${link.line} has an installed link with an unverifiable fragment: ${link.target}`,
+    );
+  }
+  const targetPath = link.target.split("?", 1)[0];
+  let decoded;
+  try {
+    decoded = decodeURIComponent(targetPath);
+  } catch (error) {
+    throw new TypeError(`${link.path}:${link.line} has an invalid installed link: ${link.target}`, {
+      cause: error,
+    });
+  }
+  if (decoded.includes("\\") || posix.isAbsolute(decoded)) {
+    throw new TypeError(`${link.path}:${link.line} has an unsafe installed link: ${link.target}`);
+  }
+  const packagePath = posix
+    .normalize(posix.join(posix.dirname(link.path), decoded))
+    .replace(/\/$/u, "");
+  if (packagePath === ".." || packagePath.startsWith("../")) {
+    throw new TypeError(`${link.path}:${link.line} has an unsafe installed link: ${link.target}`);
+  }
+  const exists =
+    installedPaths.has(packagePath) ||
+    [...installedPaths].some((path) => path.startsWith(`${packagePath}/`));
+  if (!exists) {
+    throw new TypeError(
+      `${link.path}:${link.line} has an unresolved installed link: ${link.target}`,
+    );
+  }
+}
+
+async function defaultExternalRequest(url, { signal }) {
+  const response = await fetch(url, {
+    method: "GET",
+    redirect: "manual",
+    headers: { "user-agent": "@ahasend/sdk documentation verifier" },
+    signal,
+  });
+  const result = { status: response.status, location: response.headers.get("location") };
+  await response.body?.cancel();
+  return result;
+}
+
+async function verifyExternalTarget(target, state) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), state.timeoutMs);
+  let current = new URL(target);
+  let redirects = 0;
+  try {
+    while (true) {
+      if (!state.allowedHosts.has(current.hostname)) {
+        throw new TypeError(
+          `Installed external URL left the authoritative host allowlist: ${current.href}`,
+        );
+      }
+      state.requests += 1;
+      if (state.requests > state.requestCap) {
+        throw new TypeError(
+          `Installed external URL request cap exceeded while validating ${target}`,
+        );
+      }
+      let response;
+      try {
+        response = await state.request(current, { signal: controller.signal });
+      } catch (error) {
+        const outcome = controller.signal.aborted ? "timed out" : "request failed";
+        throw new TypeError(`Installed external URL ${outcome}: ${target}`, { cause: error });
+      }
+      if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599) {
+        throw new TypeError(`Installed external URL returned an invalid status: ${target}`);
+      }
+      if (response.status >= 300 && response.status < 400) {
+        if (response.location === null || response.location === undefined) {
+          throw new TypeError(
+            `Installed external URL returned a redirect without Location: ${target}`,
+          );
+        }
+        if (redirects >= INSTALLED_LINK_REDIRECT_CAP) {
+          throw new TypeError(`Installed external URL exceeded two redirects: ${target}`);
+        }
+        let redirected;
+        try {
+          redirected = new URL(response.location, current);
+        } catch (error) {
+          throw new TypeError(`Installed external URL redirected to an invalid target: ${target}`, {
+            cause: error,
+          });
+        }
+        if (
+          (redirected.protocol !== "http:" && redirected.protocol !== "https:") ||
+          redirected.username !== "" ||
+          redirected.password !== "" ||
+          redirected.hash !== "" ||
+          redirected.port !== ""
+        ) {
+          throw new TypeError(`Installed external URL redirected to an unsafe target: ${target}`);
+        }
+        if (!state.allowedHosts.has(redirected.hostname)) {
+          throw new TypeError(`Installed external URL crossed the host allowlist: ${target}`);
+        }
+        current = redirected;
+        redirects += 1;
+        continue;
+      }
+      if (response.status < 200 || response.status >= 300) {
+        throw new TypeError(`Installed external URL returned HTTP ${response.status}: ${target}`);
+      }
+      return;
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Verify links indexed from the README and CHANGELOG present in installed package bytes.
+ * Options are injection seams for network-isolated tests; release callers use fixed defaults.
+ */
+export async function verifyInstalledLinks(documents, installedPaths, options = {}) {
+  const inventory = options.externalUrls ?? INSTALLED_EXTERNAL_URLS;
+  validateExternalInventory(inventory);
+  const links = Object.entries(documents).flatMap(([path, source]) => markdownLinks(source, path));
+  const externalTargets = [];
+  for (const link of links) {
+    if (link.target.startsWith("#")) {
+      throw new TypeError(
+        `${link.path}:${link.line} has an installed link with an unverifiable fragment: ${link.target}`,
+      );
+    }
+    if (/^mailto:/u.test(link.target)) continue;
+    if (!/^https?:/u.test(link.target)) {
+      if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(link.target)) {
+        throw new TypeError(
+          `${link.path}:${link.line} has an unsupported installed link: ${link.target}`,
+        );
+      }
+      installedLocalTarget(link, installedPaths);
+      continue;
+    }
+    const url = new URL(link.target);
+    if (url.username !== "" || url.password !== "") {
+      throw new TypeError(
+        `${link.path}:${link.line} has an external URL with credentials: ${link.target}`,
+      );
+    }
+    if (url.hash !== "") {
+      throw new TypeError(
+        `${link.path}:${link.line} has an external URL with an unverifiable fragment: ${link.target}`,
+      );
+    }
+    externalTargets.push(url.href);
+  }
+
+  const actual = new Set(externalTargets);
+  const expected = new Set(inventory.map((target) => new URL(target).href));
+  const unregistered = [...actual].find((target) => !expected.has(target));
+  if (unregistered !== undefined) {
+    throw new TypeError(
+      `Installed documentation contains an unregistered external URL: ${unregistered}`,
+    );
+  }
+  const missing = [...expected].find((target) => !actual.has(target));
+  if (missing !== undefined) {
+    throw new TypeError(`Installed documentation is missing registered external URL: ${missing}`);
+  }
+
+  const state = {
+    allowedHosts: new Set(AUTHORITATIVE_LINK_HOSTS),
+    request: options.request ?? defaultExternalRequest,
+    requestCap: options.requestCap ?? INSTALLED_LINK_REQUEST_CAP,
+    requests: 0,
+    timeoutMs: options.timeoutMs ?? INSTALLED_LINK_TIMEOUT_MS,
+  };
+  for (const target of expected) await verifyExternalTarget(target, state);
+}
+
+/** Verify installed documentation from checksum-bound candidate bytes. */
+export async function verifyInstalledDocumentation(
+  tarballPath,
+  expectedChecksum,
+  root = repositoryRoot,
+  options = {},
+) {
+  const tarball = resolve(tarballPath);
+  await assertTarball(tarball, expectedChecksum);
+  const installedPaths = installedArchivePaths(tarball);
+  const documents = Object.fromEntries(
+    INSTALLED_DOCUMENT_PATHS.map((path) => [path, installedArchiveFile(tarball, path)]),
+  );
+  for (const path of INSTALLED_DOCUMENT_PATHS) {
+    const checkoutSource = await readFile(resolve(root, path), "utf8");
+    if (documents[path] !== checkoutSource) {
+      throw new TypeError(`Installed ${path} differs from checkout documentation.`);
+    }
+  }
+  await verifyInstalledLinks(documents, installedPaths, options);
+}
+
 /**
  * Type-check runnable examples and all generated Node samples against an
  * installed, checksum-verified package tarball.
@@ -1936,6 +2228,7 @@ async function main() {
   }
   const index = await buildDocumentationIndex();
   await verifyDocumentationIndex(index);
+  await verifyInstalledDocumentation(tarball, checksum);
   await verifyPackagedJavaScript(tarball, checksum);
   process.stdout.write(
     `verify-docs: ${REQUIRED_DOCUMENT_PATHS.length} documents passed; ${index.examples.length} examples and ${Object.keys(index.nodeSamples).length} Node samples passed\n`,

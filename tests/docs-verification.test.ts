@@ -1,15 +1,20 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NODE_CODE_SAMPLES } from "../scripts/node-code-samples.mjs";
 import {
+  INSTALLED_EXTERNAL_URLS,
   buildDocumentationIndex,
   loadDocumentation,
   verifyDocumentation,
   verifyDocumentationIndex,
+  verifyInstalledDocumentation,
+  verifyInstalledLinks,
   verifyPackagedJavaScript,
   verifySafeOutput,
 } from "../scripts/verify-docs.mjs";
@@ -51,23 +56,249 @@ afterAll(() => {
   rmSync(packedSdkDirectory, { recursive: true, force: true });
 });
 
+interface LinkReply {
+  readonly status?: number;
+  readonly location?: string;
+  readonly hang?: boolean;
+}
+
+async function withLinkServer(
+  replyFor: (target: URL, method: string) => LinkReply,
+  assertion: (
+    request: (
+      url: URL,
+      options: { readonly signal: AbortSignal },
+    ) => Promise<{ status: number; location: string | null }>,
+  ) => Promise<void>,
+) {
+  const server = createServer((request, response) => {
+    const target = new URL(String(request.headers["x-installed-target"]));
+    const reply = replyFor(target, request.method ?? "");
+    if (reply.hang === true) return;
+    response.statusCode = reply.status ?? 204;
+    if (reply.location !== undefined) response.setHeader("location", reply.location);
+    response.end();
+  });
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const { port } = server.address() as AddressInfo;
+  const request = async (url: URL, { signal }: { readonly signal: AbortSignal }) => {
+    const response = await fetch(`http://127.0.0.1:${port}/installed-link`, {
+      method: "GET",
+      redirect: "manual",
+      headers: { "x-installed-target": url.href },
+      signal,
+    });
+    const result = { status: response.status, location: response.headers.get("location") };
+    await response.body?.cancel();
+    return result;
+  };
+  try {
+    await assertion(request);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolveClose, reject) =>
+      server.close((error) => (error === undefined ? resolveClose() : reject(error))),
+    );
+  }
+}
+
+function installedDocuments(urls: readonly string[], localLink = "") {
+  return {
+    "README.md": `${localLink}${urls.map((url) => `[target](${url})`).join("\n")}\n`,
+    "CHANGELOG.md": "",
+  };
+}
+
 describe("operational documentation verification", () => {
   it("verifies the committed guidance through the packed SDK", async () => {
     const documents = await loadDocumentation();
 
     expect(() => verifyDocumentation(documents)).not.toThrow();
+    expect(INSTALLED_EXTERNAL_URLS).toHaveLength(17);
 
-    const check = spawnSync(
-      process.execPath,
-      ["scripts/verify-docs.mjs", packedSdkTarball, packedSdkChecksum],
-      {
-        cwd: process.cwd(),
-        encoding: "utf8",
-      },
+    await withLinkServer(
+      (_target, method) => ({ status: method === "GET" ? 204 : 405 }),
+      async (request) =>
+        expect(
+          verifyInstalledDocumentation(packedSdkTarball, packedSdkChecksum, repositoryRoot, {
+            request,
+          }),
+        ).resolves.toBeUndefined(),
     );
-    expect(check.stderr).toBe("");
-    expect(check.stdout).toContain("10 documents passed");
-    expect(check.status).toBe(0);
+  });
+
+  it("requires local installed links to remain inside the package", async () => {
+    const paths = new Set(["README.md", "CHANGELOG.md", "LICENSE", "dist/index.js"]);
+    await expect(
+      verifyInstalledLinks(installedDocuments([], "[license](LICENSE)\n[dist](dist/)\n"), paths, {
+        externalUrls: [],
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      verifyInstalledLinks(installedDocuments([], "[missing](docs/missing.md)\n"), paths, {
+        externalUrls: [],
+      }),
+    ).rejects.toThrow(/unresolved installed link.*docs\/missing\.md/u);
+    await expect(
+      verifyInstalledLinks(installedDocuments([], "[outside](../README.md)\n"), paths, {
+        externalUrls: [],
+      }),
+    ).rejects.toThrow(/unsafe installed link/u);
+  });
+
+  it("accepts the exact registered absolute versioned repository target", async () => {
+    const target = "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/LICENSE";
+    await withLinkServer(
+      (_url, method) => ({ status: method === "GET" ? 200 : 405 }),
+      async (request) =>
+        expect(
+          verifyInstalledLinks(
+            installedDocuments([target]),
+            new Set(["README.md", "CHANGELOG.md"]),
+            {
+              externalUrls: [target],
+              request,
+            },
+          ),
+        ).resolves.toBeUndefined(),
+    );
+
+    await expect(
+      verifyInstalledLinks(
+        installedDocuments(["https://github.com/AhaSend/ahasend-ts/blob/main/LICENSE"]),
+        new Set(["README.md", "CHANGELOG.md"]),
+      ),
+    ).rejects.toThrow(/unregistered external URL.*blob\/main\/LICENSE/u);
+  });
+
+  it("allows two same-allowlist redirects before a final 2xx response", async () => {
+    const target = "https://ahasend.com/redirect-0";
+    await withLinkServer(
+      (url) => {
+        const redirect = Number(url.pathname.split("-").at(-1) ?? "0");
+        return redirect < 2
+          ? { status: 302, location: `https://ahasend.com/redirect-${redirect + 1}` }
+          : { status: 204 };
+      },
+      async (request) =>
+        expect(
+          verifyInstalledLinks(
+            installedDocuments([target]),
+            new Set(["README.md", "CHANGELOG.md"]),
+            {
+              externalUrls: [target],
+              request,
+            },
+          ),
+        ).resolves.toBeUndefined(),
+    );
+  });
+
+  it("rejects duplicate and drifted installed external URL inventories", async () => {
+    const target = "https://ahasend.com/registered";
+    await expect(
+      verifyInstalledLinks(installedDocuments([target]), new Set(["README.md", "CHANGELOG.md"]), {
+        externalUrls: [target, target],
+      }),
+    ).rejects.toThrow(/duplicate entry/u);
+    await expect(
+      verifyInstalledLinks(
+        installedDocuments([target, "https://ahasend.com/unregistered"]),
+        new Set(["README.md", "CHANGELOG.md"]),
+        { externalUrls: [target] },
+      ),
+    ).rejects.toThrow(/unregistered external URL.*unregistered/u);
+  });
+
+  it.each([
+    ["credentials", "https://user:password@ahasend.com/registered", /credentials/u],
+    ["fragments", "https://ahasend.com/registered#section", /unverifiable fragment/u],
+  ])("rejects external URL %s", async (_label, target, expected) => {
+    await expect(
+      verifyInstalledLinks(installedDocuments([target]), new Set(["README.md", "CHANGELOG.md"]), {
+        externalUrls: [target],
+      }),
+    ).rejects.toThrow(expected);
+  });
+
+  it.each([
+    ["non-2xx", () => ({ status: 503 }), /HTTP 503/u],
+    [
+      "excessive redirects",
+      (target: URL) => ({
+        status: 302,
+        location: `https://ahasend.com/redirect-${Number(target.pathname.split("-").at(-1) ?? "0") + 1}`,
+      }),
+      /exceeded two redirects/u,
+    ],
+    [
+      "cross-host redirects",
+      () => ({ status: 302, location: "https://example.com/cross-host" }),
+      /crossed the host allowlist/u,
+    ],
+  ])("fails closed for installed-link %s", async (_label, replyFor, expected) => {
+    const target = "https://ahasend.com/redirect-0";
+    await withLinkServer(replyFor, async (request) =>
+      expect(
+        verifyInstalledLinks(installedDocuments([target]), new Set(["README.md", "CHANGELOG.md"]), {
+          externalUrls: [target],
+          request,
+        }),
+      ).rejects.toThrow(expected),
+    );
+  });
+
+  it("aborts an installed-link request at the per-target timeout", async () => {
+    const target = "https://ahasend.com/hang";
+    await withLinkServer(
+      () => ({ hang: true }),
+      async (request) =>
+        expect(
+          verifyInstalledLinks(
+            installedDocuments([target]),
+            new Set(["README.md", "CHANGELOG.md"]),
+            {
+              externalUrls: [target],
+              request,
+              timeoutMs: 25,
+            },
+          ),
+        ).rejects.toThrow(/timed out.*hang/u),
+    );
+  });
+
+  it("bounds the total installed-link request count", async () => {
+    const targets = ["https://ahasend.com/one", "https://ahasend.com/two"];
+    await withLinkServer(
+      () => ({ status: 200 }),
+      async (request) =>
+        expect(
+          verifyInstalledLinks(
+            installedDocuments(targets),
+            new Set(["README.md", "CHANGELOG.md"]),
+            {
+              externalUrls: targets,
+              request,
+              requestCap: 1,
+            },
+          ),
+        ).rejects.toThrow(/request cap exceeded.*two/u),
+    );
+  });
+
+  it("detects checkout drift from the installed README and CHANGELOG bytes", async () => {
+    const checkout = mkdtempSync(join(tmpdir(), "ahasend-installed-docs-drift-"));
+    try {
+      writeFileSync(checkout + "/README.md", `${readFileSync("README.md", "utf8")}\nDrift\n`);
+      writeFileSync(checkout + "/CHANGELOG.md", readFileSync("CHANGELOG.md", "utf8"));
+      await expect(
+        verifyInstalledDocumentation(packedSdkTarball, packedSdkChecksum, checkout, {
+          request: async () => ({ status: 204 }),
+        }),
+      ).rejects.toThrow(/Installed README\.md differs from checkout documentation/u);
+    } finally {
+      rmSync(checkout, { recursive: true, force: true });
+    }
   });
 
   it.each([

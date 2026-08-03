@@ -38,6 +38,36 @@ export function buildDocumentationIndex(root?: string): Promise<DocumentationInd
 
 export function verifyDocumentationIndex(index: DocumentationIndex, root?: string): Promise<void>;
 
+export const INSTALLED_EXTERNAL_URLS: readonly string[];
+
+export interface InstalledExternalResponse {
+  readonly status: number;
+  readonly location?: string | null;
+}
+
+export interface InstalledLinkVerificationOptions {
+  readonly externalUrls?: readonly string[];
+  readonly request?: (
+    url: URL,
+    options: { readonly signal: AbortSignal },
+  ) => Promise<InstalledExternalResponse>;
+  readonly requestCap?: number;
+  readonly timeoutMs?: number;
+}
+
+export function verifyInstalledLinks(
+  documents: Readonly<Record<string, string>>,
+  installedPaths: ReadonlySet<string>,
+  options?: InstalledLinkVerificationOptions,
+): Promise<void>;
+
+export function verifyInstalledDocumentation(
+  tarballPath: string,
+  expectedChecksum: string,
+  root?: string,
+  options?: InstalledLinkVerificationOptions,
+): Promise<void>;
+
 export function verifyPackagedJavaScript(
   tarballPath: string,
   expectedChecksum: string,
