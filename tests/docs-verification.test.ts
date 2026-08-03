@@ -128,11 +128,19 @@ describe("operational documentation verification", () => {
   });
 
   it("requires local installed links to remain inside the package", async () => {
-    const paths = new Set(["README.md", "CHANGELOG.md", "LICENSE", "dist/index.js"]);
+    const paths = new Set([
+      "README.md",
+      "CHANGELOG.md",
+      "LICENSE",
+      "dist/index.js",
+      "assets/logo.png",
+    ]);
     await expect(
-      verifyInstalledLinks(installedDocuments([], "[license](LICENSE)\n[dist](dist/)\n"), paths, {
-        externalUrls: [],
-      }),
+      verifyInstalledLinks(
+        installedDocuments([], "[license](LICENSE)\n[dist](dist/)\n![logo](assets/logo.png)\n"),
+        paths,
+        { externalUrls: [] },
+      ),
     ).resolves.toBeUndefined();
     await expect(
       verifyInstalledLinks(installedDocuments([], "[missing](docs/missing.md)\n"), paths, {
@@ -144,6 +152,25 @@ describe("operational documentation verification", () => {
         externalUrls: [],
       }),
     ).rejects.toThrow(/unsafe installed link/u);
+    await expect(
+      verifyInstalledLinks(installedDocuments([], "![missing](assets/missing.png)\n"), paths, {
+        externalUrls: [],
+      }),
+    ).rejects.toThrow(/unresolved installed link.*assets\/missing\.png/u);
+  });
+
+  it.each([
+    [
+      "reference-style links",
+      "[target][reference]\n[reference]: https://ahasend.com/unregistered\n",
+    ],
+    ["URL autolinks", "<https://ahasend.com/unregistered>\n"],
+  ])("indexes installed %s", async (_label, source) => {
+    await expect(
+      verifyInstalledLinks(installedDocuments([], source), new Set(["README.md", "CHANGELOG.md"]), {
+        externalUrls: [],
+      }),
+    ).rejects.toThrow(/unregistered external URL.*unregistered/u);
   });
 
   it("accepts the exact registered absolute versioned repository target", async () => {
@@ -201,6 +228,13 @@ describe("operational documentation verification", () => {
         externalUrls: [target, target],
       }),
     ).rejects.toThrow(/duplicate entry/u);
+    await expect(
+      verifyInstalledLinks(
+        installedDocuments(["https://ahasend.com"]),
+        new Set(["README.md", "CHANGELOG.md"]),
+        { externalUrls: ["https://ahasend.com", "https://ahasend.com/"] },
+      ),
+    ).rejects.toThrow(/duplicate entry.*https:\/\/ahasend\.com\//u);
     await expect(
       verifyInstalledLinks(
         installedDocuments([target, "https://ahasend.com/unregistered"]),

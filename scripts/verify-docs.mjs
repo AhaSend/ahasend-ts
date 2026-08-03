@@ -373,11 +373,22 @@ function fencedBlocks(source, path) {
 }
 
 function markdownLinks(source, path) {
-  return [...source.matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/gu)].map((match) => ({
-    path,
-    line: source.slice(0, match.index).split("\n").length,
-    target: match[1],
-  }));
+  const links = [];
+  const patterns = [
+    /!?\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^)\s]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/gu,
+    /^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:<([^>\n]+)>|(\S+))/gmu,
+    /<((?:https?):\/\/[^<>\s]+)>/giu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      links.push({
+        path,
+        line: source.slice(0, match.index).split("\n").length,
+        target: match[1] ?? match[2],
+      });
+    }
+  }
+  return links;
 }
 
 function shellCommands(block) {
@@ -1791,12 +1802,7 @@ function installedArchiveFile(tarballPath, path) {
 }
 
 function validateExternalInventory(inventory) {
-  const duplicate = inventory.find((target, index) => inventory.indexOf(target) !== index);
-  if (duplicate !== undefined) {
-    throw new TypeError(
-      `Installed external URL inventory contains a duplicate entry: ${duplicate}`,
-    );
-  }
+  const canonicalTargets = new Set();
   for (const target of inventory) {
     const url = new URL(target);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -1808,7 +1814,12 @@ function validateExternalInventory(inventory) {
     if (url.hash !== "") {
       throw new TypeError(`Installed external URL contains an unverifiable fragment: ${target}`);
     }
+    if (canonicalTargets.has(url.href)) {
+      throw new TypeError(`Installed external URL inventory contains a duplicate entry: ${target}`);
+    }
+    canonicalTargets.add(url.href);
   }
+  return canonicalTargets;
 }
 
 function installedLocalTarget(link, installedPaths) {
@@ -1934,7 +1945,7 @@ async function verifyExternalTarget(target, state) {
  */
 export async function verifyInstalledLinks(documents, installedPaths, options = {}) {
   const inventory = options.externalUrls ?? INSTALLED_EXTERNAL_URLS;
-  validateExternalInventory(inventory);
+  const expected = validateExternalInventory(inventory);
   const links = Object.entries(documents).flatMap(([path, source]) => markdownLinks(source, path));
   const externalTargets = [];
   for (const link of links) {
@@ -1943,8 +1954,8 @@ export async function verifyInstalledLinks(documents, installedPaths, options = 
         `${link.path}:${link.line} has an installed link with an unverifiable fragment: ${link.target}`,
       );
     }
-    if (/^mailto:/u.test(link.target)) continue;
-    if (!/^https?:/u.test(link.target)) {
+    if (/^mailto:/iu.test(link.target)) continue;
+    if (!/^https?:/iu.test(link.target)) {
       if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(link.target)) {
         throw new TypeError(
           `${link.path}:${link.line} has an unsupported installed link: ${link.target}`,
@@ -1968,7 +1979,6 @@ export async function verifyInstalledLinks(documents, installedPaths, options = 
   }
 
   const actual = new Set(externalTargets);
-  const expected = new Set(inventory.map((target) => new URL(target).href));
   const unregistered = [...actual].find((target) => !expected.has(target));
   if (unregistered !== undefined) {
     throw new TypeError(
