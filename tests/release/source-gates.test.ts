@@ -58,11 +58,44 @@ const documentationGeneratorSource = readFileSync(
   resolve(repositoryRoot, "scripts/generate-docs.mjs"),
   "utf8",
 );
+const sourceGateDeclaration = readFileSync(
+  resolve(repositoryRoot, "scripts/run-source-gates.d.mts"),
+  "utf8",
+);
 const releaseWorkflowSource = readFileSync(
   resolve(repositoryRoot, ".github/workflows/release.yml"),
   "utf8",
 );
 const authoritativeOpenApiTest = "tests/openapi-authoritative-contract.test.ts";
+const expectedSourceGates = [
+  "generation",
+  "typecheck",
+  "typed-lint",
+  "unit-tests",
+  "state-tests",
+  "webhook-tests",
+  "framework-tests",
+  "coverage",
+  "format",
+  "test-policy",
+  "repository-secret-scan",
+  "audit",
+  "documentation-workflows",
+] as const;
+
+function declaredSourceGates(): string[] {
+  const declaration =
+    /export const REQUIRED_SOURCE_GATES: readonly \[(?<members>[\s\S]*?)\];/u.exec(
+      sourceGateDeclaration,
+    );
+  if (declaration?.groups?.members === undefined) {
+    throw new TypeError("Missing REQUIRED_SOURCE_GATES declaration tuple");
+  }
+  return [...declaration.groups.members.matchAll(/"(?<name>[^"]+)"/gu)].map(({ groups }) => {
+    if (groups?.name === undefined) throw new TypeError("Invalid source gate declaration member");
+    return groups.name;
+  });
+}
 
 function validReport(bindings: SourceBindings): SourceGateReport {
   return {
@@ -137,6 +170,9 @@ function mutateFixture(
         name: "generation",
         passed: true,
       };
+      break;
+    case "extraGate":
+      report.results.push({ name: "unexpected-gate", passed: true });
       break;
     case "noncanonicalReport":
       source = Buffer.from(JSON.stringify(report, null, 2), "utf8");
@@ -248,15 +284,42 @@ describe("source gate report validation", () => {
     expect(releaseWorkflowSource).not.toMatch(/renderer[-A-Za-z]*handoff/iu);
   });
 
-  it("keeps the schema aligned with the importable validator", async () => {
+  it("keeps the runtime, declaration, schema, and fixture gate inventories exact", async () => {
     const bindings = await readRepositorySourceBindings();
     const report = validReport(bindings);
+    const resultsSchema = sourceGateReportSchema.properties.results;
+    const schemaGateDefinitions = expectedSourceGates.map(
+      (name) => sourceGateReportSchema.definitions[name],
+    );
 
     expect(validateSourceGateSchema(report), JSON.stringify(validateSourceGateSchema.errors)).toBe(
       true,
     );
     expect(report).not.toHaveProperty("reportSha256");
-    expect(REQUIRED_SOURCE_GATES).toEqual(sourceGateReports.missingGateCases);
+    expect(REQUIRED_SOURCE_GATES).toEqual(expectedSourceGates);
+    expect(declaredSourceGates()).toEqual(expectedSourceGates);
+    expect(sourceGateReports.missingGateCases).toEqual(expectedSourceGates);
+    expect(resultsSchema).toMatchObject({
+      minItems: expectedSourceGates.length,
+      maxItems: expectedSourceGates.length,
+      uniqueItems: true,
+      items: { $ref: "#/definitions/gateResult" },
+    });
+    expect(sourceGateReportSchema.definitions.gateResult.properties.name.enum).toEqual(
+      expectedSourceGates,
+    );
+    expect(sourceGateReportSchema.definitions.gateResult.properties.passed).toEqual({
+      const: true,
+    });
+    expect(resultsSchema.allOf.map(({ contains }) => contains.$ref)).toEqual(
+      expectedSourceGates.map((name) => `#/definitions/${name}`),
+    );
+    expect(schemaGateDefinitions).toEqual(
+      expectedSourceGates.map((name) => ({
+        properties: { name: { const: name } },
+        required: ["name"],
+      })),
+    );
   });
 
   for (const testCase of sourceGateReports.cases) {
@@ -305,18 +368,21 @@ describe("source gate report validation", () => {
     });
   }
 
-  it("rejects missing, duplicate, and failed results through the JSON schema", async () => {
+  it("rejects missing, duplicate, extra, and failed results through the JSON schema", async () => {
     const bindings = await readRepositorySourceBindings();
     const validateSchema = new Ajv({ allErrors: true }).compile(sourceGateReportSchema);
     const missing = validReport(bindings);
     missing.results.pop();
     const duplicate = validReport(bindings);
     duplicate.results[duplicate.results.length - 1] = structuredClone(duplicate.results[0]!);
+    const extra = validReport(bindings);
+    extra.results.push({ name: "unexpected-gate", passed: true });
     const failed = validReport(bindings);
     requireGate(failed, "audit").passed = false;
 
     expect(validateSchema(missing)).toBe(false);
     expect(validateSchema(duplicate)).toBe(false);
+    expect(validateSchema(extra)).toBe(false);
     expect(validateSchema(failed)).toBe(false);
   });
 

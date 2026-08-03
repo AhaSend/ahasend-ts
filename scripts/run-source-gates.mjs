@@ -28,6 +28,7 @@ export const REQUIRED_SOURCE_GATES = Object.freeze([
   "test-policy",
   "repository-secret-scan",
   "audit",
+  "documentation-workflows",
 ]);
 
 const GIT_COMMIT = /^[0-9a-f]{40}$/u;

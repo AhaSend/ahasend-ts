@@ -44,6 +44,11 @@
       "name": "rejects a duplicate required gate",
       "mutation": "duplicateGate",
       "expectedError": "duplicate result"
+    },
+    {
+      "name": "rejects an extra source gate",
+      "mutation": "extraGate",
+      "expectedError": "not a required source gate"
     }
   ],
   "missingGateCases": [
@@ -58,6 +63,7 @@
     "format",
     "test-policy",
     "repository-secret-scan",
-    "audit"
+    "audit",
+    "documentation-workflows"
   ]
 }
