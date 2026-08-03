@@ -809,6 +809,9 @@ export function runWithCleanup<T>(
   callback: (cleanup: CleanupRegistry) => T | Promise<T>,
 ): Promise<T>;
 
+/** Recover the exact cause retained by an internally-created live failure wrapper. */
+export function unwrapLiveFailure(failure: unknown): unknown;
+
 export function redactLiveValue(value: unknown, secrets?: readonly string[]): unknown;
 
 export type LiveResultStatus = "failed" | "passed" | "pending" | "skipped";

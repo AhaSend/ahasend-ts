@@ -238,7 +238,9 @@ function completeLiveResults(candidate: LiveCandidate) {
   return { operations, iterators };
 }
 
-function domainClientFixture(options: { failGet?: boolean } = {}) {
+function domainClientFixture(
+  options: { cleanupFailure?: unknown; failGet?: boolean; getFailure?: unknown } = {},
+) {
   const calls: string[] = [];
   let exists = false;
   const domain = "live-domain.example";
@@ -264,7 +266,11 @@ function domainClientFixture(options: { failGet?: boolean } = {}) {
       }),
       get: vi.fn(async () => {
         calls.push("get");
-        if (!exists) throw notFound();
+        if (!exists) {
+          if (Object.hasOwn(options, "cleanupFailure")) throw options.cleanupFailure;
+          throw notFound();
+        }
+        if (Object.hasOwn(options, "getFailure")) throw options.getFailure;
         if (options.failGet === true) {
           throw Object.assign(new Error("later scenario failed"), { status: 500 });
         }
@@ -4217,6 +4223,36 @@ describe("live cleanup and reporting", () => {
     return { parsed, source, sidecar };
   }
 
+  async function operationFailureWrapper(candidate: LiveCandidate, error: unknown) {
+    const fixture = domainClientFixture({ getFailure: error });
+    const result = await runDomainLiveScenarios(
+      createDomainScenarioRegistry({
+        profile: candidate.profile,
+        client: fixture.client,
+        createRequest: { domain: fixture.domain },
+      }),
+    );
+    expect(result.failure).not.toBeNull();
+    expect((result.failure as unknown as { error: unknown }).error).toBe(error);
+    return result.failure!;
+  }
+
+  async function cleanupFailureWrapper(candidate: LiveCandidate, error: unknown) {
+    const fixture = domainClientFixture({ cleanupFailure: error });
+    const result = await runDomainLiveScenarios(
+      createDomainScenarioRegistry({
+        profile: candidate.profile,
+        client: fixture.client,
+        createRequest: { domain: fixture.domain },
+      }),
+    );
+    expect(result.failure).not.toBeNull();
+    const cause = (result.failure as unknown as { error: unknown }).error;
+    expect(cause).toBeInstanceOf(AggregateError);
+    expect((cause as AggregateError).errors).toEqual([error]);
+    return { cause, failure: result.failure! };
+  }
+
   it("persists redacted operation failure evidence and its sidecar before rejecting", async () => {
     const candidate = inspectFixture();
     const complete = completeLiveResults(candidate);
@@ -4224,16 +4260,11 @@ describe("live cleanup and reporting", () => {
     const controlledIdentifier = "controlled-operation.example";
     const message = `operation failed for ${controlledIdentifier} with ${secret}`;
     const original = new Error(message);
-    const operationId = complete.operations[0]!.operationId;
-    const operationResults = complete.operations.map((result, index) =>
-      index === 0 ? { ...result, status: "failed" as const } : result,
+    const failure = await operationFailureWrapper(candidate, original);
+    const operationId = failure.operationId!;
+    const operationResults = complete.operations.map((result) =>
+      result.operationId === operationId ? { ...result, status: "failed" as const } : result,
     );
-    const failure = {
-      phase: "operation",
-      operationId,
-      serialized: { name: "Error", message },
-      error: original,
-    };
     const directory = mkdtempSync(join(tmpdir(), "ahasend-live-operation-failure-"));
     temporaryDirectories.push(directory);
     const reportPath = join(directory, "live-report.json");
@@ -4274,12 +4305,8 @@ describe("live cleanup and reporting", () => {
     const candidate = inspectFixture();
     const complete = completeLiveResults(candidate);
     const controlledIdentifier = "controlled-cleanup.example";
-    const original = new Error(`cleanup failed for ${controlledIdentifier}`);
-    const failure = {
-      phase: "cleanup",
-      serialized: { name: "Error", message: original.message },
-      error: original,
-    };
+    const cleanupError = new Error(`cleanup failed for ${controlledIdentifier}`);
+    const { cause: original, failure } = await cleanupFailureWrapper(candidate, cleanupError);
     const directory = mkdtempSync(join(tmpdir(), "ahasend-live-cleanup-failure-"));
     temporaryDirectories.push(directory);
     const reportPath = join(directory, "live-report.json");
@@ -4310,24 +4337,22 @@ describe("live cleanup and reporting", () => {
     const candidate = inspectFixture();
     const complete = completeLiveResults(candidate);
     const operationFailure = new Error("operation failed before finalization");
-    const failedOperationId = complete.operations[0]!.operationId;
+    const failure = await operationFailureWrapper(candidate, operationFailure);
+    const failedOperationId = failure.operationId!;
     const failedIteratorId = complete.iterators[0]!.operationId;
-    const operationResults = complete.operations.map((result, index) =>
-      index === 0
+    const unsafeOperationId = complete.operations.find(
+      ({ operationId }) => operationId !== failedOperationId,
+    )!.operationId;
+    const operationResults = complete.operations.map((result) =>
+      result.operationId === failedOperationId
         ? { ...result, status: "failed" as const }
-        : index === 1
+        : result.operationId === unsafeOperationId
           ? { ...result, evidence: { unserializable: 1n } }
           : result,
     );
     const iteratorResults = complete.iterators.map((result, index) =>
       index === 0 ? { ...result, status: "failed" as const } : result,
     );
-    const failure = {
-      phase: "operation",
-      operationId: failedOperationId,
-      serialized: { name: "Error", message: operationFailure.message },
-      error: operationFailure,
-    };
     const directory = mkdtempSync(join(tmpdir(), "ahasend-live-finalization-failure-"));
     temporaryDirectories.push(directory);
     const reportPath = join(directory, "live-report.json");
@@ -4417,16 +4442,11 @@ describe("live cleanup and reporting", () => {
     const candidate = inspectFixture();
     const complete = completeLiveResults(candidate);
     const operationFailure = new Error("operation failed before artifact validation");
-    const operationId = complete.operations[0]!.operationId;
-    const operationResults = complete.operations.map((result, index) =>
-      index === 0 ? { ...result, status: "failed" as const } : result,
+    const failure = await operationFailureWrapper(candidate, operationFailure);
+    const operationId = failure.operationId!;
+    const operationResults = complete.operations.map((result) =>
+      result.operationId === operationId ? { ...result, status: "failed" as const } : result,
     );
-    const failure = {
-      phase: "operation",
-      operationId,
-      serialized: { name: "Error", message: operationFailure.message },
-      error: operationFailure,
-    };
     const directory = mkdtempSync(join(tmpdir(), "ahasend-live-contract-failure-"));
     temporaryDirectories.push(directory);
     const reportPath = join(directory, "live-report.json");
@@ -4531,6 +4551,73 @@ describe("live cleanup and reporting", () => {
     });
     expect(source.toString("utf8")).not.toContain(secret);
     expect(sidecar).not.toContain(secret);
+  });
+
+  it("preserves raw object failures that happen to contain an error property", async () => {
+    const candidate = inspectFixture();
+    const failure = { error: "raw failure detail" };
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-raw-object-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+      }),
+    ).rejects.toBe(failure);
+
+    const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.operations[0]).toMatchObject({
+      status: "pending",
+      failure: {
+        phase: "run",
+        name: "ThrownValue",
+        message: "[object Object]",
+      },
+    });
+  });
+
+  it("preserves nullish raw failures instead of replacing them during finalization", async () => {
+    const candidate = inspectFixture();
+    for (const [label, failure] of [
+      ["null", null],
+      ["undefined", undefined],
+    ] as const) {
+      const directory = mkdtempSync(join(tmpdir(), `ahasend-live-${label}-failure-`));
+      temporaryDirectories.push(directory);
+      const reportPath = join(directory, "live-report.json");
+      const sidecarPath = join(directory, "live-report.sha256");
+      let rejected = false;
+      let received: unknown = Symbol("not rejected");
+
+      try {
+        await persistLiveAcceptanceEvidence({
+          candidate,
+          failure,
+          reportPath,
+          reportSidecarPath: sidecarPath,
+        });
+      } catch (error) {
+        rejected = true;
+        received = error;
+      }
+
+      expect(rejected).toBe(true);
+      expect(received).toBe(failure);
+      const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+      expect(parsed.operations[0]).toMatchObject({
+        status: "pending",
+        failure: {
+          phase: "run",
+          name: "ThrownValue",
+          message: label,
+        },
+      });
+    }
   });
 
   it("retains immediately registered cleanup after a later failure and runs it in reverse order", async () => {
@@ -4739,6 +4826,29 @@ describe("live cleanup and reporting", () => {
       cleanupFailures: 0,
       leakedSecrets: 0,
     });
+  });
+
+  it("rolls back the report when publishing the sidecar completion marker fails", async () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const report = createLiveReport({
+      candidate,
+      operationResults: complete.operations,
+      iteratorResults: complete.iterators,
+    });
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-report-publication-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+    const existingSidecar = "pre-existing-sidecar\n";
+    writeFileSync(sidecarPath, existingSidecar, { flag: "wx" });
+
+    await expect(
+      writeLiveReport({ report, candidate, reportPath, reportSidecarPath: sidecarPath }),
+    ).rejects.toMatchObject({ code: "EEXIST" });
+
+    expect(() => readFileSync(reportPath)).toThrow();
+    expect(readFileSync(sidecarPath, "utf8")).toBe(existingSidecar);
   });
 
   it("keeps failure outcomes schema-valid while strict success validation rejects them", () => {

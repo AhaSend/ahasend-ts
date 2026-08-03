@@ -897,13 +897,22 @@ function serializeLiveFailure(error) {
   return Object.freeze({ name, message });
 }
 
+const liveFailureCauses = new WeakMap();
+
 function createLiveFailure(outcome, error) {
   const failure = { ...outcome };
   Object.defineProperties(failure, {
     error: { value: error },
     serialized: { value: serializeLiveFailure(error) },
   });
+  liveFailureCauses.set(failure, error);
   return Object.freeze(failure);
+}
+
+export function unwrapLiveFailure(failure) {
+  return typeof failure === "object" && failure !== null && liveFailureCauses.has(failure)
+    ? liveFailureCauses.get(failure)
+    : failure;
 }
 
 function contextualizeLiveFailure(failure, context) {
@@ -4775,11 +4784,11 @@ export async function writeLiveReport({
       writeFile(temporaryReport, source, { flag: "wx" }),
       writeFile(temporarySidecar, sidecar, { flag: "wx" }),
     ]);
-    await link(temporarySidecar, sidecarDestination);
+    await link(temporaryReport, destination);
     try {
-      await link(temporaryReport, destination);
+      await link(temporarySidecar, sidecarDestination);
     } catch (error) {
-      await rm(sidecarDestination, { force: true });
+      await rm(destination, { force: true });
       throw error;
     }
     const [persistedReport, persistedSidecar] = await Promise.all([

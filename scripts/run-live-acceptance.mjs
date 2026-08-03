@@ -29,6 +29,7 @@ import {
   runSubAccountAndAPIKeyLiveScenarios,
   runSuppressionLiveScenarios,
   runWebhookLiveScenarios,
+  unwrapLiveFailure,
   validateLiveReportArtifacts,
   writeLiveReport,
 } from "./live-acceptance.mjs";
@@ -131,20 +132,11 @@ function safeFailureEvidence(error) {
   return Object.freeze({ name, message });
 }
 
-function originalFailure(error) {
-  try {
-    if (typeof error === "object" && error !== null && Object.hasOwn(error, "error")) {
-      return error.error;
-    }
-  } catch {
-    // Preserve the thrown wrapper when it cannot be inspected safely.
-  }
-  return error;
-}
+const noLiveFailure = Symbol("no live failure");
 
 function failureOperationResults(candidate, results, failure) {
   const supplied = Array.isArray(results.operationResults) ? results.operationResults : [];
-  if (failure === null) return supplied;
+  if (failure === noLiveFailure) return supplied;
   const operationId = safeProperty(failure, "operationId");
   const phase = safeProperty(failure, "phase");
   const evidence = {
@@ -267,15 +259,14 @@ function retainFinalizationFailure(candidate, results, failure) {
   };
 }
 
-export async function persistLiveAcceptanceEvidence({
-  candidate,
-  results = {},
-  failure = results.failure ?? null,
-  reportPath,
-  reportSidecarPath,
-  secrets = [],
-}) {
-  let fatalFailure = failure;
+export async function persistLiveAcceptanceEvidence(options) {
+  const { candidate, results = {}, reportPath, reportSidecarPath, secrets = [] } = options;
+  const resultFailure = results.failure;
+  let fatalFailure = Object.hasOwn(options, "failure")
+    ? options.failure
+    : resultFailure === null || resultFailure === undefined
+      ? noLiveFailure
+      : resultFailure;
   let report;
   let operationResults;
   let summary;
@@ -287,7 +278,7 @@ export async function persistLiveAcceptanceEvidence({
       operationResults,
       secrets,
     });
-    if (fatalFailure === null) {
+    if (fatalFailure === noLiveFailure) {
       const reportSource = canonicalizeJson(redactLiveValue(report, secrets));
       summary = validateLiveReportArtifacts({
         reportSource,
@@ -303,7 +294,7 @@ export async function persistLiveAcceptanceEvidence({
       secrets,
     });
   } catch (error) {
-    fatalFailure ??= error;
+    if (fatalFailure === noLiveFailure) fatalFailure = error;
     report = createLiveReport({
       candidate,
       ...retainFinalizationFailure(
@@ -326,7 +317,7 @@ export async function persistLiveAcceptanceEvidence({
     });
   }
 
-  if (fatalFailure !== null) throw originalFailure(fatalFailure);
+  if (fatalFailure !== noLiveFailure) throw unwrapLiveFailure(fatalFailure);
   return summary;
 }
 
@@ -644,7 +635,8 @@ export async function main() {
     ...(manifestSidecarPath === undefined ? {} : { manifestSidecarPath }),
   });
   let results = {};
-  let failure = null;
+  let failure;
+  let executionFailed = false;
   try {
     const installedModule = await import(
       pathToFileURL(resolve(candidate.installedRoot, "dist/index.js")).href
@@ -660,13 +652,14 @@ export async function main() {
       config,
     });
   } catch (error) {
+    executionFailed = true;
     failure = error;
   }
 
   const summary = await persistLiveAcceptanceEvidence({
     candidate,
     results,
-    failure: failure ?? results.failure ?? null,
+    ...(executionFailed ? { failure } : {}),
     reportPath,
     reportSidecarPath,
     secrets,
