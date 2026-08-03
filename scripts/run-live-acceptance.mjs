@@ -101,6 +101,7 @@ function collectRun(_target, run) {
 }
 
 function safeFailureEvidence(error) {
+  let source = error;
   try {
     if (
       typeof error === "object" &&
@@ -108,7 +109,7 @@ function safeFailureEvidence(error) {
       typeof error.serialized === "object" &&
       error.serialized !== null
     ) {
-      return error.serialized;
+      source = error.serialized;
     }
   } catch {
     // Continue with a bounded representation for hostile thrown values.
@@ -116,10 +117,13 @@ function safeFailureEvidence(error) {
   let name = "ThrownValue";
   let message = "Live acceptance threw an unreadable value.";
   try {
-    message = typeof error === "string" ? error : String(error);
-    if (error instanceof Error) {
-      name = typeof error.name === "string" ? error.name : "Error";
-      message = typeof error.message === "string" ? error.message : "Live acceptance failed.";
+    message = typeof source === "string" ? source : String(source);
+    if (source instanceof Error) {
+      name = typeof source.name === "string" ? source.name : "Error";
+      message = typeof source.message === "string" ? source.message : "Live acceptance failed.";
+    } else if (typeof source === "object" && source !== null) {
+      name = typeof source.name === "string" ? source.name : name;
+      message = typeof source.message === "string" ? source.message : message;
     }
   } catch {
     // Failure finalization must not trust arbitrary thrown values.
@@ -160,6 +164,108 @@ function failureOperationResults(results, failure) {
   );
 }
 
+const liveResultStatuses = new Set(["failed", "passed", "pending", "skipped"]);
+const cleanupResultStatuses = new Set(["failed", "passed"]);
+
+function safeProperty(value, key) {
+  try {
+    return typeof value === "object" && value !== null ? value[key] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function safeFailureOutcome(value, fallbackPhase) {
+  const phase = safeProperty(value, "phase");
+  return {
+    phase: typeof phase === "string" ? phase : fallbackPhase,
+    ...safeFailureEvidence(value),
+  };
+}
+
+function serializationSafeLiveResults(results, mappings) {
+  const supplied = Array.isArray(results) ? results : [];
+  const mappingsById = new Map(mappings.map((mapping) => [mapping.operationId, mapping]));
+  const retained = new Map();
+  for (const result of supplied) {
+    const operationId = safeProperty(result, "operationId");
+    const status = safeProperty(result, "status");
+    if (
+      typeof operationId !== "string" ||
+      !mappingsById.has(operationId) ||
+      typeof status !== "string" ||
+      !liveResultStatuses.has(status) ||
+      retained.has(operationId)
+    ) {
+      continue;
+    }
+    const failure = safeProperty(result, "failure");
+    retained.set(operationId, {
+      operationId,
+      status,
+      ...(status === "failed" && failure !== undefined
+        ? { failure: safeFailureOutcome(failure, "operation") }
+        : {}),
+    });
+  }
+  return mappings.flatMap((mapping) => {
+    const result = retained.get(mapping.operationId);
+    return result === undefined ? [] : [result];
+  });
+}
+
+function serializationSafeCleanupResults(results) {
+  const supplied = Array.isArray(results) ? results : [];
+  return supplied.flatMap((result) => {
+    const label = safeProperty(result, "label");
+    const status = safeProperty(result, "status");
+    return typeof label === "string" &&
+      typeof status === "string" &&
+      cleanupResultStatuses.has(status)
+      ? [{ label, status }]
+      : [];
+  });
+}
+
+function retainFinalizationFailure(candidate, results, failure) {
+  let operationResults = serializationSafeLiveResults(
+    results.operationResults,
+    candidate.profile.operations,
+  );
+  let iteratorResults = serializationSafeLiveResults(
+    results.iteratorResults,
+    candidate.profile.iterators,
+  );
+  const reportFailure = safeFailureOutcome(failure, "report-finalization");
+  const failedOperation = operationResults.findIndex(({ status }) => status === "failed");
+  const failedIterator = iteratorResults.findIndex(({ status }) => status === "failed");
+  const operationIndex =
+    failedOperation >= 0 ? failedOperation : operationResults.length > 0 ? 0 : -1;
+  const iteratorIndex = failedIterator >= 0 ? failedIterator : iteratorResults.length > 0 ? 0 : -1;
+
+  if (operationIndex >= 0) {
+    operationResults = operationResults.map((result, index) =>
+      index === operationIndex ? { ...result, reportFailure } : result,
+    );
+  } else if (iteratorIndex >= 0) {
+    iteratorResults = iteratorResults.map((result, index) =>
+      index === iteratorIndex ? { ...result, reportFailure } : result,
+    );
+  } else {
+    const firstOperation = candidate.profile.operations[0];
+    if (firstOperation === undefined) throw failure;
+    operationResults = [
+      { operationId: firstOperation.operationId, status: "pending", reportFailure },
+    ];
+  }
+
+  return {
+    operationResults,
+    iteratorResults,
+    cleanupResults: serializationSafeCleanupResults(results.cleanupResults),
+  };
+}
+
 export async function persistLiveAcceptanceEvidence({
   candidate,
   results = {},
@@ -170,28 +276,28 @@ export async function persistLiveAcceptanceEvidence({
 }) {
   let fatalFailure = failure;
   let report;
+  let operationResults;
   try {
+    operationResults = failureOperationResults(results, fatalFailure);
     report = createLiveReport({
       candidate,
       ...results,
-      operationResults: failureOperationResults(results, fatalFailure),
+      operationResults,
       secrets,
     });
   } catch (error) {
     fatalFailure ??= error;
-    const firstOperation = candidate.profile.operations[0];
-    if (firstOperation === undefined) {
-      throw error;
-    }
     report = createLiveReport({
       candidate,
-      operationResults: [
+      ...retainFinalizationFailure(
+        candidate,
         {
-          operationId: firstOperation.operationId,
-          status: "failed",
-          failure: { phase: "report-finalization", ...safeFailureEvidence(error) },
+          operationResults: operationResults ?? safeProperty(results, "operationResults"),
+          iteratorResults: safeProperty(results, "iteratorResults"),
+          cleanupResults: safeProperty(results, "cleanupResults"),
         },
-      ],
+        error,
+      ),
       secrets,
     });
   }

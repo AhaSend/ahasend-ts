@@ -4207,6 +4207,7 @@ describe("live cleanup and reporting", () => {
     const sidecar = readFileSync(sidecarPath, "utf8");
     const parsed = JSON.parse(source.toString("utf8")) as {
       operations: Array<Record<string, unknown>>;
+      iterators: Array<Record<string, unknown>>;
       cleanup: Array<Record<string, unknown>>;
     };
     const validateSchema = new Ajv({ allErrors: true }).compile(liveReportSchema);
@@ -4305,8 +4306,28 @@ describe("live cleanup and reporting", () => {
     expect(sidecar).not.toContain(controlledIdentifier);
   });
 
-  it("falls back to serialization-safe canonical evidence when report finalization fails", async () => {
+  it("retains live outcomes in serialization-safe evidence when report finalization fails", async () => {
     const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const operationFailure = new Error("operation failed before finalization");
+    const failedOperationId = complete.operations[0]!.operationId;
+    const failedIteratorId = complete.iterators[0]!.operationId;
+    const operationResults = complete.operations.map((result, index) =>
+      index === 0
+        ? { ...result, status: "failed" as const }
+        : index === 1
+          ? { ...result, evidence: { unserializable: 1n } }
+          : result,
+    );
+    const iteratorResults = complete.iterators.map((result, index) =>
+      index === 0 ? { ...result, status: "failed" as const } : result,
+    );
+    const failure = {
+      phase: "operation",
+      operationId: failedOperationId,
+      serialized: { name: "Error", message: operationFailure.message },
+      error: operationFailure,
+    };
     const directory = mkdtempSync(join(tmpdir(), "ahasend-live-finalization-failure-"));
     temporaryDirectories.push(directory);
     const reportPath = join(directory, "live-report.json");
@@ -4316,13 +4337,66 @@ describe("live cleanup and reporting", () => {
       persistLiveAcceptanceEvidence({
         candidate,
         results: {
-          operationResults: [
-            {
-              operationId: candidate.profile.operations[0]!.operationId,
-              status: "passed",
-              evidence: { unserializable: 1n },
-            },
+          operationResults,
+          iteratorResults,
+          cleanupResults: [
+            { label: "delete retained resource", status: "failed" },
+            { label: "delete other resource", status: "passed" },
           ],
+        },
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+      }),
+    ).rejects.toBe(operationFailure);
+
+    const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.operations).toHaveLength(complete.operations.length);
+    expect(parsed.iterators).toHaveLength(complete.iterators.length);
+    expect(
+      parsed.operations.find((result) => result.operationId === failedOperationId),
+    ).toMatchObject({
+      status: "failed",
+      failure: {
+        phase: "operation",
+        name: "Error",
+        message: operationFailure.message,
+      },
+      reportFailure: {
+        phase: "report-finalization",
+        name: "TypeError",
+      },
+    });
+    expect(parsed.operations.map(({ operationId, status }) => ({ operationId, status }))).toEqual(
+      operationResults.map(({ operationId, status }) => ({ operationId, status })),
+    );
+    expect(parsed.iterators.map(({ operationId, status }) => ({ operationId, status }))).toEqual(
+      iteratorResults.map(({ operationId, status }) => ({ operationId, status })),
+    );
+    expect(
+      parsed.iterators.find((result) => result.operationId === failedIteratorId),
+    ).toMatchObject({
+      status: "failed",
+    });
+    expect(parsed.cleanup).toEqual([
+      { label: "delete retained resource", status: "failed" },
+      { label: "delete other resource", status: "passed" },
+    ]);
+  });
+
+  it("persists a standalone report-finalization failure without rewriting scenario status", async () => {
+    const candidate = inspectFixture();
+    const operationId = candidate.profile.operations[0]!.operationId;
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-only-finalization-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        results: {
+          operationResults: [{ operationId, status: "passed", evidence: { unserializable: 1n } }],
         },
         reportPath,
         reportSidecarPath: sidecarPath,
@@ -4330,9 +4404,9 @@ describe("live cleanup and reporting", () => {
     ).rejects.toThrow("bigint values");
 
     const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
-    expect(parsed.operations[0]).toMatchObject({
-      status: "failed",
-      failure: {
+    expect(parsed.operations.find((result) => result.operationId === operationId)).toMatchObject({
+      status: "passed",
+      reportFailure: {
         phase: "report-finalization",
         name: "TypeError",
       },
