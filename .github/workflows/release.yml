@@ -221,9 +221,13 @@ jobs:
           retention-days: ${{ env.RETENTION_DAYS }}
 
   artifact-gates:
-    name: Artifact gates
+    name: Artifact gates (Node ${{ matrix.node }})
     needs: candidate
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -232,7 +236,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install asserted npm version
@@ -261,7 +265,9 @@ jobs:
       - name: Verify retained package artifact
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          test -n "$TARBALL"
           SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" "$TARBALL")" = "$SHA256"
           test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
           test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
           node scripts/verify-doc-workflows.mjs --artifact \

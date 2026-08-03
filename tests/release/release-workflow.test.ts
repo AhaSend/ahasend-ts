@@ -18,6 +18,14 @@ const restoreLatestSource = readFileSync(
   resolve(process.cwd(), "scripts/restore-latest.mjs"),
   "utf8",
 );
+const artifactWorkflowSource = readFileSync(
+  resolve(process.cwd(), "scripts/verify-doc-workflows.mjs"),
+  "utf8",
+);
+const integrationSource = readFileSync(
+  resolve(process.cwd(), "tests/integration/sdk.integration.test.ts"),
+  "utf8",
+);
 const workflow = yaml.load(workflowSource, { schema: yaml.JSON_SCHEMA }) as unknown;
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
@@ -92,6 +100,25 @@ describe("single-run release workflow", () => {
     ]) {
       expectAssertedNpmToolchain(jobs[jobName], jobName);
     }
+  });
+
+  it("runs retained installed consumers as a blocking Node 22, 24, and 26 matrix", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const artifact = record(jobs["artifact-gates"], "artifact gates");
+    const strategy = record(artifact["strategy"], "artifact strategy");
+    const matrix = record(strategy["matrix"], "artifact matrix");
+    const setupNode = jobSteps(artifact, "artifact gates").find((step) =>
+      String(step["uses"] ?? "").startsWith("actions/setup-node@"),
+    );
+
+    expect(artifact["name"]).toBe("Artifact gates (Node ${{ matrix.node }})");
+    expect(artifact["continue-on-error"]).toBeUndefined();
+    expect(strategy["fail-fast"]).toBe(false);
+    expect(matrix["node"]).toEqual([22, 24, 26]);
+    expect(record(setupNode, "artifact setup-node")["with"]).toMatchObject({
+      "node-version": "${{ matrix.node }}",
+    });
+    expectAssertedNpmToolchain(artifact, "artifact-gates");
   });
 
   it("starts from one final tag and advances through promotion before release", () => {
@@ -196,6 +223,56 @@ describe("single-run release workflow", () => {
     expect(commands(jobs["registry-smoke"], "registry smoke")).toContain("verify-provenance.mjs");
     expect(commands(jobs["latest-promotion"], "latest promotion")).toContain("promote-latest.mjs");
     expect(commands(jobs["github-release"], "GitHub release")).toContain("gh release create");
+  });
+
+  it("downloads and rechecks one retained checksum before every artifact matrix run", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const artifact = jobs["artifact-gates"];
+    const steps = jobSteps(artifact, "artifact gates");
+    const downloads = steps
+      .filter((step) => String(step["uses"] ?? "").startsWith("actions/download-artifact@"))
+      .map((step) => record(step["with"], "artifact download inputs"));
+    const verification = String(
+      namedStep(artifact, "artifact gates", "Verify retained package artifact")["run"],
+    );
+
+    expect(downloads).toEqual([
+      { name: "candidate-tarball", path: "/tmp/candidate" },
+      { name: "candidate-manifest", path: "/tmp/candidate" },
+      { name: "source-report", path: "/tmp/source-report" },
+    ]);
+    expect(verification).toContain('SHA256="$(tr -d \'\\n\' < "$TARBALL.sha256")"');
+    expect(verification).toContain("createHash('sha256')");
+    expect(verification).toContain(
+      'readFileSync(process.argv[1])).digest(\'hex\'))" "$TARBALL")" = "$SHA256"',
+    );
+    expect(verification).toContain("candidate-manifest.sha256");
+    expect(verification).toContain(
+      "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256",
+    );
+  });
+
+  it("runs every retained artifact behavior without rebuilding or repacking", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const artifactCommands = commands(jobs["artifact-gates"], "artifact gates");
+
+    expect(artifactCommands).toContain("node scripts/verify-doc-workflows.mjs --artifact \\");
+    expect(artifactCommands).toContain('  "$TARBALL" \\\n  "$SHA256" \\');
+    expect(artifactWorkflowSource).toContain(
+      'run(process.execPath, [resolve(root, "scripts/verify-package.mjs"), tarball, checksum], root);',
+    );
+    expect(artifactWorkflowSource).toContain(
+      'run(process.execPath, [resolve(root, "scripts/verify-docs.mjs"), tarball, checksum], root);',
+    );
+    expect(artifactWorkflowSource).toContain('runNpm(["run", "test:integration:tarball"], root, {');
+    expect(integrationSource).toContain("const PACKED_EXAMPLE_MATRIX:");
+    expect(integrationSource).toContain("expect(PACKED_EXAMPLE_MATRIX).toHaveLength(17)");
+    expect(integrationSource).toContain('"--errors",');
+    expect(integrationSource).toContain(
+      'it("requires --errors to reject the deliberately invalid canary response"',
+    );
+    expect(integrationSource).toContain("expect(response.status).toBe(500)");
+    expect(artifactCommands).not.toMatch(/\bnpm run build\b|\bnpm pack\b|create-candidate\.mjs/u);
   });
 
   it("runs the real package tests in both release test gates", () => {

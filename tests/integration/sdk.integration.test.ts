@@ -158,6 +158,7 @@ const STATISTICS = {
   group_by: "day",
 };
 const PACKED_EXAMPLE_TIMEOUT_MS = 15_000;
+const PRISM_ENFORCEMENT_CANARY_PATH = "/__prism_enforcement_canary";
 const PACKED_EXAMPLE_MATRIX: readonly PackedExampleCase[] = [
   {
     file: "bootstrap-subaccount.mjs",
@@ -407,6 +408,7 @@ let prismProcess: ChildProcess | undefined;
 let prismOutput = "";
 let baseUrl = "";
 let prismBaseUrl = "";
+let prismDocumentDirectory: string | undefined;
 let installedSdk: InstalledSdk;
 let installedWebhooks: InstalledWebhooks;
 let resolvedPackageEntry = "";
@@ -423,7 +425,8 @@ beforeAll(async () => {
   } = loadInstalledPackage(consumerDirectory));
 
   const port = await availablePort();
-  prismProcess = startPrism(port);
+  prismDocumentDirectory = mkdtempSync(join(tmpdir(), "ahasend-prism-contract-"));
+  prismProcess = startPrism(port, writePrismCanaryDocument(prismDocumentDirectory));
   prismBaseUrl = `http://127.0.0.1:${port}`;
   await waitForPrism(prismProcess, `${prismBaseUrl}/v2/ping`, 60_000);
   ({ server: exampleRequestProxy, baseUrl } = await startExampleRequestProxy(prismBaseUrl));
@@ -434,6 +437,9 @@ afterAll(async () => {
   await stopProcess(prismProcess);
   if (consumerDirectory !== undefined) {
     rmSync(consumerDirectory, { recursive: true, force: true });
+  }
+  if (prismDocumentDirectory !== undefined) {
+    rmSync(prismDocumentDirectory, { recursive: true, force: true });
   }
 });
 
@@ -486,6 +492,15 @@ describe("enforcing Prism", () => {
     });
 
     expect(response.status).toBe(422);
+  });
+
+  it("requires --errors to reject the deliberately invalid canary response", async () => {
+    const response = await fetch(`${prismBaseUrl}${PRISM_ENFORCEMENT_CANARY_PATH}`);
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      title: "Request/Response not valid",
+    });
   });
 });
 
@@ -1550,7 +1565,38 @@ async function availablePort(): Promise<number> {
   });
 }
 
-function startPrism(port: number): ChildProcess {
+function writePrismCanaryDocument(directory: string): string {
+  const source = readFileSync(resolve(repositoryRoot, "openapi.yaml"), "utf8");
+  const document = yaml.load(source) as OpenAPIDocument;
+  const paths = document.paths as Record<string, Readonly<Record<string, unknown>>>;
+  paths[PRISM_ENFORCEMENT_CANARY_PATH] = {
+    get: {
+      operationId: "prismEnforcementCanary",
+      security: [],
+      responses: {
+        "200": {
+          description: "Deliberately invalid response used to assert Prism enforcement.",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["valid"],
+                properties: { valid: { type: "boolean" } },
+              },
+              example: { valid: "not-a-boolean" },
+            },
+          },
+        },
+      },
+    },
+  };
+  const path = resolve(directory, "openapi-with-prism-canary.yaml");
+  writeFileSync(path, yaml.dump(document, { noRefs: true }));
+  return path;
+}
+
+function startPrism(port: number, documentPath: string): ChildProcess {
   const prismPackage = requireFromRepository.resolve("@stoplight/prism-cli/package.json");
   const manifest = JSON.parse(readFileSync(prismPackage, "utf8")) as {
     readonly bin?: string | Readonly<Record<string, string>>;
@@ -1566,7 +1612,7 @@ function startPrism(port: number): ChildProcess {
     [
       resolve(dirname(prismPackage), relativeBin),
       "mock",
-      resolve(repositoryRoot, "openapi.yaml"),
+      documentPath,
       "--host",
       "127.0.0.1",
       "--port",
