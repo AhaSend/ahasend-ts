@@ -291,9 +291,9 @@ describe("operational documentation verification", () => {
       /exceeded two redirects/u,
     ],
     [
-      "cross-host redirects",
-      () => ({ status: 302, location: "https://example.com/cross-host" }),
-      /crossed the host allowlist/u,
+      "cross-host redirects between authoritative hosts",
+      () => ({ status: 302, location: "https://github.com/AhaSend/cross-host" }),
+      /crossed hosts/u,
     ],
   ])("fails closed for installed-link %s", async (_label, replyFor, expected) => {
     const target = "https://ahasend.com/redirect-0";

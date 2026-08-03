@@ -2050,8 +2050,8 @@ async function verifyExternalTarget(target, state) {
         ) {
           throw new TypeError(`Installed external URL redirected to an unsafe target: ${target}`);
         }
-        if (!state.allowedHosts.has(redirected.hostname)) {
-          throw new TypeError(`Installed external URL crossed the host allowlist: ${target}`);
+        if (redirected.hostname !== current.hostname) {
+          throw new TypeError(`Installed external URL crossed hosts: ${target}`);
         }
         current = redirected;
         redirects += 1;
