@@ -672,7 +672,8 @@ jobs:
 
   latest-promotion:
     name: Promote verified candidate to latest
-    needs: registry-smoke
+    needs: [live-gates, registry-smoke]
+    if: ${{ needs.live-gates.result == 'success' && needs.registry-smoke.result == 'success' }}
     runs-on: ubuntu-latest
     environment: npm-latest
     steps:
@@ -735,6 +736,52 @@ jobs:
           path: /tmp/promotion-state
           if-no-files-found: error
           retention-days: ${{ env.RETENTION_DAYS }}
+
+      - name: Validate exact promotion evidence
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
+          export SDK_TARBALL="$TARBALL"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" "$TARBALL")" = "$SHA256"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/gate-report/gate-report.json)" = "$(tr -d '\n' < /tmp/gate-report/gate-report.sha256)"
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import { sha256Hex } from "/tmp/release-tools/scripts/digest-artifact.mjs";
+          import {
+            parseCanonicalJson,
+            parseSha256Sidecar,
+            validateGateReport,
+          } from "/tmp/release-tools/scripts/report-validation.mjs";
+
+          const [manifestSource, tarballSource, reportSource, reportSidecarSource] =
+            await Promise.all([
+              readFile("/tmp/candidate/candidate-manifest.json"),
+              readFile(process.env.SDK_TARBALL),
+              readFile("/tmp/gate-report/gate-report.json"),
+              readFile("/tmp/gate-report/gate-report.sha256"),
+            ]);
+          const reportDigest = sha256Hex(reportSource);
+          if (
+            parseSha256Sidecar(reportSidecarSource, "Gate report sidecar") !==
+            reportDigest
+          ) {
+            throw new TypeError("Gate report does not match its detached digest.");
+          }
+          const { value: report } = parseCanonicalJson(reportSource, "Gate report");
+          validateGateReport({
+            report,
+            requiredGates: [
+              "artifact",
+              "installed-documentation-links",
+              "documentation-workflows",
+              "live",
+            ],
+            expectedManifestSha256: sha256Hex(manifestSource),
+            expectedTarballSha256: sha256Hex(tarballSource),
+          });
+          NODE
 
       - name: Promote only the verified version
         env:

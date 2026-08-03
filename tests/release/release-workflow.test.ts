@@ -92,6 +92,9 @@ const publicationPrerequisites = [
   "artifact-gates",
   "live-gates",
 ] as const;
+const latestPromotionPrerequisites = ["live-gates", "registry-smoke"] as const;
+const latestPromotionCondition =
+  "${{ needs.live-gates.result == 'success' && needs.registry-smoke.result == 'success' }}";
 
 function validatePublicationPolicy(workflowValue: unknown): void {
   const jobs = record(record(workflowValue, "workflow")["jobs"], "jobs");
@@ -260,6 +263,84 @@ function validateRegistrySmokePolicy(workflowValue: unknown): void {
   }
 }
 
+function validateLatestPromotionPolicy(workflowValue: unknown): void {
+  const jobs = record(record(workflowValue, "workflow")["jobs"], "jobs");
+  const live = record(jobs["live-gates"], "live gates");
+  const smoke = record(jobs["registry-smoke"], "registry smoke");
+  const promotion = record(jobs["latest-promotion"], "latest promotion");
+  const promotionNeeds = array(promotion["needs"], "latest promotion prerequisites");
+  if (
+    promotionNeeds.length !== latestPromotionPrerequisites.length ||
+    latestPromotionPrerequisites.some((name, index) => promotionNeeds[index] !== name) ||
+    promotion["if"] !== latestPromotionCondition
+  ) {
+    throw new TypeError("Latest promotion must require successful live and registry jobs.");
+  }
+  if (promotion["continue-on-error"] !== undefined) {
+    throw new TypeError("Latest promotion must fail normally.");
+  }
+
+  const liveSteps = jobSteps(live, "live gates");
+  const liveAcceptance = namedStep(live, "live gates", "Run live candidate acceptance");
+  const liveEvidence = record(
+    liveSteps.find(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/upload-artifact@") &&
+        record(step["with"], "live evidence upload inputs")["name"] === "live-report-evidence",
+    ),
+    "live evidence upload",
+  );
+  const liveEvidenceInputs = record(liveEvidence["with"], "live evidence upload inputs");
+  if (
+    live["continue-on-error"] !== undefined ||
+    liveAcceptance["continue-on-error"] !== undefined ||
+    liveEvidence["continue-on-error"] !== undefined ||
+    liveEvidence["if"] !== "${{ always() }}" ||
+    liveEvidenceInputs["if-no-files-found"] !== "error"
+  ) {
+    throw new TypeError("Live reporting and evidence upload failures must block promotion.");
+  }
+
+  const blockingRegistrySteps = [
+    "Install the exact registry version in a clean directory",
+    "Verify registry bytes and npm provenance",
+    "Run ESM first-use smoke",
+    "Run CommonJS first-use smoke",
+  ] as const;
+  if (
+    smoke["continue-on-error"] !== undefined ||
+    blockingRegistrySteps.some(
+      (name) => namedStep(smoke, "registry smoke", name)["continue-on-error"] !== undefined,
+    )
+  ) {
+    throw new TypeError("Registry installation, provenance, and first use must block promotion.");
+  }
+
+  const promotionSteps = jobSteps(promotion, "latest promotion");
+  const promoteIndex = promotionSteps.findIndex(
+    (step) => step["name"] === "Promote only the verified version",
+  );
+  const validator = promotionSteps[promoteIndex - 1];
+  const promote = promotionSteps[promoteIndex];
+  const validation = String(validator?.["run"] ?? "");
+  if (
+    promoteIndex < 1 ||
+    validator?.["name"] !== "Validate exact promotion evidence" ||
+    validator["continue-on-error"] !== undefined ||
+    validator["if"] !== undefined ||
+    promote?.["continue-on-error"] !== undefined ||
+    promote?.["if"] !== undefined ||
+    !validation.includes("validateGateReport({") ||
+    !validation.includes("expectedManifestSha256: sha256Hex(manifestSource)") ||
+    !validation.includes("expectedTarballSha256: sha256Hex(tarballSource)") ||
+    !validation.includes('"installed-documentation-links"') ||
+    !validation.includes('"documentation-workflows"') ||
+    !validation.includes('"live"')
+  ) {
+    throw new TypeError("Strict gate-report validation must immediately precede latest promotion.");
+  }
+}
+
 describe("single-run release workflow", () => {
   it("provisions the declared npm executable before every release job uses it", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
@@ -327,7 +408,9 @@ describe("single-run release workflow", () => {
     expect(record(jobs["live-gates"], "live")["needs"]).toBe("artifact-gates");
     expect(record(jobs["next-publish"], "next")["needs"]).toEqual(publicationPrerequisites);
     expect(record(jobs["registry-smoke"], "smoke")["needs"]).toBe("next-publish");
-    expect(record(jobs["latest-promotion"], "promotion")["needs"]).toBe("registry-smoke");
+    expect(record(jobs["latest-promotion"], "promotion")["needs"]).toEqual(
+      latestPromotionPrerequisites,
+    );
     expect(record(jobs["github-release"], "GitHub release")["needs"]).toBe("latest-promotion");
     expect(record(jobs["release-compensation"], "compensation")["needs"]).toEqual([
       "latest-promotion",
@@ -645,8 +728,89 @@ describe("single-run release workflow", () => {
     expect(record(steps[cjsIndex], "CommonJS smoke")["working-directory"]).toBe(
       "/tmp/registry-smoke",
     );
-    expect(record(jobs["latest-promotion"], "latest promotion")["needs"]).toBe("registry-smoke");
+    expect(record(jobs["latest-promotion"], "latest promotion")["needs"]).toEqual(
+      latestPromotionPrerequisites,
+    );
     expect(() => validateRegistrySmokePolicy(workflow)).not.toThrow();
+  });
+
+  it("blocks latest promotion on every failed live or registry prerequisite", () => {
+    expect(() => validateLatestPromotionPolicy(workflow)).not.toThrow();
+
+    for (const [jobName, stepName] of [
+      ["live-gates", "Run live candidate acceptance"],
+      ["live-gates", "Retain live report evidence"],
+      ["registry-smoke", "Install the exact registry version in a clean directory"],
+      ["registry-smoke", "Verify registry bytes and npm provenance"],
+      ["registry-smoke", "Run ESM first-use smoke"],
+      ["registry-smoke", "Run CommonJS first-use smoke"],
+      ["latest-promotion", "Validate exact promotion evidence"],
+    ] as const) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const step = mutableRecord(namedStep(jobs[jobName], jobName, stepName), stepName);
+      step["continue-on-error"] = true;
+
+      expect(() => validateLatestPromotionPolicy(mutated), `${jobName}: ${stepName}`).toThrow();
+    }
+  });
+
+  it("rejects every latest-promotion dependency or evidence-validation bypass", () => {
+    for (const prerequisite of latestPromotionPrerequisites) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const promotion = mutableRecord(jobs["latest-promotion"], "latest promotion");
+      promotion["needs"] = latestPromotionPrerequisites.filter((name) => name !== prerequisite);
+
+      expect(() => validateLatestPromotionPolicy(mutated), prerequisite).toThrow(
+        /successful live and registry jobs/i,
+      );
+    }
+
+    const conditionBypass = structuredClone(workflow);
+    const conditionJobs = mutableRecord(mutableRecord(conditionBypass, "workflow")["jobs"], "jobs");
+    mutableRecord(conditionJobs["latest-promotion"], "latest promotion")["if"] = "${{ always() }}";
+    expect(() => validateLatestPromotionPolicy(conditionBypass)).toThrow(
+      /successful live and registry jobs/i,
+    );
+
+    const validationBypass = structuredClone(workflow);
+    const validationJobs = mutableRecord(
+      mutableRecord(validationBypass, "workflow")["jobs"],
+      "jobs",
+    );
+    const validationStep = mutableRecord(
+      namedStep(
+        validationJobs["latest-promotion"],
+        "latest promotion",
+        "Validate exact promotion evidence",
+      ),
+      "promotion validator",
+    );
+    validationStep["run"] = String(validationStep["run"]).replace(
+      "validateGateReport({",
+      "bypassedGateReportValidation({",
+    );
+    expect(() => validateLatestPromotionPolicy(validationBypass)).toThrow(
+      /strict gate-report validation/i,
+    );
+
+    const failedValidationBypass = structuredClone(workflow);
+    const failedValidationJobs = mutableRecord(
+      mutableRecord(failedValidationBypass, "workflow")["jobs"],
+      "jobs",
+    );
+    mutableRecord(
+      namedStep(
+        failedValidationJobs["latest-promotion"],
+        "latest promotion",
+        "Promote only the verified version",
+      ),
+      "latest promotion step",
+    )["if"] = "${{ always() }}";
+    expect(() => validateLatestPromotionPolicy(failedValidationBypass)).toThrow(
+      /strict gate-report validation/i,
+    );
   });
 
   it("rejects a local, unbounded, or non-exact registry installation", () => {
