@@ -515,7 +515,10 @@ jobs:
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
-          PACKAGE="$(node -e "const p=JSON.parse(process.argv[1]); process.stdout.write(p.name+'@'+p.version)" "$PACKAGE_JSON")"
+          PACKAGE_NAME="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")"
+          PACKAGE_VERSION="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$PACKAGE_JSON")"
+          test "$PACKAGE_NAME" = "@ahasend/sdk"
+          PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"
           mkdir -p /tmp/registry
           for ATTEMPT in 1 2 3 4 5
           do
@@ -530,20 +533,33 @@ jobs:
           curl --fail --location --proto '=https' --tlsv1.2 \
             "$REGISTRY_TARBALL_URL" --output /tmp/registry/package.tgz
 
-      - name: Cryptographically verify npm attestations
+      - name: Install the exact registry version in a clean directory
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
+          PACKAGE_NAME="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")"
+          PACKAGE_VERSION="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$PACKAGE_JSON")"
+          test "$PACKAGE_NAME" = "@ahasend/sdk"
+          PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"
+          mkdir /tmp/registry-smoke
+          node -e "const fs=require('fs'); fs.writeFileSync('/tmp/registry-smoke/package.json', JSON.stringify({name:'ahasend-registry-smoke',private:true,version:'1.0.0'}))"
+          for ATTEMPT in 1 2 3 4 5
+          do
+            if npm install --ignore-scripts --save-exact "$PACKAGE" --prefix /tmp/registry-smoke
+            then
+              break
+            fi
+            test "$ATTEMPT" -lt 5
+            sleep 5
+          done
+          test "$(node -p "require('/tmp/registry-smoke/node_modules/@ahasend/sdk/package.json').version")" = "$PACKAGE_VERSION"
+
+      - name: Verify registry bytes and npm provenance
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           export SDK_TARBALL="$TARBALL"
           export SDK_TARBALL_SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
-          PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
-          PACKAGE="$(node -e "const p=JSON.parse(process.argv[1]); process.stdout.write(p.name+'@'+p.version)" "$PACKAGE_JSON")"
-          mkdir -p /tmp/registry-audit
-          node -e "const fs=require('fs'); const [name,version]=process.argv.slice(1); fs.writeFileSync('/tmp/registry-audit/package.json', JSON.stringify({name:'ahasend-registry-smoke',private:true,version:'1.0.0',dependencies:{[name]:version}}))" \
-            "$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")" \
-            "$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$PACKAGE_JSON")"
-          npm install --ignore-scripts --package-lock-only --prefix /tmp/registry-audit
-          npm ci --ignore-scripts --prefix /tmp/registry-audit
-          npm audit signatures --json --include-attestations --prefix /tmp/registry-audit \
+          npm audit signatures --json --include-attestations --prefix /tmp/registry-smoke \
             > /tmp/registry/npm-audit-signatures.json
           node /tmp/release-tools/scripts/verify-provenance.mjs \
             "$TARBALL" \
@@ -552,6 +568,107 @@ jobs:
             /tmp/registry/package.tgz \
             /tmp/registry/metadata.json \
             /tmp/registry/npm-audit-signatures.json
+
+      - name: Run ESM first-use smoke
+        working-directory: /tmp/registry-smoke
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { AhaSendClient } from "@ahasend/sdk";
+
+          const accountId = "11111111-1111-4111-8111-111111111111";
+          const calls = [];
+          const stubFetch = async (input, init = {}) => {
+            const url = new URL(input);
+            calls.push({ method: init.method, pathname: url.pathname });
+            if (url.pathname === "/v2/ping") {
+              return Response.json({ message: "pong" });
+            }
+            if (url.pathname === `/v2/accounts/${accountId}/domains`) {
+              return Response.json(
+                { object: "list", data: [], pagination: { has_more: false } },
+                { headers: { "x-request-id": "req_registry_esm" } },
+              );
+            }
+            return Response.json({ message: "unexpected request" }, { status: 500 });
+          };
+          const client = new AhaSendClient({
+            apiKey: "aha-sk-registry-smoke",
+            accountId,
+            baseUrl: "https://api.registry-smoke.test",
+            fetch: stubFetch,
+            retry: { enabled: false },
+          });
+
+          assert.equal(client.accountId, accountId);
+          assert.deepEqual(await client.ping(), { message: "pong" });
+          const domains = await client.domains.list({ limit: 1 }).withResponse();
+          assert.deepEqual(domains.data, {
+            object: "list",
+            data: [],
+            pagination: { has_more: false },
+          });
+          assert.equal(domains.response.status, 200);
+          assert.equal(domains.requestId, "req_registry_esm");
+          assert.deepEqual(calls, [
+            { method: "GET", pathname: "/v2/ping" },
+            { method: "GET", pathname: `/v2/accounts/${accountId}/domains` },
+          ]);
+          NODE
+
+      - name: Run CommonJS first-use smoke
+        working-directory: /tmp/registry-smoke
+        run: |
+          node <<'NODE'
+          const assert = require("node:assert/strict");
+          const { AhaSendClient } = require("@ahasend/sdk");
+
+          const accountId = "11111111-1111-4111-8111-111111111111";
+          const calls = [];
+          const stubFetch = async (input, init = {}) => {
+            const url = new URL(input);
+            calls.push({ method: init.method, pathname: url.pathname });
+            if (url.pathname === "/v2/ping") {
+              return Response.json({ message: "pong" });
+            }
+            if (url.pathname === `/v2/accounts/${accountId}/domains`) {
+              return Response.json(
+                { object: "list", data: [], pagination: { has_more: false } },
+                { headers: { "x-request-id": "req_registry_cjs" } },
+              );
+            }
+            return Response.json({ message: "unexpected request" }, { status: 500 });
+          };
+          const client = new AhaSendClient({
+            apiKey: "aha-sk-registry-smoke",
+            accountId,
+            baseUrl: "https://api.registry-smoke.test",
+            fetch: stubFetch,
+            retry: { enabled: false },
+          });
+
+          async function main() {
+            assert.equal(client.accountId, accountId);
+            assert.deepEqual(await client.ping(), { message: "pong" });
+            const domains = await client.domains.list({ limit: 1 }).withResponse();
+            assert.deepEqual(domains.data, {
+              object: "list",
+              data: [],
+              pagination: { has_more: false },
+            });
+            assert.equal(domains.response.status, 200);
+            assert.equal(domains.requestId, "req_registry_cjs");
+            assert.deepEqual(calls, [
+              { method: "GET", pathname: "/v2/ping" },
+              { method: "GET", pathname: `/v2/accounts/${accountId}/domains` },
+            ]);
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+          });
+          NODE
 
   latest-promotion:
     name: Promote verified candidate to latest

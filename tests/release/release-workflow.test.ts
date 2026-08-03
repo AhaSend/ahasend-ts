@@ -133,6 +133,133 @@ function validatePublicationPolicy(workflowValue: unknown): void {
   }
 }
 
+function validateRegistrySmokePolicy(workflowValue: unknown): void {
+  const jobs = record(record(workflowValue, "workflow")["jobs"], "jobs");
+  const smoke = record(jobs["registry-smoke"], "registry smoke");
+  const steps = jobSteps(smoke, "registry smoke");
+  if (smoke["needs"] !== "next-publish") {
+    throw new TypeError("Registry smoke must consume the published next version.");
+  }
+  if (smoke["continue-on-error"] !== undefined) {
+    throw new TypeError("Registry smoke failures must block promotion.");
+  }
+
+  const versionIndex = steps.findIndex((step) => step["name"] === "Verify asserted npm version");
+  const downloadIndex = steps.findIndex(
+    (step) => step["name"] === "Download the published registry bytes",
+  );
+  const installIndex = steps.findIndex(
+    (step) => step["name"] === "Install the exact registry version in a clean directory",
+  );
+  const provenanceIndex = steps.findIndex(
+    (step) => step["name"] === "Verify registry bytes and npm provenance",
+  );
+  const esmIndex = steps.findIndex((step) => step["name"] === "Run ESM first-use smoke");
+  const cjsIndex = steps.findIndex((step) => step["name"] === "Run CommonJS first-use smoke");
+  if (
+    versionIndex < 0 ||
+    downloadIndex <= versionIndex ||
+    installIndex <= downloadIndex ||
+    provenanceIndex <= installIndex ||
+    esmIndex <= provenanceIndex ||
+    cjsIndex <= esmIndex
+  ) {
+    throw new TypeError(
+      "Registry install, provenance, and both first-use checks must run in blocking order.",
+    );
+  }
+
+  for (const index of [downloadIndex, installIndex, provenanceIndex, esmIndex, cjsIndex]) {
+    if (steps[index]?.["continue-on-error"] !== undefined) {
+      throw new TypeError("Registry smoke steps must fail normally.");
+    }
+  }
+
+  const download = String(steps[downloadIndex]?.["run"] ?? "");
+  const install = String(steps[installIndex]?.["run"] ?? "");
+  const provenance = String(steps[provenanceIndex]?.["run"] ?? "");
+  const esm = record(steps[esmIndex], "ESM first-use smoke");
+  const cjs = record(steps[cjsIndex], "CommonJS first-use smoke");
+  for (const [source, label] of [
+    [download, "registry metadata download"],
+    [install, "registry installation"],
+  ] as const) {
+    for (const fragment of [
+      'PACKAGE_NAME="$(node -e',
+      'PACKAGE_VERSION="$(node -e',
+      'test "$PACKAGE_NAME" = "@ahasend/sdk"',
+      'PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"',
+      "for ATTEMPT in 1 2 3 4 5",
+      'test "$ATTEMPT" -lt 5',
+      "sleep 5",
+    ]) {
+      if (!source.includes(fragment)) {
+        throw new TypeError(`${label} must bind the exact package and use a bounded retry.`);
+      }
+    }
+  }
+  if (!download.includes('npm view "$PACKAGE" --json')) {
+    throw new TypeError("Registry metadata must be read for the exact next version.");
+  }
+  if (
+    !install.includes("mkdir /tmp/registry-smoke") ||
+    !install.includes(
+      'npm install --ignore-scripts --save-exact "$PACKAGE" --prefix /tmp/registry-smoke',
+    ) ||
+    !install.includes("node_modules/@ahasend/sdk/package.json').version") ||
+    /npm install[^\n]*(?:\.tgz|TARBALL|\/tmp\/candidate)/u.test(install)
+  ) {
+    throw new TypeError("Registry smoke must install the exact npm version in a clean directory.");
+  }
+  if (
+    !provenance.includes("npm audit signatures") ||
+    !provenance.includes("--prefix /tmp/registry-smoke") ||
+    !provenance.includes("verify-provenance.mjs")
+  ) {
+    throw new TypeError("Registry bytes and npm provenance must be verified before first use.");
+  }
+
+  const firstUseRequirements = [
+    {
+      label: "ESM",
+      step: esm,
+      fragments: [
+        "node --input-type=module <<'NODE'",
+        'import { AhaSendClient } from "@ahasend/sdk";',
+        "const client = new AhaSendClient({",
+        "fetch: stubFetch",
+        "await client.ping()",
+        "client.domains.list({ limit: 1 }).withResponse()",
+        'assert.equal(domains.requestId, "req_registry_esm")',
+      ],
+    },
+    {
+      label: "CommonJS",
+      step: cjs,
+      fragments: [
+        "node <<'NODE'",
+        'const { AhaSendClient } = require("@ahasend/sdk");',
+        "const client = new AhaSendClient({",
+        "fetch: stubFetch",
+        "await client.ping()",
+        "client.domains.list({ limit: 1 }).withResponse()",
+        'assert.equal(domains.requestId, "req_registry_cjs")',
+      ],
+    },
+  ] as const;
+  for (const requirement of firstUseRequirements) {
+    if (requirement.step["working-directory"] !== "/tmp/registry-smoke") {
+      throw new TypeError(`${requirement.label} first use must resolve the registry installation.`);
+    }
+    const source = String(requirement.step["run"] ?? "");
+    if (requirement.fragments.some((fragment) => !source.includes(fragment))) {
+      throw new TypeError(
+        `${requirement.label} first use must construct a client, ping, and inspect a resource response.`,
+      );
+    }
+  }
+}
+
 describe("single-run release workflow", () => {
   it("provisions the declared npm executable before every release job uses it", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
@@ -490,6 +617,100 @@ describe("single-run release workflow", () => {
     );
     expect(liveRunnerSource).not.toContain("const resourceAuthorization");
     expect(liveRunnerSource).not.toMatch(/from ["'][./]*src\//u);
+  });
+
+  it("installs and exercises the exact registry version before promotion", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const smoke = record(jobs["registry-smoke"], "registry smoke");
+    const steps = jobSteps(smoke, "registry smoke");
+    const install = namedStep(
+      smoke,
+      "registry smoke",
+      "Install the exact registry version in a clean directory",
+    );
+    const provenanceIndex = steps.findIndex(
+      (step) => step["name"] === "Verify registry bytes and npm provenance",
+    );
+    const esmIndex = steps.findIndex((step) => step["name"] === "Run ESM first-use smoke");
+    const cjsIndex = steps.findIndex((step) => step["name"] === "Run CommonJS first-use smoke");
+
+    expectAssertedNpmToolchain(smoke, "registry-smoke");
+    expect(String(install["run"])).toContain(
+      'npm install --ignore-scripts --save-exact "$PACKAGE" --prefix /tmp/registry-smoke',
+    );
+    expect(String(install["run"])).not.toMatch(/npm install[^\n]*(?:\.tgz|TARBALL)/u);
+    expect(provenanceIndex).toBeLessThan(esmIndex);
+    expect(esmIndex).toBeLessThan(cjsIndex);
+    expect(record(steps[esmIndex], "ESM smoke")["working-directory"]).toBe("/tmp/registry-smoke");
+    expect(record(steps[cjsIndex], "CommonJS smoke")["working-directory"]).toBe(
+      "/tmp/registry-smoke",
+    );
+    expect(record(jobs["latest-promotion"], "latest promotion")["needs"]).toBe("registry-smoke");
+    expect(() => validateRegistrySmokePolicy(workflow)).not.toThrow();
+  });
+
+  it("rejects a local, unbounded, or non-exact registry installation", () => {
+    for (const [label, mutation] of [
+      [
+        "local tarball",
+        (source: string) =>
+          source.replace(
+            'npm install --ignore-scripts --save-exact "$PACKAGE"',
+            'npm install --ignore-scripts --save-exact "$TARBALL"',
+          ),
+      ],
+      [
+        "floating tag",
+        (source: string) =>
+          source.replace(
+            'PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"',
+            'PACKAGE="$PACKAGE_NAME@next"',
+          ),
+      ],
+      [
+        "unbounded propagation",
+        (source: string) => source.replace('test "$ATTEMPT" -lt 5', "true"),
+      ],
+    ] as const) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const step = mutableRecord(
+        namedStep(
+          jobs["registry-smoke"],
+          "registry smoke",
+          "Install the exact registry version in a clean directory",
+        ),
+        "registry install",
+      );
+      step["run"] = mutation(String(step["run"]));
+
+      expect(() => validateRegistrySmokePolicy(mutated), label).toThrow(/registry|bounded/i);
+    }
+  });
+
+  it("rejects broken ESM and CommonJS first-use coverage", () => {
+    for (const [stepName, fragment] of [
+      ["Run ESM first-use smoke", 'import { AhaSendClient } from "@ahasend/sdk";'],
+      ["Run ESM first-use smoke", "const client = new AhaSendClient({"],
+      ["Run ESM first-use smoke", "await client.ping()"],
+      ["Run ESM first-use smoke", "client.domains.list({ limit: 1 }).withResponse()"],
+      ["Run CommonJS first-use smoke", 'const { AhaSendClient } = require("@ahasend/sdk");'],
+      ["Run CommonJS first-use smoke", "const client = new AhaSendClient({"],
+      ["Run CommonJS first-use smoke", "await client.ping()"],
+      ["Run CommonJS first-use smoke", "client.domains.list({ limit: 1 }).withResponse()"],
+    ] as const) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const step = mutableRecord(
+        namedStep(jobs["registry-smoke"], "registry smoke", stepName),
+        stepName,
+      );
+      step["run"] = String(step["run"]).replace(fragment, "broken-first-use");
+
+      expect(() => validateRegistrySmokePolicy(mutated), `${stepName}: ${fragment}`).toThrow(
+        /first use/i,
+      );
+    }
   });
 
   it("stages releases as drafts and compensates promotion and release failures", () => {
