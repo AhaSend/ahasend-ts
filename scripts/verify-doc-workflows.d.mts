@@ -15,6 +15,7 @@ export interface DocumentationWorkflowEntry {
 }
 
 export const DOCUMENTED_WORKFLOW_REGISTRY: readonly DocumentationWorkflowEntry[];
+export const TSUP_INITIAL_BUILD_MARKERS: readonly RegExp[];
 
 export interface DocumentedInvocation {
   readonly executable: string;
@@ -57,6 +58,7 @@ export interface BoundedInteractiveOptions {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly marker?: RegExp;
+  readonly requiredMarkers?: readonly RegExp[];
   readonly readiness?: () => boolean | Promise<boolean>;
   readonly timeoutMs?: number;
   readonly environment?: Readonly<Record<string, string>>;

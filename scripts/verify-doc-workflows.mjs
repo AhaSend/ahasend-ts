@@ -30,6 +30,11 @@ const SOURCE_WORKFLOW_OWNERS = Object.freeze([
 ]);
 const INTERACTIVE_TIMEOUT_MS = 60_000;
 const DOCUMENTATION_WORKFLOW_RESULT = "documentation-workflows";
+export const TSUP_INITIAL_BUILD_MARKERS = Object.freeze([
+  /^CJS .*Build success(?: in \d+ms)?\s*$/mu,
+  /^ESM .*Build success(?: in \d+ms)?\s*$/mu,
+  /^DTS .*Build success(?: in \d+ms)?\s*$/mu,
+]);
 
 export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
   { path: "README.md", line: 26, command: "npm install @ahasend/sdk", owner: "installed-package" },
@@ -137,6 +142,18 @@ export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
     line: 7,
     command: "npm run build",
     owner: "source:build",
+  },
+  {
+    path: "examples/README.md",
+    line: 13,
+    command: '$env:AHASEND_API_KEY="aha-sk-your-64-char-key"',
+    owner: "packed-example-matrix",
+  },
+  {
+    path: "examples/README.md",
+    line: 14,
+    command: '$env:AHASEND_ACCOUNT_ID="your-account-uuid"',
+    owner: "packed-example-matrix",
   },
   {
     path: "examples/README.md",
@@ -519,6 +536,7 @@ export async function runBoundedInteractive({
   args,
   cwd,
   marker,
+  requiredMarkers,
   readiness,
   timeoutMs = INTERACTIVE_TIMEOUT_MS,
   environment = {},
@@ -544,8 +562,19 @@ export async function runBoundedInteractive({
         else rejectRun(error);
       }, rejectRun);
     };
+    const matches = (candidate) => {
+      candidate.lastIndex = 0;
+      return candidate.test(output);
+    };
     const inspect = () => {
-      if (marker?.test(output) === true) finish();
+      if (
+        (marker !== undefined && matches(marker)) ||
+        (requiredMarkers !== undefined &&
+          requiredMarkers.length > 0 &&
+          requiredMarkers.every(matches))
+      ) {
+        finish();
+      }
     };
     for (const stream of [child.stdout, child.stderr]) {
       stream?.setEncoding("utf8");
@@ -713,7 +742,7 @@ export async function runSourceDocumentationWorkflows(root = repositoryRoot) {
       label: "Documented development workflow",
       ...dev,
       cwd: temporary.target,
-      marker: /Build success|Watching for changes/iu,
+      requiredMarkers: TSUP_INITIAL_BUILD_MARKERS,
     });
     const watch = runnableInvocation(plan.watch, temporary.target);
     await runBoundedInteractive({

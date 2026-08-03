@@ -525,12 +525,7 @@ function shellCommands(block) {
     .map((source, index) => ({ path: block.path, line: block.line + index + 1, source }))
     .filter(({ source }) => {
       const trimmed = source.trim();
-      return (
-        trimmed !== "" &&
-        !trimmed.startsWith("#") &&
-        !trimmed.startsWith("$env:") &&
-        !trimmed.startsWith("set ")
-      );
+      return trimmed !== "" && !trimmed.startsWith("#");
     });
 }
 
@@ -572,7 +567,9 @@ export async function buildDocumentationIndex(root = repositoryRoot) {
     documents,
     commands: Object.freeze(
       blocks
-        .filter(({ language }) => language === "bash" || language === "sh" || language === "shell")
+        .filter(({ language }) =>
+          ["bash", "powershell", "ps1", "pwsh", "sh", "shell"].includes(language),
+        )
         .flatMap(shellCommands),
     ),
     links: Object.freeze(

@@ -7,6 +7,7 @@ import {
   createDocumentedWorkflowExecutionPlan,
   DOCUMENTED_WORKFLOW_REGISTRY,
   runBoundedInteractive,
+  TSUP_INITIAL_BUILD_MARKERS,
   validateDocumentationWorkflowEvidence,
   validateDocumentedWorkflowRegistry,
   type DocumentationWorkflowEntry,
@@ -29,14 +30,20 @@ describe("documented workflow registry", () => {
   it("maps every advertised command exactly once", async () => {
     const index = await buildDocumentationIndex();
 
-    expect(validateDocumentedWorkflowRegistry(index)).toEqual({ commands: 43, owners: 12 });
-    expect(DOCUMENTED_WORKFLOW_REGISTRY).toHaveLength(43);
+    expect(validateDocumentedWorkflowRegistry(index)).toEqual({ commands: 45, owners: 12 });
+    expect(DOCUMENTED_WORKFLOW_REGISTRY).toHaveLength(45);
     expect(
       index.commands.filter(({ source }) => source.trimStart().startsWith("export ")),
     ).toHaveLength(19);
     expect(
       DOCUMENTED_WORKFLOW_REGISTRY.filter(({ command }) => command.startsWith("export ")),
     ).toHaveLength(19);
+    expect(
+      index.commands.filter(({ source }) => source.trimStart().startsWith("$env:")),
+    ).toHaveLength(2);
+    expect(
+      DOCUMENTED_WORKFLOW_REGISTRY.filter(({ command }) => command.startsWith("$env:")),
+    ).toHaveLength(2);
   });
 
   it.each([
@@ -143,6 +150,26 @@ describe("bounded documented processes", () => {
     });
 
     expect(output).toContain("ready");
+  });
+
+  it("rejects a dev build that fails after an early per-format success", async () => {
+    await expect(
+      runBoundedInteractive({
+        label: "failing dev build fixture",
+        command: process.execPath,
+        args: [
+          "-e",
+          [
+            'console.log("CJS ⚡️ Build success in 10ms");',
+            'console.error("DTS Build error");',
+            "process.exitCode = 1;",
+          ].join(" "),
+        ],
+        cwd: process.cwd(),
+        requiredMarkers: TSUP_INITIAL_BUILD_MARKERS,
+        timeoutMs: 2_000,
+      }),
+    ).rejects.toThrow("exited before readiness");
   });
 
   it.runIf(process.platform !== "win32")(
