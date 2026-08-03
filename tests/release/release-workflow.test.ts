@@ -35,6 +35,10 @@ function record(value: unknown, label: string): Readonly<Record<string, unknown>
   return value as Readonly<Record<string, unknown>>;
 }
 
+function mutableRecord(value: unknown, label: string): Record<string, unknown> {
+  return record(value, label) as Record<string, unknown>;
+}
+
 function array(value: unknown, label: string): readonly unknown[] {
   if (!Array.isArray(value)) throw new TypeError(`${label} must be an array`);
   return value;
@@ -80,6 +84,53 @@ function expectAssertedNpmToolchain(job: unknown, label: string): void {
     name: "Verify asserted npm version",
     run: 'test "$(npm --version)" = "11.12.0"',
   });
+}
+
+const publicationPrerequisites = [
+  "source-gate",
+  "candidate",
+  "artifact-gates",
+  "live-gates",
+] as const;
+
+function validatePublicationPolicy(workflowValue: unknown): void {
+  const jobs = record(record(workflowValue, "workflow")["jobs"], "jobs");
+  if (Object.hasOwn(jobs, "external-gates")) {
+    throw new TypeError("The release graph must not restore external-gates.");
+  }
+
+  const needs = array(
+    record(jobs["next-publish"], "next publish")["needs"],
+    "next publish prerequisites",
+  );
+  if (
+    needs.length !== publicationPrerequisites.length ||
+    publicationPrerequisites.some((name, index) => needs[index] !== name)
+  ) {
+    throw new TypeError("Publication must retain every required prerequisite.");
+  }
+  if (record(jobs["candidate"], "candidate")["needs"] !== "source-gate") {
+    throw new TypeError("Candidate construction must depend on source gates.");
+  }
+  if (record(jobs["artifact-gates"], "artifact gates")["needs"] !== "candidate") {
+    throw new TypeError("Artifact gates must depend on candidate construction.");
+  }
+  if (record(jobs["live-gates"], "live gates")["needs"] !== "artifact-gates") {
+    throw new TypeError("Live gates must depend directly on artifact gates.");
+  }
+
+  const publishSteps = jobSteps(jobs["next-publish"], "next publish");
+  const publishIndex = publishSteps.findIndex((step) =>
+    String(step["run"] ?? "").includes("npm publish"),
+  );
+  const validator = publishSteps[publishIndex - 1];
+  if (
+    publishIndex < 1 ||
+    validator?.["name"] !== "Validate exact publication evidence" ||
+    !String(validator["run"] ?? "").includes("validateGateReport")
+  ) {
+    throw new TypeError("Exact gate-report validation must immediately precede publication.");
+  }
 }
 
 describe("single-run release workflow", () => {
@@ -147,7 +198,7 @@ describe("single-run release workflow", () => {
     expect(record(jobs["candidate"], "candidate")["needs"]).toBe("source-gate");
     expect(record(jobs["artifact-gates"], "artifact")["needs"]).toBe("candidate");
     expect(record(jobs["live-gates"], "live")["needs"]).toBe("artifact-gates");
-    expect(record(jobs["next-publish"], "next")["needs"]).toBe("live-gates");
+    expect(record(jobs["next-publish"], "next")["needs"]).toEqual(publicationPrerequisites);
     expect(record(jobs["registry-smoke"], "smoke")["needs"]).toBe("next-publish");
     expect(record(jobs["latest-promotion"], "promotion")["needs"]).toBe("registry-smoke");
     expect(record(jobs["github-release"], "GitHub release")["needs"]).toBe("latest-promotion");
@@ -181,6 +232,8 @@ describe("single-run release workflow", () => {
       /^mkdir -p \/tmp\/source-report\nnode --input-type=module/u,
     );
     expect(gateReportCreation).toContain('{ name: "artifact", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "installed-documentation-links", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "documentation-workflows", passed: true }');
     expect(gateReportCreation).toContain('{ name: "live", passed: true }');
     expect(gateReportCreation).not.toContain('{ name: "external", passed: true }');
     expect(
@@ -285,6 +338,64 @@ describe("single-run release workflow", () => {
     expect(namedStep(sourceGate, "source gate", "Coverage gate")["run"]).toBe(
       "npm run test:coverage",
     );
+  });
+
+  it("validates exact gate evidence in the step immediately before npm publication", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const publishSteps = jobSteps(jobs["next-publish"], "next publish");
+    const publishIndex = publishSteps.findIndex((step) =>
+      String(step["run"] ?? "").includes("npm publish"),
+    );
+    const validator = record(publishSteps[publishIndex - 1], "publication validator");
+    const validation = String(validator["run"]);
+
+    expect(validator["name"]).toBe("Validate exact publication evidence");
+    expect(validation).toContain("validateGateReport({");
+    expect(validation).toContain("expectedManifestSha256: sha256Hex(manifestSource)");
+    expect(validation).toContain("expectedTarballSha256: sha256Hex(tarballSource)");
+    expect(validation).toContain('"installed-documentation-links"');
+    expect(validation).toContain('"documentation-workflows"');
+    expect(publishSteps[publishIndex]?.["name"]).toBe("Publish the retained bytes with provenance");
+    expect(String(publishSteps[publishIndex]?.["run"]).match(/npm publish/gu)).toHaveLength(1);
+    expect(() => validatePublicationPolicy(workflow)).not.toThrow();
+  });
+
+  it("rejects removal of every explicit publication prerequisite", () => {
+    for (const prerequisite of publicationPrerequisites) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const publication = mutableRecord(jobs["next-publish"], "next publish");
+      publication["needs"] = publicationPrerequisites.filter((name) => name !== prerequisite);
+
+      expect(() => validatePublicationPolicy(mutated), prerequisite).toThrow(
+        "Publication must retain every required prerequisite",
+      );
+    }
+  });
+
+  it("rejects external gates and every bypass of the candidate-to-live chain", () => {
+    const external = structuredClone(workflow);
+    const externalJobs = mutableRecord(mutableRecord(external, "workflow")["jobs"], "jobs");
+    externalJobs["external-gates"] = { needs: "artifact-gates", steps: [] };
+    mutableRecord(externalJobs["live-gates"], "live gates")["needs"] = [
+      "artifact-gates",
+      "external-gates",
+    ];
+    expect(() => validatePublicationPolicy(external)).toThrow(
+      "The release graph must not restore external-gates",
+    );
+
+    for (const [jobName, bypass] of [
+      ["candidate", "live-gates"],
+      ["artifact-gates", "source-gate"],
+      ["live-gates", "candidate"],
+    ] as const) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      mutableRecord(jobs[jobName], jobName)["needs"] = bypass;
+
+      expect(() => validatePublicationPolicy(mutated), jobName).toThrow();
+    }
   });
 
   it("retains and downloads every governed handoff with detached sidecars", () => {
