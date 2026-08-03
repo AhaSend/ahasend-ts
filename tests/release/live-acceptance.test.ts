@@ -4413,6 +4413,126 @@ describe("live cleanup and reporting", () => {
     });
   });
 
+  it("persists canonical fallback evidence when failure-contract validation rejects an outcome", async () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const operationFailure = new Error("operation failed before artifact validation");
+    const operationId = complete.operations[0]!.operationId;
+    const operationResults = complete.operations.map((result, index) =>
+      index === 0 ? { ...result, status: "failed" as const } : result,
+    );
+    const failure = {
+      phase: "operation",
+      operationId,
+      serialized: { name: "Error", message: operationFailure.message },
+      error: operationFailure,
+    };
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-contract-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        results: {
+          operationResults,
+          iteratorResults: complete.iterators,
+          cleanupResults: [{ label: "invalid cleanup outcome", status: "invalid" as never }],
+        },
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+      }),
+    ).rejects.toBe(operationFailure);
+
+    const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.cleanup).toEqual([]);
+    expect(parsed.operations.find((result) => result.operationId === operationId)).toMatchObject({
+      status: "failed",
+      failure: {
+        phase: "operation",
+        name: "Error",
+        message: operationFailure.message,
+      },
+      reportFailure: {
+        phase: "report-finalization",
+        name: "TypeError",
+        message: "Live acceptance report cleanup result 0 has an invalid status.",
+      },
+    });
+  });
+
+  it("persists report-finalization evidence when strict success validation rejects a result", async () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const operationId = complete.operations[0]!.operationId;
+    const operationResults = complete.operations.map((result, index) =>
+      index === 0 ? { ...result, status: "skipped" as const } : result,
+    );
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-strict-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        results: {
+          operationResults,
+          iteratorResults: complete.iterators,
+          cleanupResults: [],
+        },
+        reportPath,
+        reportSidecarPath: sidecarPath,
+      }),
+    ).rejects.toThrow("Primary operation inventory requires every result to pass");
+
+    const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.operations).toHaveLength(complete.operations.length);
+    expect(parsed.operations.find((result) => result.operationId === operationId)).toMatchObject({
+      status: "skipped",
+      reportFailure: {
+        phase: "report-finalization",
+        name: "TypeError",
+        message: expect.stringContaining("requires every result to pass"),
+      },
+    });
+  });
+
+  it("records raw post-install failures that have no operation identifier", async () => {
+    const candidate = inspectFixture();
+    const secret = "post-install-live-secret";
+    const failure = new TypeError(`Installed candidate is unusable: ${secret}`);
+    const operationId = candidate.profile.operations[0]!.operationId;
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-run-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+        secrets: [secret],
+      }),
+    ).rejects.toBe(failure);
+
+    const { parsed, source, sidecar } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.operations.find((result) => result.operationId === operationId)).toMatchObject({
+      status: "pending",
+      failure: {
+        phase: "run",
+        name: "TypeError",
+        message: "Installed candidate is unusable: [REDACTED]",
+      },
+    });
+    expect(source.toString("utf8")).not.toContain(secret);
+    expect(sidecar).not.toContain(secret);
+  });
+
   it("retains immediately registered cleanup after a later failure and runs it in reverse order", async () => {
     const order: string[] = [];
 

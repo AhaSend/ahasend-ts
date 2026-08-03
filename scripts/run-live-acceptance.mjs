@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { canonicalizeJson, sha256Hex } from "./digest-artifact.mjs";
 import {
   createAccountScenarioRegistry,
   createAPIKeyScenarioRegistry,
@@ -142,26 +142,29 @@ function originalFailure(error) {
   return error;
 }
 
-function failureOperationResults(results, failure) {
+function failureOperationResults(candidate, results, failure) {
   const supplied = Array.isArray(results.operationResults) ? results.operationResults : [];
   if (failure === null) return supplied;
-  const operationId =
-    typeof failure === "object" && failure !== null && typeof failure.operationId === "string"
-      ? failure.operationId
-      : undefined;
-  if (operationId === undefined) return supplied;
+  const operationId = safeProperty(failure, "operationId");
+  const phase = safeProperty(failure, "phase");
   const evidence = {
-    phase:
-      typeof failure === "object" && failure !== null && typeof failure.phase === "string"
-        ? failure.phase
-        : "operation",
+    phase: typeof phase === "string" ? phase : operationId === undefined ? "run" : "operation",
     ...safeFailureEvidence(failure),
   };
-  return supplied.map((result) =>
-    result.operationId === operationId && result.status === "failed"
-      ? { ...result, failure: evidence }
-      : result,
-  );
+  if (typeof operationId === "string") {
+    return supplied.map((result) =>
+      result.operationId === operationId ? { ...result, failure: evidence } : result,
+    );
+  }
+  if (supplied.length > 0) {
+    return supplied.map((result, index) =>
+      index === 0 ? { ...result, failure: evidence } : result,
+    );
+  }
+  const firstOperation = candidate.profile.operations[0];
+  return firstOperation === undefined
+    ? supplied
+    : [{ operationId: firstOperation.operationId, status: "pending", failure: evidence }];
 }
 
 const liveResultStatuses = new Set(["failed", "passed", "pending", "skipped"]);
@@ -203,9 +206,7 @@ function serializationSafeLiveResults(results, mappings) {
     retained.set(operationId, {
       operationId,
       status,
-      ...(status === "failed" && failure !== undefined
-        ? { failure: safeFailureOutcome(failure, "operation") }
-        : {}),
+      ...(failure === undefined ? {} : { failure: safeFailureOutcome(failure, "operation") }),
     });
   }
   return mappings.flatMap((mapping) => {
@@ -277,12 +278,28 @@ export async function persistLiveAcceptanceEvidence({
   let fatalFailure = failure;
   let report;
   let operationResults;
+  let summary;
   try {
-    operationResults = failureOperationResults(results, fatalFailure);
+    operationResults = failureOperationResults(candidate, results, fatalFailure);
     report = createLiveReport({
       candidate,
       ...results,
       operationResults,
+      secrets,
+    });
+    if (fatalFailure === null) {
+      const reportSource = canonicalizeJson(redactLiveValue(report, secrets));
+      summary = validateLiveReportArtifacts({
+        reportSource,
+        reportSidecar: Buffer.from(`${sha256Hex(reportSource)}\n`, "utf8"),
+        candidate,
+      });
+    }
+    await writeLiveReport({
+      report,
+      candidate,
+      reportPath,
+      reportSidecarPath,
       secrets,
     });
   } catch (error) {
@@ -300,22 +317,17 @@ export async function persistLiveAcceptanceEvidence({
       ),
       secrets,
     });
+    await writeLiveReport({
+      report,
+      candidate,
+      reportPath,
+      reportSidecarPath,
+      secrets,
+    });
   }
 
-  const written = await writeLiveReport({
-    report,
-    candidate,
-    reportPath,
-    reportSidecarPath,
-    secrets,
-  });
   if (fatalFailure !== null) throw originalFailure(fatalFailure);
-
-  const [reportSource, reportSidecar] = await Promise.all([
-    readFile(written.reportPath),
-    readFile(written.reportSidecarPath),
-  ]);
-  return validateLiveReportArtifacts({ reportSource, reportSidecar, candidate });
+  return summary;
 }
 
 async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, accountId, config }) {
