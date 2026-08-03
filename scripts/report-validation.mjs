@@ -82,6 +82,41 @@ export function parseSha256Sidecar(source, label) {
   return value.slice(0, -1);
 }
 
+export function requireExactPassedGateResults(
+  value,
+  requiredGates,
+  { reportLabel, resultLabel, gateLabel, gatesLabel },
+) {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${reportLabel} results must be an array.`);
+  }
+
+  const seen = new Set();
+  for (const [index, resultValue] of value.entries()) {
+    const label = `${resultLabel} ${index}`;
+    const result = requireObject(resultValue, label);
+    requireExactKeys(result, ["name", "passed"], label);
+    if (typeof result.name !== "string" || !requiredGates.includes(result.name)) {
+      throw new TypeError(`${label}.name is not a required ${gateLabel}.`);
+    }
+    if (seen.has(result.name)) {
+      throw new TypeError(`${reportLabel} contains duplicate result ${result.name}.`);
+    }
+    seen.add(result.name);
+    if (result.passed !== true) {
+      throw new TypeError(`Required ${gateLabel} ${result.name} did not pass.`);
+    }
+  }
+
+  const missing = requiredGates.filter((name) => !seen.has(name));
+  if (missing.length > 0) {
+    throw new TypeError(`${reportLabel} is missing required ${gatesLabel}: ${missing.join(", ")}.`);
+  }
+  if (value.length !== requiredGates.length) {
+    throw new TypeError(`${reportLabel} must contain exactly ${requiredGates.length} results.`);
+  }
+}
+
 function parseRequiredGates(value) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new TypeError("Required gate names must be a non-empty array.");
@@ -129,34 +164,12 @@ export function validateGateReport({
   if (tarballSha256 !== expectedTarballSha256) {
     throw new TypeError("Gate report references a stale candidate tarball.");
   }
-  if (!Array.isArray(report.results)) {
-    throw new TypeError("Gate report results must be an array.");
-  }
-
-  const seen = new Set();
-  for (const [index, resultValue] of report.results.entries()) {
-    const label = `Gate report result ${index}`;
-    const result = requireObject(resultValue, label);
-    requireExactKeys(result, ["name", "passed"], label);
-    if (typeof result.name !== "string" || !requiredGates.includes(result.name)) {
-      throw new TypeError(`${label}.name is not a required gate.`);
-    }
-    if (seen.has(result.name)) {
-      throw new TypeError(`Gate report contains duplicate result ${result.name}.`);
-    }
-    seen.add(result.name);
-    if (result.passed !== true) {
-      throw new TypeError(`Required gate ${result.name} did not pass.`);
-    }
-  }
-
-  const missing = requiredGates.filter((name) => !seen.has(name));
-  if (missing.length > 0) {
-    throw new TypeError(`Gate report is missing required gates: ${missing.join(", ")}.`);
-  }
-  if (report.results.length !== requiredGates.length) {
-    throw new TypeError(`Gate report must contain exactly ${requiredGates.length} results.`);
-  }
+  requireExactPassedGateResults(report.results, requiredGates, {
+    reportLabel: "Gate report",
+    resultLabel: "Gate report result",
+    gateLabel: "gate",
+    gatesLabel: "gates",
+  });
 
   return Object.freeze({
     commit: report.commit,

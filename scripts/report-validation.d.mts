@@ -20,6 +20,19 @@ export function parseCanonicalJson(
 
 export function parseSha256Sidecar(source: string | Uint8Array, label: string): string;
 
+export interface ExactPassedGateResultLabels {
+  readonly reportLabel: string;
+  readonly resultLabel: string;
+  readonly gateLabel: string;
+  readonly gatesLabel: string;
+}
+
+export function requireExactPassedGateResults(
+  value: unknown,
+  requiredGates: readonly string[],
+  labels: ExactPassedGateResultLabels,
+): void;
+
 export interface ValidateGateReportOptions {
   readonly report: unknown;
   readonly requiredGates: readonly string[];
