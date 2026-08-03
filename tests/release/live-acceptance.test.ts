@@ -4352,8 +4352,8 @@ describe("live cleanup and reporting", () => {
       keysSha256: Record<string, string>;
       package: { name: string; version: string };
       tarballSha256: string;
-      operations: Array<{ evidence?: Record<string, unknown> }>;
-      iterators: unknown[];
+      operations: Array<{ status: string; evidence?: Record<string, unknown> }>;
+      iterators: Array<{ status: string }>;
     };
     const validateSchema = new Ajv({ allErrors: true }).compile(liveReportSchema);
 
@@ -4392,7 +4392,9 @@ describe("live cleanup and reporting", () => {
       tarballSha256: candidate.tarballSha256,
     });
     expect(parsed.operations).toHaveLength(56);
+    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(56);
     expect(parsed.iterators).toHaveLength(9);
+    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(9);
     expect(
       validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
     ).toMatchObject({
@@ -4405,6 +4407,64 @@ describe("live cleanup and reporting", () => {
       cleanupFailures: 0,
       leakedSecrets: 0,
     });
+  });
+
+  it("keeps failure outcomes schema-valid while strict success validation rejects them", () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const report = createLiveReport({
+      candidate,
+      operationResults: complete.operations,
+      iteratorResults: complete.iterators,
+      cleanupResults: [{ label: "delete fixture", status: "passed" }],
+    }) as unknown as {
+      operations: Array<{ status: string }>;
+      iterators: Array<{ status: string }>;
+      cleanup: Array<{ status: string }>;
+    };
+    const validateSchema = new Ajv({ allErrors: true }).compile(liveReportSchema);
+    const validateStrictly = (value: unknown) => {
+      const source = canonicalizeJson(value);
+      return validateLiveReportArtifacts({
+        reportSource: source,
+        reportSidecar: `${sha256Hex(source)}\n`,
+        candidate,
+      });
+    };
+    const outcomes = [
+      {
+        name: "failed operation",
+        mutate(value: typeof report) {
+          value.operations[0]!.status = "failed";
+        },
+        error: "requires every result to pass",
+      },
+      {
+        name: "pending iterator",
+        mutate(value: typeof report) {
+          value.iterators[0]!.status = "pending";
+        },
+        error: "requires every result to pass",
+      },
+      {
+        name: "failed cleanup",
+        mutate(value: typeof report) {
+          value.cleanup[0]!.status = "failed";
+        },
+        error: "requires zero cleanup failures",
+      },
+    ];
+
+    for (const outcome of outcomes) {
+      const mutated = structuredClone(report);
+      outcome.mutate(mutated);
+
+      expect(
+        validateSchema(mutated),
+        `${outcome.name}: ${JSON.stringify(validateSchema.errors)}`,
+      ).toBe(true);
+      expect(() => validateStrictly(mutated), outcome.name).toThrow(outcome.error);
+    }
   });
 
   it("rejects incomplete, failed, skipped, and unlinked terminal scenario outcomes", () => {
@@ -4473,7 +4533,7 @@ describe("live cleanup and reporting", () => {
       operationResults: complete.operations,
       iteratorResults: complete.iterators,
       cleanupResults: [{ label: "delete fixture", status: "passed" }],
-    }) as {
+    }) as unknown as {
       cleanup: Array<Record<string, unknown>>;
       operations: Array<Record<string, unknown>>;
     };

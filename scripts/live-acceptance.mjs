@@ -4642,9 +4642,9 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
     "Iterator inventory",
     "iterate",
   );
-  validateReportIteratorLinks(report.operations, report.iterators);
   requirePassedResults(report.operations, "Primary operation inventory");
   requirePassedResults(report.iterators, "Iterator inventory");
+  validateReportIteratorLinks(report.operations, report.iterators);
   requireSandboxOutcomes(report.operations);
   requireAuthorizationOutcomes(report.operations);
   if (!Array.isArray(report.cleanup)) {
