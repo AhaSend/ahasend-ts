@@ -1,10 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, it } from "vitest";
+import { canonicalizeJson, sha256Hex } from "../scripts/digest-artifact.mjs";
 import { buildDocumentationIndex } from "../scripts/verify-docs.mjs";
 import {
+  createDocumentationWorkflowEvidence,
   createDocumentedWorkflowExecutionPlan,
   DOCUMENTED_WORKFLOW_REGISTRY,
   runBoundedInteractive,
+  validateDocumentationWorkflowEvidence,
   validateDocumentedWorkflowRegistry,
   type DocumentationWorkflowEntry,
 } from "../scripts/verify-doc-workflows.mjs";
@@ -177,4 +180,51 @@ describe("bounded documented processes", () => {
       expect(probe.status).not.toBe(0);
     },
   );
+});
+
+describe("documentation workflow source evidence", () => {
+  const sourceSummary = {
+    commit: "a".repeat(40),
+    reportDigest: "b".repeat(64),
+    gates: 12,
+  };
+
+  function evidence(result: unknown = { name: "documentation-workflows", passed: true }) {
+    const source = canonicalizeJson({
+      version: 1,
+      commit: sourceSummary.commit,
+      sourceReportSha256: sourceSummary.reportDigest,
+      result,
+    });
+    return { evidenceSource: source, evidenceSidecar: `${sha256Hex(source)}\n`, sourceSummary };
+  }
+
+  it("accepts the documentation-workflows result bound to the retained source report", () => {
+    const retained = createDocumentationWorkflowEvidence(sourceSummary, {
+      result: "documentation-workflows",
+      passed: true,
+    });
+
+    expect(validateDocumentationWorkflowEvidence({ ...retained, sourceSummary })).toEqual({
+      commit: sourceSummary.commit,
+      evidenceDigest: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      result: "documentation-workflows",
+      passed: true,
+    });
+  });
+
+  it("rejects retained source evidence without a documentation-workflows result", () => {
+    expect(() =>
+      validateDocumentationWorkflowEvidence(evidence({ name: "audit", passed: true })),
+    ).toThrow("must contain the documentation-workflows result");
+  });
+
+  it("rejects documentation evidence bound to a different source report", () => {
+    expect(() =>
+      validateDocumentationWorkflowEvidence({
+        ...evidence(),
+        sourceSummary: { ...sourceSummary, reportDigest: "c".repeat(64) },
+      }),
+    ).toThrow("references a stale source report");
+  });
 });

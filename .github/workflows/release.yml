@@ -97,9 +97,6 @@ jobs:
       - name: Audit gate
         run: npm run verify:audit
 
-      - name: Documentation workflow gate
-        run: npm run test:docs:workflows:source
-
       - name: Create detached source report
         run: |
           mkdir -p /tmp/source-report
@@ -130,6 +127,14 @@ jobs:
           ]);
           NODE
 
+      - name: Documentation workflow gate
+        run: |
+          npm run test:docs:workflows:source -- \
+            /tmp/source-report/source-report.json \
+            /tmp/source-report/source-report.sha256 \
+            /tmp/source-report/documentation-workflows.json \
+            /tmp/source-report/documentation-workflows.sha256
+
       - name: Retain provenance verification tools
         run: |
           mkdir -p /tmp/release-tools/scripts
@@ -145,6 +150,8 @@ jobs:
           path: |
             /tmp/source-report/source-report.json
             /tmp/source-report/source-report.sha256
+            /tmp/source-report/documentation-workflows.json
+            /tmp/source-report/documentation-workflows.sha256
           if-no-files-found: error
           retention-days: ${{ env.RETENTION_DAYS }}
 
@@ -261,7 +268,9 @@ jobs:
             "$TARBALL" \
             "$SHA256" \
             /tmp/source-report/source-report.json \
-            /tmp/source-report/source-report.sha256
+            /tmp/source-report/source-report.sha256 \
+            /tmp/source-report/documentation-workflows.json \
+            /tmp/source-report/documentation-workflows.sha256
 
   live-gates:
     name: Live candidate gates

@@ -161,7 +161,12 @@ describe("single-run release workflow", () => {
         record(sourceReportUpload, "source report upload")["with"],
         "source report upload inputs",
       )["path"],
-    ).toBe("/tmp/source-report/source-report.json\n/tmp/source-report/source-report.sha256\n");
+    ).toBe(
+      "/tmp/source-report/source-report.json\n" +
+        "/tmp/source-report/source-report.sha256\n" +
+        "/tmp/source-report/documentation-workflows.json\n" +
+        "/tmp/source-report/documentation-workflows.sha256\n",
+    );
   });
 
   it("builds and packs only in candidate creation and never regenerates the artifact", () => {

@@ -117,9 +117,14 @@ function expectDocumentationCallerPolicy(
   expect(namedStep(releaseJobs["source-gate"], "source gate", "Generation gate")["run"]).toBe(
     "npm run contracts:check && npm run sdk:check && npm run docs:check",
   );
-  expect(
+  const sourceWorkflow = String(
     namedStep(releaseJobs["source-gate"], "source gate", "Documentation workflow gate")["run"],
-  ).toBe("npm run test:docs:workflows:source");
+  );
+  expect(sourceWorkflow).toContain("npm run test:docs:workflows:source -- \\");
+  expect(sourceWorkflow).toContain("/tmp/source-report/source-report.json \\");
+  expect(sourceWorkflow).toContain("/tmp/source-report/source-report.sha256 \\");
+  expect(sourceWorkflow).toContain("/tmp/source-report/documentation-workflows.json \\");
+  expect(sourceWorkflow).toContain("/tmp/source-report/documentation-workflows.sha256");
   const artifactVerification = String(
     namedStep(releaseJobs["artifact-gates"], "artifact gates", "Verify retained package artifact")[
       "run"
@@ -128,7 +133,9 @@ function expectDocumentationCallerPolicy(
   expect(artifactVerification).toContain("node scripts/verify-doc-workflows.mjs --artifact \\");
   expect(artifactVerification).toContain('  "$TARBALL" \\\n  "$SHA256" \\');
   expect(artifactVerification).toContain("/tmp/source-report/source-report.json \\");
-  expect(artifactVerification).toContain("/tmp/source-report/source-report.sha256");
+  expect(artifactVerification).toContain("/tmp/source-report/source-report.sha256 \\");
+  expect(artifactVerification).toContain("/tmp/source-report/documentation-workflows.json \\");
+  expect(artifactVerification).toContain("/tmp/source-report/documentation-workflows.sha256");
   expect(artifactVerification).not.toMatch(/\bnpm run build\b|\bnpm pack\b/u);
 }
 
@@ -272,7 +279,10 @@ describe("CI policy", () => {
           "artifact gates",
           "Verify retained package artifact",
         ) as { run: string };
-        artifact.run = artifact.run.replace("/tmp/source-report/source-report.sha256", "");
+        artifact.run = artifact.run.replace(
+          "/tmp/source-report/documentation-workflows.sha256",
+          "",
+        );
       },
     ],
     [

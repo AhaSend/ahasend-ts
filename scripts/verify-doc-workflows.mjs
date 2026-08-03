@@ -2,10 +2,19 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { canonicalizeJson } from "./digest-artifact.mjs";
+import {
+  parseCanonicalJson,
+  parseSha256Sidecar,
+  requireExactKeys,
+  requireHash,
+  requireObject,
+  sourceBytes,
+} from "./report-validation.mjs";
 import { buildDocumentationIndex } from "./verify-docs.mjs";
 import { readRepositorySourceBindings, validateSourceGateReport } from "./run-source-gates.mjs";
 
@@ -20,6 +29,7 @@ const SOURCE_WORKFLOW_OWNERS = Object.freeze([
   "source:format",
 ]);
 const INTERACTIVE_TIMEOUT_MS = 60_000;
+const DOCUMENTATION_WORKFLOW_RESULT = "documentation-workflows";
 
 export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
   { path: "README.md", line: 26, command: "npm install @ahasend/sdk", owner: "installed-package" },
@@ -712,10 +722,106 @@ export async function runSourceDocumentationWorkflows(root = repositoryRoot) {
       cwd: temporary.target,
       marker: /Test Files|Watching for file changes/iu,
     });
-    return Object.freeze({ ...summary, result: "documentation-workflows", passed: true });
+    return Object.freeze({ ...summary, result: DOCUMENTATION_WORKFLOW_RESULT, passed: true });
   } finally {
     await rm(temporary.parent, { recursive: true, force: true });
   }
+}
+
+export function validateDocumentationWorkflowEvidence({
+  evidenceSource,
+  evidenceSidecar,
+  sourceSummary,
+}) {
+  const evidenceBytes = sourceBytes(evidenceSource, "Documentation workflow evidence");
+  const evidenceDigest = createHash("sha256").update(evidenceBytes).digest("hex");
+  const detachedDigest = parseSha256Sidecar(
+    evidenceSidecar,
+    "Documentation workflow evidence sidecar",
+  );
+  if (detachedDigest !== evidenceDigest) {
+    throw new TypeError(
+      `Documentation workflow evidence sidecar mismatch: expected ${evidenceDigest}, received ${detachedDigest}.`,
+    );
+  }
+
+  const evidence = parseCanonicalJson(evidenceBytes, "Documentation workflow evidence").value;
+  requireExactKeys(
+    evidence,
+    ["commit", "result", "sourceReportSha256", "version"],
+    "Documentation workflow evidence",
+  );
+  if (evidence.version !== 1) {
+    throw new TypeError("Documentation workflow evidence version must be 1.");
+  }
+  if (evidence.commit !== sourceSummary.commit) {
+    throw new TypeError("Documentation workflow evidence references a stale source commit.");
+  }
+  const sourceReportSha256 = requireHash(
+    evidence.sourceReportSha256,
+    "Documentation workflow evidence sourceReportSha256",
+  );
+  if (sourceReportSha256 !== sourceSummary.reportDigest) {
+    throw new TypeError("Documentation workflow evidence references a stale source report.");
+  }
+
+  const result = requireObject(evidence.result, "Documentation workflow evidence result");
+  requireExactKeys(result, ["name", "passed"], "Documentation workflow evidence result");
+  if (result.name !== DOCUMENTATION_WORKFLOW_RESULT) {
+    throw new TypeError(
+      "Documentation workflow evidence must contain the documentation-workflows result.",
+    );
+  }
+  if (result.passed !== true) {
+    throw new TypeError("Documentation workflow evidence result did not pass.");
+  }
+
+  return Object.freeze({
+    commit: sourceSummary.commit,
+    evidenceDigest,
+    result: DOCUMENTATION_WORKFLOW_RESULT,
+    passed: true,
+  });
+}
+
+export function createDocumentationWorkflowEvidence(sourceSummary, workflowResult) {
+  const evidenceSource = canonicalizeJson({
+    version: 1,
+    commit: sourceSummary.commit,
+    sourceReportSha256: sourceSummary.reportDigest,
+    result: { name: workflowResult.result, passed: workflowResult.passed },
+  });
+  const evidenceSidecar = Buffer.from(
+    `${createHash("sha256").update(evidenceSource).digest("hex")}\n`,
+    "utf8",
+  );
+  validateDocumentationWorkflowEvidence({ evidenceSource, evidenceSidecar, sourceSummary });
+  return Object.freeze({ evidenceSource, evidenceSidecar });
+}
+
+async function readValidatedSourceReport(sourceReportPath, sourceReportSidecarPath) {
+  const [reportSource, reportSidecar, expectedBindings] = await Promise.all([
+    readFile(resolve(sourceReportPath)),
+    readFile(resolve(sourceReportSidecarPath)),
+    readRepositorySourceBindings(),
+  ]);
+  return validateSourceGateReport({ reportSource, reportSidecar, expectedBindings });
+}
+
+async function writeDocumentationWorkflowEvidence(
+  evidencePath,
+  evidenceSidecarPath,
+  sourceSummary,
+  workflowResult,
+) {
+  const { evidenceSource, evidenceSidecar } = createDocumentationWorkflowEvidence(
+    sourceSummary,
+    workflowResult,
+  );
+  await Promise.all([
+    writeFile(resolve(evidencePath), evidenceSource, { flag: "wx" }),
+    writeFile(resolve(evidenceSidecarPath), evidenceSidecar, { flag: "wx" }),
+  ]);
 }
 
 async function assertTarball(tarball, expectedChecksum) {
@@ -737,18 +843,20 @@ export async function runArtifactDocumentationWorkflows({
   checksum,
   sourceReportPath,
   sourceReportSidecarPath,
+  documentationEvidencePath,
+  documentationEvidenceSidecarPath,
   root = repositoryRoot,
 }) {
   const index = await buildDocumentationIndex(root);
   const summary = validateDocumentedWorkflowRegistry(index);
   const tarball = resolve(tarballPath);
   await assertTarball(tarball, checksum);
-  const [reportSource, reportSidecar, expectedBindings] = await Promise.all([
-    readFile(resolve(sourceReportPath)),
-    readFile(resolve(sourceReportSidecarPath)),
-    readRepositorySourceBindings(),
+  const [sourceSummary, evidenceSource, evidenceSidecar] = await Promise.all([
+    readValidatedSourceReport(sourceReportPath, sourceReportSidecarPath),
+    readFile(resolve(documentationEvidencePath)),
+    readFile(resolve(documentationEvidenceSidecarPath)),
   ]);
-  validateSourceGateReport({ reportSource, reportSidecar, expectedBindings });
+  validateDocumentationWorkflowEvidence({ evidenceSource, evidenceSidecar, sourceSummary });
 
   run(process.execPath, [resolve(root, "scripts/verify-package.mjs"), tarball, checksum], root);
   run(process.execPath, [resolve(root, "scripts/verify-docs.mjs"), tarball, checksum], root);
@@ -762,23 +870,30 @@ export async function runArtifactDocumentationWorkflows({
 
 async function main() {
   const [mode, ...args] = process.argv.slice(2);
-  if (mode === "--source" && args.length === 0) {
+  if (mode === "--source" && (args.length === 0 || args.length === 4)) {
+    const sourceSummary =
+      args.length === 4 ? await readValidatedSourceReport(args[0], args[1]) : undefined;
     const result = await runSourceDocumentationWorkflows();
+    if (sourceSummary !== undefined) {
+      await writeDocumentationWorkflowEvidence(args[2], args[3], sourceSummary, result);
+    }
     process.stdout.write(`verify-doc-workflows: ${result.commands} documented commands passed\n`);
     return;
   }
-  if (mode === "--artifact" && args.length === 4) {
+  if (mode === "--artifact" && args.length === 6) {
     const result = await runArtifactDocumentationWorkflows({
       tarballPath: args[0],
       checksum: args[1],
       sourceReportPath: args[2],
       sourceReportSidecarPath: args[3],
+      documentationEvidencePath: args[4],
+      documentationEvidenceSidecarPath: args[5],
     });
     process.stdout.write(`verify-doc-workflows: ${result.commands} retained workflows passed\n`);
     return;
   }
   throw new TypeError(
-    "Usage: node scripts/verify-doc-workflows.mjs --source | --artifact <tarball> <sha256> <source-report.json> <source-report.sha256>",
+    "Usage: node scripts/verify-doc-workflows.mjs --source [<source-report.json> <source-report.sha256> <documentation-workflows.json> <documentation-workflows.sha256>] | --artifact <tarball> <sha256> <source-report.json> <source-report.sha256> <documentation-workflows.json> <documentation-workflows.sha256>",
   );
 }
 

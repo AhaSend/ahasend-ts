@@ -71,11 +71,47 @@ export function runSourceDocumentationWorkflows(root?: string): Promise<{
   readonly passed: true;
 }>;
 
+export interface SourceReportSummary {
+  readonly commit: string;
+  readonly reportDigest: string;
+  readonly gates: number;
+}
+
+export interface ValidateDocumentationWorkflowEvidenceOptions {
+  readonly evidenceSource: string | Uint8Array;
+  readonly evidenceSidecar: string | Uint8Array;
+  readonly sourceSummary: SourceReportSummary;
+}
+
+export function validateDocumentationWorkflowEvidence(
+  options: ValidateDocumentationWorkflowEvidenceOptions,
+): {
+  readonly commit: string;
+  readonly evidenceDigest: string;
+  readonly result: "documentation-workflows";
+  readonly passed: true;
+};
+
+export interface DocumentationWorkflowResult {
+  readonly result: "documentation-workflows";
+  readonly passed: true;
+}
+
+export function createDocumentationWorkflowEvidence(
+  sourceSummary: SourceReportSummary,
+  workflowResult: DocumentationWorkflowResult,
+): {
+  readonly evidenceSource: Buffer;
+  readonly evidenceSidecar: Buffer;
+};
+
 export interface ArtifactDocumentationWorkflowOptions {
   readonly tarballPath: string;
   readonly checksum: string;
   readonly sourceReportPath: string;
   readonly sourceReportSidecarPath: string;
+  readonly documentationEvidencePath: string;
+  readonly documentationEvidenceSidecarPath: string;
   readonly root?: string;
 }
 
