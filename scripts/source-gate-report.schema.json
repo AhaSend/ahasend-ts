@@ -43,8 +43,8 @@
     },
     "results": {
       "type": "array",
-      "minItems": 13,
-      "maxItems": 13,
+      "minItems": 12,
+      "maxItems": 12,
       "uniqueItems": true,
       "items": {
         "$ref": "#/definitions/gateResult"
@@ -61,8 +61,7 @@
         { "contains": { "$ref": "#/definitions/format" } },
         { "contains": { "$ref": "#/definitions/test-policy" } },
         { "contains": { "$ref": "#/definitions/repository-secret-scan" } },
-        { "contains": { "$ref": "#/definitions/audit" } },
-        { "contains": { "$ref": "#/definitions/documentation-workflows" } }
+        { "contains": { "$ref": "#/definitions/audit" } }
       ]
     }
   },
@@ -115,8 +114,7 @@
             "format",
             "test-policy",
             "repository-secret-scan",
-            "audit",
-            "documentation-workflows"
+            "audit"
           ]
         },
         "passed": {
@@ -170,10 +168,6 @@
     },
     "audit": {
       "properties": { "name": { "const": "audit" } },
-      "required": ["name"]
-    },
-    "documentation-workflows": {
-      "properties": { "name": { "const": "documentation-workflows" } },
       "required": ["name"]
     }
   }

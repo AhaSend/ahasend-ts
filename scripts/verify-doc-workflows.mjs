@@ -11,22 +11,14 @@ import { readRepositorySourceBindings, validateSourceGateReport } from "./run-so
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DOCUMENT_PATHS = new Set(["README.md", "examples/README.md"]);
-const SOURCE_WORKFLOWS = Object.freeze([
-  "build",
-  "typecheck",
-  "lint",
-  "test",
-  "coverage",
-  "format",
+const SOURCE_WORKFLOW_OWNERS = Object.freeze([
+  "source:build",
+  "source:typecheck",
+  "source:lint",
+  "source:test",
+  "source:coverage",
+  "source:format",
 ]);
-const SOURCE_COMMANDS = Object.freeze({
-  build: ["run", "build"],
-  typecheck: ["run", "typecheck"],
-  lint: ["run", "lint"],
-  test: ["test"],
-  coverage: ["run", "test:coverage"],
-  format: ["run", "format"],
-});
 const INTERACTIVE_TIMEOUT_MS = 60_000;
 
 export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
@@ -166,6 +158,92 @@ function locator({ path, line, command, source }) {
   return `${path}:${line}:${command ?? source}`;
 }
 
+function parseDocumentedInvocation(entry) {
+  const command = entry.command.replace(/\s+#.*$/u, "").trim();
+  if (command.length === 0 || /["'`\\;&|<>()$]/u.test(command)) {
+    throw new TypeError(
+      `Documentation workflow registry entry ${entry.path}:${entry.line} is not a supported direct command.`,
+    );
+  }
+  const [executable, ...args] = command.split(/\s+/u);
+  if (executable === undefined) {
+    throw new TypeError(
+      `Documentation workflow registry entry ${entry.path}:${entry.line} has no executable.`,
+    );
+  }
+  return Object.freeze({ executable, args: Object.freeze(args) });
+}
+
+function uniqueOwnerInvocation(registry, owner) {
+  const invocations = registry.filter((entry) => entry.owner === owner).map(parseDocumentedInvocation);
+  const unique = new Map(
+    invocations.map((invocation) => [
+      JSON.stringify([invocation.executable, ...invocation.args]),
+      invocation,
+    ]),
+  );
+  if (unique.size !== 1) {
+    throw new TypeError(`Documentation workflow owner ${owner} must map to one exact command.`);
+  }
+  return unique.values().next().value;
+}
+
+function requireNpmInvocation(invocation, owner) {
+  if (invocation?.executable !== "npm") {
+    throw new TypeError(`Documentation workflow owner ${owner} must execute npm directly.`);
+  }
+  return invocation;
+}
+
+/**
+ * Resolve the exact source and interactive argv from the documentation registry.
+ * The runner consumes this plan directly so command classification and execution
+ * cannot drift into separate maps.
+ */
+export function createDocumentedWorkflowExecutionPlan(
+  registry = DOCUMENTED_WORKFLOW_REGISTRY,
+) {
+  const installMatches = registry
+    .filter((entry) => entry.owner === "source-setup")
+    .map(parseDocumentedInvocation)
+    .filter(
+      ({ executable, args }) => executable === "npm" && args.length === 1 && args[0] === "ci",
+    );
+  if (installMatches.length !== 1) {
+    throw new TypeError("Documentation source setup must map exactly once to npm ci.");
+  }
+
+  const source = SOURCE_WORKFLOW_OWNERS.map((owner) => ({
+    owner,
+    invocation: requireNpmInvocation(uniqueOwnerInvocation(registry, owner), owner),
+  }));
+  const prism = uniqueOwnerInvocation(registry, "interactive:prism");
+  if (
+    prism?.executable !== "./node_modules/.bin/prism" ||
+    prism.args.join("\0") !== ["mock", "openapi.yaml", "-p", "4010", "--errors"].join("\0")
+  ) {
+    throw new TypeError(
+      "Documentation Prism workflow must mock committed openapi.yaml on port 4010 with --errors.",
+    );
+  }
+  const dev = requireNpmInvocation(
+    uniqueOwnerInvocation(registry, "interactive:dev"),
+    "interactive:dev",
+  );
+  const watch = requireNpmInvocation(
+    uniqueOwnerInvocation(registry, "interactive:test-watch"),
+    "interactive:test-watch",
+  );
+
+  return Object.freeze({
+    install: installMatches[0],
+    source: Object.freeze(source),
+    prism,
+    dev,
+    watch,
+  });
+}
+
 export function validateDocumentedWorkflowRegistry(index, registry = DOCUMENTED_WORKFLOW_REGISTRY) {
   const commands = index.commands.filter(({ path }) => DOCUMENT_PATHS.has(path));
   const expected = new Set(commands.map(locator));
@@ -203,9 +281,9 @@ export function validateDocumentedWorkflowRegistry(index, registry = DOCUMENTED_
     );
   }
 
-  for (const workflow of SOURCE_WORKFLOWS) {
-    if (!owners.has(`source:${workflow}`)) {
-      throw new TypeError(`Documentation workflow registry does not exercise source:${workflow}.`);
+  for (const owner of SOURCE_WORKFLOW_OWNERS) {
+    if (!owners.has(owner)) {
+      throw new TypeError(`Documentation workflow registry does not exercise ${owner}.`);
     }
   }
   for (const owner of [
@@ -220,6 +298,7 @@ export function validateDocumentedWorkflowRegistry(index, registry = DOCUMENTED_
       throw new TypeError(`Documentation workflow registry does not exercise ${owner}.`);
     }
   }
+  createDocumentedWorkflowExecutionPlan(registry);
   return Object.freeze({ commands: commands.length, owners: owners.size });
 }
 
@@ -248,6 +327,14 @@ function run(command, args, cwd, env = process.env) {
 function runNpm(args, cwd, env) {
   const invocation = npmInvocation(args);
   run(invocation.command, invocation.args, cwd, env);
+}
+
+function runnableInvocation(invocation, cwd) {
+  if (invocation.executable === "npm") return npmInvocation(invocation.args);
+  if (invocation.executable.startsWith("./")) {
+    return { command: resolve(cwd, invocation.executable), args: invocation.args };
+  }
+  return { command: invocation.executable, args: invocation.args };
 }
 
 function terminateProcessTree(child, signal = "SIGTERM") {
@@ -407,13 +494,16 @@ async function prismReadiness() {
 export async function runSourceDocumentationWorkflows(root = repositoryRoot) {
   const index = await buildDocumentationIndex(root);
   const summary = validateDocumentedWorkflowRegistry(index);
+  const plan = createDocumentedWorkflowExecutionPlan();
   const temporary = await temporarySourceTree(root);
   try {
-    runNpm(["ci"], temporary.target);
-    for (const workflow of SOURCE_WORKFLOWS) {
+    const install = runnableInvocation(plan.install, temporary.target);
+    run(install.command, install.args, temporary.target);
+    for (const { owner, invocation } of plan.source) {
       const beforeFormatting =
-        workflow === "format" ? await formattedSourceDigests(temporary.target) : undefined;
-      runNpm(SOURCE_COMMANDS[workflow], temporary.target);
+        owner === "source:format" ? await formattedSourceDigests(temporary.target) : undefined;
+      const source = runnableInvocation(invocation, temporary.target);
+      run(source.command, source.args, temporary.target);
       if (beforeFormatting !== undefined) {
         requireUnchangedFormatting(
           beforeFormatting,
@@ -422,22 +512,21 @@ export async function runSourceDocumentationWorkflows(root = repositoryRoot) {
       }
     }
 
-    const prism = resolve(temporary.target, "node_modules/.bin/prism");
+    const prism = runnableInvocation(plan.prism, temporary.target);
     await runBoundedInteractive({
       label: "Documented Prism workflow",
-      command: prism,
-      args: ["mock", "openapi.yaml", "-p", "4010", "--errors"],
+      ...prism,
       cwd: temporary.target,
       readiness: prismReadiness,
     });
-    const dev = npmInvocation(["run", "dev"]);
+    const dev = runnableInvocation(plan.dev, temporary.target);
     await runBoundedInteractive({
       label: "Documented development workflow",
       ...dev,
       cwd: temporary.target,
       marker: /Build success|Watching for changes/iu,
     });
-    const watch = npmInvocation(["run", "test:watch"]);
+    const watch = runnableInvocation(plan.watch, temporary.target);
     await runBoundedInteractive({
       label: "Documented test watch workflow",
       ...watch,

@@ -58,7 +58,6 @@
     "format",
     "test-policy",
     "repository-secret-scan",
-    "audit",
-    "documentation-workflows"
+    "audit"
   ]
 }

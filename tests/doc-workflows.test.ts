@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildDocumentationIndex } from "../scripts/verify-docs.mjs";
 import {
+  createDocumentedWorkflowExecutionPlan,
   DOCUMENTED_WORKFLOW_REGISTRY,
   runBoundedInteractive,
   validateDocumentedWorkflowRegistry,
@@ -63,6 +64,35 @@ describe("documented workflow registry", () => {
     ];
 
     expect(() => validateDocumentedWorkflowRegistry({ commands })).toThrow("has no workflow owner");
+  });
+
+  it("derives source and interactive runtime argv from the exact registry", () => {
+    const entries = DOCUMENTED_WORKFLOW_REGISTRY.map((entry) =>
+      entry.owner === "source:typecheck"
+        ? { ...entry, command: "npm run typecheck:registry-fixture" }
+        : entry,
+    );
+
+    const plan = createDocumentedWorkflowExecutionPlan(entries);
+
+    expect(plan.source.find(({ owner }) => owner === "source:typecheck")?.invocation).toEqual({
+      executable: "npm",
+      args: ["run", "typecheck:registry-fixture"],
+    });
+    expect(plan.prism).toEqual({
+      executable: "./node_modules/.bin/prism",
+      args: ["mock", "openapi.yaml", "-p", "4010", "--errors"],
+    });
+  });
+
+  it("rejects runtime Prism argv without --errors", () => {
+    const entries = DOCUMENTED_WORKFLOW_REGISTRY.map((entry) =>
+      entry.owner === "interactive:prism"
+        ? { ...entry, command: entry.command.replace(" --errors", "") }
+        : entry,
+    );
+
+    expect(() => createDocumentedWorkflowExecutionPlan(entries)).toThrow("with --errors");
   });
 });
 

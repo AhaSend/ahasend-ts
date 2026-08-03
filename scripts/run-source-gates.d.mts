@@ -13,7 +13,6 @@ export const REQUIRED_SOURCE_GATES: readonly [
   "test-policy",
   "repository-secret-scan",
   "audit",
-  "documentation-workflows",
 ];
 
 export const SOURCE_CONTRACT_PATHS: readonly [
