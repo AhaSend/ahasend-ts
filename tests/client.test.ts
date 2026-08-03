@@ -1,6 +1,6 @@
 import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
-import { AhaSendClient } from "../src/index.js";
+import { AhaSendClient, AhaSendConfigurationError, isAhaSendError } from "../src/index.js";
 import type {
   APIKeysClient,
   AccountsClient,
@@ -52,21 +52,50 @@ function mockFetch(
 
 describe("AhaSendClient", () => {
   it("requires apiKey and accountId", () => {
-    expect(() => new AhaSendClient({ apiKey: "", accountId: "acc_1" })).toThrow(/apiKey/);
+    expect(
+      () => new AhaSendClient({ apiKey: "", accountId: "11111111-1111-4111-8111-111111111111" }),
+    ).toThrow(/apiKey/);
     // @ts-expect-error testing runtime validation
     expect(() => new AhaSendClient({ apiKey: "aha-sk-test" })).toThrow(/accountId/);
+  });
+
+  it("rejects a non-UUID accountId at construction, not at first call", () => {
+    // Every account_id path parameter is declared format: uuid, so a bad value
+    // can only ever fail. Before this check a client built from a dashboard
+    // slug or a .env typo looked healthy — ping() takes no account_id and
+    // still succeeded — and then threw a bare TypeError from the transport,
+    // which isAhaSendError() does not match.
+    for (const accountId of ["acc_123", "not-a-uuid", "11111111-1111-4111-8111-11111111111"]) {
+      let caught: unknown;
+      try {
+        new AhaSendClient({ apiKey: "aha-sk-test", accountId });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught, accountId).toBeInstanceOf(AhaSendConfigurationError);
+      expect(isAhaSendError(caught), accountId).toBe(true);
+      expect((caught as Error).message).toMatch(/accountId` must be a UUID/);
+    }
+
+    expect(
+      () =>
+        new AhaSendClient({
+          apiKey: "aha-sk-test",
+          accountId: " 11111111-1111-4111-8111-111111111111 ",
+        }),
+    ).not.toThrow();
   });
 
   it("exposes messages, domains, and apiKeys resource clients", () => {
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: "11111111-1111-4111-8111-111111111111",
       fetch: mockFetch(() => new Response("{}", { status: 200 })),
     });
     expect(client.messages).toBeDefined();
     expect(client.domains).toBeDefined();
     expect(client.apiKeys).toBeDefined();
-    expect(client.accountId).toBe("acc_1");
+    expect(client.accountId).toBe("11111111-1111-4111-8111-111111111111");
   });
 
   it("ping() hits GET /v2/ping and exposes the public response promise", async () => {
@@ -74,7 +103,7 @@ describe("AhaSendClient", () => {
     let fetchCalls = 0;
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: "11111111-1111-4111-8111-111111111111",
       fetch: mockFetch((url) => {
         fetchCalls++;
         seenUrl = url;
@@ -102,7 +131,7 @@ describe("AhaSendClient", () => {
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
     const client = new AhaSendClient({
       apiKey,
-      accountId: "acc_private",
+      accountId: "33333333-3333-4333-8333-333333333333",
       defaultHeaders: { "x-private-header": sensitiveHeader },
       fetch: transport,
     });
@@ -110,7 +139,7 @@ describe("AhaSendClient", () => {
     expect(Object.getOwnPropertyNames(client)).toEqual([]);
     expect(JSON.parse(JSON.stringify(client))).toEqual({
       name: "AhaSendClient",
-      accountId: "acc_private",
+      accountId: "33333333-3333-4333-8333-333333333333",
       apiKey: "[REDACTED]",
     });
 
@@ -127,14 +156,14 @@ describe("AhaSendClient", () => {
     const sensitiveHeader = "private-inspect-header-value";
     const client = new AhaSendClient({
       apiKey,
-      accountId: "acc_inspect",
+      accountId: "55555555-5555-4555-8555-555555555555",
       defaultHeaders: { "x-private-header": sensitiveHeader },
       fetch: mockFetch(() => new Response("{}", { status: 200 })),
     });
 
     const inspected = inspect(client, { showHidden: true });
     expect(inspected).toContain("AhaSendClient");
-    expect(inspected).toContain("acc_inspect");
+    expect(inspected).toContain("55555555-5555-4555-8555-555555555555");
     expect(inspected).toContain("[REDACTED]");
     expect(inspected).not.toContain(apiKey);
     expect(inspected).not.toContain(sensitiveHeader);
@@ -147,7 +176,7 @@ describe("AhaSendClient", () => {
     const sensitiveHeader = "private-facade-header-value";
     const client = new AhaSendClient({
       apiKey,
-      accountId: "acc_1",
+      accountId: "11111111-1111-4111-8111-111111111111",
       defaultHeaders: { "x-private-header": sensitiveHeader },
       fetch: mockFetch(() => new Response("{}", { status: 200 })),
     });
@@ -180,7 +209,11 @@ describe("AhaSendClient", () => {
   it("keeps the message executor private during facade inspection and serialization", () => {
     const apiKey = "aha-sk-message-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.messages;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -206,7 +239,11 @@ describe("AhaSendClient", () => {
   it("keeps the domain executor private during facade inspection and serialization", () => {
     const apiKey = "aha-sk-domain-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.domains;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -233,7 +270,11 @@ describe("AhaSendClient", () => {
   it("keeps the API-key executor private during facade inspection and serialization", () => {
     const apiKey = "aha-sk-api-key-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.apiKeys;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -259,7 +300,11 @@ describe("AhaSendClient", () => {
   it("keeps the configured-webhook executor private during facade inspection and serialization", () => {
     const apiKey = "aha-sk-webhook-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.webhooks;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -285,7 +330,11 @@ describe("AhaSendClient", () => {
   it("keeps the statistics executor private during facade inspection and serialization", () => {
     const apiKey = "aha-sk-statistics-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.statistics;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -308,7 +357,11 @@ describe("AhaSendClient", () => {
   it("keeps the suppression executor private during facade inspection and serialization", () => {
     const apiKey = "aha-sk-suppression-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.suppressions;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -333,7 +386,11 @@ describe("AhaSendClient", () => {
   it("keeps the route executor private during facade inspection and serialization", () => {
     const apiKey = "aha-sk-route-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.routes;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -359,7 +416,11 @@ describe("AhaSendClient", () => {
   it("keeps the account executor private during facade inspection and serialization", () => {
     const apiKey = "aha-sk-account-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.accounts;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -384,7 +445,11 @@ describe("AhaSendClient", () => {
   it("keeps the SMTP credential executor private during facade inspection and serialization", () => {
     const apiKey = "aha-sk-smtp-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.smtpCredentials;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -409,7 +474,11 @@ describe("AhaSendClient", () => {
   it("keeps the sub-account executor and nested resource private during facade inspection", () => {
     const apiKey = "aha-sk-sub-account-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.subAccounts;
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
@@ -440,7 +509,11 @@ describe("AhaSendClient", () => {
   it("keeps the nested sub-account API-key executor private during facade inspection", () => {
     const apiKey = "aha-sk-child-api-key-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const client = new AhaSendClient({ apiKey, accountId: "acc_1", fetch: transport });
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
     const facade = client.subAccounts.apiKeys;
 
     expect(client.subAccounts.apiKeys).toBe(facade);
@@ -473,9 +546,9 @@ describe("AhaSendClient", () => {
   it("fromEnv builds a client from env vars", () => {
     const client = AhaSendClient.fromEnv({
       AHASEND_API_KEY: "aha-sk-test",
-      AHASEND_ACCOUNT_ID: "acc_1",
+      AHASEND_ACCOUNT_ID: "11111111-1111-4111-8111-111111111111",
     });
-    expect(client.accountId).toBe("acc_1");
+    expect(client.accountId).toBe("11111111-1111-4111-8111-111111111111");
   });
 });
 

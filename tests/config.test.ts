@@ -250,7 +250,7 @@ describe("resolveConfig", () => {
       () =>
         new AhaSendClient({
           apiKey: "aha-sk-test",
-          accountId: "account-id",
+          accountId: "22222222-2222-4222-8222-222222222222",
           fetch: fetchImpl,
           ...invalid,
         }),
@@ -289,14 +289,32 @@ describe("resolveConfig", () => {
   });
 
   it.each([
-    ["Date", Object.assign(new Date(0), { apiKey: "aha-sk-test", accountId: "account-id" })],
-    ["Map", Object.assign(new Map(), { apiKey: "aha-sk-test", accountId: "account-id" })],
-    ["array", Object.assign([], { apiKey: "aha-sk-test", accountId: "account-id" })],
+    [
+      "Date",
+      Object.assign(new Date(0), {
+        apiKey: "aha-sk-test",
+        accountId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ],
+    [
+      "Map",
+      Object.assign(new Map(), {
+        apiKey: "aha-sk-test",
+        accountId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ],
+    [
+      "array",
+      Object.assign([], {
+        apiKey: "aha-sk-test",
+        accountId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ],
     [
       "custom prototype",
       Object.assign(Object.create({ inherited: true }) as object, {
         apiKey: "aha-sk-test",
-        accountId: "account-id",
+        accountId: "22222222-2222-4222-8222-222222222222",
       }),
     ],
   ])("rejects a non-plain %s container through the public constructor", (_name, options) => {
@@ -372,7 +390,7 @@ describe("resolveConfig", () => {
       () =>
         new AhaSendClient({
           apiKey: "aha-sk-test",
-          accountId: "account-id",
+          accountId: "22222222-2222-4222-8222-222222222222",
           fetch: fetchImpl,
           retry: { maxRetries },
         }),
@@ -418,7 +436,7 @@ describe("resolveConfig", () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "account-id",
+      accountId: "22222222-2222-4222-8222-222222222222",
       fetch: fetchImpl,
     });
 
@@ -480,7 +498,7 @@ describe("resolveConfig", () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "account-id",
+      accountId: "22222222-2222-4222-8222-222222222222",
       fetch: fetchImpl,
     });
 
@@ -496,7 +514,7 @@ describe("resolveConfig", () => {
       const fetchImpl = vi.fn<typeof fetch>();
       const client = new AhaSendClient({
         apiKey: "aha-sk-test",
-        accountId: "account-id",
+        accountId: "22222222-2222-4222-8222-222222222222",
         fetch: fetchImpl,
       });
 
@@ -520,7 +538,7 @@ describe("resolveConfig", () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "account-id",
+      accountId: "22222222-2222-4222-8222-222222222222",
       fetch: fetchImpl,
     });
     const headers: Readonly<Record<string, string>> = {
@@ -631,7 +649,7 @@ describe("optionsFromEnv", () => {
     const construct = () =>
       AhaSendClient.fromEnv({
         AHASEND_API_KEY: "aha-sk-test",
-        AHASEND_ACCOUNT_ID: "account-id",
+        AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
         AHASEND_BASE_URL: "http://api.example.com",
         ...optInEnv,
       });
@@ -677,7 +695,7 @@ describe("optionsFromEnv", () => {
       expect(() =>
         AhaSendClient.fromEnv({
           AHASEND_API_KEY: "aha-sk-test",
-          AHASEND_ACCOUNT_ID: "account-id",
+          AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
           AHASEND_TIMEOUT: "2147483.648",
         }),
       ).toThrow(/2147483647 milliseconds/);
@@ -751,7 +769,7 @@ describe("optionsFromEnv", () => {
       expect(() =>
         AhaSendClient.fromEnv({
           AHASEND_API_KEY: "aha-sk-test",
-          AHASEND_ACCOUNT_ID: "account-id",
+          AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
           AHASEND_MAX_RETRIES: maxRetries,
         }),
       ).toThrow(/AHASEND_MAX_RETRIES.*safe integer.*0.*20/);
@@ -793,7 +811,7 @@ describe("optionsFromEnv", () => {
         AhaSendClient.fromEnv({
           AHASEND_API_KEY: apiKey,
           AHASEND_TOKEN: token,
-          AHASEND_ACCOUNT_ID: "account-id",
+          AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
         });
       } catch (caught) {
         error = caught;

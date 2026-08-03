@@ -509,7 +509,7 @@ describe("AhaSend error contract", () => {
     try {
       new AhaSendClient({
         apiKey: "aha-sk-test",
-        accountId: "account-id",
+        accountId: "22222222-2222-4222-8222-222222222222",
         baseUrl: `https://${username}:${password}@example.com`,
       });
     } catch (caught) {

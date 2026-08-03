@@ -66,14 +66,14 @@ export interface CreateAPIKeyRequest {
   label: string;
   /** At least one scope is required by the API. */
   scopes: readonly APIKeyScopeName[];
-  ip_allow_list?: readonly string[];
+  ip_allow_list?: readonly string[] | undefined;
 }
 
 /** At least one field must select a non-null update value. */
 export type UpdateAPIKeyRequest = {
-  label?: string | null;
-  scopes?: readonly APIKeyScopeName[] | null;
-  ip_allow_list?: readonly string[] | null;
+  label?: string | null | undefined;
+  scopes?: readonly APIKeyScopeName[] | null | undefined;
+  ip_allow_list?: readonly string[] | null | undefined;
 } & (
   | { label: string }
   | { scopes: readonly APIKeyScopeName[] }

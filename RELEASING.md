@@ -16,20 +16,28 @@ queue, not cancel.
 
 ## One-time setup
 
-You need four GitHub Actions **secrets** and four **environments**. Without
+You need four GitHub Actions **secrets** and three **environments**. Without
 them the workflow fails partway through, after it has already published to the
-`next` dist-tag or sent real mail.
+`next` dist-tag or mutated the release account.
 
 ### Environments
 
 | Environment    | Used by                                                     | Why it exists                                                     |
 | -------------- | ----------------------------------------------------------- | ----------------------------------------------------------------- |
-| `live-release` | `live-gates`                                                | Holds the real AhaSend account credentials; sends real mail.       |
+| `live-release` | `live-gates`                                                | Holds real account credentials and mutates the account. See below. |
 | `npm-next`     | `next-publish`                                              | First publication, to the `next` tag only.                        |
 | `npm-latest`   | `latest-promotion`, `github-release`, `release-compensation` | Moves `latest` and cuts the GitHub release. Gate this one hardest. |
 
 Put a required-reviewer protection rule on `npm-latest` at minimum. `live-gates`
 mutates a real account, so `live-release` deserves one too.
+
+**What live-gates actually does.** It exercises all 56 operations against a real
+account. It does **not** deliver mail: every send sets `sandbox: true`, and
+`scripts/live-acceptance.mjs:964` refuses to run a request without it. Routes and
+webhooks are created `enabled: false`. What it *does* do is create and delete real
+domains, routes, webhooks, SMTP credentials, suppressions and sub-accounts, and
+add then remove a real account member. Treat it as destructive to the account,
+not as a mail event.
 
 ### Secrets
 
@@ -48,8 +56,8 @@ mutates a real account, so `live-release` deserves one too.
 > **Trusted publishing must be configured on a package that already exists in
 > the registry.** For the very first publish of a new package name, confirm the
 > npm-side configuration is in place before tagging — otherwise the job fails
-> *after* `live-gates` has already sent real mail, and the live run has to be
-> repeated. If the first publish cannot use trusted publishing, add
+> *after* `live-gates` has already mutated the release account, and the live run
+> has to be repeated. If the first publish cannot use trusted publishing, add
 > `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to that step to match its
 > four siblings.
 
@@ -75,15 +83,20 @@ Validation rules the script enforces:
 
 - The **six domains** must be six *distinct*, non-empty domain names. No `@`,
   no commas. They are lowercased before use.
-- `disposableMailbox` must contain `@` — it receives real mail.
+- `disposableMailbox` must contain `@`. It is **added as a `Developer`-role
+  member of the release account** (`scripts/run-live-acceptance.mjs:516-519`) and
+  removed in cleanup — so it must be an address you are willing to grant account
+  access to, not a shared alias.
 - `webhookUrl` must be **HTTPS**.
 
 Account preconditions:
 
 - `verifiedDomain` and `replacementVerifiedDomain` are real, DNS-verified
   sending domains on the account.
-- `dnslessDomain` is registered on the account but intentionally **not**
-  DNS-valid — negative-path scenarios delete and re-check it.
+- `dnslessDomain` must **not** exist on the account. The run creates it
+  (`scripts/live-acceptance.mjs:1190`), asserts it is DNS-invalid, checks that a
+  send to it is rejected, and deletes it in cleanup. A copy left behind by a
+  failed run must be removed before re-tagging.
 - `neverRegisteredDomain` must not exist on the account at all.
 - `lifecycleDomain` and `suppressionDomain` are consumed by create/delete
   lifecycle scenarios; do not point them at anything you care about.
@@ -130,7 +143,7 @@ git push origin v0.1.0
 | `source-gate`          | 13 source gates incl. `verify:audit` and the repository secret scan.              |
 | `candidate`            | Builds and packs the candidate tarball; everything downstream uses those bytes.   |
 | `artifact-gates`       | Node 22, 24, 26 against the packed tarball. **All three block**, including 26.    |
-| `live-gates`           | Real API acceptance in `live-release`. Sends real mail.                           |
+| `live-gates`           | Real API acceptance in `live-release`. Mutates the account; sends no real mail.   |
 | `next-publish`         | `npm publish --tag next --provenance` of the retained bytes.                      |
 | `registry-smoke`       | Installs from the registry and verifies provenance.                               |
 | `latest-promotion`     | Only if `live-gates` **and** `registry-smoke` succeeded (release.yml:676).        |
@@ -165,5 +178,6 @@ npm run release:candidate     # build + pack a candidate locally
 npm run release:verify        # release-machinery tests
 ```
 
-`npm run release:live` needs the live credentials and will send real mail. Do
-not run it casually.
+`npm run release:live` needs the live credentials and mutates the real account
+(creating and deleting domains, routes, webhooks, credentials and an account
+member). Sends are sandboxed, but do not run it casually.

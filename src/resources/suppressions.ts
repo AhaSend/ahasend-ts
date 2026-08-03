@@ -24,8 +24,8 @@ export interface Suppression {
 
 export interface CreateSuppressionRequest {
   email: string;
-  domain?: string;
-  reason?: string;
+  domain?: string | undefined;
+  reason?: string | undefined;
   expires_at: ISODateTime;
 }
 
@@ -35,19 +35,19 @@ export interface CreateSuppressionResponse {
 }
 
 export type ListSuppressionsParams = PaginationParams & {
-  domain?: string;
-  email?: string;
-  from_time?: ISODateTime;
-  to_time?: ISODateTime;
+  domain?: string | undefined;
+  email?: string | undefined;
+  from_time?: ISODateTime | undefined;
+  to_time?: ISODateTime | undefined;
 };
 
 export interface DeleteSuppressionParams {
   email: string;
-  domain?: string;
+  domain?: string | undefined;
 }
 
 export interface WipeSuppressionsParams {
-  domain?: string;
+  domain?: string | undefined;
 }
 
 /**

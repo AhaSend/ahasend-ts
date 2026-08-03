@@ -28,6 +28,7 @@ import type { AhaSendPromise, RequestOptions, UUID } from "./types/common.js";
 
 const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");
 const REDACTED = "[REDACTED]" as const;
+const UUID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 /** Options for an {@link AhaSendClient}, including the account that its resources target. */
 export interface AhaSendClientOptions extends ClientOptions {
@@ -85,6 +86,17 @@ export class AhaSendClient {
     assertPlainRecord(options, "client options");
     if (typeof options.accountId !== "string" || options.accountId.trim().length === 0) {
       throw new AhaSendConfigurationError("AhaSend: `accountId` is required.");
+    }
+    // Every account_id path parameter is declared `format: uuid`, so a
+    // malformed value can only ever fail. Reject it here rather than at the
+    // first call: a client built from a dashboard slug or a `.env` typo
+    // otherwise looks healthy — `ping()` takes no account_id and still
+    // succeeds — and then throws a bare TypeError from inside the transport,
+    // which `isAhaSendError()` does not match.
+    if (!UUID_PATTERN.test(options.accountId.trim())) {
+      throw new AhaSendConfigurationError(
+        `AhaSend: \`accountId\` must be a UUID; received ${JSON.stringify(options.accountId)}.`,
+      );
     }
 
     const { accountId, ...clientOptions } = options;

@@ -53,56 +53,56 @@ export interface CreatedWebhook extends Webhook {
 export type CreateWebhookRequest = {
   name: string;
   url: string;
-  enabled?: boolean;
-  on_reception?: boolean;
-  on_delivered?: boolean;
-  on_transient_error?: boolean;
-  on_failed?: boolean;
-  on_bounced?: boolean;
-  on_suppressed?: boolean;
-  on_opened?: boolean;
-  on_clicked?: boolean;
-  on_suppression_created?: boolean;
-  on_dns_error?: boolean;
+  enabled?: boolean | undefined;
+  on_reception?: boolean | undefined;
+  on_delivered?: boolean | undefined;
+  on_transient_error?: boolean | undefined;
+  on_failed?: boolean | undefined;
+  on_bounced?: boolean | undefined;
+  on_suppressed?: boolean | undefined;
+  on_opened?: boolean | undefined;
+  on_clicked?: boolean | undefined;
+  on_suppression_created?: boolean | undefined;
+  on_dns_error?: boolean | undefined;
 } & (
-  | { scope: "global"; domains?: readonly string[] | null }
+  | { scope: "global"; domains?: readonly string[] | null | undefined }
   | { scope: "scoped"; domains: readonly string[] }
 );
 
 export interface UpdateWebhookRequest {
   /** Omit or send `null` to preserve the stored value. */
-  name?: string | null;
+  name?: string | null | undefined;
   /** Omit or send `null` to preserve the stored value. */
-  url?: string | null;
-  enabled?: boolean | null;
-  on_reception?: boolean | null;
-  on_delivered?: boolean | null;
-  on_transient_error?: boolean | null;
-  on_failed?: boolean | null;
-  on_bounced?: boolean | null;
-  on_suppressed?: boolean | null;
-  on_opened?: boolean | null;
-  on_clicked?: boolean | null;
-  on_suppression_created?: boolean | null;
-  on_dns_error?: boolean | null;
+  url?: string | null | undefined;
+  enabled?: boolean | null | undefined;
+  on_reception?: boolean | null | undefined;
+  on_delivered?: boolean | null | undefined;
+  on_transient_error?: boolean | null | undefined;
+  on_failed?: boolean | null | undefined;
+  on_bounced?: boolean | null | undefined;
+  on_suppressed?: boolean | null | undefined;
+  on_opened?: boolean | null | undefined;
+  on_clicked?: boolean | null | undefined;
+  on_suppression_created?: boolean | null | undefined;
+  on_dns_error?: boolean | null | undefined;
   /** Omit or send `null` to preserve the stored scope. */
-  scope?: WebhookScope | null;
+  scope?: WebhookScope | null | undefined;
   /** Omit or send `null` to preserve associations; `[]` explicitly clears them. */
-  domains?: readonly string[] | null;
+  domains?: readonly string[] | null | undefined;
 }
 
 export type ListWebhooksParams = PaginationParams & {
-  enabled?: boolean;
-  on_reception?: boolean;
-  on_delivered?: boolean;
-  on_transient_error?: boolean;
-  on_failed?: boolean;
-  on_bounced?: boolean;
-  on_suppressed?: boolean;
-  on_opened?: boolean;
-  on_clicked?: boolean;
-  on_suppression_created?: boolean;
-  on_dns_error?: boolean;
+  enabled?: boolean | undefined;
+  on_reception?: boolean | undefined;
+  on_delivered?: boolean | undefined;
+  on_transient_error?: boolean | undefined;
+  on_failed?: boolean | undefined;
+  on_bounced?: boolean | undefined;
+  on_suppressed?: boolean | undefined;
+  on_opened?: boolean | undefined;
+  on_clicked?: boolean | undefined;
+  on_suppression_created?: boolean | undefined;
+  on_dns_error?: boolean | undefined;
 };
 
 /**

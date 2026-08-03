@@ -39,8 +39,11 @@ describe("v0.1.0 release source alignment", () => {
 
   it("retains the reviewed cursor-exclusive pagination declarations", () => {
     expect(rootApiReport).toContain("export interface PaginatedResponse<T>");
+    // Optional members admit `undefined` so a `string | undefined` cursor can be
+    // threaded through the documented pagination loop under
+    // `exactOptionalPropertyTypes`; the cursors stay mutually exclusive.
     expect(rootApiReport).toMatch(
-      /export type PaginationParams = Readonly<\{\s+limit\?: number;\s+\} & \(\{\s+after\?: string;\s+before\?: never;\s+\} \| \{\s+after\?: never;\s+before\?: string;\s+\}\)>;/u,
+      /export type PaginationParams = Readonly<\{\s+limit\?: number \| undefined;\s+\} & \(\{\s+after\?: string \| undefined;\s+before\?: never;\s+\} \| \{\s+after\?: never;\s+before\?: string \| undefined;\s+\}\)>;/u,
     );
     expect(rootApiReport).toContain(
       "iterate(params?: ListMessagesParams, options?: RequestOptions): AsyncGenerator<MessageSummary, void, undefined>;",

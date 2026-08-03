@@ -6,22 +6,32 @@ export type ISODateTime = string;
 export interface AhaSendResponse<T> {
   data: T;
   response: Response;
-  requestId?: string;
-  idempotentReplayed?: boolean;
+  requestId?: string | undefined;
+  idempotentReplayed?: boolean | undefined;
 }
 
 export interface AhaSendPromise<T> extends Promise<T> {
   withResponse(): Promise<AhaSendResponse<T>>;
 }
 
+/**
+ * Cursor pagination inputs. `after` and `before` are mutually exclusive.
+ *
+ * Optional members admit `undefined` so the documented loop — carrying a
+ * `string | undefined` cursor from one page's `next_cursor` into the next
+ * request — compiles under `exactOptionalPropertyTypes`.
+ */
 export type PaginationParams = Readonly<
-  { limit?: number } & ({ after?: string; before?: never } | { after?: never; before?: string })
+  { limit?: number | undefined } & (
+    | { after?: string | undefined; before?: never }
+    | { after?: never; before?: string | undefined }
+  )
 >;
 
 export interface PaginationMeta {
   has_more: boolean;
-  next_cursor?: string;
-  previous_cursor?: string;
+  next_cursor?: string | undefined;
+  previous_cursor?: string | undefined;
 }
 
 export interface PaginatedResponse<T> {
@@ -36,20 +46,20 @@ export interface SuccessResponse {
 
 /** Controls applied to one API operation without changing the client defaults. */
 export interface RequestOptions {
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   /** Additional request headers. SDK- and fetch-controlled headers are rejected. */
-  headers?: Readonly<Record<string, string>>;
+  headers?: Readonly<Record<string, string>> | undefined;
   /** Timeout for each network attempt, including response-body reading. */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /** Restrict the client's retry policy for this call, or disable retries. */
-  retry?: false | Partial<RetryConfig>;
+  retry?: false | Partial<RetryConfig> | undefined;
 }
 
 export interface IdempotencyRequestOptions extends RequestOptions {
-  idempotencyKey?: string;
+  idempotencyKey?: string | undefined;
 }
 
 export interface Address {
   email: string;
-  name?: string;
+  name?: string | undefined;
 }

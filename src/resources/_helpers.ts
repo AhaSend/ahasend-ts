@@ -26,11 +26,11 @@ export function assertNonEmptyArray(
 }
 
 interface ForwardedOptions {
-  readonly signal?: AbortSignal;
-  readonly headers?: Readonly<Record<string, string>>;
-  readonly timeoutMs?: number;
-  readonly retry?: false | Readonly<Partial<RetryConfig>>;
-  readonly idempotencyKey?: string;
+  readonly signal?: AbortSignal | undefined;
+  readonly headers?: Readonly<Record<string, string>> | undefined;
+  readonly timeoutMs?: number | undefined;
+  readonly retry?: false | Readonly<Partial<RetryConfig>> | undefined;
+  readonly idempotencyKey?: string | undefined;
 }
 
 /** Build a public facade whose methods and getters remain bound to private resource state. */

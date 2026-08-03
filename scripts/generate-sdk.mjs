@@ -867,7 +867,20 @@ export function schemaType(
       const value =
         properties[name] ??
         resolveAllOfPropertySchema(inheritedSchemaValues, name, componentSchemas);
-      return `${indent}${propertyName(name)}${required.has(name) ? "" : "?"}: ${value === undefined ? "unknown" : schemaType(value, level + 1, undefined, componentSchemas)};`;
+      const fieldType =
+        value === undefined ? "unknown" : schemaType(value, level + 1, undefined, componentSchemas);
+      // Optional properties admit `undefined` explicitly. JSON has no
+      // `undefined`, so "absent" and "present but undefined" are the same thing
+      // on the wire — but under `exactOptionalPropertyTypes` (which this SDK
+      // itself enables) a bare `?: T` rejects the ordinary
+      // `html_content: template.html` where the source value is `T | undefined`.
+      const optionalSuffix =
+        fieldType === "unknown" || fieldType.split("|").some((part) => part.trim() === "undefined")
+          ? ""
+          : " | undefined";
+      return required.has(name)
+        ? `${indent}${propertyName(name)}: ${fieldType};`
+        : `${indent}${propertyName(name)}?: ${fieldType}${optionalSuffix};`;
     });
     if (schema.additionalProperties === true) fields.push(`${indent}[key: string]: unknown;`);
     else if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) {
@@ -905,7 +918,15 @@ function operationType(document, entry, componentSchemas) {
     if (values === undefined || values.length === 0) continue;
     const fields = values.map(
       (parameter) =>
-        `        ${propertyName(parameter.name)}${parameter.required === true ? "" : "?"}: ${schemaType(parameter.schema, 4, undefined, componentSchemas)};`,
+        (() => {
+          // Same rule as object properties: an optional query parameter must
+          // accept `undefined` so a caller can thread a `string | undefined`
+          // cursor through the documented pagination loop.
+          const parameterType = schemaType(parameter.schema, 4, undefined, componentSchemas);
+          return parameter.required === true
+            ? `        ${propertyName(parameter.name)}: ${parameterType};`
+            : `        ${propertyName(parameter.name)}?: ${parameterType} | undefined;`;
+        })(),
     );
     parameterFields.push(`      ${location}: {\n${fields.join("\n")}\n      };`);
   }

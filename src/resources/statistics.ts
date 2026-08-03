@@ -6,13 +6,13 @@ export type StatisticsGranularity = "hour" | "day" | "week" | "month";
 
 export interface StatisticsParams {
   /** Filter, not required — omit to query the full retention window. */
-  from_time?: ISODateTime;
+  from_time?: ISODateTime | undefined;
   /** Filter, not required — omit to query the full retention window. */
-  to_time?: ISODateTime;
-  sender_domain?: string;
-  recipient_domains?: string;
-  tags?: string;
-  group_by?: StatisticsGranularity;
+  to_time?: ISODateTime | undefined;
+  sender_domain?: string | undefined;
+  recipient_domains?: string | undefined;
+  tags?: string | undefined;
+  group_by?: StatisticsGranularity | undefined;
 }
 
 export interface DeliverabilityStatistics {

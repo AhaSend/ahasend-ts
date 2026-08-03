@@ -55,7 +55,7 @@ export interface AddAccountMemberRequest {
     // (undocumented)
     email: string;
     // (undocumented)
-    name?: string;
+    name?: string | undefined;
     // (undocumented)
     role: AccountMemberRole;
 }
@@ -65,7 +65,7 @@ export interface Address {
     // (undocumented)
     email: string;
     // (undocumented)
-    name?: string;
+    name?: string | undefined;
 }
 
 // @public
@@ -260,9 +260,9 @@ export interface AhaSendResponse<T> {
     // (undocumented)
     data: T;
     // (undocumented)
-    idempotentReplayed?: boolean;
+    idempotentReplayed?: boolean | undefined;
     // (undocumented)
-    requestId?: string;
+    requestId?: string | undefined;
     // (undocumented)
     response: Response;
 }
@@ -373,9 +373,9 @@ export type APIKeyScopeName = string;
 
 // @public
 export interface Attachment {
-    base64?: boolean;
-    content_disposition?: string;
-    content_id?: string;
+    base64?: boolean | undefined;
+    content_disposition?: string | undefined;
+    content_id?: string | undefined;
     content_type: string;
     data: string;
     // (undocumented)
@@ -448,7 +448,7 @@ export interface ClientOptions {
 // @public (undocumented)
 export interface CreateAPIKeyRequest {
     // (undocumented)
-    ip_allow_list?: readonly string[];
+    ip_allow_list?: readonly string[] | undefined;
     // (undocumented)
     label: string;
     scopes: readonly APIKeyScopeName[];
@@ -457,38 +457,38 @@ export interface CreateAPIKeyRequest {
 // @public (undocumented)
 export interface CreateConversationMessageRequest {
     // (undocumented)
-    amp_content?: string;
+    amp_content?: string | undefined;
     // (undocumented)
-    attachments?: readonly Attachment[];
+    attachments?: readonly Attachment[] | undefined;
     // (undocumented)
-    bcc?: readonly Address[];
+    bcc?: readonly Address[] | undefined;
     // (undocumented)
-    cc?: readonly Address[];
+    cc?: readonly Address[] | undefined;
     // (undocumented)
     from: Address;
     // (undocumented)
-    headers?: Record<string, string>;
+    headers?: Record<string, string> | undefined;
     // (undocumented)
-    html_content?: string;
+    html_content?: string | undefined;
     // (undocumented)
-    reply_to?: Address;
+    reply_to?: Address | undefined;
     // (undocumented)
-    retention?: Retention;
+    retention?: Retention | undefined;
     // (undocumented)
-    sandbox?: boolean;
+    sandbox?: boolean | undefined;
     // (undocumented)
-    sandbox_result?: SandboxResult;
+    sandbox_result?: SandboxResult | undefined;
     // (undocumented)
-    schedule?: MessageSchedule;
+    schedule?: MessageSchedule | undefined;
     // (undocumented)
     subject: string;
     // (undocumented)
-    tags?: readonly string[];
+    tags?: readonly string[] | undefined;
     // (undocumented)
-    text_content?: string;
+    text_content?: string | undefined;
     to: readonly Address[];
     // (undocumented)
-    tracking?: Tracking;
+    tracking?: Tracking | undefined;
 }
 
 // @public
@@ -499,20 +499,20 @@ export interface CreatedAPIKey extends APIKey {
 // @public (undocumented)
 export interface CreateDomainRequest {
     // (undocumented)
-    dkim_private_key?: string;
+    dkim_private_key?: string | undefined;
     // (undocumented)
-    dkim_rotation_interval_days?: number;
-    dkim_selector?: string | null;
+    dkim_rotation_interval_days?: number | undefined;
+    dkim_selector?: string | null | undefined;
     // (undocumented)
     domain: string;
     // (undocumented)
-    media_subdomain?: string;
+    media_subdomain?: string | undefined;
     // (undocumented)
-    return_path_subdomain?: string;
+    return_path_subdomain?: string | undefined;
     // (undocumented)
-    subscription_subdomain?: string;
+    subscription_subdomain?: string | undefined;
     // (undocumented)
-    tracking_subdomain?: string;
+    tracking_subdomain?: string | undefined;
 }
 
 // @public (undocumented)
@@ -535,44 +535,44 @@ export interface CreatedWebhook extends Webhook {
 
 // @public
 export interface CreateMessageRequest {
-    amp_content?: string;
+    amp_content?: string | undefined;
     // (undocumented)
-    attachments?: readonly Attachment[];
+    attachments?: readonly Attachment[] | undefined;
     from: Address;
-    headers?: Record<string, string>;
-    html_content?: string;
+    headers?: Record<string, string> | undefined;
+    html_content?: string | undefined;
     recipients: readonly Recipient[];
     // (undocumented)
-    reply_to?: Address;
-    retention?: Retention;
-    sandbox?: boolean;
-    sandbox_result?: SandboxResult;
+    reply_to?: Address | undefined;
+    retention?: Retention | undefined;
+    sandbox?: boolean | undefined;
+    sandbox_result?: SandboxResult | undefined;
     // (undocumented)
-    schedule?: MessageSchedule;
+    schedule?: MessageSchedule | undefined;
     // (undocumented)
     subject: string;
-    substitutions?: Record<string, SubstitutionValue>;
-    tags?: readonly string[];
-    text_content?: string;
-    tracking?: Tracking;
+    substitutions?: Record<string, SubstitutionValue> | undefined;
+    tags?: readonly string[] | undefined;
+    text_content?: string | undefined;
+    tracking?: Tracking | undefined;
 }
 
 // @public (undocumented)
 export interface CreateRouteRequest {
     // (undocumented)
-    attachments?: boolean;
+    attachments?: boolean | undefined;
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | undefined;
     // (undocumented)
-    group_by_message_id?: boolean;
+    group_by_message_id?: boolean | undefined;
     // (undocumented)
-    headers?: boolean;
+    headers?: boolean | undefined;
     // (undocumented)
     name: string;
     // (undocumented)
     recipient: string;
     // (undocumented)
-    strip_replies?: boolean;
+    strip_replies?: boolean | undefined;
     // (undocumented)
     url: string;
 }
@@ -580,19 +580,19 @@ export interface CreateRouteRequest {
 // @public
 export type CreateSMTPCredentialRequest = {
     name: string;
-    sandbox?: boolean;
+    sandbox?: boolean | undefined;
     scope: "global";
-    domains?: readonly string[] | null;
+    domains?: readonly string[] | null | undefined;
 } | {
     name: string;
-    sandbox?: boolean;
+    sandbox?: boolean | undefined;
     scope: "scoped";
     domains: readonly string[];
 };
 
 // @public (undocumented)
 export interface CreateSubAccountRequest {
-    monthly_credit?: number;
+    monthly_credit?: number | undefined;
     // (undocumented)
     name: string;
     // (undocumented)
@@ -602,13 +602,13 @@ export interface CreateSubAccountRequest {
 // @public (undocumented)
 export interface CreateSuppressionRequest {
     // (undocumented)
-    domain?: string;
+    domain?: string | undefined;
     // (undocumented)
     email: string;
     // (undocumented)
     expires_at: ISODateTime;
     // (undocumented)
-    reason?: string;
+    reason?: string | undefined;
 }
 
 // @public (undocumented)
@@ -623,20 +623,20 @@ export interface CreateSuppressionResponse {
 export type CreateWebhookRequest = {
     name: string;
     url: string;
-    enabled?: boolean;
-    on_reception?: boolean;
-    on_delivered?: boolean;
-    on_transient_error?: boolean;
-    on_failed?: boolean;
-    on_bounced?: boolean;
-    on_suppressed?: boolean;
-    on_opened?: boolean;
-    on_clicked?: boolean;
-    on_suppression_created?: boolean;
-    on_dns_error?: boolean;
+    enabled?: boolean | undefined;
+    on_reception?: boolean | undefined;
+    on_delivered?: boolean | undefined;
+    on_transient_error?: boolean | undefined;
+    on_failed?: boolean | undefined;
+    on_bounced?: boolean | undefined;
+    on_suppressed?: boolean | undefined;
+    on_opened?: boolean | undefined;
+    on_clicked?: boolean | undefined;
+    on_suppression_created?: boolean | undefined;
+    on_dns_error?: boolean | undefined;
 } & ({
     scope: "global";
-    domains?: readonly string[] | null;
+    domains?: readonly string[] | null | undefined;
 } | {
     scope: "scoped";
     domains: readonly string[];
@@ -645,7 +645,7 @@ export type CreateWebhookRequest = {
 // @public (undocumented)
 export interface DeleteSuppressionParams {
     // (undocumented)
-    domain?: string;
+    domain?: string | undefined;
     // (undocumented)
     email: string;
 }
@@ -731,7 +731,7 @@ export interface DNSRecord {
     // (undocumented)
     host: string;
     // (undocumented)
-    label?: string;
+    label?: string | undefined;
     // (undocumented)
     propagated: boolean;
     // (undocumented)
@@ -824,7 +824,7 @@ export class IdempotencyKeyBuilder {
 // @public (undocumented)
 export interface IdempotencyRequestOptions extends RequestOptions {
     // (undocumented)
-    idempotencyKey?: string;
+    idempotencyKey?: string | undefined;
 }
 
 // @public
@@ -843,24 +843,24 @@ export interface ListAccountMembersResponse {
 
 // @public (undocumented)
 export type ListDomainsParams = PaginationParams & {
-    dns_valid?: boolean;
+    dns_valid?: boolean | undefined;
 };
 
 // @public (undocumented)
 export type ListMessagesParams = PaginationParams & {
-    status?: string;
-    sender?: string;
-    recipient?: string;
-    subject?: string;
-    message_id_header?: string;
-    tags?: string;
-    from_time?: ISODateTime;
-    to_time?: ISODateTime;
+    status?: string | undefined;
+    sender?: string | undefined;
+    recipient?: string | undefined;
+    subject?: string | undefined;
+    message_id_header?: string | undefined;
+    tags?: string | undefined;
+    from_time?: ISODateTime | undefined;
+    to_time?: ISODateTime | undefined;
 };
 
 // @public (undocumented)
 export type ListRoutesParams = PaginationParams & {
-    domain?: string;
+    domain?: string | undefined;
 };
 
 // @public (undocumented)
@@ -868,33 +868,33 @@ export type ListSubAccountsParams = PaginationParams;
 
 // @public (undocumented)
 export type ListSuppressionsParams = PaginationParams & {
-    domain?: string;
-    email?: string;
-    from_time?: ISODateTime;
-    to_time?: ISODateTime;
+    domain?: string | undefined;
+    email?: string | undefined;
+    from_time?: ISODateTime | undefined;
+    to_time?: ISODateTime | undefined;
 };
 
 // @public (undocumented)
 export type ListWebhooksParams = PaginationParams & {
-    enabled?: boolean;
-    on_reception?: boolean;
-    on_delivered?: boolean;
-    on_transient_error?: boolean;
-    on_failed?: boolean;
-    on_bounced?: boolean;
-    on_suppressed?: boolean;
-    on_opened?: boolean;
-    on_clicked?: boolean;
-    on_suppression_created?: boolean;
-    on_dns_error?: boolean;
+    enabled?: boolean | undefined;
+    on_reception?: boolean | undefined;
+    on_delivered?: boolean | undefined;
+    on_transient_error?: boolean | undefined;
+    on_failed?: boolean | undefined;
+    on_bounced?: boolean | undefined;
+    on_suppressed?: boolean | undefined;
+    on_opened?: boolean | undefined;
+    on_clicked?: boolean | undefined;
+    on_suppression_created?: boolean | undefined;
+    on_dns_error?: boolean | undefined;
 };
 
 // @public (undocumented)
 export interface Message extends MessageSummary {
     // (undocumented)
-    content?: string;
+    content?: string | undefined;
     // (undocumented)
-    content_parsed?: MessageContentParsed;
+    content_parsed?: MessageContentParsed | undefined;
 }
 
 // @public (undocumented)
@@ -929,8 +929,8 @@ export interface MessageContentPart {
 
 // @public
 export interface MessageSchedule {
-    expires?: ISODateTime;
-    first_attempt?: ISODateTime;
+    expires?: ISODateTime | undefined;
+    first_attempt?: ISODateTime | undefined;
 }
 
 // @public
@@ -1011,20 +1011,20 @@ export interface PaginationMeta {
     // (undocumented)
     has_more: boolean;
     // (undocumented)
-    next_cursor?: string;
+    next_cursor?: string | undefined;
     // (undocumented)
-    previous_cursor?: string;
+    previous_cursor?: string | undefined;
 }
 
-// @public (undocumented)
+// @public
 export type PaginationParams = Readonly<{
-    limit?: number;
+    limit?: number | undefined;
 } & ({
-    after?: string;
+    after?: string | undefined;
     before?: never;
 } | {
     after?: never;
-    before?: string;
+    before?: string | undefined;
 })>;
 
 // @public
@@ -1046,8 +1046,8 @@ export interface RateLimitConfig {
 export interface Recipient {
     // (undocumented)
     email: string;
-    name?: string;
-    substitutions?: Record<string, SubstitutionValue>;
+    name?: string | undefined;
+    substitutions?: Record<string, SubstitutionValue> | undefined;
 }
 
 // @public (undocumented)
@@ -1062,11 +1062,11 @@ export interface RequestEvent {
 
 // @public
 export interface RequestOptions {
-    headers?: Readonly<Record<string, string>>;
-    retry?: false | Partial<RetryConfig>;
+    headers?: Readonly<Record<string, string>> | undefined;
+    retry?: false | Partial<RetryConfig> | undefined;
     // (undocumented)
-    signal?: AbortSignal;
-    timeoutMs?: number;
+    signal?: AbortSignal | undefined;
+    timeoutMs?: number | undefined;
 }
 
 // @public (undocumented)
@@ -1080,8 +1080,8 @@ export interface ResponseEvent extends RequestEvent {
 
 // @public
 export type Retention = {
-    metadata?: number | null;
-    data?: number | null;
+    metadata?: number | null | undefined;
+    data?: number | null | undefined;
 } | null;
 
 // @public (undocumented)
@@ -1187,7 +1187,7 @@ export interface SendMessageResult {
         name: string;
     };
     // (undocumented)
-    schedule?: MessageSchedule;
+    schedule?: MessageSchedule | undefined;
     // (undocumented)
     status: SendMessageStatus;
 }
@@ -1264,16 +1264,16 @@ export type StatisticsGranularity = "hour" | "day" | "week" | "month";
 
 // @public (undocumented)
 export interface StatisticsParams {
-    from_time?: ISODateTime;
+    from_time?: ISODateTime | undefined;
     // (undocumented)
-    group_by?: StatisticsGranularity;
+    group_by?: StatisticsGranularity | undefined;
     // (undocumented)
-    recipient_domains?: string;
+    recipient_domains?: string | undefined;
     // (undocumented)
-    sender_domain?: string;
+    sender_domain?: string | undefined;
     // (undocumented)
-    tags?: string;
-    to_time?: ISODateTime;
+    tags?: string | undefined;
+    to_time?: ISODateTime | undefined;
 }
 
 // @public (undocumented)
@@ -1329,11 +1329,11 @@ export type SubAccountStatus = "active" | "suspended" | "parent-suspended" | "de
 // @public (undocumented)
 export interface SubAccountUsageBreakdown {
     // (undocumented)
-    account_id?: UUID;
+    account_id?: UUID | undefined;
     // (undocumented)
     allocated_cost: number;
     // (undocumented)
-    name?: string;
+    name?: string | undefined;
     reception_count: number;
 }
 
@@ -1417,37 +1417,37 @@ export interface TelemetryHooks {
 
 // @public
 export type Tracking = {
-    open?: boolean | null;
-    click?: boolean | null;
+    open?: boolean | null | undefined;
+    click?: boolean | null | undefined;
 } | null;
 
 // @public (undocumented)
 export interface UpdateAccountRequest {
     // (undocumented)
-    about?: string;
+    about?: string | undefined;
     // (undocumented)
-    message_data_retention?: number;
+    message_data_retention?: number | undefined;
     // (undocumented)
-    message_metadata_retention?: number;
+    message_metadata_retention?: number | undefined;
     // (undocumented)
-    name?: string;
+    name?: string | undefined;
     // (undocumented)
-    reject_bad_recipients?: boolean;
+    reject_bad_recipients?: boolean | undefined;
     // (undocumented)
-    reject_mistyped_recipients?: boolean;
+    reject_mistyped_recipients?: boolean | undefined;
     // (undocumented)
-    track_clicks?: boolean;
+    track_clicks?: boolean | undefined;
     // (undocumented)
-    track_opens?: boolean;
+    track_opens?: boolean | undefined;
     // (undocumented)
-    website?: string;
+    website?: string | undefined;
 }
 
 // @public
 export type UpdateAPIKeyRequest = {
-    label?: string | null;
-    scopes?: readonly APIKeyScopeName[] | null;
-    ip_allow_list?: readonly string[] | null;
+    label?: string | null | undefined;
+    scopes?: readonly APIKeyScopeName[] | null | undefined;
+    ip_allow_list?: readonly string[] | null | undefined;
 } & ({
     label: string;
 } | {
@@ -1459,43 +1459,43 @@ export type UpdateAPIKeyRequest = {
 // @public (undocumented)
 export interface UpdateDomainRequest {
     // (undocumented)
-    dkim_rotation_interval_days?: number;
-    dkim_selector?: string | null;
+    dkim_rotation_interval_days?: number | undefined;
+    dkim_selector?: string | null | undefined;
     // (undocumented)
-    media_subdomain?: string;
+    media_subdomain?: string | undefined;
     // (undocumented)
-    return_path_subdomain?: string;
+    return_path_subdomain?: string | undefined;
     // (undocumented)
-    subscription_subdomain?: string;
+    subscription_subdomain?: string | undefined;
     // (undocumented)
-    tracking_subdomain?: string;
+    tracking_subdomain?: string | undefined;
 }
 
 // @public (undocumented)
 export interface UpdateRouteRequest {
     // (undocumented)
-    attachments?: boolean | null;
+    attachments?: boolean | null | undefined;
     // (undocumented)
-    enabled?: boolean | null;
+    enabled?: boolean | null | undefined;
     // (undocumented)
-    group_by_message_id?: boolean | null;
+    group_by_message_id?: boolean | null | undefined;
     // (undocumented)
-    headers?: boolean | null;
+    headers?: boolean | null | undefined;
     // (undocumented)
-    name?: string | null;
+    name?: string | null | undefined;
     // (undocumented)
-    recipient?: string | null;
+    recipient?: string | null | undefined;
     // (undocumented)
-    strip_replies?: boolean | null;
+    strip_replies?: boolean | null | undefined;
     // (undocumented)
-    url?: string | null;
+    url?: string | null | undefined;
 }
 
 // @public
 export type UpdateSubAccountRequest = {
-    name?: string | null;
-    website?: string | null;
-    monthly_credit?: number | null;
+    name?: string | null | undefined;
+    website?: string | null | undefined;
+    monthly_credit?: number | null | undefined;
 } & ({
     name: string;
 } | {
@@ -1506,32 +1506,32 @@ export type UpdateSubAccountRequest = {
 
 // @public (undocumented)
 export interface UpdateWebhookRequest {
-    domains?: readonly string[] | null;
+    domains?: readonly string[] | null | undefined;
     // (undocumented)
-    enabled?: boolean | null;
-    name?: string | null;
+    enabled?: boolean | null | undefined;
+    name?: string | null | undefined;
     // (undocumented)
-    on_bounced?: boolean | null;
+    on_bounced?: boolean | null | undefined;
     // (undocumented)
-    on_clicked?: boolean | null;
+    on_clicked?: boolean | null | undefined;
     // (undocumented)
-    on_delivered?: boolean | null;
+    on_delivered?: boolean | null | undefined;
     // (undocumented)
-    on_dns_error?: boolean | null;
+    on_dns_error?: boolean | null | undefined;
     // (undocumented)
-    on_failed?: boolean | null;
+    on_failed?: boolean | null | undefined;
     // (undocumented)
-    on_opened?: boolean | null;
+    on_opened?: boolean | null | undefined;
     // (undocumented)
-    on_reception?: boolean | null;
+    on_reception?: boolean | null | undefined;
     // (undocumented)
-    on_suppressed?: boolean | null;
+    on_suppressed?: boolean | null | undefined;
     // (undocumented)
-    on_suppression_created?: boolean | null;
+    on_suppression_created?: boolean | null | undefined;
     // (undocumented)
-    on_transient_error?: boolean | null;
-    scope?: WebhookScope | null;
-    url?: string | null;
+    on_transient_error?: boolean | null | undefined;
+    scope?: WebhookScope | null | undefined;
+    url?: string | null | undefined;
 }
 
 // @public (undocumented)
@@ -1616,7 +1616,7 @@ export type WebhookScope = "global" | "scoped";
 // @public (undocumented)
 export interface WipeSuppressionsParams {
     // (undocumented)
-    domain?: string;
+    domain?: string | undefined;
 }
 
 // (No @packageDocumentation comment for this package)

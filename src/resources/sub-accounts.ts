@@ -37,15 +37,15 @@ export interface CreateSubAccountRequest {
   name: string;
   website: string;
   /** OpenAPI `int64`, represented as a JavaScript number. Valid values are 0 to 1 billion. */
-  monthly_credit?: number;
+  monthly_credit?: number | undefined;
 }
 
 /** At least one non-null field is required; omitted or null fields are left unchanged. */
 export type UpdateSubAccountRequest = {
-  name?: string | null;
-  website?: string | null;
+  name?: string | null | undefined;
+  website?: string | null | undefined;
   /** OpenAPI `int64`, represented as a JavaScript number. Valid values are 0 to 1 billion. */
-  monthly_credit?: number | null;
+  monthly_credit?: number | null | undefined;
 } & ({ name: string } | { website: string } | { monthly_credit: number });
 
 export interface SuspendSubAccountRequest {
@@ -53,8 +53,8 @@ export interface SuspendSubAccountRequest {
 }
 
 export interface SubAccountUsageBreakdown {
-  account_id?: UUID;
-  name?: string;
+  account_id?: UUID | undefined;
+  name?: string | undefined;
   /** OpenAPI `int64`, represented as a number and only exact within the safe-integer range. */
   reception_count: number;
   allocated_cost: number;

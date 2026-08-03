@@ -39,13 +39,13 @@ export interface CreatedSMTPCredential extends SMTPCredential {
 export type CreateSMTPCredentialRequest =
   | {
       name: string;
-      sandbox?: boolean;
+      sandbox?: boolean | undefined;
       scope: "global";
-      domains?: readonly string[] | null;
+      domains?: readonly string[] | null | undefined;
     }
   | {
       name: string;
-      sandbox?: boolean;
+      sandbox?: boolean | undefined;
       scope: "scoped";
       domains: readonly string[];
     };

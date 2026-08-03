@@ -24,13 +24,13 @@ export type SubstitutionValue = unknown;
 export interface Recipient {
   email: string;
   /** Display name rendered alongside the address. */
-  name?: string;
+  name?: string | undefined;
   /**
    * Per-recipient template variables, rendered with Jinja2 syntax
    * (`{{ first_name }}`) in the subject and body. Overrides keys of the
    * same name in the request-level `substitutions`.
    */
-  substitutions?: Record<string, SubstitutionValue>;
+  substitutions?: Record<string, SubstitutionValue> | undefined;
 }
 
 /** File attachment on an outgoing message. */
@@ -45,9 +45,9 @@ export interface Attachment {
   content_type: string;
   file_name: string;
   /** Set `true` when `data` is base64-encoded. Defaults to `false`. */
-  base64?: boolean;
+  base64?: boolean | undefined;
   /** `attachment` (default) or `inline` (for embedded images). */
-  content_disposition?: string;
+  content_disposition?: string | undefined;
   /**
    * Content-ID for inline images. The value **must be wrapped in angle
    * brackets**, matching the MIME `Content-ID` header format — for example
@@ -57,23 +57,23 @@ export interface Attachment {
    * If the angle brackets are omitted the file is delivered as a regular
    * downloadable attachment instead of rendering inline.
    */
-  content_id?: string;
+  content_id?: string | undefined;
 }
 
 /** Per-message tracking overrides. `null` restores all account defaults. */
 export type Tracking = {
   /** `null` opts back to the account default. */
-  open?: boolean | null;
+  open?: boolean | null | undefined;
   /** `null` opts back to the account default. */
-  click?: boolean | null;
+  click?: boolean | null | undefined;
 } | null;
 
 /** Per-message retention overrides. `null` restores all account defaults. */
 export type Retention = {
   /** `null` opts back to the account default. */
-  metadata?: number | null;
+  metadata?: number | null | undefined;
   /** `null` opts back to the account default. */
-  data?: number | null;
+  data?: number | null | undefined;
 } | null;
 
 /** Delivery scheduling for a message. */
@@ -82,12 +82,12 @@ export interface MessageSchedule {
    * RFC 3339 timestamp of the earliest delivery attempt. Must be in the
    * future and within 7 days of the request.
    */
-  first_attempt?: ISODateTime;
+  first_attempt?: ISODateTime | undefined;
   /**
    * RFC 3339 timestamp after which delivery is abandoned. Must be in
    * the future and within 8 days of the request.
    */
-  expires?: ISODateTime;
+  expires?: ISODateTime | undefined;
 }
 
 /**
@@ -108,32 +108,32 @@ export interface CreateMessageRequest {
   /** 1–100 recipients (the API rejects an empty array). */
   recipients: readonly Recipient[];
   subject: string;
-  reply_to?: Address;
+  reply_to?: Address | undefined;
   /** Plain-text body. Required if `html_content` is empty. */
-  text_content?: string;
+  text_content?: string | undefined;
   /** HTML body. Required if `text_content` is empty. */
-  html_content?: string;
+  html_content?: string | undefined;
   /** AMP HTML variant. */
-  amp_content?: string;
-  attachments?: readonly Attachment[];
+  amp_content?: string | undefined;
+  attachments?: readonly Attachment[] | undefined;
   /** Custom SMTP headers. `Reply-To` and `Message-ID` are managed by the API. */
-  headers?: Record<string, string>;
+  headers?: Record<string, string> | undefined;
   /** Request-level template variables; per-recipient substitutions win. */
-  substitutions?: Record<string, SubstitutionValue>;
+  substitutions?: Record<string, SubstitutionValue> | undefined;
   /** Free-form tags for filtering in lists, statistics, and webhooks. */
-  tags?: readonly string[];
+  tags?: readonly string[] | undefined;
   /**
    * Sandbox mode: the API validates and accepts the request but no
    * email leaves the platform. The `from` domain must still be verified.
    */
-  sandbox?: boolean;
+  sandbox?: boolean | undefined;
   /** Simulated outcome when `sandbox: true`. Defaults to `deliver`. */
-  sandbox_result?: SandboxResult;
+  sandbox_result?: SandboxResult | undefined;
   /** Open/click tracking overrides; `null` fields fall back to account defaults. */
-  tracking?: Tracking;
+  tracking?: Tracking | undefined;
   /** Data-retention overrides; `null` fields fall back to account defaults. */
-  retention?: Retention;
-  schedule?: MessageSchedule;
+  retention?: Retention | undefined;
+  schedule?: MessageSchedule | undefined;
 }
 
 export interface CreateConversationMessageRequest {
@@ -141,20 +141,20 @@ export interface CreateConversationMessageRequest {
   /** 1–50 To recipients (combined To+Cc+Bcc must be ≤50). */
   to: readonly Address[];
   subject: string;
-  cc?: readonly Address[];
-  bcc?: readonly Address[];
-  reply_to?: Address;
-  text_content?: string;
-  html_content?: string;
-  amp_content?: string;
-  attachments?: readonly Attachment[];
-  headers?: Record<string, string>;
-  tags?: readonly string[];
-  sandbox?: boolean;
-  sandbox_result?: SandboxResult;
-  tracking?: Tracking;
-  retention?: Retention;
-  schedule?: MessageSchedule;
+  cc?: readonly Address[] | undefined;
+  bcc?: readonly Address[] | undefined;
+  reply_to?: Address | undefined;
+  text_content?: string | undefined;
+  html_content?: string | undefined;
+  amp_content?: string | undefined;
+  attachments?: readonly Attachment[] | undefined;
+  headers?: Record<string, string> | undefined;
+  tags?: readonly string[] | undefined;
+  sandbox?: boolean | undefined;
+  sandbox_result?: SandboxResult | undefined;
+  tracking?: Tracking | undefined;
+  retention?: Retention | undefined;
+  schedule?: MessageSchedule | undefined;
 }
 
 export type SendMessageStatus = "queued" | "scheduled" | "error";
@@ -172,7 +172,7 @@ export interface SendMessageResult {
   recipient: Recipient & { name: string };
   status: SendMessageStatus;
   error: string | null;
-  schedule?: MessageSchedule;
+  schedule?: MessageSchedule | undefined;
 }
 
 export interface SendMessageResponse {
@@ -231,19 +231,19 @@ export interface MessageSummary {
 }
 
 export interface Message extends MessageSummary {
-  content?: string;
-  content_parsed?: MessageContentParsed;
+  content?: string | undefined;
+  content_parsed?: MessageContentParsed | undefined;
 }
 
 export type ListMessagesParams = PaginationParams & {
-  status?: string;
-  sender?: string;
-  recipient?: string;
-  subject?: string;
-  message_id_header?: string;
-  tags?: string;
-  from_time?: ISODateTime;
-  to_time?: ISODateTime;
+  status?: string | undefined;
+  sender?: string | undefined;
+  recipient?: string | undefined;
+  subject?: string | undefined;
+  message_id_header?: string | undefined;
+  tags?: string | undefined;
+  from_time?: ISODateTime | undefined;
+  to_time?: ISODateTime | undefined;
 };
 
 /** Send, list, fetch, and cancel transactional messages. */

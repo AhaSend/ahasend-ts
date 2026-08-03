@@ -1136,41 +1136,43 @@ const updateAPIKeyBody: SDK.UpdateAPIKeyRequest = { ip_allow_list: [] };
 const pingExecution: SDK.AhaSendPromise<SDK.SuccessResponse> = operations.execute("ping", {});
 const messageExecution: SDK.AhaSendPromise<SDK.SendMessageResponse> = operations.execute(
   "createMessage",
-  { path: { account_id: "account-id" }, body: messageBody },
+  { path: { account_id: "22222222-2222-4222-8222-222222222222" }, body: messageBody },
 );
 operations.execute("createConversationMessage", {
-  path: { account_id: "account-id" },
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
   body: conversationBody,
 });
 operations.execute("createWebhook", {
-  path: { account_id: "account-id" },
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
   body: createWebhookBody,
 });
 operations.execute("updateWebhook", {
-  path: { account_id: "account-id", webhook_id: "webhook-id" },
+  path: { account_id: "22222222-2222-4222-8222-222222222222", webhook_id: "webhook-id" },
   body: updateWebhookBody,
 });
 operations.execute("createSMTPCredential", {
-  path: { account_id: "account-id" },
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
   body: smtpBody,
 });
 operations.execute("createAPIKey", {
-  path: { account_id: "account-id" },
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
   body: createAPIKeyBody,
 });
 operations.execute("updateAPIKey", {
-  path: { account_id: "account-id", key_id: "key-id" },
+  path: { account_id: "22222222-2222-4222-8222-222222222222", key_id: "key-id" },
   body: updateAPIKeyBody,
 });
 
 // @ts-expect-error Body-bearing operations require their generated request body.
-operations.execute("createMessage", { path: { account_id: "account-id" } });
+operations.execute("createMessage", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
+});
 operations.execute("ping", {
   // @ts-expect-error Bodyless operations do not accept a request body.
   body: {},
 });
 operations.execute("createWebhook", {
-  path: { account_id: "account-id" },
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
   // Scoped domains are typed as a plain array so runtime-built lists assign;
   // emptiness is rejected by assertNonEmptyArray at the resource boundary.
   body: {
@@ -1181,7 +1183,7 @@ operations.execute("createWebhook", {
   },
 });
 operations.execute("createSMTPCredential", {
-  path: { account_id: "account-id" },
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
   // Emptiness is rejected at runtime; see assertNonEmptyArray.
   body: {
     name: "Invalid empty scoped SMTP credential",
@@ -1310,4 +1312,40 @@ export type DeclarationContracts = [
   DomainRequestOptions,
   APIKeyRequestOptions,
   ListMembersParams,
+];
+
+// Optional members admit `undefined` explicitly. JSON has no `undefined`, so
+// "absent" and "present but undefined" are the same value on the wire — but
+// under `exactOptionalPropertyTypes` (which this SDK and a growing number of
+// consumers enable) a bare `?: T` rejects the ordinary case of forwarding a
+// value that is already `T | undefined`. These pin the ergonomics so the
+// generator cannot silently drop the suffix again.
+declare const partialTemplate: { html: string | undefined; text: string | undefined };
+declare const optionalCursor: string | undefined;
+
+const optionalRequestFields: SDK.CreateMessageRequest = {
+  from: { email: "sender@example.com" },
+  recipients: [{ email: "recipient@example.com" }],
+  subject: "Optional content forwarded straight through",
+  html_content: partialTemplate.html,
+  text_content: partialTemplate.text,
+};
+
+// The manual cursor loop exactly as the docs present it.
+const documentedCursorPage: SDK.ListDomainsParams = { limit: 100, after: optionalCursor };
+const documentedBackwardPage: SDK.ListMessagesParams = { limit: 100, before: optionalCursor };
+
+type OptionalUndefinedContracts = [
+  Expect<Equal<undefined extends SDK.CreateMessageRequest["html_content"] ? true : false, true>>,
+  Expect<Equal<undefined extends SDK.CreateAPIKeyRequest["ip_allow_list"] ? true : false, true>>,
+  Expect<Equal<undefined extends SDK.PaginationParams["limit"] ? true : false, true>>,
+  // Cursor exclusivity survives the widening.
+  Expect<Equal<{ after: "a"; before: "b" } extends SDK.PaginationParams ? true : false, false>>,
+];
+
+export type TypeSurfaceContracts = [
+  OptionalUndefinedContracts,
+  typeof optionalRequestFields,
+  typeof documentedCursorPage,
+  typeof documentedBackwardPage,
 ];

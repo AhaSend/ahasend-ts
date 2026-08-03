@@ -30,15 +30,15 @@ export interface Account {
 }
 
 export interface UpdateAccountRequest {
-  name?: string;
-  website?: string;
-  about?: string;
-  track_opens?: boolean;
-  track_clicks?: boolean;
-  reject_bad_recipients?: boolean;
-  reject_mistyped_recipients?: boolean;
-  message_metadata_retention?: number;
-  message_data_retention?: number;
+  name?: string | undefined;
+  website?: string | undefined;
+  about?: string | undefined;
+  track_opens?: boolean | undefined;
+  track_clicks?: boolean | undefined;
+  reject_bad_recipients?: boolean | undefined;
+  reject_mistyped_recipients?: boolean | undefined;
+  message_metadata_retention?: number | undefined;
+  message_data_retention?: number | undefined;
 }
 
 export interface UserAccount {
@@ -56,7 +56,7 @@ export interface ListAccountMembersResponse {
 
 export interface AddAccountMemberRequest {
   email: string;
-  name?: string;
+  name?: string | undefined;
   role: AccountMemberRole;
 }
 

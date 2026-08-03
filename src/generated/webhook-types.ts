@@ -68,34 +68,34 @@ export interface components {
         | "message.suppressed"
         | "message.opened"
         | "message.clicked";
-      webhook_id?: string;
+      webhook_id?: string | undefined;
       timestamp: string;
       data: components["schemas"]["MessageWebhookData"];
     };
     MessageReceptionWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-      type?: "message.reception";
+      type?: "message.reception" | undefined;
     };
     MessageDeliveredWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-      type?: "message.delivered";
+      type?: "message.delivered" | undefined;
     };
     MessageTransientErrorWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-      type?: "message.transient_error";
+      type?: "message.transient_error" | undefined;
     };
     MessageFailedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-      type?: "message.failed";
+      type?: "message.failed" | undefined;
     };
     MessageBouncedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-      type?: "message.bounced";
+      type?: "message.bounced" | undefined;
     };
     MessageSuppressedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-      type?: "message.suppressed";
+      type?: "message.suppressed" | undefined;
     };
     MessageOpenedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-      type?: "message.opened";
+      type?: "message.opened" | undefined;
     };
     MessageClickedWebhookPayload: {
       type: "message.clicked";
-      webhook_id?: string;
+      webhook_id?: string | undefined;
       timestamp: string;
       data: components["schemas"]["MessageClickedWebhookData"];
     };
@@ -115,9 +115,9 @@ export interface components {
       subject: string;
       message_id_header: string;
       id: string;
-      user_agent?: string;
-      ip?: string;
-      is_bot?: boolean;
+      user_agent?: string | undefined;
+      ip?: string | undefined;
+      is_bot?: boolean | undefined;
     };
     MessageClickedWebhookData: {
       account_id: string;
@@ -130,11 +130,11 @@ export interface components {
       user_agent: string;
       ip: string;
       id: string;
-      is_bot?: boolean;
+      is_bot?: boolean | undefined;
     };
     SuppressionWebhookPayload: {
       type: "suppression.created";
-      webhook_id?: string;
+      webhook_id?: string | undefined;
       timestamp: string;
       data: components["schemas"]["SuppressionWebhookData"];
     };
@@ -148,7 +148,7 @@ export interface components {
     };
     DomainWebhookPayload: {
       type: "domain.dns_error";
-      webhook_id?: string;
+      webhook_id?: string | undefined;
       timestamp: string;
       data: components["schemas"]["DomainWebhookData"];
     };
@@ -169,30 +169,32 @@ export interface components {
     RouteWebhookData: {
       id: string;
       from: string;
-      reply_to?: string;
+      reply_to?: string | undefined;
       to: string;
       subject: string;
       message_id: string;
       size: number;
-      spam_score?: number;
+      spam_score?: number | undefined;
       bounce: boolean;
-      cc?: string;
-      date?: string;
-      in_reply_to?: string;
-      references?: string;
-      auto_submitted?: string;
+      cc?: string | undefined;
+      date?: string | undefined;
+      in_reply_to?: string | undefined;
+      references?: string | undefined;
+      auto_submitted?: string | undefined;
       html_body: string;
       plain_body: string;
-      reply_from_plain_body?: string;
-      attachments?: Array<components["schemas"]["RouteAttachment"]>;
-      headers?: {
-        [key: string]: string;
-      };
+      reply_from_plain_body?: string | undefined;
+      attachments?: Array<components["schemas"]["RouteAttachment"]> | undefined;
+      headers?:
+        | {
+            [key: string]: string;
+          }
+        | undefined;
     };
     RouteAttachment: {
       filename: string;
       content_type: string;
-      content_id?: string;
+      content_id?: string | undefined;
       data: string;
     };
   };

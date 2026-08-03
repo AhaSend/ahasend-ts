@@ -299,13 +299,13 @@ describe("client-bound operation execution", () => {
     );
     const first = new AhaSendClient({
       apiKey: "aha-sk-first",
-      accountId: "acc_first",
+      accountId: "66666666-6666-4666-8666-666666666666",
       baseUrl: "https://first.test",
       fetch: firstTransport,
     });
     const second = new AhaSendClient({
       apiKey: "aha-sk-second",
-      accountId: "acc_second",
+      accountId: "44444444-4444-4444-8444-444444444444",
       baseUrl: "https://second.test",
       fetch: secondTransport,
     });

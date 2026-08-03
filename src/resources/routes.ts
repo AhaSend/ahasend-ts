@@ -42,26 +42,26 @@ export interface CreateRouteRequest {
   name: string;
   url: string;
   recipient: string;
-  attachments?: boolean;
-  headers?: boolean;
-  group_by_message_id?: boolean;
-  strip_replies?: boolean;
-  enabled?: boolean;
+  attachments?: boolean | undefined;
+  headers?: boolean | undefined;
+  group_by_message_id?: boolean | undefined;
+  strip_replies?: boolean | undefined;
+  enabled?: boolean | undefined;
 }
 
 export interface UpdateRouteRequest {
-  name?: string | null;
-  url?: string | null;
-  recipient?: string | null;
-  attachments?: boolean | null;
-  headers?: boolean | null;
-  group_by_message_id?: boolean | null;
-  strip_replies?: boolean | null;
-  enabled?: boolean | null;
+  name?: string | null | undefined;
+  url?: string | null | undefined;
+  recipient?: string | null | undefined;
+  attachments?: boolean | null | undefined;
+  headers?: boolean | null | undefined;
+  group_by_message_id?: boolean | null | undefined;
+  strip_replies?: boolean | null | undefined;
+  enabled?: boolean | null | undefined;
 }
 
 export type ListRoutesParams = PaginationParams & {
-  domain?: string;
+  domain?: string | undefined;
 };
 
 /**

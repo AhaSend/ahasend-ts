@@ -62,6 +62,25 @@ export type WebhookEvent =
   | MessageRoutingEvent;
 
 export type { UnknownWebhookEvent };
+/**
+ * Any event this SDK can hand back: one of the 11 known events, or an
+ * {@link UnknownWebhookEvent} for a type added after this release.
+ *
+ * Because `AnyWebhookEvent` includes a forward-compatible
+ * `UnknownWebhookEvent` whose `type` is a plain `string`, a bare
+ * `switch (event.type)` does **not** narrow `event.data` — every branch still
+ * includes the unknown member, so `data` stays `unknown`. Narrow with
+ * {@link isKnownWebhookEvent} first:
+ *
+ * ```ts
+ * if (!isKnownWebhookEvent(event)) return; // future event type
+ * switch (event.type) {
+ *   case "message.bounced":
+ *     await suppress(event.data.recipient); // fully typed
+ *     break;
+ * }
+ * ```
+ */
 export type AnyWebhookEvent = WebhookEvent | UnknownWebhookEvent;
 
 export function isKnownWebhookEventType(type: string): type is WebhookEventType {

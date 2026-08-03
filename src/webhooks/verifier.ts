@@ -77,7 +77,24 @@ export class WebhookVerifier {
     }
   }
 
-  /** Verify, parse, validate, and normalize a webhook event. */
+  /**
+   * Verify, parse, validate, and normalize a webhook event.
+   *
+   * Because `AnyWebhookEvent` includes a forward-compatible
+   * `UnknownWebhookEvent` whose `type` is a plain `string`, a bare
+   * `switch (event.type)` does **not** narrow `event.data` — every branch still
+   * includes the unknown member, so `data` stays `unknown`. Narrow with
+   * {@link isKnownWebhookEvent} first:
+   *
+   * ```ts
+   * if (!isKnownWebhookEvent(event)) return; // future event type
+   * switch (event.type) {
+   *   case "message.bounced":
+   *     await suppress(event.data.recipient); // fully typed
+   *     break;
+   * }
+   * ```
+   */
   parse(headers: HeadersInput, rawBody: RawBody): AnyWebhookEvent {
     this.verify(headers, rawBody);
     const text = typeof rawBody === "string" ? rawBody : rawBody.toString("utf-8");

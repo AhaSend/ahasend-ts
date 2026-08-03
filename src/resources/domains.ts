@@ -21,7 +21,7 @@ export interface DNSRecord {
   content: string;
   required: boolean;
   propagated: boolean;
-  label?: string;
+  label?: string | undefined;
 }
 
 export interface Domain {
@@ -45,29 +45,29 @@ export interface Domain {
 }
 
 export type ListDomainsParams = PaginationParams & {
-  dns_valid?: boolean;
+  dns_valid?: boolean | undefined;
 };
 
 export interface CreateDomainRequest {
   domain: string;
-  dkim_private_key?: string;
-  tracking_subdomain?: string;
-  return_path_subdomain?: string;
-  subscription_subdomain?: string;
-  media_subdomain?: string;
-  dkim_rotation_interval_days?: number;
+  dkim_private_key?: string | undefined;
+  tracking_subdomain?: string | undefined;
+  return_path_subdomain?: string | undefined;
+  subscription_subdomain?: string | undefined;
+  media_subdomain?: string | undefined;
+  dkim_rotation_interval_days?: number | undefined;
   /** Custom selector; null, empty, or whitespace-only uses the default selector on create. */
-  dkim_selector?: string | null;
+  dkim_selector?: string | null | undefined;
 }
 
 export interface UpdateDomainRequest {
-  tracking_subdomain?: string;
-  return_path_subdomain?: string;
-  subscription_subdomain?: string;
-  media_subdomain?: string;
-  dkim_rotation_interval_days?: number;
+  tracking_subdomain?: string | undefined;
+  return_path_subdomain?: string | undefined;
+  subscription_subdomain?: string | undefined;
+  media_subdomain?: string | undefined;
+  dkim_rotation_interval_days?: number | undefined;
   /** Null leaves the selector unchanged; empty or whitespace-only clears the current override. */
-  dkim_selector?: string | null;
+  dkim_selector?: string | null | undefined;
 }
 
 /** Manage sending domains and their DNS verification state. */
