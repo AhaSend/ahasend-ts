@@ -14,13 +14,13 @@ export const MIN_REQUESTS_PER_SECOND = 1000 / 2_147_483_647;
 export interface CategoryRateLimit {
   requestsPerSecond: number;
   burst: number;
-  enabled?: boolean;
+  enabled?: boolean | undefined;
 }
 
 export interface RateLimitConfig {
-  enabled?: boolean;
-  standard?: Partial<CategoryRateLimit>;
-  statistics?: Partial<CategoryRateLimit>;
+  enabled?: boolean | undefined;
+  standard?: Partial<CategoryRateLimit> | undefined;
+  statistics?: Partial<CategoryRateLimit> | undefined;
 }
 
 export interface ResolvedCategoryRateLimit {

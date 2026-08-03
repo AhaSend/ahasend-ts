@@ -93,13 +93,20 @@ export class AhaSendClient {
     // otherwise looks healthy — `ping()` takes no account_id and still
     // succeeds — and then throws a bare TypeError from inside the transport,
     // which `isAhaSendError()` does not match.
-    if (!UUID_PATTERN.test(options.accountId.trim())) {
-      throw new AhaSendConfigurationError(
-        `AhaSend: \`accountId\` must be a UUID; received ${JSON.stringify(options.accountId)}.`,
-      );
+    // Validate and store the SAME value. Secrets arrive from files and shells
+    // with trailing newlines (`$(cat id)`, a file-backed Kubernetes secret, a
+    // stray space in a `.env`), so trim first — validating the trimmed form
+    // while storing the raw one would let padding through and reproduce the
+    // exact late TypeError this check exists to prevent.
+    const accountId = options.accountId.trim();
+    if (!UUID_PATTERN.test(accountId)) {
+      // Deliberately does not echo the value: a swapped `AHASEND_ACCOUNT_ID`
+      // / `AHASEND_API_KEY` pair is a common mistake, and this message reaches
+      // logs.
+      throw new AhaSendConfigurationError("AhaSend: `accountId` must be a UUID.");
     }
 
-    const { accountId, ...clientOptions } = options;
+    const { accountId: _rawAccountId, ...clientOptions } = options;
     const config = resolveConfig(clientOptions);
     this.#http = new HttpClient(config);
     this.#operations = new OperationExecutor(this.#http);

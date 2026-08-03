@@ -48,6 +48,11 @@ Initial release.
   scoped webhook / SMTP-credential `domains`). These throw
   `AhaSendConfigurationError` synchronously, before the request is
   dispatched, so the failure is local rather than a server 422.
+- Construction validates `accountId` as a UUID (the format every
+  account-scoped path parameter declares) and stores it trimmed, so a
+  dashboard slug or a secret with a trailing newline fails at boot with
+  `AhaSendConfigurationError` instead of a bare `TypeError` on the
+  first account-scoped call. The message does not echo the value.
 - Security guards: HTTPS-only base URL (localhost exempt) and a
   browser-environment check, both with explicit opt-outs.
 - Spec-conformance test suite validating every SDK method's verb +

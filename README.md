@@ -79,7 +79,7 @@ Every option, with its default:
 ```ts
 const client = new AhaSendClient({
   apiKey: "aha-sk-…", // required
-  accountId: "uuid", // required — one client per account
+  accountId: "uuid", // required, must be a UUID — one client per account
   baseUrl: "https://api.ahasend.com", // HTTPS enforced (localhost exempt)
   dangerouslyAllowInsecureBaseUrl: false, // dangerous: permits bearer keys over HTTP
   timeoutMs: 30_000, // default per-attempt timeout in MILLISECONDS

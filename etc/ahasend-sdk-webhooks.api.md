@@ -54,34 +54,34 @@ interface components {
     schemas: {
         MessageWebhookPayload: {
             type: "message.reception" | "message.delivered" | "message.transient_error" | "message.failed" | "message.bounced" | "message.suppressed" | "message.opened" | "message.clicked";
-            webhook_id?: string | undefined;
+            webhook_id?: string;
             timestamp: string;
             data: components["schemas"]["MessageWebhookData"];
         };
         MessageReceptionWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-            type?: "message.reception" | undefined;
+            type?: "message.reception";
         };
         MessageDeliveredWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-            type?: "message.delivered" | undefined;
+            type?: "message.delivered";
         };
         MessageTransientErrorWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-            type?: "message.transient_error" | undefined;
+            type?: "message.transient_error";
         };
         MessageFailedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-            type?: "message.failed" | undefined;
+            type?: "message.failed";
         };
         MessageBouncedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-            type?: "message.bounced" | undefined;
+            type?: "message.bounced";
         };
         MessageSuppressedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-            type?: "message.suppressed" | undefined;
+            type?: "message.suppressed";
         };
         MessageOpenedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
-            type?: "message.opened" | undefined;
+            type?: "message.opened";
         };
         MessageClickedWebhookPayload: {
             type: "message.clicked";
-            webhook_id?: string | undefined;
+            webhook_id?: string;
             timestamp: string;
             data: components["schemas"]["MessageClickedWebhookData"];
         };
@@ -93,9 +93,9 @@ interface components {
             subject: string;
             message_id_header: string;
             id: string;
-            user_agent?: string | undefined;
-            ip?: string | undefined;
-            is_bot?: boolean | undefined;
+            user_agent?: string;
+            ip?: string;
+            is_bot?: boolean;
         };
         MessageClickedWebhookData: {
             account_id: string;
@@ -108,11 +108,11 @@ interface components {
             user_agent: string;
             ip: string;
             id: string;
-            is_bot?: boolean | undefined;
+            is_bot?: boolean;
         };
         SuppressionWebhookPayload: {
             type: "suppression.created";
-            webhook_id?: string | undefined;
+            webhook_id?: string;
             timestamp: string;
             data: components["schemas"]["SuppressionWebhookData"];
         };
@@ -126,7 +126,7 @@ interface components {
         };
         DomainWebhookPayload: {
             type: "domain.dns_error";
-            webhook_id?: string | undefined;
+            webhook_id?: string;
             timestamp: string;
             data: components["schemas"]["DomainWebhookData"];
         };
@@ -147,30 +147,30 @@ interface components {
         RouteWebhookData: {
             id: string;
             from: string;
-            reply_to?: string | undefined;
+            reply_to?: string;
             to: string;
             subject: string;
             message_id: string;
             size: number;
-            spam_score?: number | undefined;
+            spam_score?: number;
             bounce: boolean;
-            cc?: string | undefined;
-            date?: string | undefined;
-            in_reply_to?: string | undefined;
-            references?: string | undefined;
-            auto_submitted?: string | undefined;
+            cc?: string;
+            date?: string;
+            in_reply_to?: string;
+            references?: string;
+            auto_submitted?: string;
             html_body: string;
             plain_body: string;
-            reply_from_plain_body?: string | undefined;
-            attachments?: Array<components["schemas"]["RouteAttachment"]> | undefined;
+            reply_from_plain_body?: string;
+            attachments?: Array<components["schemas"]["RouteAttachment"]>;
             headers?: {
                 [key: string]: string;
-            } | undefined;
+            };
         };
         RouteAttachment: {
             filename: string;
             content_type: string;
-            content_id?: string | undefined;
+            content_id?: string;
             data: string;
         };
     };
@@ -387,7 +387,7 @@ export type WebhookAdapterErrorStage = "setup" | "stream" | "application";
 
 // @public
 export interface WebhookAdapterOptions {
-    maxBodyBytes?: number;
+    maxBodyBytes?: number | undefined;
     // (undocumented)
     onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
 }
@@ -455,7 +455,7 @@ export class WebhookVerifier {
 // @public (undocumented)
 export interface WebhookVerifierOptions {
     // (undocumented)
-    toleranceSeconds?: number;
+    toleranceSeconds?: number | undefined;
 }
 
 // (No @packageDocumentation comment for this package)

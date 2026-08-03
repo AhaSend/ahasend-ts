@@ -34,10 +34,16 @@ mutates a real account, so `live-release` deserves one too.
 **What live-gates actually does.** It exercises all 56 operations against a real
 account. It does **not** deliver mail: every send sets `sandbox: true`, and
 `scripts/live-acceptance.mjs:964` refuses to run a request without it. Routes and
-webhooks are created `enabled: false`. What it *does* do is create and delete real
-domains, routes, webhooks, SMTP credentials, suppressions and sub-accounts, and
-add then remove a real account member. Treat it as destructive to the account,
-not as a mail event.
+webhooks are created `enabled: false`. What it *does* do to the real account: creates and deletes
+domains, routes, webhooks, SMTP credentials, API keys, suppressions and
+sub-accounts; updates the account settings (including its `website`); wipes all
+suppressions for `suppressionDomain` (`methods.wipe({ domain })`); and adds then
+removes a real account member. Treat it as destructive to the account, not as a
+mail event.
+
+One caveat the repo cannot verify: adding an account member is a platform
+action, so AhaSend itself may email an invitation to `disposableMailbox`. "Sends
+no real mail" covers the messages API, which this repo controls — not that.
 
 ### Secrets
 
@@ -98,8 +104,14 @@ Account preconditions:
   send to it is rejected, and deletes it in cleanup. A copy left behind by a
   failed run must be removed before re-tagging.
 - `neverRegisteredDomain` must not exist on the account at all.
-- `lifecycleDomain` and `suppressionDomain` are consumed by create/delete
-  lifecycle scenarios; do not point them at anything you care about.
+- `lifecycleDomain` must **not** exist on the account either — the run creates
+  it (`scripts/run-live-acceptance.mjs:351`), drives it through the full
+  create/update/delete lifecycle, and uses it in the account-settings update.
+  Like `dnslessDomain`, a copy left behind by a cancelled run must be removed
+  before re-tagging.
+- `suppressionDomain` has **every suppression deleted** for it
+  (`deleteAllSuppressions` scoped to that domain). Never point it at a real
+  sending domain whose suppression list matters.
 - `webhookUrl` must accept POSTs and return 2xx.
 
 ---

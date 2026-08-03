@@ -53,8 +53,8 @@ export interface SuspendSubAccountRequest {
 }
 
 export interface SubAccountUsageBreakdown {
-  account_id?: UUID | undefined;
-  name?: string | undefined;
+  account_id?: UUID;
+  name?: string;
   /** OpenAPI `int64`, represented as a number and only exact within the safe-integer range. */
   reception_count: number;
   allocated_cost: number;

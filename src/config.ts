@@ -17,24 +17,24 @@ export const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export interface ClientOptions {
   apiKey: string;
-  baseUrl?: string;
+  baseUrl?: string | undefined;
   /** Timeout for each fetch attempt, including response-body reading. */
-  timeoutMs?: number;
-  userAgent?: string;
-  debug?: boolean;
-  fetch?: typeof fetch;
-  defaultHeaders?: Record<string, string>;
-  idempotency?: IdempotencyConfig;
-  retry?: RetryConfig;
-  rateLimit?: RateLimitConfig;
-  hooks?: TelemetryHooks;
+  timeoutMs?: number | undefined;
+  userAgent?: string | undefined;
+  debug?: boolean | undefined;
+  fetch?: typeof fetch | undefined;
+  defaultHeaders?: Record<string, string> | undefined;
+  idempotency?: IdempotencyConfig | undefined;
+  retry?: RetryConfig | undefined;
+  rateLimit?: RateLimitConfig | undefined;
+  hooks?: TelemetryHooks | undefined;
   /**
    * Allow an HTTP `baseUrl` (other than localhost / loopback).
    * Defaults to `false`. Setting this to `true` lets the SDK send the
    * bearer token in plaintext, which is dangerous; only enable it for
    * development environments where you control the network.
    */
-  dangerouslyAllowInsecureBaseUrl?: boolean;
+  dangerouslyAllowInsecureBaseUrl?: boolean | undefined;
   /**
    * This SDK is server-side only — embedding the bearer API key in a
    * browser bundle exposes it to anyone visiting your site. The
@@ -42,7 +42,7 @@ export interface ClientOptions {
    * Set this to `true` only when you have a non-browser reason for the
    * `window` global to exist (e.g. JSDOM in unit tests).
    */
-  dangerouslyAllowBrowser?: boolean;
+  dangerouslyAllowBrowser?: boolean | undefined;
 }
 
 export interface ResolvedConfig {

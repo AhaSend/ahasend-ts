@@ -172,7 +172,7 @@ export interface SendMessageResult {
   recipient: Recipient & { name: string };
   status: SendMessageStatus;
   error: string | null;
-  schedule?: MessageSchedule | undefined;
+  schedule?: MessageSchedule;
 }
 
 export interface SendMessageResponse {
@@ -231,8 +231,8 @@ export interface MessageSummary {
 }
 
 export interface Message extends MessageSummary {
-  content?: string | undefined;
-  content_parsed?: MessageContentParsed | undefined;
+  content?: string;
+  content_parsed?: MessageContentParsed;
 }
 
 export type ListMessagesParams = PaginationParams & {

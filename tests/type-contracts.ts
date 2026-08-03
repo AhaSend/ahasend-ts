@@ -1335,16 +1335,57 @@ const optionalRequestFields: SDK.CreateMessageRequest = {
 const documentedCursorPage: SDK.ListDomainsParams = { limit: 100, after: optionalCursor };
 const documentedBackwardPage: SDK.ListMessagesParams = { limit: 100, before: optionalCursor };
 
+// Real assignability checks, not `undefined extends T[K]` — indexed access on
+// an optional property always includes `undefined`, so that form is a tautology
+// and passes with or without the explicit suffix. Assigning a literal whose
+// property IS `undefined` is what `exactOptionalPropertyTypes` actually governs.
+const explicitlyUndefinedBody: SDK.CreateMessageRequest = {
+  from: { email: "sender@example.com" },
+  recipients: [{ email: "recipient@example.com" }],
+  subject: "Explicit undefined optionals",
+  html_content: undefined,
+  text_content: undefined,
+  attachments: undefined,
+};
+
+const explicitlyUndefinedOptions: SDK.ClientOptions = {
+  apiKey: "aha-sk-test",
+  baseUrl: undefined,
+  timeoutMs: undefined,
+  userAgent: undefined,
+};
+
+const explicitlyUndefinedRetry: SDK.RetryConfig = {
+  maxRetries: undefined,
+  baseDelayMs: undefined,
+};
+
+const explicitlyUndefinedListParams: SDK.ListMessagesParams = {
+  limit: undefined,
+  after: undefined,
+  status: undefined,
+};
+
 type OptionalUndefinedContracts = [
-  Expect<Equal<undefined extends SDK.CreateMessageRequest["html_content"] ? true : false, true>>,
-  Expect<Equal<undefined extends SDK.CreateAPIKeyRequest["ip_allow_list"] ? true : false, true>>,
-  Expect<Equal<undefined extends SDK.PaginationParams["limit"] ? true : false, true>>,
   // Cursor exclusivity survives the widening.
   Expect<Equal<{ after: "a"; before: "b" } extends SDK.PaginationParams ? true : false, false>>,
+  // Response types stay bare: widening them would break assigning an SDK
+  // response into a consumer's own interface, `"k" in obj` narrowing, and
+  // `Required<T>`.
+  Expect<
+    Equal<
+      { has_more: true; next_cursor: undefined } extends SDK.PaginationMeta ? true : false,
+      false
+    >
+  >,
 ];
 
 export type TypeSurfaceContracts = [
   OptionalUndefinedContracts,
+  typeof explicitlyUndefinedBody,
+  typeof explicitlyUndefinedOptions,
+  typeof explicitlyUndefinedRetry,
+  typeof explicitlyUndefinedListParams,
   typeof optionalRequestFields,
   typeof documentedCursorPage,
   typeof documentedBackwardPage,

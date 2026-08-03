@@ -21,7 +21,7 @@ export interface WebhookAdapterOptions {
    * Maximum raw body bytes to buffer. Defaults to the fixed 30,000,000-byte
    * verifier ceiling and may only narrow that ceiling.
    */
-  maxBodyBytes?: number;
+  maxBodyBytes?: number | undefined;
   onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
 }
 

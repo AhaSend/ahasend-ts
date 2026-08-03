@@ -260,9 +260,9 @@ export interface AhaSendResponse<T> {
     // (undocumented)
     data: T;
     // (undocumented)
-    idempotentReplayed?: boolean | undefined;
+    idempotentReplayed?: boolean;
     // (undocumented)
-    requestId?: string | undefined;
+    requestId?: string;
     // (undocumented)
     response: Response;
 }
@@ -413,7 +413,7 @@ export interface CategoryRateLimit {
     // (undocumented)
     burst: number;
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | undefined;
     // (undocumented)
     requestsPerSecond: number;
 }
@@ -423,26 +423,26 @@ export interface ClientOptions {
     // (undocumented)
     apiKey: string;
     // (undocumented)
-    baseUrl?: string;
-    dangerouslyAllowBrowser?: boolean;
-    dangerouslyAllowInsecureBaseUrl?: boolean;
+    baseUrl?: string | undefined;
+    dangerouslyAllowBrowser?: boolean | undefined;
+    dangerouslyAllowInsecureBaseUrl?: boolean | undefined;
     // (undocumented)
-    debug?: boolean;
+    debug?: boolean | undefined;
     // (undocumented)
-    defaultHeaders?: Record<string, string>;
+    defaultHeaders?: Record<string, string> | undefined;
     // (undocumented)
-    fetch?: typeof fetch;
+    fetch?: typeof fetch | undefined;
     // (undocumented)
-    hooks?: TelemetryHooks;
+    hooks?: TelemetryHooks | undefined;
     // (undocumented)
-    idempotency?: IdempotencyConfig;
+    idempotency?: IdempotencyConfig | undefined;
     // (undocumented)
-    rateLimit?: RateLimitConfig;
+    rateLimit?: RateLimitConfig | undefined;
     // (undocumented)
-    retry?: RetryConfig;
-    timeoutMs?: number;
+    retry?: RetryConfig | undefined;
+    timeoutMs?: number | undefined;
     // (undocumented)
-    userAgent?: string;
+    userAgent?: string | undefined;
 }
 
 // @public (undocumented)
@@ -731,7 +731,7 @@ export interface DNSRecord {
     // (undocumented)
     host: string;
     // (undocumented)
-    label?: string | undefined;
+    label?: string;
     // (undocumented)
     propagated: boolean;
     // (undocumented)
@@ -807,9 +807,9 @@ export function generateIdempotencyKey(prefix?: string): string;
 // @public (undocumented)
 export interface IdempotencyConfig {
     // (undocumented)
-    autoGenerate?: boolean;
+    autoGenerate?: boolean | undefined;
     // (undocumented)
-    prefix?: string;
+    prefix?: string | undefined;
 }
 
 // @public (undocumented)
@@ -892,9 +892,9 @@ export type ListWebhooksParams = PaginationParams & {
 // @public (undocumented)
 export interface Message extends MessageSummary {
     // (undocumented)
-    content?: string | undefined;
+    content?: string;
     // (undocumented)
-    content_parsed?: MessageContentParsed | undefined;
+    content_parsed?: MessageContentParsed;
 }
 
 // @public (undocumented)
@@ -1011,9 +1011,9 @@ export interface PaginationMeta {
     // (undocumented)
     has_more: boolean;
     // (undocumented)
-    next_cursor?: string | undefined;
+    next_cursor?: string;
     // (undocumented)
-    previous_cursor?: string | undefined;
+    previous_cursor?: string;
 }
 
 // @public
@@ -1035,11 +1035,11 @@ export interface PingResponse {
 // @public (undocumented)
 export interface RateLimitConfig {
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | undefined;
     // (undocumented)
-    standard?: Partial<CategoryRateLimit>;
+    standard?: Partial<CategoryRateLimit> | undefined;
     // (undocumented)
-    statistics?: Partial<CategoryRateLimit>;
+    statistics?: Partial<CategoryRateLimit> | undefined;
 }
 
 // @public
@@ -1087,17 +1087,17 @@ export type Retention = {
 // @public (undocumented)
 export interface RetryConfig {
     // (undocumented)
-    baseDelayMs?: number;
+    baseDelayMs?: number | undefined;
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | undefined;
     // (undocumented)
-    jitter?: boolean;
+    jitter?: boolean | undefined;
     // (undocumented)
-    maxDelayMs?: number;
+    maxDelayMs?: number | undefined;
     // (undocumented)
-    maxRetries?: number;
+    maxRetries?: number | undefined;
     // (undocumented)
-    strategy?: RetryStrategy;
+    strategy?: RetryStrategy | undefined;
 }
 
 // @public (undocumented)
@@ -1187,7 +1187,7 @@ export interface SendMessageResult {
         name: string;
     };
     // (undocumented)
-    schedule?: MessageSchedule | undefined;
+    schedule?: MessageSchedule;
     // (undocumented)
     status: SendMessageStatus;
 }
@@ -1329,11 +1329,11 @@ export type SubAccountStatus = "active" | "suspended" | "parent-suspended" | "de
 // @public (undocumented)
 export interface SubAccountUsageBreakdown {
     // (undocumented)
-    account_id?: UUID | undefined;
+    account_id?: UUID;
     // (undocumented)
     allocated_cost: number;
     // (undocumented)
-    name?: string | undefined;
+    name?: string;
     reception_count: number;
 }
 

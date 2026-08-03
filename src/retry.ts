@@ -15,12 +15,12 @@ export type RetryStrategy = "exponential" | "linear" | "constant";
 export const MAX_RETRIES = 20;
 
 export interface RetryConfig {
-  enabled?: boolean;
-  maxRetries?: number;
-  baseDelayMs?: number;
-  maxDelayMs?: number;
-  strategy?: RetryStrategy;
-  jitter?: boolean;
+  enabled?: boolean | undefined;
+  maxRetries?: number | undefined;
+  baseDelayMs?: number | undefined;
+  maxDelayMs?: number | undefined;
+  strategy?: RetryStrategy | undefined;
+  jitter?: boolean | undefined;
 }
 
 export interface ResolvedRetryConfig {

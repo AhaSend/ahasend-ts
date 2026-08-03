@@ -18,7 +18,7 @@ export const DEFAULT_TOLERANCE_SECONDS = 5 * 60;
 export const MAX_WEBHOOK_BODY_BYTES = 30_000_000;
 
 export interface WebhookVerifierOptions {
-  toleranceSeconds?: number;
+  toleranceSeconds?: number | undefined;
 }
 
 interface NormalizedHeaders {

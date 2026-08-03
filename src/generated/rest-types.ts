@@ -113,8 +113,8 @@ export interface components {
     };
     PaginationInfo: {
       has_more: boolean;
-      next_cursor?: string | undefined;
-      previous_cursor?: string | undefined;
+      next_cursor?: string;
+      previous_cursor?: string;
     };
     APIKeyScope: {
       id: string;
@@ -163,7 +163,7 @@ export interface components {
     };
     DNSRecord: {
       type: string;
-      label?: string | undefined;
+      label?: string;
       host: string;
       content: string;
       required: boolean;
@@ -301,7 +301,7 @@ export interface components {
       };
       status: "queued" | "scheduled" | "error";
       error: string | null;
-      schedule?: components["schemas"]["MessageSchedule"] | undefined;
+      schedule?: components["schemas"]["MessageSchedule"];
     };
     CreateMessageResponse: {
       object: "list";
@@ -355,8 +355,8 @@ export interface components {
       account_id: string;
     };
     Message: components["schemas"]["MessageSummary"] & {
-      content?: string | undefined;
-      content_parsed?: components["schemas"]["MessageContentParsed"] | undefined;
+      content?: string;
+      content_parsed?: components["schemas"]["MessageContentParsed"];
     };
     PaginatedMessagesResponse: {
       object: "list";
@@ -417,8 +417,8 @@ export interface components {
       reason: string;
     };
     SubAccountUsageBreakdown: {
-      account_id?: string | undefined;
-      name?: string | undefined;
+      account_id?: string;
+      name?: string;
       reception_count: number;
       allocated_cost: number;
     };

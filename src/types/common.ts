@@ -6,8 +6,8 @@ export type ISODateTime = string;
 export interface AhaSendResponse<T> {
   data: T;
   response: Response;
-  requestId?: string | undefined;
-  idempotentReplayed?: boolean | undefined;
+  requestId?: string;
+  idempotentReplayed?: boolean;
 }
 
 export interface AhaSendPromise<T> extends Promise<T> {
@@ -17,9 +17,10 @@ export interface AhaSendPromise<T> extends Promise<T> {
 /**
  * Cursor pagination inputs. `after` and `before` are mutually exclusive.
  *
- * Optional members admit `undefined` so the documented loop — carrying a
- * `string | undefined` cursor from one page's `next_cursor` into the next
- * request — compiles under `exactOptionalPropertyTypes`.
+ * The value-bearing members admit `undefined` so the documented loop — feeding
+ * one page's `next_cursor` (`string | undefined`) into the next request —
+ * compiles under `exactOptionalPropertyTypes`. The `never` members carry the
+ * exclusivity and stay bare.
  */
 export type PaginationParams = Readonly<
   { limit?: number | undefined } & (
@@ -30,8 +31,8 @@ export type PaginationParams = Readonly<
 
 export interface PaginationMeta {
   has_more: boolean;
-  next_cursor?: string | undefined;
-  previous_cursor?: string | undefined;
+  next_cursor?: string;
+  previous_cursor?: string;
 }
 
 export interface PaginatedResponse<T> {

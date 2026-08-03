@@ -77,13 +77,30 @@ describe("AhaSendClient", () => {
       expect((caught as Error).message).toMatch(/accountId` must be a UUID/);
     }
 
-    expect(
-      () =>
-        new AhaSendClient({
-          apiKey: "aha-sk-test",
-          accountId: " 11111111-1111-4111-8111-111111111111 ",
-        }),
-    ).not.toThrow();
+    // A padded value is accepted AND stored trimmed. Validating the trimmed
+    // form while keeping the raw one would let a trailing newline through — the
+    // classic file-backed-secret case — and reproduce the very late TypeError
+    // this check exists to prevent.
+    const padded = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: " 11111111-1111-4111-8111-111111111111\n",
+    });
+    expect(padded.accountId).toBe("11111111-1111-4111-8111-111111111111");
+  });
+
+  it("does not echo the accountId value in the rejection message", () => {
+    // A swapped AHASEND_ACCOUNT_ID / AHASEND_API_KEY pair is a common mistake,
+    // and this message reaches logs — so it must not carry the value.
+    const secret = "aha-sk-super-secret-key-value";
+    let caught: unknown;
+    try {
+      new AhaSendClient({ apiKey: "aha-sk-test", accountId: secret });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(AhaSendConfigurationError);
+    const rendered = `${(caught as Error).message}${inspect(caught)}${JSON.stringify(caught)}`;
+    expect(rendered).not.toContain(secret);
   });
 
   it("exposes messages, domains, and apiKeys resource clients", () => {

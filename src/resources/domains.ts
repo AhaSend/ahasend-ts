@@ -21,7 +21,7 @@ export interface DNSRecord {
   content: string;
   required: boolean;
   propagated: boolean;
-  label?: string | undefined;
+  label?: string;
 }
 
 export interface Domain {
