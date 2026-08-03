@@ -11,6 +11,7 @@ import auditCases from "../fixtures/release/audit-cases.json";
 interface PackageManifest {
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly devDependencies: Readonly<Record<string, string>>;
+  readonly overrides?: Readonly<Record<string, unknown>>;
 }
 
 interface LockfilePackage {
@@ -74,6 +75,31 @@ describe("dependency audit policy", () => {
     });
   }
 
+  it("pins the dependency overrides that keep the audit surface clean", () => {
+    // These overrides are the only thing holding the audit gate green: without
+    // them postman-collection pulls lodash 4.17.21 (high: _.template code
+    // injection) and uuid 8.3.2, which re-flags the DIRECT devDependency
+    // @stoplight/prism-cli — a class the policy forbids with no exception path.
+    // npm does not record overrides in the lockfile, and package.json is not
+    // hashed into the release evidence, so deleting this block is otherwise
+    // undetectable until someone regenerates the lockfile.
+    expect(packageJson.overrides).toEqual({
+      esbuild: "^0.28.1",
+      "postman-collection": { lodash: "^4.18.1", uuid: "^11.1.1" },
+    });
+
+    expect(lockfilePackage("node_modules/lodash")).toMatchObject({ version: "4.18.1", dev: true });
+    expect(lockfilePackage("node_modules/uuid")).toMatchObject({ version: "11.1.1", dev: true });
+
+    // The nested copies are exactly what the overrides removed.
+    expect(
+      packageLock.packages["node_modules/postman-collection/node_modules/lodash"],
+    ).toBeUndefined();
+    expect(
+      packageLock.packages["node_modules/postman-collection/node_modules/uuid"],
+    ).toBeUndefined();
+  });
+
   it("pins the corrected development tools without adding production dependencies", () => {
     expect(packageJson.dependencies ?? {}).toEqual({});
     expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.0");
@@ -87,16 +113,19 @@ describe("dependency audit policy", () => {
       version: "4.3.0",
       dev: true,
     });
-    for (const [path, version] of [
-      ["node_modules/@stoplight/prism-cli", "5.14.2"],
-      ["node_modules/@stoplight/prism-core", "5.8.0"],
-      ["node_modules/@stoplight/prism-http", "5.12.0"],
-      ["node_modules/@stoplight/prism-http-server", "5.12.2"],
+    // prism-core and prism-http-server were advanced by the audit
+    // remediation that cleared the lodash/uuid advisories; they now declare a
+    // newer engines floor than the CLI that depends on them.
+    for (const [path, version, nodeEngine] of [
+      ["node_modules/@stoplight/prism-cli", "5.14.2", ">=18.20.1"],
+      ["node_modules/@stoplight/prism-core", "5.15.11", ">=24.14.0"],
+      ["node_modules/@stoplight/prism-http", "5.12.0", ">=18.20.1"],
+      ["node_modules/@stoplight/prism-http-server", "5.15.11", ">=24.14.0"],
     ] as const) {
       expect(lockfilePackage(path)).toMatchObject({
         version,
         dev: true,
-        engines: { node: ">=18.20.1" },
+        engines: { node: nodeEngine },
       });
     }
   });
