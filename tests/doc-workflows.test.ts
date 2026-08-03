@@ -110,11 +110,11 @@ describe("documented workflow registry", () => {
   it.each([
     [
       "clone",
-      438,
+      452,
       "git clone https://invalid.example/not-the-sdk.git",
       "clone https://github.com/AhaSend/ahasend-ts.git",
     ],
-    ["working directory", 439, "cd not-the-sdk", "enter the cloned ahasend-ts directory"],
+    ["working directory", 453, "cd not-the-sdk", "enter the cloned ahasend-ts directory"],
   ])("rejects coordinated invalid source setup %s argv", async (_label, line, command, message) => {
     const index = await buildDocumentationIndex();
     const entries = DOCUMENTED_WORKFLOW_REGISTRY.map((entry) =>

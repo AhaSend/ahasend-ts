@@ -64,7 +64,12 @@ const res = await client.messages.send({
   text_content: "Hi there",
 });
 
-console.log({ messageId: res.data[0]?.id });
+// A 202 is multi-status: one result per recipient. Inspect every entry —
+// an individual recipient can come back `status: "error"` with a null `id`
+// (a suppressed address, for example) while the promise still resolves.
+const queued = res.data.filter((r) => r.status !== "error");
+const rejected = res.data.filter((r) => r.status === "error");
+console.log({ queued: queued.length, rejected: rejected.length });
 ```
 
 ### Configuration
@@ -183,8 +188,13 @@ await client.messages.send(body, {
 The SDK attaches a UUID `Idempotency-Key` to every **create** operation
 (all 11 endpoints whose generated operation profile marks them idempotent,
 including message sends and resource creations). The key is generated once per
-call and reused across the SDK's internal retries, so transient failures can
-never double-send. Pass `options.idempotencyKey` to drive the key from your own
+call and reused across the SDK's internal retries. Stored outcomes — 2xx and
+deterministic 4xx — are replayed for 24 hours, so a retry cannot duplicate them.
+Server errors (5xx), handler failures, and panics are **not** stored: the API
+releases the key and a retry re-executes the request, so a 5xx retry can still
+result in a second send. See the
+[retries and idempotency guide](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/retries-and-idempotency.md)
+for the recovery guidance. Pass `options.idempotencyKey` to drive the key from your own
 stable identifier — see `examples/idempotency.mjs`.
 
 `generateIdempotencyKey(prefix?)` and `IdempotencyKeyBuilder` are exported for advanced key
@@ -234,14 +244,18 @@ const client = new AhaSendClient({
   accountId,
   hooks: {
     onRequest: () => metrics.increment("ahasend.request.started"),
+    // onResponse fires only for 2xx; non-2xx attempts fire onError instead,
+    // so a total completion count has to come from both hooks.
     onResponse: (e) => metrics.increment("ahasend.request.completed", { status: e.status }),
     onRetry: () => metrics.increment("ahasend.request.retried"),
-    onError: (e) =>
+    onError: (e) => {
+      metrics.increment("ahasend.request.completed", { status: e.status ?? 0 });
       log.error("AhaSend request failed", {
         status: e.status,
         requestId: e.requestId,
         errorCode: isAhaSendError(e.error) ? e.error.code : "unknown",
-      }),
+      });
+    },
   },
 });
 ```

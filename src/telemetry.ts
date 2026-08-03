@@ -38,7 +38,12 @@ export interface ErrorEvent extends RequestEvent {
 export interface TelemetryHooks {
   /** Runs when an attempt starts. The request does not wait for the returned promise. */
   onRequest?(event: RequestEvent): void | Promise<void>;
-  /** Runs after a response is read. The request does not wait for the returned promise. */
+  /**
+   * Runs only after a **2xx** response is read. Non-2xx responses reject the
+   * attempt, so they fire `onError` instead — count completions from both
+   * hooks if you need a total. The request does not wait for the returned
+   * promise.
+   */
   onResponse?(event: ResponseEvent): void | Promise<void>;
   /** Runs before a retry delay. The request does not wait for the returned promise. */
   onRetry?(event: RetryEvent): void | Promise<void>;

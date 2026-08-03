@@ -49,8 +49,13 @@ export interface Attachment {
   /** `attachment` (default) or `inline` (for embedded images). */
   content_disposition?: string;
   /**
-   * Content-ID for inline images — reference it from HTML as
-   * `<img src="cid:THIS_VALUE">`.
+   * Content-ID for inline images. The value **must be wrapped in angle
+   * brackets**, matching the MIME `Content-ID` header format — for example
+   * `"<image1@example.com>"`. Reference it from `html_content` *without*
+   * the brackets: `<img src="cid:image1@example.com">`.
+   *
+   * If the angle brackets are omitted the file is delivered as a regular
+   * downloadable attachment instead of rendering inline.
    */
   content_id?: string;
 }
@@ -247,6 +252,21 @@ export interface MessagesClient {
    * Send a message to 1–100 recipients. Each recipient gets a separate
    * email with their own substitutions applied.
    *
+   * **This is a multi-status operation.** A 202 does not mean every recipient
+   * was accepted: the promise resolves with one {@link SendMessageResult} per
+   * recipient, and an individual entry can carry `status: "error"` with a
+   * non-null `error` and a null `id` (for example a suppressed address).
+   * Inspect every entry — treating a resolved promise as full success silently
+   * reports dropped mail as delivered:
+   *
+   * ```ts
+   * const res = await client.messages.send({ ... });
+   * const failed = res.data.filter((r) => r.status === "error");
+   * if (failed.length > 0) {
+   *   log.warn("some recipients were not queued", failed);
+   * }
+   * ```
+   *
    * When automatic idempotency is enabled (the default), the SDK generates an
    * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
    * key for your own retries; stored non-server-error results can be replayed
@@ -264,6 +284,21 @@ export interface MessagesClient {
    * Send a single message to multiple To/Cc/Bcc recipients (combined ≤ 50).
    * To and Cc recipients can see one another; Bcc recipients remain hidden.
    * Use {@link send} for individualized fan-out.
+   *
+   * **This is a multi-status operation.** A 202 does not mean every recipient
+   * was accepted: the promise resolves with one {@link SendMessageResult} per
+   * recipient, and an individual entry can carry `status: "error"` with a
+   * non-null `error` and a null `id` (for example a suppressed address).
+   * Inspect every entry — treating a resolved promise as full success silently
+   * reports dropped mail as delivered:
+   *
+   * ```ts
+   * const res = await client.messages.send({ ... });
+   * const failed = res.data.filter((r) => r.status === "error");
+   * if (failed.length > 0) {
+   *   log.warn("some recipients were not queued", failed);
+   * }
+   * ```
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.

@@ -219,7 +219,7 @@ const PACKED_EXAMPLE_MATRIX: readonly PackedExampleCase[] = [
     kind: "guarded-mutation",
     environment: { AHASEND_FROM_EMAIL: `sender@${DOMAIN}` },
     allowedEnvironmentOverrides: ["AHASEND_ALLOW_MUTATIONS"],
-    expectedMarkers: ["✓ sandbox send accepted for ", "recipient(s)"],
+    expectedMarkers: ["✓ sandbox send: ", " queued, ", " rejected"],
     enabledExitCode: 0,
     refusalExitCode: 1,
     usesSecretFile: false,

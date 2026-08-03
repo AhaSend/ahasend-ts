@@ -35,9 +35,11 @@ Initial release.
   verifier (raw-string secrets, byte-compatible with the Go SDK),
   typed events for all 11 event types with a forward-compatible
   `UnknownWebhookEvent` branch, and adapters for Express, Fastify,
-  and Next.js. Adapters enforce a 1 MiB default body limit, opaque
-  400/413 outcomes, observation-only error hooks, and Express 5 native
-  error propagation.
+  and Next.js. Adapters buffer at most 30,000,000 bytes by default
+  (override per adapter with `maxBodyBytes`, and cap it at your proxy
+  too — the body is buffered before the signature is checked), and give
+  opaque 400/413 outcomes, observation-only error hooks, and Express 5
+  native error propagation.
 - Typed error hierarchy mapping every HTTP status the API uses,
   including idempotency-specific 409/422 variants and a
   transport-level `AhaSendResponseParseError` for non-JSON 2xx bodies.
