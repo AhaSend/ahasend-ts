@@ -10,6 +10,7 @@ import {
   parseCanonicalJson,
   parseSha256Sidecar,
   requireExactKeys,
+  requireExactPassedGateResults,
   requireHash,
   requireObject,
   sourceBytes,
@@ -113,35 +114,12 @@ function parseReport(value) {
     "Source gate report auditPolicySha256",
   );
 
-  if (!Array.isArray(value.results)) {
-    throw new TypeError("Source gate report results must be an array.");
-  }
-  const seen = new Set();
-  for (const [index, resultValue] of value.results.entries()) {
-    const label = `Source gate result ${index}`;
-    const result = requireObject(resultValue, label);
-    requireExactKeys(result, ["name", "passed"], label);
-    if (typeof result.name !== "string" || !REQUIRED_SOURCE_GATES.includes(result.name)) {
-      throw new TypeError(`${label}.name is not a required source gate.`);
-    }
-    if (seen.has(result.name)) {
-      throw new TypeError(`Source gate report contains duplicate result ${result.name}.`);
-    }
-    seen.add(result.name);
-    if (result.passed !== true) {
-      throw new TypeError(`Required source gate ${result.name} did not pass.`);
-    }
-  }
-
-  const missing = REQUIRED_SOURCE_GATES.filter((name) => !seen.has(name));
-  if (missing.length > 0) {
-    throw new TypeError(`Source gate report is missing required gates: ${missing.join(", ")}.`);
-  }
-  if (value.results.length !== REQUIRED_SOURCE_GATES.length) {
-    throw new TypeError(
-      `Source gate report must contain exactly ${REQUIRED_SOURCE_GATES.length} results.`,
-    );
-  }
+  requireExactPassedGateResults(value.results, REQUIRED_SOURCE_GATES, {
+    reportLabel: "Source gate report",
+    resultLabel: "Source gate result",
+    gateLabel: "source gate",
+    gatesLabel: "gates",
+  });
 
   return {
     commit,

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseCandidateManifest } from "./create-candidate.mjs";
@@ -848,12 +849,12 @@ async function executeLiveScenarios(
           evidence: result.iteratorEvidence,
         });
       }
-    } catch {
+    } catch (error) {
       operationResults.push({ operationId, status: "failed" });
       if (operationId === iteratorOperationId) {
         iteratorResults.push({ operationId, status: "failed" });
       }
-      failure = Object.freeze({ phase: "operation", operationId });
+      failure = createLiveFailure({ phase: "operation", operationId }, error);
       break;
     }
   }
@@ -868,10 +869,54 @@ async function drainLiveCleanup(cleanup, failure) {
   let resolvedFailure = failure;
   try {
     await cleanup.run();
-  } catch {
-    if (resolvedFailure === null) resolvedFailure = Object.freeze({ phase: "cleanup" });
+  } catch (error) {
+    if (resolvedFailure === null) resolvedFailure = createLiveFailure({ phase: "cleanup" }, error);
   }
   return resolvedFailure;
+}
+
+function safeFailureText(value, fallback) {
+  try {
+    return typeof value === "string" ? value : String(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function serializeLiveFailure(error) {
+  let name = "ThrownValue";
+  let message = safeFailureText(error, "Live acceptance threw an unreadable value.");
+  try {
+    if (error instanceof Error) {
+      name = safeFailureText(error.name, "Error");
+      message = safeFailureText(error.message, "Live acceptance failed.");
+    }
+  } catch {
+    // Proxies and hostile thrown values must not prevent failure evidence from being finalized.
+  }
+  return Object.freeze({ name, message });
+}
+
+const liveFailureCauses = new WeakMap();
+
+function createLiveFailure(outcome, error) {
+  const failure = { ...outcome };
+  Object.defineProperties(failure, {
+    error: { value: error },
+    serialized: { value: serializeLiveFailure(error) },
+  });
+  liveFailureCauses.set(failure, error);
+  return Object.freeze(failure);
+}
+
+export function unwrapLiveFailure(failure) {
+  return typeof failure === "object" && failure !== null && liveFailureCauses.has(failure)
+    ? liveFailureCauses.get(failure)
+    : failure;
+}
+
+function contextualizeLiveFailure(failure, context) {
+  return createLiveFailure({ ...failure, ...context }, failure.error);
 }
 
 function createLiveRun(execution, cleanupResults, failure = execution.failure) {
@@ -4053,9 +4098,9 @@ export async function runSubAccountAndAPIKeyLiveScenarios(
   );
   const operationFailure =
     parentExecution.failure !== null
-      ? Object.freeze({ ...parentExecution.failure, suite: "subAccounts" })
+      ? contextualizeLiveFailure(parentExecution.failure, { suite: "subAccounts" })
       : childLifecycle?.failure !== null && childLifecycle?.failure !== undefined
-        ? Object.freeze({ ...childLifecycle.failure, suite: "subAccounts.apiKeys" })
+        ? contextualizeLiveFailure(childLifecycle.failure, { suite: "subAccounts.apiKeys" })
         : null;
   const failure = await drainLiveCleanup(cleanup, operationFailure);
   if (lifecycleFailed) throw lifecycleError;
@@ -4503,7 +4548,10 @@ function requireSameReportValue(actual, expected, label) {
   }
 }
 
-export function validateLiveReportArtifacts({ reportSource, reportSidecar, candidate: expected }) {
+function validateLiveReportArtifactContract(
+  { reportSource, reportSidecar, candidate: expected },
+  requireSuccess,
+) {
   const source = sourceBytes(reportSource, "Live acceptance report");
   const expectedDigest = parseSha256Sidecar(reportSidecar, "Live acceptance report sidecar");
   const actualDigest = sha256Hex(source);
@@ -4642,11 +4690,13 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
     "Iterator inventory",
     "iterate",
   );
-  validateReportIteratorLinks(report.operations, report.iterators);
-  requirePassedResults(report.operations, "Primary operation inventory");
-  requirePassedResults(report.iterators, "Iterator inventory");
-  requireSandboxOutcomes(report.operations);
-  requireAuthorizationOutcomes(report.operations);
+  if (requireSuccess) {
+    requirePassedResults(report.operations, "Primary operation inventory");
+    requirePassedResults(report.iterators, "Iterator inventory");
+    validateReportIteratorLinks(report.operations, report.iterators);
+    requireSandboxOutcomes(report.operations);
+    requireAuthorizationOutcomes(report.operations);
+  }
   if (!Array.isArray(report.cleanup)) {
     throw new TypeError("Live acceptance report cleanup must be an array.");
   }
@@ -4660,7 +4710,7 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
     }
     if (result.status === "failed") cleanupFailures += 1;
   }
-  if (cleanupFailures > 0) {
+  if (requireSuccess && cleanupFailures > 0) {
     throw new TypeError(
       `Live acceptance report requires zero cleanup failures; received ${cleanupFailures}.`,
     );
@@ -4671,18 +4721,25 @@ export function validateLiveReportArtifacts({ reportSource, reportSidecar, candi
       `Live acceptance report requires zero leaked secrets; detected ${leakedSecrets}.`,
     );
   }
+  const unexpectedFailures = [...report.operations, ...report.iterators].filter(
+    ({ status }) => status !== "passed",
+  ).length;
   return Object.freeze({
     report,
     reportSha256: actualDigest,
     package: identity,
     operations: report.operations.length,
     iterators: report.iterators.length,
-    authorizationOutcomes: 11,
-    sandboxOutcomes: 3,
-    unexpectedFailures: 0,
-    cleanupFailures: 0,
+    authorizationOutcomes: requireSuccess ? 11 : 0,
+    sandboxOutcomes: requireSuccess ? 3 : 0,
+    unexpectedFailures,
+    cleanupFailures,
     leakedSecrets: 0,
   });
+}
+
+export function validateLiveReportArtifacts(options) {
+  return validateLiveReportArtifactContract(options, true);
 }
 
 export async function writeLiveReport({
@@ -4702,12 +4759,56 @@ export async function writeLiveReport({
   const source = canonicalizeJson(redactLiveValue(report, secrets));
   const reportSha256 = sha256Hex(source);
   const sidecar = Buffer.from(`${reportSha256}\n`, "utf8");
-  validateLiveReportArtifacts({ reportSource: source, reportSidecar: sidecar, candidate });
-  await mkdir(dirname(destination), { recursive: true });
+  const sourceText = source.toString("utf8");
+  const sidecarText = sidecar.toString("utf8");
+  if (
+    secrets.some(
+      (secret) => secret !== "" && (sourceText.includes(secret) || sidecarText.includes(secret)),
+    )
+  ) {
+    throw new TypeError("Live acceptance artifacts contain configured redaction material.");
+  }
+  validateLiveReportArtifactContract(
+    { reportSource: source, reportSidecar: sidecar, candidate },
+    false,
+  );
   await Promise.all([
-    writeFile(destination, source, { flag: "wx" }),
-    writeFile(sidecarDestination, sidecar, { flag: "wx" }),
+    mkdir(dirname(destination), { recursive: true }),
+    mkdir(dirname(sidecarDestination), { recursive: true }),
   ]);
+  const nonce = `${process.pid}-${randomUUID()}`;
+  const temporaryReport = `${destination}.${nonce}.tmp`;
+  const temporarySidecar = `${sidecarDestination}.${nonce}.tmp`;
+  try {
+    await Promise.all([
+      writeFile(temporaryReport, source, { flag: "wx" }),
+      writeFile(temporarySidecar, sidecar, { flag: "wx" }),
+    ]);
+    await link(temporaryReport, destination);
+    try {
+      await link(temporarySidecar, sidecarDestination);
+    } catch (error) {
+      await rm(destination, { force: true });
+      throw error;
+    }
+    const [persistedReport, persistedSidecar] = await Promise.all([
+      readFile(destination),
+      readFile(sidecarDestination),
+    ]);
+    validateLiveReportArtifactContract(
+      {
+        reportSource: persistedReport,
+        reportSidecar: persistedSidecar,
+        candidate,
+      },
+      false,
+    );
+  } finally {
+    await Promise.all([
+      rm(temporaryReport, { force: true }),
+      rm(temporarySidecar, { force: true }),
+    ]);
+  }
   return Object.freeze({
     reportPath: destination,
     reportSidecarPath: sidecarDestination,

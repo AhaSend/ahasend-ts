@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { canonicalizeJson, sha256Hex } from "./digest-artifact.mjs";
 import {
   createAccountScenarioRegistry,
   createAPIKeyScenarioRegistry,
@@ -18,6 +18,7 @@ import {
   createSuppressionScenarioRegistry,
   createWebhookScenarioRegistry,
   installLiveCandidate,
+  redactLiveValue,
   runAccountLiveScenarios,
   runAPIKeyLiveScenarios,
   runDomainLiveScenarios,
@@ -28,6 +29,7 @@ import {
   runSubAccountAndAPIKeyLiveScenarios,
   runSuppressionLiveScenarios,
   runWebhookLiveScenarios,
+  unwrapLiveFailure,
   validateLiveReportArtifacts,
   writeLiveReport,
 } from "./live-acceptance.mjs";
@@ -44,6 +46,7 @@ const configKeys = Object.freeze([
   "verifiedDomain",
   "webhookUrl",
 ]);
+let failureRedactionSecrets = [];
 
 function parseLiveConfig(source) {
   let parsed;
@@ -94,12 +97,228 @@ function requireEnvironment(name) {
   return requireString(process.env[name], name);
 }
 
-function collectRun(target, run) {
-  if (run.failure !== null) {
-    const operation = run.failure.operationId === undefined ? "" : ` ${run.failure.operationId}`;
-    throw new TypeError(`Live ${target}${operation} failed during ${run.failure.phase}.`);
-  }
+function collectRun(_target, run) {
   return run;
+}
+
+function safeFailureEvidence(error) {
+  let source = error;
+  try {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      typeof error.serialized === "object" &&
+      error.serialized !== null
+    ) {
+      source = error.serialized;
+    }
+  } catch {
+    // Continue with a bounded representation for hostile thrown values.
+  }
+  let name = "ThrownValue";
+  let message = "Live acceptance threw an unreadable value.";
+  try {
+    message = typeof source === "string" ? source : String(source);
+    if (source instanceof Error) {
+      name = typeof source.name === "string" ? source.name : "Error";
+      message = typeof source.message === "string" ? source.message : "Live acceptance failed.";
+    } else if (typeof source === "object" && source !== null) {
+      name = typeof source.name === "string" ? source.name : name;
+      message = typeof source.message === "string" ? source.message : message;
+    }
+  } catch {
+    // Failure finalization must not trust arbitrary thrown values.
+  }
+  return Object.freeze({ name, message });
+}
+
+const noLiveFailure = Symbol("no live failure");
+
+function failureOperationResults(candidate, results, failure) {
+  const supplied = Array.isArray(results.operationResults) ? results.operationResults : [];
+  if (failure === noLiveFailure) return supplied;
+  const operationId = safeProperty(failure, "operationId");
+  const phase = safeProperty(failure, "phase");
+  const evidence = {
+    phase: typeof phase === "string" ? phase : operationId === undefined ? "run" : "operation",
+    ...safeFailureEvidence(failure),
+  };
+  if (typeof operationId === "string") {
+    return supplied.map((result) =>
+      result.operationId === operationId ? { ...result, failure: evidence } : result,
+    );
+  }
+  if (supplied.length > 0) {
+    return supplied.map((result, index) =>
+      index === 0 ? { ...result, failure: evidence } : result,
+    );
+  }
+  const firstOperation = candidate.profile.operations[0];
+  return firstOperation === undefined
+    ? supplied
+    : [{ operationId: firstOperation.operationId, status: "pending", failure: evidence }];
+}
+
+const liveResultStatuses = new Set(["failed", "passed", "pending", "skipped"]);
+const cleanupResultStatuses = new Set(["failed", "passed"]);
+
+function safeProperty(value, key) {
+  try {
+    return typeof value === "object" && value !== null ? value[key] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function safeFailureOutcome(value, fallbackPhase) {
+  const phase = safeProperty(value, "phase");
+  return {
+    phase: typeof phase === "string" ? phase : fallbackPhase,
+    ...safeFailureEvidence(value),
+  };
+}
+
+function serializationSafeLiveResults(results, mappings) {
+  const supplied = Array.isArray(results) ? results : [];
+  const mappingsById = new Map(mappings.map((mapping) => [mapping.operationId, mapping]));
+  const retained = new Map();
+  for (const result of supplied) {
+    const operationId = safeProperty(result, "operationId");
+    const status = safeProperty(result, "status");
+    if (
+      typeof operationId !== "string" ||
+      !mappingsById.has(operationId) ||
+      typeof status !== "string" ||
+      !liveResultStatuses.has(status) ||
+      retained.has(operationId)
+    ) {
+      continue;
+    }
+    const failure = safeProperty(result, "failure");
+    retained.set(operationId, {
+      operationId,
+      status,
+      ...(failure === undefined ? {} : { failure: safeFailureOutcome(failure, "operation") }),
+    });
+  }
+  return mappings.flatMap((mapping) => {
+    const result = retained.get(mapping.operationId);
+    return result === undefined ? [] : [result];
+  });
+}
+
+function serializationSafeCleanupResults(results) {
+  const supplied = Array.isArray(results) ? results : [];
+  return supplied.flatMap((result) => {
+    const label = safeProperty(result, "label");
+    const status = safeProperty(result, "status");
+    return typeof label === "string" &&
+      typeof status === "string" &&
+      cleanupResultStatuses.has(status)
+      ? [{ label, status }]
+      : [];
+  });
+}
+
+function retainFinalizationFailure(candidate, results, failure) {
+  let operationResults = serializationSafeLiveResults(
+    results.operationResults,
+    candidate.profile.operations,
+  );
+  let iteratorResults = serializationSafeLiveResults(
+    results.iteratorResults,
+    candidate.profile.iterators,
+  );
+  const reportFailure = safeFailureOutcome(failure, "report-finalization");
+  const failedOperation = operationResults.findIndex(({ status }) => status === "failed");
+  const failedIterator = iteratorResults.findIndex(({ status }) => status === "failed");
+  const operationIndex =
+    failedOperation >= 0 ? failedOperation : operationResults.length > 0 ? 0 : -1;
+  const iteratorIndex = failedIterator >= 0 ? failedIterator : iteratorResults.length > 0 ? 0 : -1;
+
+  if (operationIndex >= 0) {
+    operationResults = operationResults.map((result, index) =>
+      index === operationIndex ? { ...result, reportFailure } : result,
+    );
+  } else if (iteratorIndex >= 0) {
+    iteratorResults = iteratorResults.map((result, index) =>
+      index === iteratorIndex ? { ...result, reportFailure } : result,
+    );
+  } else {
+    const firstOperation = candidate.profile.operations[0];
+    if (firstOperation === undefined) throw failure;
+    operationResults = [
+      { operationId: firstOperation.operationId, status: "pending", reportFailure },
+    ];
+  }
+
+  return {
+    operationResults,
+    iteratorResults,
+    cleanupResults: serializationSafeCleanupResults(results.cleanupResults),
+  };
+}
+
+export async function persistLiveAcceptanceEvidence(options) {
+  const { candidate, results = {}, reportPath, reportSidecarPath, secrets = [] } = options;
+  const resultFailure = results.failure;
+  let fatalFailure = Object.hasOwn(options, "failure")
+    ? options.failure
+    : resultFailure === null || resultFailure === undefined
+      ? noLiveFailure
+      : resultFailure;
+  let report;
+  let operationResults;
+  let summary;
+  try {
+    operationResults = failureOperationResults(candidate, results, fatalFailure);
+    report = createLiveReport({
+      candidate,
+      ...results,
+      operationResults,
+      secrets,
+    });
+    if (fatalFailure === noLiveFailure) {
+      const reportSource = canonicalizeJson(redactLiveValue(report, secrets));
+      summary = validateLiveReportArtifacts({
+        reportSource,
+        reportSidecar: Buffer.from(`${sha256Hex(reportSource)}\n`, "utf8"),
+        candidate,
+      });
+    }
+    await writeLiveReport({
+      report,
+      candidate,
+      reportPath,
+      reportSidecarPath,
+      secrets,
+    });
+  } catch (error) {
+    if (fatalFailure === noLiveFailure) fatalFailure = error;
+    report = createLiveReport({
+      candidate,
+      ...retainFinalizationFailure(
+        candidate,
+        {
+          operationResults: operationResults ?? safeProperty(results, "operationResults"),
+          iteratorResults: safeProperty(results, "iteratorResults"),
+          cleanupResults: safeProperty(results, "cleanupResults"),
+        },
+        error,
+      ),
+      secrets,
+    });
+    await writeLiveReport({
+      report,
+      candidate,
+      reportPath,
+      reportSidecarPath,
+      secrets,
+    });
+  }
+
+  if (fatalFailure !== noLiveFailure) throw unwrapLiveFailure(fatalFailure);
+  return summary;
 }
 
 async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, accountId, config }) {
@@ -359,32 +578,30 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
         pagination,
       }),
   );
-  if (combined.failure !== null || combined.subAccountAPIKeys === null) {
-    const operation =
-      combined.failure?.operationId === undefined ? "" : ` ${combined.failure.operationId}`;
-    const phase = combined.failure?.phase ?? "setup";
-    throw new TypeError(`Live sub-account${operation} failed during ${phase}.`);
-  }
-
+  const childOperationResults =
+    combined.subAccountAPIKeys === null ? [] : combined.subAccountAPIKeys.operationResults;
+  const childIteratorResults =
+    combined.subAccountAPIKeys === null ? [] : combined.subAccountAPIKeys.iteratorResults;
   return Object.freeze({
     operationResults: Object.freeze([
       ...runs.flatMap((run) => run.operationResults),
       ...combined.subAccounts.operationResults,
-      ...combined.subAccountAPIKeys.operationResults,
+      ...childOperationResults,
     ]),
     iteratorResults: Object.freeze([
       ...runs.flatMap((run) => run.iteratorResults),
       ...combined.subAccounts.iteratorResults,
-      ...combined.subAccountAPIKeys.iteratorResults,
+      ...childIteratorResults,
     ]),
     cleanupResults: Object.freeze([
       ...runs.flatMap((run) => run.cleanupResults),
       ...combined.cleanupResults,
     ]),
+    failure: runs.find((run) => run.failure !== null)?.failure ?? combined.failure,
   });
 }
 
-async function main() {
+export async function main() {
   const [
     manifestPath,
     tarballPath,
@@ -409,46 +626,57 @@ async function main() {
   const apiKey = requireEnvironment("AHASEND_API_KEY");
   const accountId = requireEnvironment("AHASEND_ACCOUNT_ID");
   const config = parseLiveConfig(requireEnvironment("AHASEND_LIVE_CONFIG_JSON"));
+  const secrets = [apiKey, accountId, ...Object.values(config)];
+  failureRedactionSecrets = secrets;
   const candidate = await installLiveCandidate({
     manifestPath,
     tarballPath,
     installDirectory,
     ...(manifestSidecarPath === undefined ? {} : { manifestSidecarPath }),
   });
-  const installedModule = await import(
-    pathToFileURL(resolve(candidate.installedRoot, "dist/index.js")).href
-  );
-  if (typeof installedModule.AhaSendClient !== "function") {
-    throw new TypeError("Installed candidate does not export AhaSendClient.");
+  let results = {};
+  let failure;
+  let executionFailed = false;
+  try {
+    const installedModule = await import(
+      pathToFileURL(resolve(candidate.installedRoot, "dist/index.js")).href
+    );
+    if (typeof installedModule.AhaSendClient !== "function") {
+      throw new TypeError("Installed candidate does not export AhaSendClient.");
+    }
+    results = await executeLiveAcceptance({
+      candidate,
+      AhaSendClient: installedModule.AhaSendClient,
+      apiKey,
+      accountId,
+      config,
+    });
+  } catch (error) {
+    executionFailed = true;
+    failure = error;
   }
-  const results = await executeLiveAcceptance({
+
+  const summary = await persistLiveAcceptanceEvidence({
     candidate,
-    AhaSendClient: installedModule.AhaSendClient,
-    apiKey,
-    accountId,
-    config,
-  });
-  const secrets = [apiKey, accountId, ...Object.values(config)];
-  const report = createLiveReport({ candidate, ...results, secrets });
-  await writeLiveReport({
-    report,
-    candidate,
+    results,
+    ...(executionFailed ? { failure } : {}),
     reportPath,
     reportSidecarPath,
     secrets,
   });
-  const [reportSource, reportSidecar] = await Promise.all([
-    readFile(reportPath),
-    readFile(reportSidecarPath),
-  ]);
-  const summary = validateLiveReportArtifacts({ reportSource, reportSidecar, candidate });
   process.stdout.write(
     `Live acceptance passed for ${summary.package.name}@${summary.package.version}: ${summary.operations} primary operations, ${summary.iterators} iterators, zero unexpected, cleanup, or secret-leak failures.\n`,
   );
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`run-live-acceptance: ${message}\n`);
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  main().catch((error) => {
+    const message = safeFailureEvidence(error).message;
+    const redacted = redactLiveValue(message, failureRedactionSecrets);
+    process.stderr.write(`run-live-acceptance: ${String(redacted)}\n`);
+    process.exitCode = 1;
+  });
+}

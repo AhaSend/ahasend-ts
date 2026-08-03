@@ -809,12 +809,39 @@ export function runWithCleanup<T>(
   callback: (cleanup: CleanupRegistry) => T | Promise<T>,
 ): Promise<T>;
 
+/** Recover the exact cause retained by an internally-created live failure wrapper. */
+export function unwrapLiveFailure(failure: unknown): unknown;
+
 export function redactLiveValue(value: unknown, secrets?: readonly string[]): unknown;
+
+export type LiveResultStatus = "failed" | "passed" | "pending" | "skipped";
 
 export interface LiveResult {
   readonly operationId: string;
-  readonly status?: "failed" | "passed" | "pending" | "skipped";
+  readonly status: LiveResultStatus;
   readonly [key: string]: unknown;
+}
+
+export interface LiveReportResult extends LiveMapping {
+  readonly status: LiveResultStatus;
+  readonly [key: string]: unknown;
+}
+
+export interface LiveReport {
+  readonly version: 1;
+  readonly candidate: {
+    readonly commit: string;
+    readonly manifestSha256: string;
+  };
+  readonly contractSha256: LiveCandidateManifest["contractSha256"];
+  readonly profileSha256: string;
+  readonly captureSha256: string;
+  readonly keysSha256: LiveCandidateManifest["keysSha256"];
+  readonly package: LiveCandidate["package"];
+  readonly tarballSha256: string;
+  readonly operations: LiveReportResult[];
+  readonly iterators: LiveReportResult[];
+  readonly cleanup: CleanupResult[];
 }
 
 export interface CreateLiveReportOptions {
@@ -825,7 +852,7 @@ export interface CreateLiveReportOptions {
   readonly secrets?: readonly string[];
 }
 
-export function createLiveReport(options: CreateLiveReportOptions): Record<string, unknown>;
+export function createLiveReport(options: CreateLiveReportOptions): LiveReport;
 
 export interface LiveReportArtifactOptions {
   readonly reportSource: string | Uint8Array;
@@ -834,7 +861,7 @@ export interface LiveReportArtifactOptions {
 }
 
 export interface LiveReportSummary {
-  readonly report: Record<string, unknown>;
+  readonly report: LiveReport;
   readonly reportSha256: string;
   readonly package: { readonly name: "@ahasend/sdk"; readonly version: string };
   readonly operations: number;

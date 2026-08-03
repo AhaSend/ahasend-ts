@@ -330,7 +330,19 @@ jobs:
             /tmp/gate-report/live-report.sha256 \
             /tmp/candidate/candidate-manifest.sha256
 
+      - name: Retain live report evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: live-report-evidence
+          path: |
+            /tmp/gate-report/live-report.json
+            /tmp/gate-report/live-report.sha256
+          if-no-files-found: error
+          retention-days: ${{ env.RETENTION_DAYS }}
+
       - name: Create detached gate report
+        if: ${{ success() }}
         run: |
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
@@ -353,6 +365,8 @@ jobs:
             liveReportSha256,
             results: [
               { name: "artifact", passed: true },
+              { name: "installed-documentation-links", passed: true },
+              { name: "documentation-workflows", passed: true },
               { name: "live", passed: true },
             ],
           });
@@ -366,7 +380,8 @@ jobs:
           ]);
           NODE
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - if: ${{ success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gate-report
           path: /tmp/gate-report
@@ -375,7 +390,7 @@ jobs:
 
   next-publish:
     name: Publish candidate to next
-    needs: live-gates
+    needs: [source-gate, candidate, artifact-gates, live-gates]
     runs-on: ubuntu-latest
     environment: npm-next
     permissions:
@@ -408,7 +423,12 @@ jobs:
           name: gate-report
           path: /tmp/gate-report
 
-      - name: Publish the retained bytes with provenance
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-tools
+          path: /tmp/release-tools
+
+      - name: Validate exact publication evidence
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
@@ -418,6 +438,46 @@ jobs:
           test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
           test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
           test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/gate-report/gate-report.json)" = "$(tr -d '\n' < /tmp/gate-report/gate-report.sha256)"
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import { sha256Hex } from "/tmp/release-tools/scripts/digest-artifact.mjs";
+          import {
+            parseCanonicalJson,
+            parseSha256Sidecar,
+            validateGateReport,
+          } from "/tmp/release-tools/scripts/report-validation.mjs";
+
+          const [manifestSource, tarballSource, reportSource, reportSidecarSource] =
+            await Promise.all([
+              readFile("/tmp/candidate/candidate-manifest.json"),
+              readFile(process.env.SDK_TARBALL),
+              readFile("/tmp/gate-report/gate-report.json"),
+              readFile("/tmp/gate-report/gate-report.sha256"),
+            ]);
+          const reportDigest = sha256Hex(reportSource);
+          if (
+            parseSha256Sidecar(reportSidecarSource, "Gate report sidecar") !==
+            reportDigest
+          ) {
+            throw new TypeError("Gate report does not match its detached digest.");
+          }
+          const { value: report } = parseCanonicalJson(reportSource, "Gate report");
+          validateGateReport({
+            report,
+            requiredGates: [
+              "artifact",
+              "installed-documentation-links",
+              "documentation-workflows",
+              "live",
+            ],
+            expectedManifestSha256: sha256Hex(manifestSource),
+            expectedTarballSha256: sha256Hex(tarballSource),
+          });
+          NODE
+
+      - name: Publish the retained bytes with provenance
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           npm publish "$TARBALL" --tag next --provenance --access public
 
   registry-smoke:

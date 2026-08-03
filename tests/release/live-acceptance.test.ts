@@ -56,6 +56,7 @@ import {
   type SuppressionLiveClient,
   type WebhookLiveClient,
 } from "../../scripts/live-acceptance.mjs";
+import { persistLiveAcceptanceEvidence } from "../../scripts/run-live-acceptance.mjs";
 import liveReportSchema from "../../scripts/live-report.schema.json";
 
 interface OperationProfileSource {
@@ -237,7 +238,9 @@ function completeLiveResults(candidate: LiveCandidate) {
   return { operations, iterators };
 }
 
-function domainClientFixture(options: { failGet?: boolean } = {}) {
+function domainClientFixture(
+  options: { cleanupFailure?: unknown; failGet?: boolean; getFailure?: unknown } = {},
+) {
   const calls: string[] = [];
   let exists = false;
   const domain = "live-domain.example";
@@ -263,7 +266,11 @@ function domainClientFixture(options: { failGet?: boolean } = {}) {
       }),
       get: vi.fn(async () => {
         calls.push("get");
-        if (!exists) throw notFound();
+        if (!exists) {
+          if (Object.hasOwn(options, "cleanupFailure")) throw options.cleanupFailure;
+          throw notFound();
+        }
+        if (Object.hasOwn(options, "getFailure")) throw options.getFailure;
         if (options.failGet === true) {
           throw Object.assign(new Error("later scenario failed"), { status: 500 });
         }
@@ -4201,6 +4208,418 @@ describe("live scenario inventory", () => {
 });
 
 describe("live cleanup and reporting", () => {
+  function persistedFailureArtifacts(reportPath: string, sidecarPath: string) {
+    const source = readFileSync(reportPath);
+    const sidecar = readFileSync(sidecarPath, "utf8");
+    const parsed = JSON.parse(source.toString("utf8")) as {
+      operations: Array<Record<string, unknown>>;
+      iterators: Array<Record<string, unknown>>;
+      cleanup: Array<Record<string, unknown>>;
+    };
+    const validateSchema = new Ajv({ allErrors: true }).compile(liveReportSchema);
+    expect(source).toEqual(canonicalizeJson(parsed));
+    expect(sidecar).toBe(`${sha256Hex(source)}\n`);
+    expect(validateSchema(parsed), JSON.stringify(validateSchema.errors)).toBe(true);
+    return { parsed, source, sidecar };
+  }
+
+  async function operationFailureWrapper(candidate: LiveCandidate, error: unknown) {
+    const fixture = domainClientFixture({ getFailure: error });
+    const result = await runDomainLiveScenarios(
+      createDomainScenarioRegistry({
+        profile: candidate.profile,
+        client: fixture.client,
+        createRequest: { domain: fixture.domain },
+      }),
+    );
+    expect(result.failure).not.toBeNull();
+    expect((result.failure as unknown as { error: unknown }).error).toBe(error);
+    return result.failure!;
+  }
+
+  async function cleanupFailureWrapper(candidate: LiveCandidate, error: unknown) {
+    const fixture = domainClientFixture({ cleanupFailure: error });
+    const result = await runDomainLiveScenarios(
+      createDomainScenarioRegistry({
+        profile: candidate.profile,
+        client: fixture.client,
+        createRequest: { domain: fixture.domain },
+      }),
+    );
+    expect(result.failure).not.toBeNull();
+    const cause = (result.failure as unknown as { error: unknown }).error;
+    expect(cause).toBeInstanceOf(AggregateError);
+    expect((cause as AggregateError).errors).toEqual([error]);
+    return { cause, failure: result.failure! };
+  }
+
+  it("persists redacted operation failure evidence and its sidecar before rejecting", async () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const secret = "operation-live-secret";
+    const controlledIdentifier = "controlled-operation.example";
+    const message = `operation failed for ${controlledIdentifier} with ${secret}`;
+    const original = new Error(message);
+    const failure = await operationFailureWrapper(candidate, original);
+    const operationId = failure.operationId!;
+    const operationResults = complete.operations.map((result) =>
+      result.operationId === operationId ? { ...result, status: "failed" as const } : result,
+    );
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-operation-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        results: {
+          operationResults,
+          iteratorResults: complete.iterators,
+          cleanupResults: [{ label: `delete ${controlledIdentifier}`, status: "passed" }],
+        },
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+        secrets: [secret, controlledIdentifier],
+      }),
+    ).rejects.toBe(original);
+
+    const { parsed, source, sidecar } = persistedFailureArtifacts(reportPath, sidecarPath);
+    const failed = parsed.operations.find((result) => result.operationId === operationId);
+    expect(failed).toMatchObject({
+      status: "failed",
+      failure: {
+        phase: "operation",
+        name: "Error",
+        message: "operation failed for [REDACTED] with [REDACTED]",
+      },
+    });
+    for (const sensitive of [secret, controlledIdentifier]) {
+      expect(source.toString("utf8")).not.toContain(sensitive);
+      expect(sidecar).not.toContain(sensitive);
+    }
+  });
+
+  it("persists cleanup failures before rejecting with the original cleanup error", async () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const controlledIdentifier = "controlled-cleanup.example";
+    const cleanupError = new Error(`cleanup failed for ${controlledIdentifier}`);
+    const { cause: original, failure } = await cleanupFailureWrapper(candidate, cleanupError);
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-cleanup-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        results: {
+          operationResults: complete.operations,
+          iteratorResults: complete.iterators,
+          cleanupResults: [{ label: `delete ${controlledIdentifier}`, status: "failed" }],
+        },
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+        secrets: [controlledIdentifier],
+      }),
+    ).rejects.toBe(original);
+
+    const { parsed, source, sidecar } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.cleanup).toEqual([{ label: "delete [REDACTED]", status: "failed" }]);
+    expect(source.toString("utf8")).not.toContain(controlledIdentifier);
+    expect(sidecar).not.toContain(controlledIdentifier);
+  });
+
+  it("retains live outcomes in serialization-safe evidence when report finalization fails", async () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const operationFailure = new Error("operation failed before finalization");
+    const failure = await operationFailureWrapper(candidate, operationFailure);
+    const failedOperationId = failure.operationId!;
+    const failedIteratorId = complete.iterators[0]!.operationId;
+    const unsafeOperationId = complete.operations.find(
+      ({ operationId }) => operationId !== failedOperationId,
+    )!.operationId;
+    const operationResults = complete.operations.map((result) =>
+      result.operationId === failedOperationId
+        ? { ...result, status: "failed" as const }
+        : result.operationId === unsafeOperationId
+          ? { ...result, evidence: { unserializable: 1n } }
+          : result,
+    );
+    const iteratorResults = complete.iterators.map((result, index) =>
+      index === 0 ? { ...result, status: "failed" as const } : result,
+    );
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-finalization-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        results: {
+          operationResults,
+          iteratorResults,
+          cleanupResults: [
+            { label: "delete retained resource", status: "failed" },
+            { label: "delete other resource", status: "passed" },
+          ],
+        },
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+      }),
+    ).rejects.toBe(operationFailure);
+
+    const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.operations).toHaveLength(complete.operations.length);
+    expect(parsed.iterators).toHaveLength(complete.iterators.length);
+    expect(
+      parsed.operations.find((result) => result.operationId === failedOperationId),
+    ).toMatchObject({
+      status: "failed",
+      failure: {
+        phase: "operation",
+        name: "Error",
+        message: operationFailure.message,
+      },
+      reportFailure: {
+        phase: "report-finalization",
+        name: "TypeError",
+      },
+    });
+    expect(parsed.operations.map(({ operationId, status }) => ({ operationId, status }))).toEqual(
+      operationResults.map(({ operationId, status }) => ({ operationId, status })),
+    );
+    expect(parsed.iterators.map(({ operationId, status }) => ({ operationId, status }))).toEqual(
+      iteratorResults.map(({ operationId, status }) => ({ operationId, status })),
+    );
+    expect(
+      parsed.iterators.find((result) => result.operationId === failedIteratorId),
+    ).toMatchObject({
+      status: "failed",
+    });
+    expect(parsed.cleanup).toEqual([
+      { label: "delete retained resource", status: "failed" },
+      { label: "delete other resource", status: "passed" },
+    ]);
+  });
+
+  it("persists a standalone report-finalization failure without rewriting scenario status", async () => {
+    const candidate = inspectFixture();
+    const operationId = candidate.profile.operations[0]!.operationId;
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-only-finalization-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        results: {
+          operationResults: [{ operationId, status: "passed", evidence: { unserializable: 1n } }],
+        },
+        reportPath,
+        reportSidecarPath: sidecarPath,
+      }),
+    ).rejects.toThrow("bigint values");
+
+    const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.operations.find((result) => result.operationId === operationId)).toMatchObject({
+      status: "passed",
+      reportFailure: {
+        phase: "report-finalization",
+        name: "TypeError",
+      },
+    });
+  });
+
+  it("persists canonical fallback evidence when failure-contract validation rejects an outcome", async () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const operationFailure = new Error("operation failed before artifact validation");
+    const failure = await operationFailureWrapper(candidate, operationFailure);
+    const operationId = failure.operationId!;
+    const operationResults = complete.operations.map((result) =>
+      result.operationId === operationId ? { ...result, status: "failed" as const } : result,
+    );
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-contract-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        results: {
+          operationResults,
+          iteratorResults: complete.iterators,
+          cleanupResults: [{ label: "invalid cleanup outcome", status: "invalid" as never }],
+        },
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+      }),
+    ).rejects.toBe(operationFailure);
+
+    const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.cleanup).toEqual([]);
+    expect(parsed.operations.find((result) => result.operationId === operationId)).toMatchObject({
+      status: "failed",
+      failure: {
+        phase: "operation",
+        name: "Error",
+        message: operationFailure.message,
+      },
+      reportFailure: {
+        phase: "report-finalization",
+        name: "TypeError",
+        message: "Live acceptance report cleanup result 0 has an invalid status.",
+      },
+    });
+  });
+
+  it("persists report-finalization evidence when strict success validation rejects a result", async () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const operationId = complete.operations[0]!.operationId;
+    const operationResults = complete.operations.map((result, index) =>
+      index === 0 ? { ...result, status: "skipped" as const } : result,
+    );
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-strict-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        results: {
+          operationResults,
+          iteratorResults: complete.iterators,
+          cleanupResults: [],
+        },
+        reportPath,
+        reportSidecarPath: sidecarPath,
+      }),
+    ).rejects.toThrow("Primary operation inventory requires every result to pass");
+
+    const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.operations).toHaveLength(complete.operations.length);
+    expect(parsed.operations.find((result) => result.operationId === operationId)).toMatchObject({
+      status: "skipped",
+      reportFailure: {
+        phase: "report-finalization",
+        name: "TypeError",
+        message: expect.stringContaining("requires every result to pass"),
+      },
+    });
+  });
+
+  it("records raw post-install failures that have no operation identifier", async () => {
+    const candidate = inspectFixture();
+    const secret = "post-install-live-secret";
+    const failure = new TypeError(`Installed candidate is unusable: ${secret}`);
+    const operationId = candidate.profile.operations[0]!.operationId;
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-run-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+        secrets: [secret],
+      }),
+    ).rejects.toBe(failure);
+
+    const { parsed, source, sidecar } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.operations.find((result) => result.operationId === operationId)).toMatchObject({
+      status: "pending",
+      failure: {
+        phase: "run",
+        name: "TypeError",
+        message: "Installed candidate is unusable: [REDACTED]",
+      },
+    });
+    expect(source.toString("utf8")).not.toContain(secret);
+    expect(sidecar).not.toContain(secret);
+  });
+
+  it("preserves raw object failures that happen to contain an error property", async () => {
+    const candidate = inspectFixture();
+    const failure = { error: "raw failure detail" };
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-raw-object-failure-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+
+    await expect(
+      persistLiveAcceptanceEvidence({
+        candidate,
+        failure,
+        reportPath,
+        reportSidecarPath: sidecarPath,
+      }),
+    ).rejects.toBe(failure);
+
+    const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+    expect(parsed.operations[0]).toMatchObject({
+      status: "pending",
+      failure: {
+        phase: "run",
+        name: "ThrownValue",
+        message: "[object Object]",
+      },
+    });
+  });
+
+  it("preserves nullish raw failures instead of replacing them during finalization", async () => {
+    const candidate = inspectFixture();
+    for (const [label, failure] of [
+      ["null", null],
+      ["undefined", undefined],
+    ] as const) {
+      const directory = mkdtempSync(join(tmpdir(), `ahasend-live-${label}-failure-`));
+      temporaryDirectories.push(directory);
+      const reportPath = join(directory, "live-report.json");
+      const sidecarPath = join(directory, "live-report.sha256");
+      let rejected = false;
+      let received: unknown = Symbol("not rejected");
+
+      try {
+        await persistLiveAcceptanceEvidence({
+          candidate,
+          failure,
+          reportPath,
+          reportSidecarPath: sidecarPath,
+        });
+      } catch (error) {
+        rejected = true;
+        received = error;
+      }
+
+      expect(rejected).toBe(true);
+      expect(received).toBe(failure);
+      const { parsed } = persistedFailureArtifacts(reportPath, sidecarPath);
+      expect(parsed.operations[0]).toMatchObject({
+        status: "pending",
+        failure: {
+          phase: "run",
+          name: "ThrownValue",
+          message: label,
+        },
+      });
+    }
+  });
+
   it("retains immediately registered cleanup after a later failure and runs it in reverse order", async () => {
     const order: string[] = [];
 
@@ -4352,8 +4771,8 @@ describe("live cleanup and reporting", () => {
       keysSha256: Record<string, string>;
       package: { name: string; version: string };
       tarballSha256: string;
-      operations: Array<{ evidence?: Record<string, unknown> }>;
-      iterators: unknown[];
+      operations: Array<{ status: string; evidence?: Record<string, unknown> }>;
+      iterators: Array<{ status: string }>;
     };
     const validateSchema = new Ajv({ allErrors: true }).compile(liveReportSchema);
 
@@ -4392,7 +4811,9 @@ describe("live cleanup and reporting", () => {
       tarballSha256: candidate.tarballSha256,
     });
     expect(parsed.operations).toHaveLength(56);
+    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(56);
     expect(parsed.iterators).toHaveLength(9);
+    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(9);
     expect(
       validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
     ).toMatchObject({
@@ -4405,6 +4826,87 @@ describe("live cleanup and reporting", () => {
       cleanupFailures: 0,
       leakedSecrets: 0,
     });
+  });
+
+  it("rolls back the report when publishing the sidecar completion marker fails", async () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const report = createLiveReport({
+      candidate,
+      operationResults: complete.operations,
+      iteratorResults: complete.iterators,
+    });
+    const directory = mkdtempSync(join(tmpdir(), "ahasend-live-report-publication-"));
+    temporaryDirectories.push(directory);
+    const reportPath = join(directory, "live-report.json");
+    const sidecarPath = join(directory, "live-report.sha256");
+    const existingSidecar = "pre-existing-sidecar\n";
+    writeFileSync(sidecarPath, existingSidecar, { flag: "wx" });
+
+    await expect(
+      writeLiveReport({ report, candidate, reportPath, reportSidecarPath: sidecarPath }),
+    ).rejects.toMatchObject({ code: "EEXIST" });
+
+    expect(() => readFileSync(reportPath)).toThrow();
+    expect(readFileSync(sidecarPath, "utf8")).toBe(existingSidecar);
+  });
+
+  it("keeps failure outcomes schema-valid while strict success validation rejects them", () => {
+    const candidate = inspectFixture();
+    const complete = completeLiveResults(candidate);
+    const report = createLiveReport({
+      candidate,
+      operationResults: complete.operations,
+      iteratorResults: complete.iterators,
+      cleanupResults: [{ label: "delete fixture", status: "passed" }],
+    }) as unknown as {
+      operations: Array<{ status: string }>;
+      iterators: Array<{ status: string }>;
+      cleanup: Array<{ status: string }>;
+    };
+    const validateSchema = new Ajv({ allErrors: true }).compile(liveReportSchema);
+    const validateStrictly = (value: unknown) => {
+      const source = canonicalizeJson(value);
+      return validateLiveReportArtifacts({
+        reportSource: source,
+        reportSidecar: `${sha256Hex(source)}\n`,
+        candidate,
+      });
+    };
+    const outcomes = [
+      {
+        name: "failed operation",
+        mutate(value: typeof report) {
+          value.operations[0]!.status = "failed";
+        },
+        error: "requires every result to pass",
+      },
+      {
+        name: "pending iterator",
+        mutate(value: typeof report) {
+          value.iterators[0]!.status = "pending";
+        },
+        error: "requires every result to pass",
+      },
+      {
+        name: "failed cleanup",
+        mutate(value: typeof report) {
+          value.cleanup[0]!.status = "failed";
+        },
+        error: "requires zero cleanup failures",
+      },
+    ];
+
+    for (const outcome of outcomes) {
+      const mutated = structuredClone(report);
+      outcome.mutate(mutated);
+
+      expect(
+        validateSchema(mutated),
+        `${outcome.name}: ${JSON.stringify(validateSchema.errors)}`,
+      ).toBe(true);
+      expect(() => validateStrictly(mutated), outcome.name).toThrow(outcome.error);
+    }
   });
 
   it("rejects incomplete, failed, skipped, and unlinked terminal scenario outcomes", () => {
@@ -4473,7 +4975,7 @@ describe("live cleanup and reporting", () => {
       operationResults: complete.operations,
       iteratorResults: complete.iterators,
       cleanupResults: [{ label: "delete fixture", status: "passed" }],
-    }) as {
+    }) as unknown as {
       cleanup: Array<Record<string, unknown>>;
       operations: Array<Record<string, unknown>>;
     };
