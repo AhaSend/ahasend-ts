@@ -92,7 +92,7 @@
     "lint": "eslint \"src/**/*.ts\" \"examples/**/*.mjs\" --max-warnings 0",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run test"
+    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run lint && npm run test && npm run test:package:preflight"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",

@@ -98,9 +98,23 @@ function expectDocumentationCallerPolicy(
     "npm run verify:audit",
     "npm run test:package:preflight",
   ]);
-  expect(scripts["prepublishOnly"]).toBe(
-    "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run test",
-  );
+  // Asserted as an ordered set of required steps rather than one exact string:
+  // the string form made the gate itself the thing under test, so adding a
+  // missing gate failed here rather than passing. `lint` and
+  // `test:package:preflight` were both absent, which let a publish skip the
+  // packed-tarball checks that CI runs — including the declaration fixtures
+  // that compile the shipped .d.ts and .d.cts with no @types/node installed.
+  expect(scripts["prepublishOnly"]?.split(" && ")).toEqual([
+    "npm run clean",
+    "npm run contracts:check",
+    "npm run sdk:check",
+    "npm run docs:check",
+    "npm run verify:audit",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run test",
+    "npm run test:package:preflight",
+  ]);
   expect(preflightSource).toContain("build: true");
   expect(preflightSource).toContain('verificationScripts: ["test:docs:tarball"]');
   expect(preflightSource).toContain("await runSourceDocumentationWorkflows(repositoryRoot)");

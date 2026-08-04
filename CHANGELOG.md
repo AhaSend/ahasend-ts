@@ -32,7 +32,12 @@ Initial release.
   default) and refuses beyond that with `AhaSendRateLimitQueueFullError`,
   so a fan-out wider than `burst + maxQueue` needs the limit raised.
   `client.rateLimiter` reads and adjusts rates, per-bucket enablement, and
-  queue size at runtime, validating exactly as construction does. A queue
+  queue size at runtime. Every method validates its arguments and throws
+  `AhaSendConfigurationError` on an unrecognized category, a non-boolean
+  flag, a limit that is not an object, or an unknown key on one — this is a
+  runtime boundary reachable from JavaScript, where these values often come
+  from environment variables or parsed JSON and the declared types are not
+  enforced. A queue
   refusal is per call, so an overflowing batch is partially applied — see
   `docs/rate-pacing.md` before re-dispatching one.
 - Typed telemetry hooks (`onRequest`, `onResponse`, `onRetry`,

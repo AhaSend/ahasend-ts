@@ -22,10 +22,10 @@ them the workflow fails partway through, after it has already published to the
 
 ### Environments
 
-| Environment    | Used by                                                     | Why it exists                                                     |
-| -------------- | ----------------------------------------------------------- | ----------------------------------------------------------------- |
-| `live-release` | `live-gates`                                                | Holds real account credentials and mutates the account. See below. |
-| `npm-next`     | `next-publish`                                              | First publication, to the `next` tag only.                        |
+| Environment    | Used by                                                      | Why it exists                                                      |
+| -------------- | ------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `live-release` | `live-gates`                                                 | Holds real account credentials and mutates the account. See below. |
+| `npm-next`     | `next-publish`                                               | First publication, to the `next` tag only.                         |
 | `npm-latest`   | `latest-promotion`, `github-release`, `release-compensation` | Moves `latest` and cuts the GitHub release. Gate this one hardest. |
 
 Put a required-reviewer protection rule on `npm-latest` at minimum. `live-gates`
@@ -34,7 +34,7 @@ mutates a real account, so `live-release` deserves one too.
 **What live-gates actually does.** It exercises all 56 operations against a real
 account. It does **not** deliver mail: every send sets `sandbox: true`, and
 `scripts/live-acceptance.mjs:964` refuses to run a request without it. Routes and
-webhooks are created `enabled: false`. What it *does* do to the real account: creates and deletes
+webhooks are created `enabled: false`. What it _does_ do to the real account: creates and deletes
 domains, routes, webhooks, SMTP credentials, API keys, suppressions and
 sub-accounts; updates the account settings (including its `website`); wipes all
 suppressions for `suppressionDomain` (`methods.wipe({ domain })`); and adds then
@@ -47,12 +47,12 @@ no real mail" covers the messages API, which this repo controls — not that.
 
 ### Secrets
 
-| Secret                     | Consumed by                                      | Notes                                                            |
-| -------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- |
-| `AHASEND_API_KEY`          | `live-gates` (release.yml:317)                   | Needs broad scopes — live acceptance exercises all 56 operations. |
-| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:318)                   | The account the live scenarios run against.                       |
-| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:319)                   | Schema below. Validated with **exact** key matching.              |
-| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:722, 788, 847, 927) | Publish rights on `@ahasend/sdk`.       |
+| Secret                     | Consumed by                                                                                   | Notes                                                             |
+| -------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `AHASEND_API_KEY`          | `live-gates` (release.yml:317)                                                                | Needs broad scopes — live acceptance exercises all 56 operations. |
+| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:318)                                                                | The account the live scenarios run against.                       |
+| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:319)                                                                | Schema below. Validated with **exact** key matching.              |
+| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:722, 788, 847, 927) | Publish rights on `@ahasend/sdk`.                                 |
 
 > **`next-publish` deliberately has no `NPM_TOKEN`.** It runs
 > `npm publish --provenance` (release.yml:481) with `id-token: write`, which
@@ -62,7 +62,7 @@ no real mail" covers the messages API, which this repo controls — not that.
 > **Trusted publishing must be configured on a package that already exists in
 > the registry.** For the very first publish of a new package name, confirm the
 > npm-side configuration is in place before tagging — otherwise the job fails
-> *after* `live-gates` has already mutated the release account, and the live run
+> _after_ `live-gates` has already mutated the release account, and the live run
 > has to be repeated. If the first publish cannot use trusted publishing, add
 > `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to that step to match its
 > four siblings.
@@ -87,7 +87,7 @@ Exactly these eight keys — no more, no fewer
 
 Validation rules the script enforces:
 
-- The **six domains** must be six *distinct*, non-empty domain names. No `@`,
+- The **six domains** must be six _distinct_, non-empty domain names. No `@`,
   no commas. They are lowercased before use.
 - `disposableMailbox` must contain `@`. It is **added as a `Developer`-role
   member of the release account** (`scripts/run-live-acceptance.mjs:516-519`) and
@@ -150,17 +150,17 @@ git push origin v0.1.0
 
 ### 3. What runs, in order
 
-| Job                    | Gate                                                                             |
-| ---------------------- | -------------------------------------------------------------------------------- |
-| `source-gate`          | 13 source gates incl. `verify:audit` and the repository secret scan.              |
-| `candidate`            | Builds and packs the candidate tarball; everything downstream uses those bytes.   |
-| `artifact-gates`       | Node 22, 24, 26 against the packed tarball. **All three block**, including 26.    |
-| `live-gates`           | Real API acceptance in `live-release`. Mutates the account; sends no real mail.   |
-| `next-publish`         | `npm publish --tag next --provenance` of the retained bytes.                      |
-| `registry-smoke`       | Installs from the registry and verifies provenance.                               |
-| `latest-promotion`     | Only if `live-gates` **and** `registry-smoke` succeeded (release.yml:676).        |
-| `github-release`       | Cuts the GitHub release.                                                          |
-| `release-compensation` | Runs on failure after promotion to unwind `latest`.                               |
+| Job                    | Gate                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `source-gate`          | 13 source gates incl. `verify:audit` and the repository secret scan.            |
+| `candidate`            | Builds and packs the candidate tarball; everything downstream uses those bytes. |
+| `artifact-gates`       | Node 22, 24, 26 against the packed tarball. **All three block**, including 26.  |
+| `live-gates`           | Real API acceptance in `live-release`. Mutates the account; sends no real mail. |
+| `next-publish`         | `npm publish --tag next --provenance` of the retained bytes.                    |
+| `registry-smoke`       | Installs from the registry and verifies provenance.                             |
+| `latest-promotion`     | Only if `live-gates` **and** `registry-smoke` succeeded (release.yml:676).      |
+| `github-release`       | Cuts the GitHub release.                                                        |
+| `release-compensation` | Runs on failure after promotion to unwind `latest`.                             |
 
 Note that **Node 26 blocks the release** here but is `continue-on-error` in
 `ci.yml`, so a Node 26 break is invisible until you tag.
@@ -174,7 +174,7 @@ Note that **Node 26 blocks the release** here but is `continue-on-error` in
   number. Do not try to reuse it.
 - **After `latest-promotion`** — `release-compensation` attempts to restore the
   previous `latest`. Verify it actually did: `npm dist-tag ls @ahasend/sdk`.
-  Note that restoring `latest` on a *first* release has nothing to restore to.
+  Note that restoring `latest` on a _first_ release has nothing to restore to.
 - **`live-gates` failure evidence** is uploaded as an artifact with
   `if-no-files-found: error` and retained for 30 days. Read it before re-running
   — the live scenarios mutate the account, so a partial run can leave domains in
@@ -184,12 +184,49 @@ Note that **Node 26 blocks the release** here but is `continue-on-error` in
 
 ## Local verification without a release
 
+These three take no arguments and run to completion locally:
+
 ```bash
-npm run release:source-gate   # the 13 source gates
-npm run release:candidate     # build + pack a candidate locally
-npm run release:verify        # release-machinery tests
+npm run ci                      # typecheck, lint, docs, tests, audit, packed-package preflight
+npm run release:verify          # release-machinery tests
+npm run test:package:preflight  # build, pack, then verify the tarball as a consumer would
 ```
 
-`npm run release:live` needs the live credentials and mutates the real account
-(creating and deleting domains, routes, webhooks, credentials and an account
-member). Sends are sandboxed, but do not run it casually.
+`npm run ci` is the one to run before opening a pull request. It is a superset
+of the other two.
+
+### The `release:*` artifact validators are not local commands
+
+`release:source-gate`, `release:candidate` and `release:live` each **validate or
+consume an artifact that the release workflow produced**. None of them runs the
+gates its name suggests, and none of them works without arguments — invoking
+them bare prints a usage line and exits non-zero:
+
+```bash
+node scripts/run-source-gates.mjs   <source-report.json> [source-report.sha256]
+node scripts/create-candidate.mjs   <source-report.json> <output-directory> [source-report.sha256]
+node scripts/run-live-acceptance.mjs <candidate-manifest.json> <candidate.tgz> <install-directory> <live-report.json> <live-report.sha256> [candidate-manifest.sha256]
+```
+
+In particular `release:source-gate` does **not** run the 13 source gates. It
+checks that a report already contains a passing result for each of them, bound
+to the current commit. The gates themselves run in the `source-gate` job of
+`.github/workflows/release.yml`, which imports this script's helpers rather than
+calling it as a command. To exercise the same checks locally, run `npm run ci`.
+
+`npm run release:live` additionally needs the live credentials and mutates the
+real account (creating and deleting domains, routes, webhooks, credentials and
+an account member). Sends are sandboxed, but do not run it casually.
+
+## What `npm publish` runs
+
+`prepublishOnly` is the last gate before the registry, so it runs the full chain
+rather than a subset: `clean`, `contracts:check`, `sdk:check`, `docs:check`,
+`verify:audit`, `typecheck`, `lint`, `test`, and `test:package:preflight`. The
+last of those packs the tarball and verifies it as a consumer would — including
+the type-declaration fixtures that compile the published `.d.ts` and `.d.cts`
+with no `@types/node` installed. It packs with `--ignore-scripts`, so it does
+not re-enter this chain.
+
+`clean` removes `dist/`; `contracts:check` rebuilds it (it invokes
+`scripts/build.mjs` directly), so every later step sees a fresh build.

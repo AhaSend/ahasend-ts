@@ -132,6 +132,73 @@ function assertPositiveFinite(value: unknown, name: string): asserts value is nu
   }
 }
 
+/** The category names `client.rateLimiter` accepts, in message order. */
+const RATE_LIMIT_CATEGORIES: readonly RateLimitCategory[] = ["standard", "statistics"];
+
+const RATE_LIMIT_SETTING_KEYS = new Set(["requestsPerSecond", "burst", "maxQueue"]);
+
+/**
+ * @internal Guard the runtime controller's category argument.
+ *
+ * `client.rateLimiter` is reachable from JavaScript, where the compiler is not
+ * enforcing the union. Every method indexes a bucket record by this value, so
+ * an unrecognised name produced `Cannot read properties of undefined` from
+ * inside the limiter — an error `isAhaSendError()` does not match and which
+ * names none of the accepted values.
+ */
+export function assertRateLimitCategory(
+  value: unknown,
+  name: string,
+): asserts value is RateLimitCategory {
+  if (!RATE_LIMIT_CATEGORIES.includes(value as RateLimitCategory)) {
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` must be one of ${RATE_LIMIT_CATEGORIES.map((c) => `"${c}"`).join(", ")}.`,
+    );
+  }
+}
+
+/**
+ * @internal Guard the runtime controller's boolean arguments.
+ *
+ * A non-boolean was stored verbatim, so `setEnabled("false")` — an ordinary
+ * mistake when the value comes from an environment variable or parsed JSON —
+ * left pacing enabled, because a non-empty string is truthy, while
+ * `isEnabled()` returned that string in place of the `boolean` it declares.
+ * The caller sees "false" everywhere they look and is still being paced.
+ */
+export function assertRateLimitBoolean(value: unknown, name: string): asserts value is boolean {
+  if (typeof value !== "boolean") {
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a boolean.`);
+  }
+}
+
+/**
+ * @internal Guard the shape of `setLimit`'s second argument.
+ *
+ * Its fields were already validated, but only after being read off the object:
+ * `null` threw a bare `TypeError` before any of that ran, and a misspelled key
+ * was silently ignored, leaving the caller believing a limit had been raised.
+ */
+export function assertRateLimitSetting(
+  value: unknown,
+  name: string,
+): asserts value is RateLimitSetting {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be an object.`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!RATE_LIMIT_SETTING_KEYS.has(key)) {
+      throw new AhaSendConfigurationError(
+        `AhaSend: \`${name}.${key}\` is not a recognized option. Expected ${[
+          ...RATE_LIMIT_SETTING_KEYS,
+        ]
+          .map((k) => `\`${k}\``)
+          .join(", ")}.`,
+      );
+    }
+  }
+}
+
 /** Map an API path to one of the two documented rate-limit tiers. */
 export function detectCategory(_method: string, path: string): EndpointCategory {
   return path.includes("/statistics/") ? "statistics" : "standard";
@@ -490,6 +557,15 @@ export interface RateLimitSnapshot {
  * a plan, or when backing off in response to sustained 429s.
  */
 export interface RateLimiterController {
+  /**
+   * Every method here validates its arguments and throws
+   * {@link AhaSendConfigurationError} on anything it cannot use — an
+   * unrecognised category, a non-boolean flag, a limit that is not an object,
+   * or an unknown key on one. This is a public runtime boundary reachable from
+   * JavaScript, where the declared types are not enforced and these values
+   * often arrive from environment variables or parsed JSON.
+   */
+
   /** Whether local pacing is running at all. Mirrors `rateLimit.enabled`. */
   isEnabled(): boolean;
   /**
@@ -507,8 +583,10 @@ export interface RateLimiterController {
   /**
    * Change one bucket's settings, keeping any field left out.
    *
-   * Validates exactly as construction does and throws
-   * {@link AhaSendConfigurationError} on an unusable value. Note that raising
+   * Validates the category, the object, and each field exactly as construction
+   * does, and throws {@link AhaSendConfigurationError} on an unusable value —
+   * including an unrecognised key, which was previously dropped in silence and
+   * left the caller believing a ceiling had been raised. Note that raising
    * `burst` raises the ceiling but does not mint tokens: they accrue at
    * `requestsPerSecond` and are capped at the new `burst`.
    */
@@ -536,14 +614,25 @@ export function createRateLimiterController(limiter: RateLimiter): Readonly<Rate
   const controller: RateLimiterController = {
     isEnabled: () => limiter.isEnabled(),
     setEnabled: (enabled) => {
+      assertRateLimitBoolean(enabled, "enabled");
       limiter.setEnabled(enabled);
     },
     setCategoryEnabled: (category, enabled) => {
+      assertRateLimitCategory(category, "category");
+      assertRateLimitBoolean(enabled, "enabled");
       limiter.setCategoryEnabled(category, enabled);
     },
-    isCategoryEnabled: (category) => limiter.isCategoryEnabled(category),
-    getLimit: (category) => limiter.settings(category),
+    isCategoryEnabled: (category) => {
+      assertRateLimitCategory(category, "category");
+      return limiter.isCategoryEnabled(category);
+    },
+    getLimit: (category) => {
+      assertRateLimitCategory(category, "category");
+      return limiter.settings(category);
+    },
     setLimit: (category, limit) => {
+      assertRateLimitCategory(category, "category");
+      assertRateLimitSetting(limit, "limit");
       const current = limiter.settings(category);
       limiter.setLimit(
         category,
@@ -552,7 +641,10 @@ export function createRateLimiterController(limiter: RateLimiter): Readonly<Rate
         limit.maxQueue ?? current.maxQueue,
       );
     },
-    available: (category) => limiter.available(category),
+    available: (category) => {
+      assertRateLimitCategory(category, "category");
+      return limiter.available(category);
+    },
   };
   return Object.freeze(controller);
 }

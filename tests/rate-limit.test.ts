@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AhaSendClient } from "../src/client.js";
 import { resolveConfig } from "../src/config.js";
 import {
   AhaSendAbortError,
+  AhaSendConfigurationError,
   AhaSendError,
   AhaSendRateLimitError,
   AhaSendRateLimitQueueFullError,
@@ -873,5 +875,82 @@ describe("queue cancellation at scale", () => {
     await Promise.all(outcomes);
 
     expect(served).toEqual([1, 3, 4]);
+  });
+});
+
+describe("rateLimiter controller input validation", () => {
+  // `client.rateLimiter` is a public runtime boundary. TypeScript callers are
+  // held to the declared types, but JavaScript callers are not — and these
+  // arguments routinely come from environment variables or parsed JSON, where
+  // the value is a string whatever the type says. Everything here reached the
+  // limiter unchecked and surfaced as a bare TypeError from inside it, or
+  // worse, silently corrupted state.
+  const controller = (): AhaSendClient["rateLimiter"] =>
+    new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: "11111111-1111-4111-8111-111111111111",
+    }).rateLimiter;
+
+  it("rejects a non-boolean enabled flag rather than storing it", () => {
+    const rateLimiter = controller();
+    // The motivating case: "false" from an env var is truthy, so pacing stayed
+    // ON while isEnabled() returned the string "false" in place of a boolean.
+    expect(() => rateLimiter.setEnabled("false" as unknown as boolean)).toThrow(
+      AhaSendConfigurationError,
+    );
+    expect(rateLimiter.isEnabled()).toBe(false);
+    expect(typeof rateLimiter.isEnabled()).toBe("boolean");
+
+    expect(() => rateLimiter.setCategoryEnabled("standard", 1 as unknown as boolean)).toThrow(
+      AhaSendConfigurationError,
+    );
+    expect(rateLimiter.isCategoryEnabled("standard")).toBe(true);
+  });
+
+  it("names the accepted categories instead of throwing from inside the limiter", () => {
+    const rateLimiter = controller();
+    const calls: (() => unknown)[] = [
+      () => rateLimiter.getLimit("bogus" as never),
+      () => rateLimiter.available("bogus" as never),
+      () => rateLimiter.isCategoryEnabled("bogus" as never),
+      () => rateLimiter.setCategoryEnabled("bogus" as never, true),
+      () => rateLimiter.setLimit("bogus" as never, { burst: 5 }),
+    ];
+    for (const call of calls) {
+      expect(call).toThrow(AhaSendConfigurationError);
+      expect(call).toThrow(/must be one of "standard", "statistics"/);
+    }
+  });
+
+  it("rejects a limit that is not an object before reading fields off it", () => {
+    const rateLimiter = controller();
+    for (const bad of [null, undefined, 5, "burst", [1]]) {
+      expect(() => rateLimiter.setLimit("standard", bad as never)).toThrow(
+        AhaSendConfigurationError,
+      );
+    }
+    expect(rateLimiter.getLimit("standard").burst).toBe(DEFAULT_RATE_LIMIT_CONFIG.standard.burst);
+  });
+
+  it("rejects an unrecognized limit key rather than silently ignoring it", () => {
+    // A misspelling used to be dropped, so the caller believed a ceiling had
+    // been raised while the old one stayed in force.
+    const rateLimiter = controller();
+    expect(() => rateLimiter.setLimit("standard", { maxQueueSize: 10 } as never)).toThrow(
+      /`limit.maxQueueSize` is not a recognized option/,
+    );
+    expect(rateLimiter.getLimit("standard").maxQueue).toBe(DEFAULT_MAX_QUEUE);
+  });
+
+  it("still applies a valid runtime change", () => {
+    const rateLimiter = controller();
+    rateLimiter.setLimit("statistics", { requestsPerSecond: 5, burst: 10, maxQueue: 25 });
+    expect(rateLimiter.getLimit("statistics")).toMatchObject({
+      requestsPerSecond: 5,
+      burst: 10,
+      maxQueue: 25,
+    });
+    rateLimiter.setEnabled(true);
+    expect(rateLimiter.isEnabled()).toBe(true);
   });
 });

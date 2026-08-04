@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -68,5 +69,75 @@ describe("v0.1.0 release source alignment", () => {
     expect(packageManifest.scripts["release:verify"]).toBe(
       "vitest run tests/release tests/version.test.ts tests/contracts.test.ts tests/generation.test.ts",
     );
+  });
+
+  // The assertions above compare script strings, which cannot tell whether a
+  // documented command runs. RELEASING.md told the reader to run
+  // `release:source-gate` and `release:candidate` bare; both exit non-zero on a
+  // usage error, because they validate artifacts the release workflow produced.
+  // These execute what the runbook now says, so the runbook cannot drift again.
+  const runbook = readFileSync(resolve(root, "RELEASING.md"), "utf8");
+
+  it("documents only local commands that exist as scripts", () => {
+    const section = runbook.slice(
+      runbook.indexOf("## Local verification without a release"),
+      runbook.indexOf("### The `release:*` artifact validators are not local commands"),
+    );
+    expect(section).not.toBe("");
+
+    const documented = [...section.matchAll(/^npm run ([\w:]+)/gmu)].map((match) => match[1]!);
+    expect(documented).toEqual(["ci", "release:verify", "test:package:preflight"]);
+    for (const script of documented) {
+      expect(packageManifest.scripts[script], `${script} is documented but not defined`).toBeTypeOf(
+        "string",
+      );
+    }
+  });
+
+  it("pins each artifact validator's usage line to the signature the runbook prints", () => {
+    // Invoked with no arguments each one must refuse and say how it is called.
+    // Running them for real needs a release artifact; refusing correctly is the
+    // part a local test can hold, and it is what the runbook's signatures claim.
+    const validators = [
+      ["scripts/run-source-gates.mjs", "<source-report.json> [source-report.sha256]"],
+      [
+        "scripts/create-candidate.mjs",
+        "<source-report.json> <output-directory> [source-report.sha256]",
+      ],
+      [
+        "scripts/run-live-acceptance.mjs",
+        "<candidate-manifest.json> <candidate.tgz> <install-directory> <live-report.json> <live-report.sha256> [candidate-manifest.sha256]",
+      ],
+    ] as const;
+
+    for (const [script, signature] of validators) {
+      const result = spawnSync(process.execPath, [script], { cwd: root, encoding: "utf8" });
+      expect(result.status, `${script} should refuse to run without arguments`).not.toBe(0);
+
+      const usage = `${result.stdout}${result.stderr}`;
+      expect(usage).toContain(`Usage: node ${script} ${signature}`);
+      // The runbook must print the same argument list it will actually reject.
+      expect(runbook, `${script} signature drifted from RELEASING.md`).toContain(signature);
+    }
+  });
+
+  it("runs the full gate chain before publishing, not a subset of it", () => {
+    // `prepublishOnly` is the last gate before the registry. It previously
+    // omitted lint and the packed-package preflight, so a publish could skip
+    // the fixtures that compile the shipped declarations without @types/node.
+    const prepublish = packageManifest.scripts["prepublishOnly"] ?? "";
+    for (const step of [
+      "clean",
+      "contracts:check",
+      "sdk:check",
+      "docs:check",
+      "verify:audit",
+      "typecheck",
+      "lint",
+      "test",
+      "test:package:preflight",
+    ]) {
+      expect(prepublish, `prepublishOnly omits ${step}`).toContain(`npm run ${step}`);
+    }
   });
 });
