@@ -10,6 +10,7 @@ import {
   TSUP_INITIAL_BUILD_MARKERS,
   validateDocumentationWorkflowEvidence,
   validateDocumentedWorkflowRegistry,
+  VITEST_WATCH_READY_MARKER,
   type DocumentationWorkflowEntry,
 } from "../scripts/verify-doc-workflows.mjs";
 
@@ -135,6 +136,53 @@ describe("documented workflow registry", () => {
     );
 
     expect(() => createDocumentedWorkflowExecutionPlan(entries)).toThrow("with --errors");
+  });
+});
+
+describe("test watch readiness marker", () => {
+  it("treats the vitest run banner as readiness, before any test completes", async () => {
+    // The banner appears within seconds of launch. Waiting for the end-of-run
+    // `Test Files` summary instead made the 60-second readiness budget cover
+    // the whole initial suite pass, which two-core CI runners cannot fit —
+    // every hosted run of this gate timed out while faster machines passed.
+    const output = await runBoundedInteractive({
+      label: "vitest watch banner fixture",
+      command: process.execPath,
+      args: [
+        "-e",
+        'console.log(" RUN  v3.2.6 /tmp/doc-workflows-fixture"); setInterval(() => {}, 1000)',
+      ],
+      cwd: process.cwd(),
+      marker: VITEST_WATCH_READY_MARKER,
+      timeoutMs: 5_000,
+    });
+
+    expect(output).toContain("RUN  v3.2.6");
+  });
+
+  it("matches the summary and both watch-prompt spellings as fallbacks", () => {
+    // `Test Files  38 passed` (or failed — readiness never proved green) and
+    // vitest's actual "Waiting for file changes"; the pre-fix marker's
+    // "Watching" spelling matched no vitest version at all.
+    for (const line of [
+      "Test Files  38 passed (38)",
+      "Test Files  1 failed | 37 passed (38)",
+      " Waiting for file changes...",
+      "Watching for file changes",
+    ]) {
+      expect(VITEST_WATCH_READY_MARKER.test(line), line).toBe(true);
+    }
+  });
+
+  it("does not fire on npm's own preamble before vitest starts", () => {
+    for (const line of [
+      "npm notice run @ahasend/sdk@0.1.0 test:watch",
+      "> @ahasend/sdk@0.1.0 test:watch",
+      "> vitest",
+      "npm run v10.0.0", // lowercase run: not the banner
+    ]) {
+      expect(VITEST_WATCH_READY_MARKER.test(line), line).toBe(false);
+    }
   });
 });
 

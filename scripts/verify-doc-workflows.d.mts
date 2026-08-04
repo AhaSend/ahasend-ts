@@ -16,6 +16,7 @@ export interface DocumentationWorkflowEntry {
 
 export const DOCUMENTED_WORKFLOW_REGISTRY: readonly DocumentationWorkflowEntry[];
 export const TSUP_INITIAL_BUILD_MARKERS: readonly RegExp[];
+export const VITEST_WATCH_READY_MARKER: RegExp;
 
 export interface DocumentedInvocation {
   readonly executable: string;

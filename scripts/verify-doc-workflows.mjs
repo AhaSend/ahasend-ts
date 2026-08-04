@@ -36,6 +36,28 @@ export const TSUP_INITIAL_BUILD_MARKERS = Object.freeze([
   /^DTS .*Build success(?: in \d+ms)?\s*$/mu,
 ]);
 
+/**
+ * Readiness for the documented `npm run test:watch` workflow.
+ *
+ * The vitest run banner (` RUN  v3.2.6 …`) is the primary marker: it proves
+ * the documented command launched vitest in watch mode, and it appears within
+ * seconds. The former marker waited for the end-of-run `Test Files` summary,
+ * which only exists after the initial full-suite pass — on two-core CI
+ * runners the two documentation test files alone consume ~50 of the 60-second
+ * budget, so the gate timed out on every hosted run while passing on faster
+ * machines. Waiting longer bought nothing: `Test Files` matches a *failing*
+ * summary too, so the old marker never proved the suite green — only that
+ * watch mode reached its report, which the banner proves earlier. The summary
+ * and watch-prompt alternatives are kept as fallbacks against banner-format
+ * drift across vitest versions ("Watching" never matched vitest 3, which
+ * prints "Waiting for file changes"; both spellings are tolerated now).
+ *
+ * Lowercase `run` in npm's own preamble (`npm notice run …`) must not match,
+ * so the banner alternative is case-sensitive and anchored to line start.
+ */
+export const VITEST_WATCH_READY_MARKER =
+  /^\s*RUN +v\d+\.|Test Files|Waiting for file changes|Watching for file changes/mu;
+
 export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
   { path: "README.md", line: 26, command: "npm install @ahasend/sdk", owner: "installed-package" },
   {
@@ -749,7 +771,7 @@ export async function runSourceDocumentationWorkflows(root = repositoryRoot) {
       label: "Documented test watch workflow",
       ...watch,
       cwd: temporary.target,
-      marker: /Test Files|Watching for file changes/iu,
+      marker: VITEST_WATCH_READY_MARKER,
     });
     return Object.freeze({ ...summary, result: DOCUMENTATION_WORKFLOW_RESULT, passed: true });
   } finally {
