@@ -2,14 +2,16 @@
 // Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars.
 // Run:  node examples/ping.mjs
 
-import { AhaSendClient } from "../dist/index.js";
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
 
 try {
-  const res = await client.ping();
-  console.log("✓ ping:", res);
+  const result = await client.ping().withResponse();
+  console.log(`✓ ping status=${result.response.status} request-id=${result.requestId ?? "n/a"}`);
 } catch (err) {
-  console.error("✗ ping failed:", err.name, err.status ?? "", err.message);
+  console.error("✗ ping failed", {
+    errorCode: isAhaSendError(err) ? err.code : "unknown",
+  });
   process.exit(1);
 }

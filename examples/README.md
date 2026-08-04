@@ -1,6 +1,7 @@
 # Examples
 
-Runnable smoke tests for the AhaSend Node SDK. Each script imports from `../dist/`, so build first:
+Example scripts and framework modules for the AhaSend Node SDK. Each file imports from `../dist/`,
+so build first:
 
 ```bash
 npm run build
@@ -21,6 +22,12 @@ export AHASEND_ACCOUNT_ID="your-account-uuid"
 Get these from the [AhaSend dashboard](https://dashboard.ahasend.com).
 
 ## Examples (in recommended order)
+
+The packed documentation runtime matrix installs the candidate SDK and syntax- and
+declaration-checks all 17 top-level `examples/*.mjs` files plus the Next route's companion
+construction module. It does not make live API calls or start framework servers. The inventory
+contains 15 executable smoke-test scripts and two framework examples (`webhook-express.mjs` and
+`next-webhook-route.mjs`), which require their host framework setup.
 
 ### 1. `ping.mjs` — safest first test
 
@@ -53,6 +60,7 @@ Uses AhaSend's sandbox mode (`sandbox: true`). The API validates the request and
 `AHASEND_FROM_EMAIL` is required and must be on a **verified sending domain** on your account — sandbox mode does not bypass domain validation.
 
 ```bash
+export AHASEND_ALLOW_MUTATIONS="1"
 export AHASEND_FROM_EMAIL="sender@your-verified-domain.com"
 node examples/send-sandbox.mjs
 ```
@@ -65,8 +73,12 @@ node examples/send-sandbox.mjs
 | `idempotency.mjs`            | Explicit stable idempotency key reuse (sandbox send, run twice with the same key)                                 |
 | `telemetry.mjs`              | `onRequest` / `onResponse` / `onRetry` / `onError` hooks for logging and metrics                                  |
 | `error-handling.mjs`         | Branching on the typed error classes (`AhaSendNotFoundError`, `AhaSendRateLimitError`, …)                         |
+| `get-account.mjs`            | Read-only account lookup                                                                                          |
+| `list-routes.mjs`            | Read-only inbound-route listing                                                                                   |
+| `list-suppressions.mjs`      | Read-only suppression listing                                                                                     |
+| `statistics.mjs`             | Read-only deliverability statistics                                                                               |
 | `webhook-express.mjs`        | Express webhook endpoint with application-owned, durable `webhook-id` deduplication (needs `npm install express`) |
-| `next-webhook-route.mjs`     | Next.js App Router webhook route with explicit Node.js runtime and durable deduplication boundary                 |
+| `next-webhook-route.mjs`     | Next.js App Router webhook route with a companion factory, explicit Node.js runtime, and durable deduplication    |
 | `verify-webhook.mjs`         | Offline HMAC sign + verify round-trip — runs without any credentials                                              |
 | `update-api-key-ip-list.mjs` | Guarded replacement of an API key IP allow-list                                                                   |
 | `bootstrap-subaccount.mjs`   | Guarded child-account and child-key bootstrap without printing the one-time secret                                |
@@ -75,10 +87,12 @@ node examples/send-sandbox.mjs
 
 ## Guarded mutations
 
-The IP-list and subaccount bootstrap examples refuse to run unless
-`AHASEND_ALLOW_MUTATIONS=1` is set. Review the target IDs, allow-list, scopes,
-and output file before opting in. In particular, an IP-list change can remove
-access for other workloads even when the API's self-lockout check allows it.
+All four request examples that create or update state (`send-sandbox.mjs`,
+`idempotency.mjs`, `update-api-key-ip-list.mjs`, and `bootstrap-subaccount.mjs`) refuse to run
+unless `AHASEND_ALLOW_MUTATIONS=1` is set. This includes sandbox sends even though they do not
+deliver email. Review the sender, target IDs, allow-list, scopes, and output file before opting in.
+In particular, an IP-list change can remove access for other workloads even when the API's
+self-lockout check allows it.
 
 ```bash
 export AHASEND_ALLOW_MUTATIONS="1"
@@ -108,11 +122,11 @@ bootstrap.
 
 ## Testing without real credentials — Prism mock server
 
-The AhaSend OpenAPI spec is public. You can run a local mock server from it:
+From the repository root after `npm ci`, use the lockfile-pinned local Prism executable and the
+committed `openapi.yaml`:
 
 ```bash
-npm install -g @stoplight/prism-cli
-prism mock https://raw.githubusercontent.com/AhaSend/ahasend-go/main/openapi/openapi.yaml -p 4010
+./node_modules/.bin/prism mock openapi.yaml -p 4010 --errors
 ```
 
 Then point the SDK at the mock:
@@ -121,6 +135,7 @@ Then point the SDK at the mock:
 export AHASEND_API_KEY="aha-sk-mock-key-any-value"
 export AHASEND_ACCOUNT_ID="00000000-0000-0000-0000-000000000000"
 export AHASEND_BASE_URL="http://127.0.0.1:4010"
+export AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL="true"
 node examples/ping.mjs
 ```
 

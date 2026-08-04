@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -39,8 +40,11 @@ describe("v0.1.0 release source alignment", () => {
 
   it("retains the reviewed cursor-exclusive pagination declarations", () => {
     expect(rootApiReport).toContain("export interface PaginatedResponse<T>");
+    // Optional members admit `undefined` so a `string | undefined` cursor can be
+    // threaded through the documented pagination loop under
+    // `exactOptionalPropertyTypes`; the cursors stay mutually exclusive.
     expect(rootApiReport).toMatch(
-      /export type PaginationParams = Readonly<\{\s+limit\?: number;\s+\} & \(\{\s+after\?: string;\s+before\?: never;\s+\} \| \{\s+after\?: never;\s+before\?: string;\s+\}\)>;/u,
+      /export type PaginationParams = Readonly<\{\s+limit\?: number \| undefined;\s+\} & \(\{\s+after\?: string \| undefined;\s+before\?: never;\s+\} \| \{\s+after\?: never;\s+before\?: string \| undefined;\s+\}\)>;/u,
     );
     expect(rootApiReport).toContain(
       "iterate(params?: ListMessagesParams, options?: RequestOptions): AsyncGenerator<MessageSummary, void, undefined>;",
@@ -65,5 +69,125 @@ describe("v0.1.0 release source alignment", () => {
     expect(packageManifest.scripts["release:verify"]).toBe(
       "vitest run tests/release tests/version.test.ts tests/contracts.test.ts tests/generation.test.ts",
     );
+  });
+
+  // The assertions above compare script strings, which cannot tell whether a
+  // documented command runs. RELEASING.md told the reader to run
+  // `release:source-gate` and `release:candidate` bare; both exit non-zero on a
+  // usage error, because they validate artifacts the release workflow produced.
+  // These execute what the runbook now says, so the runbook cannot drift again.
+  const runbook = readFileSync(resolve(root, "RELEASING.md"), "utf8");
+
+  it("documents only local commands that exist as scripts", () => {
+    const section = runbook.slice(
+      runbook.indexOf("## Local verification without a release"),
+      runbook.indexOf("### The `release:*` artifact validators are not local commands"),
+    );
+    expect(section).not.toBe("");
+
+    const documented = [...section.matchAll(/^npm run ([\w:]+)/gmu)].map((match) => match[1]!);
+    expect(documented).toEqual(["ci", "release:verify", "test:package:preflight"]);
+    for (const script of documented) {
+      expect(packageManifest.scripts[script], `${script} is documented but not defined`).toBeTypeOf(
+        "string",
+      );
+    }
+  });
+
+  it("pins each artifact validator's usage line to the signature the runbook prints", () => {
+    // Invoked with no arguments each one must refuse and say how it is called.
+    // Running them for real needs a release artifact; refusing correctly is the
+    // part a local test can hold, and it is what the runbook's signatures claim.
+    const validators = [
+      ["scripts/run-source-gates.mjs", "<source-report.json> [source-report.sha256]"],
+      [
+        "scripts/create-candidate.mjs",
+        "<source-report.json> <output-directory> [source-report.sha256]",
+      ],
+      [
+        "scripts/run-live-acceptance.mjs",
+        "<candidate-manifest.json> <candidate.tgz> <install-directory> <live-report.json> <live-report.sha256> [candidate-manifest.sha256]",
+      ],
+    ] as const;
+
+    for (const [script, signature] of validators) {
+      const result = spawnSync(process.execPath, [script], { cwd: root, encoding: "utf8" });
+      expect(result.status, `${script} should refuse to run without arguments`).not.toBe(0);
+
+      const usage = `${result.stdout}${result.stderr}`;
+      expect(usage).toContain(`Usage: node ${script} ${signature}`);
+      // The runbook must print the same argument list it will actually reject.
+      expect(runbook, `${script} signature drifted from RELEASING.md`).toContain(signature);
+    }
+  });
+
+  it("keeps every release.yml line citation in RELEASING.md anchored to what it cites", () => {
+    // The runbook cites exact release.yml lines; edits to the workflow shift
+    // them silently. Each citation is held to the fragment that makes it
+    // meaningful, and the coverage check at the end forces a new citation to
+    // be added here rather than drifting unverified.
+    const workflowLines = readFileSync(
+      resolve(root, ".github/workflows/release.yml"),
+      "utf8",
+    ).split("\n");
+    const lineAt = (lineNumber: number): string => workflowLines[lineNumber - 1] ?? "";
+    const verified = new Set<number>();
+
+    // Secrets table: the cited line must consume that secret.
+    const secretRows = [...runbook.matchAll(/^\| `(\w+)`\s+\|[^|]*\(release\.yml:([\d, ]+)\)/gmu)];
+    expect(secretRows.length).toBeGreaterThanOrEqual(4);
+    for (const [, secret, numbers] of secretRows) {
+      for (const cited of numbers!.split(",").map((value) => Number(value.trim()))) {
+        expect(lineAt(cited), `release.yml:${cited} cited for ${secret}`).toContain(
+          `secrets.${secret}`,
+        );
+        verified.add(cited);
+      }
+    }
+
+    // Inline citations pin one fact each.
+    const provenance = /`npm publish --provenance` \(release\.yml:(\d+)\)/u.exec(runbook);
+    expect(provenance).not.toBeNull();
+    expect(lineAt(Number(provenance![1]))).toContain("--provenance");
+    verified.add(Number(provenance![1]));
+
+    const promotionGate = /`registry-smoke` succeeded \(release\.yml:(\d+)\)/u.exec(runbook);
+    expect(promotionGate).not.toBeNull();
+    expect(lineAt(Number(promotionGate![1]))).toContain("registry-smoke.result == 'success'");
+    verified.add(Number(promotionGate![1]));
+
+    // Every release.yml citation in the runbook must be one of the verified.
+    const cited = [...runbook.matchAll(/release\.yml:([\d, ]+)/gu)].flatMap(([, numbers]) =>
+      numbers!.split(",").map((value) => Number(value.trim())),
+    );
+    for (const citation of cited) {
+      expect(verified.has(citation), `release.yml:${citation} is cited but unverified`).toBe(true);
+    }
+  });
+
+  it("runs the full gate chain before publishing, not a subset of it", () => {
+    // `prepublishOnly` is the last gate before the registry. It previously
+    // omitted lint and the packed-package preflight, so a publish could skip
+    // the fixtures that compile the shipped declarations without @types/node.
+    //
+    // Split on the chain operator rather than substring-matched: `toContain`
+    // on the raw string let "npm run test" be satisfied by
+    // "npm run test:package:preflight", so removing the unit-test step was
+    // invisible to this test — the exact step it most exists to guard.
+    const prepublish = packageManifest.scripts["prepublishOnly"] ?? "";
+    const steps = prepublish.split(" && ");
+    for (const step of [
+      "clean",
+      "contracts:check",
+      "sdk:check",
+      "docs:check",
+      "verify:audit",
+      "typecheck",
+      "lint",
+      "test",
+      "test:package:preflight",
+    ]) {
+      expect(steps, `prepublishOnly omits ${step}`).toContain(`npm run ${step}`);
+    }
   });
 });

@@ -1,5 +1,7 @@
 import type * as SDK from "../src/index.js";
 import type { components } from "../src/generated/rest-types.js";
+import type { OperationExecutor } from "../src/operations.js";
+import type * as WebhookSDK from "../src/webhooks/index.js";
 
 // @ts-expect-error DomainRequestOptions was intentionally removed from the public API.
 import type { DomainRequestOptions } from "../src/index.js";
@@ -98,6 +100,76 @@ type AllWireSchemasHavePublicContracts = Expect<
   Equal<keyof PublicSchemaContracts, keyof WireSchemas>
 >;
 
+/**
+ * These request models deliberately accept readonly arrays so callers can pass
+ * `as const` data without copying it. The generated wire models use mutable
+ * arrays for these fields, but JSON serialization does not mutate them.
+ */
+interface ReadonlyPublicSchemaRefinements {
+  CreateAPIKeyRequest: "ip_allow_list is readonly in the public request model";
+  UpdateAPIKeyRequest: "ip_allow_list is readonly in the public request model";
+  CreateMessageRequest: "attachments and tags are readonly in the public request model";
+  CreateConversationMessageRequest: "attachments and tags are readonly in the public request model";
+  CreateWebhookRequest: "global webhook domains are readonly in the public request model";
+  UpdateWebhookRequest: "domains is readonly in the public request model";
+  CreateSMTPCredentialRequest: "global credential domains are readonly in the public request model";
+}
+
+type ReadonlyArrays<Value> = Value extends readonly unknown[]
+  ? number extends Value["length"]
+    ? readonly ReadonlyArrays<Value[number]>[]
+    : { readonly [Index in keyof Value]: ReadonlyArrays<Value[Index]> }
+  : Value extends object
+    ? { [Key in keyof Value]: ReadonlyArrays<Value[Key]> }
+    : Value;
+
+type BidirectionalSchema = Exclude<
+  keyof PublicSchemaContracts,
+  keyof ReadonlyPublicSchemaRefinements
+>;
+
+type PublicSchemasAssignableToWire = Expect<
+  Equal<
+    {
+      [Schema in BidirectionalSchema]: Extends<PublicSchemaContracts[Schema], WireSchemas[Schema]>;
+    },
+    { [Schema in BidirectionalSchema]: true }
+  >
+>;
+
+type WireSchemasAssignableToPublic = Expect<
+  Equal<
+    {
+      [Schema in BidirectionalSchema]: Extends<WireSchemas[Schema], PublicSchemaContracts[Schema]>;
+    },
+    { [Schema in BidirectionalSchema]: true }
+  >
+>;
+
+type RefinedPublicSchemasAssignableToWire = Expect<
+  Equal<
+    {
+      [Schema in keyof ReadonlyPublicSchemaRefinements]: Extends<
+        PublicSchemaContracts[Schema],
+        ReadonlyArrays<WireSchemas[Schema]>
+      >;
+    },
+    { [Schema in keyof ReadonlyPublicSchemaRefinements]: true }
+  >
+>;
+
+type RefinedWireSchemasAssignableToPublic = Expect<
+  Equal<
+    {
+      [Schema in keyof ReadonlyPublicSchemaRefinements]: Extends<
+        WireSchemas[Schema],
+        PublicSchemaContracts[Schema]
+      >;
+    },
+    { [Schema in keyof ReadonlyPublicSchemaRefinements]: true }
+  >
+>;
+
 type CommonSignatures = [
   Expect<Equal<SDK.UUID, string>>,
   Expect<Equal<SDK.ISODateTime, string>>,
@@ -145,7 +217,7 @@ type MessageSignatures = [
       (
         body: SDK.CreateMessageRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.SendMessageResponse>
+      ) => SDK.AhaSendPromise<SDK.SendMessageResponse>
     >
   >,
   Expect<
@@ -154,7 +226,7 @@ type MessageSignatures = [
       (
         body: SDK.CreateConversationMessageRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.SendMessageResponse>
+      ) => SDK.AhaSendPromise<SDK.SendMessageResponse>
     >
   >,
   Expect<
@@ -163,7 +235,7 @@ type MessageSignatures = [
       (
         params?: SDK.ListMessagesParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.MessageSummary>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.MessageSummary>>
     >
   >,
   Expect<
@@ -178,16 +250,31 @@ type MessageSignatures = [
   Expect<
     Equal<
       SDK.MessagesClient["get"],
-      (messageId: string, options?: SDK.RequestOptions) => Promise<SDK.Message>
+      (messageId: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Message>
     >
   >,
   Expect<
     Equal<
       SDK.MessagesClient["cancel"],
-      (messageId: string, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (messageId: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const messageListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.MessageSummary>>;
+declare const messageIteratorResult: AsyncGenerator<SDK.MessageSummary, void, undefined>;
+declare const sendMessageResult: SDK.AhaSendPromise<SDK.SendMessageResponse>;
+declare const messageResult: SDK.AhaSendPromise<SDK.Message>;
+declare const messageCancelResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralMessageMock: SDK.MessagesClient = {
+  send: () => sendMessageResult,
+  sendConversation: () => sendMessageResult,
+  list: () => messageListResult,
+  iterate: () => messageIteratorResult,
+  get: () => messageResult,
+  cancel: () => messageCancelResult,
+};
 
 type DomainSignatures = [
   Expect<
@@ -196,7 +283,7 @@ type DomainSignatures = [
       (
         params?: SDK.ListDomainsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.Domain>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Domain>>
     >
   >,
   Expect<
@@ -214,13 +301,13 @@ type DomainSignatures = [
       (
         body: SDK.CreateDomainRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.Domain>
+      ) => SDK.AhaSendPromise<SDK.Domain>
     >
   >,
   Expect<
     Equal<
       SDK.DomainsClient["get"],
-      (domain: string, options?: SDK.RequestOptions) => Promise<SDK.Domain>
+      (domain: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Domain>
     >
   >,
   Expect<
@@ -230,22 +317,60 @@ type DomainSignatures = [
         domain: string,
         body: SDK.UpdateDomainRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.Domain>
+      ) => SDK.AhaSendPromise<SDK.Domain>
     >
   >,
   Expect<
     Equal<
       SDK.DomainsClient["delete"],
-      (domain: string, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (domain: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
   Expect<
     Equal<
       SDK.DomainsClient["checkDns"],
-      (domain: string, options?: SDK.RequestOptions) => Promise<SDK.Domain>
+      (domain: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Domain>
     >
   >,
 ];
+
+declare const domainListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Domain>>;
+declare const domainIteratorResult: AsyncGenerator<SDK.Domain, void, undefined>;
+declare const domainResult: SDK.AhaSendPromise<SDK.Domain>;
+declare const domainDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralDomainMock: SDK.DomainsClient = {
+  list: () => domainListResult,
+  iterate: () => domainIteratorResult,
+  create: () => domainResult,
+  get: () => domainResult,
+  update: () => domainResult,
+  delete: () => domainDeleteResult,
+  checkDns: () => domainResult,
+};
+
+const createDomainWithDefaultSelector: SDK.CreateDomainRequest = {
+  domain: "example.com",
+  dkim_selector: null,
+};
+const createDomainWithCustomSelector: SDK.CreateDomainRequest = {
+  domain: "example.net",
+  dkim_selector: "selector-1",
+};
+const updateDomainWithoutSelectorChange: SDK.UpdateDomainRequest = { dkim_selector: null };
+const updateDomainClearingSelector: SDK.UpdateDomainRequest = { dkim_selector: "" };
+const updateDomainClearingWhitespaceSelector: SDK.UpdateDomainRequest = { dkim_selector: " \t " };
+
+declare const domains: SDK.DomainsClient;
+const createdDomainResponse: Promise<SDK.AhaSendResponse<SDK.Domain>> = domains
+  .create(createDomainWithDefaultSelector)
+  .withResponse();
+domains.create(createDomainWithCustomSelector).withResponse();
+domains.update("example.com", updateDomainWithoutSelectorChange).withResponse();
+domains.update("example.com", updateDomainClearingSelector).withResponse();
+const updatedDomainResponse: Promise<SDK.AhaSendResponse<SDK.Domain>> = domains
+  .update("example.com", updateDomainClearingWhitespaceSelector)
+  .withResponse();
 
 type APIKeySignatures = [
   Expect<
@@ -254,7 +379,7 @@ type APIKeySignatures = [
       (
         params?: SDK.PaginationParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.APIKey>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.APIKey>>
     >
   >,
   Expect<
@@ -272,13 +397,13 @@ type APIKeySignatures = [
       (
         body: SDK.CreateAPIKeyRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedAPIKey>
+      ) => SDK.AhaSendPromise<SDK.CreatedAPIKey>
     >
   >,
   Expect<
     Equal<
       SDK.APIKeysClient["get"],
-      (keyId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.APIKey>
+      (keyId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.APIKey>
     >
   >,
   Expect<
@@ -288,16 +413,31 @@ type APIKeySignatures = [
         keyId: SDK.UUID,
         body: SDK.UpdateAPIKeyRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.APIKey>
+      ) => SDK.AhaSendPromise<SDK.APIKey>
     >
   >,
   Expect<
     Equal<
       SDK.APIKeysClient["delete"],
-      (keyId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (keyId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const apiKeyListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.APIKey>>;
+declare const apiKeyIteratorResult: AsyncGenerator<SDK.APIKey, void, undefined>;
+declare const apiKeyResult: SDK.AhaSendPromise<SDK.APIKey>;
+declare const createdAPIKeyResult: SDK.AhaSendPromise<SDK.CreatedAPIKey>;
+declare const apiKeyDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralAPIKeyMock: SDK.APIKeysClient = {
+  list: () => apiKeyListResult,
+  iterate: () => apiKeyIteratorResult,
+  create: () => createdAPIKeyResult,
+  get: () => apiKeyResult,
+  update: () => apiKeyResult,
+  delete: () => apiKeyDeleteResult,
+};
 
 type WebhookSignatures = [
   Expect<
@@ -306,7 +446,7 @@ type WebhookSignatures = [
       (
         params?: SDK.ListWebhooksParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.Webhook>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Webhook>>
     >
   >,
   Expect<
@@ -324,13 +464,13 @@ type WebhookSignatures = [
       (
         body: SDK.CreateWebhookRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedWebhook>
+      ) => SDK.AhaSendPromise<SDK.CreatedWebhook>
     >
   >,
   Expect<
     Equal<
       SDK.WebhooksClient["get"],
-      (webhookId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.Webhook>
+      (webhookId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Webhook>
     >
   >,
   Expect<
@@ -340,16 +480,50 @@ type WebhookSignatures = [
         webhookId: SDK.UUID,
         body: SDK.UpdateWebhookRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.Webhook>
+      ) => SDK.AhaSendPromise<SDK.Webhook>
     >
   >,
   Expect<
     Equal<
       SDK.WebhooksClient["delete"],
-      (webhookId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (webhookId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const webhookListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Webhook>>;
+declare const webhookIteratorResult: AsyncGenerator<SDK.Webhook, void, undefined>;
+declare const createdWebhookResult: SDK.AhaSendPromise<SDK.CreatedWebhook>;
+declare const webhookResult: SDK.AhaSendPromise<SDK.Webhook>;
+declare const webhookDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralWebhookMock: SDK.WebhooksClient = {
+  list: () => webhookListResult,
+  iterate: () => webhookIteratorResult,
+  create: () => createdWebhookResult,
+  get: () => webhookResult,
+  update: () => webhookResult,
+  delete: () => webhookDeleteResult,
+};
+
+type WebhookHandlerSignatures = [
+  Expect<Equal<Parameters<WebhookSDK.ExpressHandler>[0], WebhookSDK.AnyWebhookEvent>>,
+  Expect<Equal<Parameters<WebhookSDK.FastifyHandler>[0], WebhookSDK.AnyWebhookEvent>>,
+  Expect<Equal<Parameters<WebhookSDK.NextHandler>[0], WebhookSDK.AnyWebhookEvent>>,
+];
+
+const expressHandler: WebhookSDK.ExpressHandler = (event, request, response) => {
+  void [event, request, response];
+};
+
+const fastifyHandler: WebhookSDK.FastifyHandler = (event, request, reply) => {
+  void [event, request, reply];
+};
+
+const nextHandler: WebhookSDK.NextHandler = (event, request) => {
+  void [event, request];
+  return new Response(null, { status: 204 });
+};
 
 type StatisticsSignatures = [
   Expect<
@@ -358,7 +532,7 @@ type StatisticsSignatures = [
       (
         params?: SDK.StatisticsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.DeliverabilityStatisticsResponse>
+      ) => SDK.AhaSendPromise<SDK.DeliverabilityStatisticsResponse>
     >
   >,
   Expect<
@@ -367,7 +541,7 @@ type StatisticsSignatures = [
       (
         params?: SDK.StatisticsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.BounceStatisticsResponse>
+      ) => SDK.AhaSendPromise<SDK.BounceStatisticsResponse>
     >
   >,
   Expect<
@@ -376,10 +550,20 @@ type StatisticsSignatures = [
       (
         params?: SDK.StatisticsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.DeliveryTimeStatisticsResponse>
+      ) => SDK.AhaSendPromise<SDK.DeliveryTimeStatisticsResponse>
     >
   >,
 ];
+
+declare const deliverabilityStatisticsResult: SDK.AhaSendPromise<SDK.DeliverabilityStatisticsResponse>;
+declare const bounceStatisticsResult: SDK.AhaSendPromise<SDK.BounceStatisticsResponse>;
+declare const deliveryTimeStatisticsResult: SDK.AhaSendPromise<SDK.DeliveryTimeStatisticsResponse>;
+
+const structuralStatisticsMock: SDK.StatisticsClient = {
+  deliverability: () => deliverabilityStatisticsResult,
+  bounces: () => bounceStatisticsResult,
+  deliveryTimes: () => deliveryTimeStatisticsResult,
+};
 
 type SuppressionSignatures = [
   Expect<
@@ -388,7 +572,7 @@ type SuppressionSignatures = [
       (
         params?: SDK.ListSuppressionsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.Suppression>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Suppression>>
     >
   >,
   Expect<
@@ -406,7 +590,7 @@ type SuppressionSignatures = [
       (
         body: SDK.CreateSuppressionRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreateSuppressionResponse>
+      ) => SDK.AhaSendPromise<SDK.CreateSuppressionResponse>
     >
   >,
   Expect<
@@ -415,7 +599,7 @@ type SuppressionSignatures = [
       (
         params: SDK.DeleteSuppressionParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SuccessResponse>
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
   Expect<
@@ -424,10 +608,23 @@ type SuppressionSignatures = [
       (
         params?: SDK.WipeSuppressionsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SuccessResponse>
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const suppressionListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Suppression>>;
+declare const suppressionIteratorResult: AsyncGenerator<SDK.Suppression, void, undefined>;
+declare const createSuppressionResult: SDK.AhaSendPromise<SDK.CreateSuppressionResponse>;
+declare const suppressionDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralSuppressionMock: SDK.SuppressionsClient = {
+  list: () => suppressionListResult,
+  iterate: () => suppressionIteratorResult,
+  create: () => createSuppressionResult,
+  delete: () => suppressionDeleteResult,
+  wipe: () => suppressionDeleteResult,
+};
 
 type RouteSignatures = [
   Expect<
@@ -436,7 +633,7 @@ type RouteSignatures = [
       (
         params?: SDK.ListRoutesParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.Route>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Route>>
     >
   >,
   Expect<
@@ -454,13 +651,13 @@ type RouteSignatures = [
       (
         body: SDK.CreateRouteRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedRoute>
+      ) => SDK.AhaSendPromise<SDK.CreatedRoute>
     >
   >,
   Expect<
     Equal<
       SDK.RoutesClient["get"],
-      (routeId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.Route>
+      (routeId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Route>
     >
   >,
   Expect<
@@ -470,29 +667,52 @@ type RouteSignatures = [
         routeId: SDK.UUID,
         body: SDK.UpdateRouteRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.Route>
+      ) => SDK.AhaSendPromise<SDK.Route>
     >
   >,
   Expect<
     Equal<
       SDK.RoutesClient["delete"],
-      (routeId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (routeId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
 
+declare const routeListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Route>>;
+declare const routeIteratorResult: AsyncGenerator<SDK.Route, void, undefined>;
+declare const createdRouteResult: SDK.AhaSendPromise<SDK.CreatedRoute>;
+declare const routeResult: SDK.AhaSendPromise<SDK.Route>;
+declare const routeDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralRouteMock: SDK.RoutesClient = {
+  list: () => routeListResult,
+  iterate: () => routeIteratorResult,
+  create: () => createdRouteResult,
+  get: () => routeResult,
+  update: () => routeResult,
+  delete: () => routeDeleteResult,
+};
+
 type AccountSignatures = [
-  Expect<Equal<SDK.AccountsClient["get"], (options?: SDK.RequestOptions) => Promise<SDK.Account>>>,
+  Expect<
+    Equal<
+      SDK.AccountsClient["get"],
+      (options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Account>
+    >
+  >,
   Expect<
     Equal<
       SDK.AccountsClient["update"],
-      (body: SDK.UpdateAccountRequest, options?: SDK.RequestOptions) => Promise<SDK.Account>
+      (
+        body: SDK.UpdateAccountRequest,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.Account>
     >
   >,
   Expect<
     Equal<
       SDK.AccountsClient["listMembers"],
-      (options?: SDK.RequestOptions) => Promise<SDK.ListAccountMembersResponse>
+      (options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.ListAccountMembersResponse>
     >
   >,
   Expect<
@@ -501,16 +721,29 @@ type AccountSignatures = [
       (
         body: SDK.AddAccountMemberRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.UserAccount>
+      ) => SDK.AhaSendPromise<SDK.UserAccount>
     >
   >,
   Expect<
     Equal<
       SDK.AccountsClient["removeMember"],
-      (userId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (userId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const accountResult: SDK.AhaSendPromise<SDK.Account>;
+declare const accountMembersResult: SDK.AhaSendPromise<SDK.ListAccountMembersResponse>;
+declare const accountMemberResult: SDK.AhaSendPromise<SDK.UserAccount>;
+declare const successResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralAccountMock: SDK.AccountsClient = {
+  get: () => accountResult,
+  update: () => accountResult,
+  listMembers: () => accountMembersResult,
+  addMember: () => accountMemberResult,
+  removeMember: () => successResult,
+};
 
 type SMTPCredentialSignatures = [
   Expect<
@@ -519,7 +752,7 @@ type SMTPCredentialSignatures = [
       (
         params?: SDK.PaginationParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.SMTPCredential>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.SMTPCredential>>
     >
   >,
   Expect<
@@ -537,22 +770,44 @@ type SMTPCredentialSignatures = [
       (
         body: SDK.CreateSMTPCredentialRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedSMTPCredential>
+      ) => SDK.AhaSendPromise<SDK.CreatedSMTPCredential>
     >
   >,
   Expect<
     Equal<
       SDK.SMTPCredentialsClient["get"],
-      (credentialId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SMTPCredential>
+      (
+        credentialId: SDK.UUID,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.SMTPCredential>
     >
   >,
   Expect<
     Equal<
       SDK.SMTPCredentialsClient["delete"],
-      (credentialId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (
+        credentialId: SDK.UUID,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
+
+declare const smtpCredentialListResult: SDK.AhaSendPromise<
+  SDK.PaginatedResponse<SDK.SMTPCredential>
+>;
+declare const smtpCredentialIteratorResult: AsyncGenerator<SDK.SMTPCredential, void, undefined>;
+declare const createdSMTPCredentialResult: SDK.AhaSendPromise<SDK.CreatedSMTPCredential>;
+declare const smtpCredentialResult: SDK.AhaSendPromise<SDK.SMTPCredential>;
+declare const smtpCredentialDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralSMTPCredentialMock: SDK.SMTPCredentialsClient = {
+  list: () => smtpCredentialListResult,
+  iterate: () => smtpCredentialIteratorResult,
+  create: () => createdSMTPCredentialResult,
+  get: () => smtpCredentialResult,
+  delete: () => smtpCredentialDeleteResult,
+};
 
 type SubAccountSignatures = [
   Expect<
@@ -561,7 +816,7 @@ type SubAccountSignatures = [
       (
         params?: SDK.ListSubAccountsParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.SubAccount>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.SubAccount>>
     >
   >,
   Expect<
@@ -579,19 +834,19 @@ type SubAccountSignatures = [
       (
         body: SDK.CreateSubAccountRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.SubAccount>
+      ) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountsClient["usage"],
-      (options?: SDK.RequestOptions) => Promise<SDK.SubAccountUsageResponse>
+      (options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SubAccountUsageResponse>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountsClient["get"],
-      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SubAccount>
+      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<
@@ -601,13 +856,16 @@ type SubAccountSignatures = [
         subAccountId: SDK.UUID,
         body: SDK.UpdateSubAccountRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SubAccount>
+      ) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountsClient["delete"],
-      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SuccessResponse>
+      (
+        subAccountId: SDK.UUID,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
   Expect<
@@ -617,13 +875,13 @@ type SubAccountSignatures = [
         subAccountId: SDK.UUID,
         body: SDK.SuspendSubAccountRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SubAccount>
+      ) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountsClient["unsuspend"],
-      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.SubAccount>
+      (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
   Expect<Equal<SDK.SubAccountsClient["apiKeys"], Readonly<SDK.SubAccountAPIKeysClient>>>,
@@ -637,7 +895,7 @@ type SubAccountAPIKeySignatures = [
         subAccountId: SDK.UUID,
         params?: SDK.PaginationParams,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.PaginatedResponse<SDK.APIKey>>
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.APIKey>>
     >
   >,
   Expect<
@@ -657,13 +915,17 @@ type SubAccountAPIKeySignatures = [
         subAccountId: SDK.UUID,
         body: SDK.CreateAPIKeyRequest,
         options?: SDK.IdempotencyRequestOptions,
-      ) => Promise<SDK.CreatedAPIKey>
+      ) => SDK.AhaSendPromise<SDK.CreatedAPIKey>
     >
   >,
   Expect<
     Equal<
       SDK.SubAccountAPIKeysClient["get"],
-      (subAccountId: SDK.UUID, keyId: SDK.UUID, options?: SDK.RequestOptions) => Promise<SDK.APIKey>
+      (
+        subAccountId: SDK.UUID,
+        keyId: SDK.UUID,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.APIKey>
     >
   >,
   Expect<
@@ -674,7 +936,7 @@ type SubAccountAPIKeySignatures = [
         keyId: SDK.UUID,
         body: SDK.UpdateAPIKeyRequest,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.APIKey>
+      ) => SDK.AhaSendPromise<SDK.APIKey>
     >
   >,
   Expect<
@@ -684,25 +946,96 @@ type SubAccountAPIKeySignatures = [
         subAccountId: SDK.UUID,
         keyId: SDK.UUID,
         options?: SDK.RequestOptions,
-      ) => Promise<SDK.SuccessResponse>
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
     >
   >,
 ];
 
+declare const subAccountListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.SubAccount>>;
+declare const subAccountIteratorResult: AsyncGenerator<SDK.SubAccount, void, undefined>;
+declare const subAccountResult: SDK.AhaSendPromise<SDK.SubAccount>;
+declare const subAccountUsageResult: SDK.AhaSendPromise<SDK.SubAccountUsageResponse>;
+declare const subAccountDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+declare const subAccountAPIKeyListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.APIKey>>;
+declare const subAccountAPIKeyIteratorResult: AsyncGenerator<SDK.APIKey, void, undefined>;
+declare const createdSubAccountAPIKeyResult: SDK.AhaSendPromise<SDK.CreatedAPIKey>;
+declare const subAccountAPIKeyResult: SDK.AhaSendPromise<SDK.APIKey>;
+declare const subAccountAPIKeyDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+
+const structuralSubAccountAPIKeyMock: SDK.SubAccountAPIKeysClient = {
+  list: () => subAccountAPIKeyListResult,
+  iterate: () => subAccountAPIKeyIteratorResult,
+  create: () => createdSubAccountAPIKeyResult,
+  get: () => subAccountAPIKeyResult,
+  update: () => subAccountAPIKeyResult,
+  delete: () => subAccountAPIKeyDeleteResult,
+};
+
+const structuralSubAccountMock: SDK.SubAccountsClient = {
+  list: () => subAccountListResult,
+  iterate: () => subAccountIteratorResult,
+  create: () => subAccountResult,
+  usage: () => subAccountUsageResult,
+  get: () => subAccountResult,
+  update: () => subAccountResult,
+  delete: () => subAccountDeleteResult,
+  suspend: () => subAccountResult,
+  unsuspend: () => subAccountResult,
+  apiKeys: structuralSubAccountAPIKeyMock,
+};
+
+type ClientResourceSurface = Pick<
+  SDK.AhaSendClient,
+  | "messages"
+  | "domains"
+  | "apiKeys"
+  | "webhooks"
+  | "statistics"
+  | "suppressions"
+  | "routes"
+  | "accounts"
+  | "smtpCredentials"
+  | "subAccounts"
+>;
+
+const structuralClientMock: ClientResourceSurface = {
+  messages: structuralMessageMock,
+  domains: structuralDomainMock,
+  apiKeys: structuralAPIKeyMock,
+  webhooks: structuralWebhookMock,
+  statistics: structuralStatisticsMock,
+  suppressions: structuralSuppressionMock,
+  routes: structuralRouteMock,
+  accounts: structuralAccountMock,
+  smtpCredentials: structuralSMTPCredentialMock,
+  subAccounts: structuralSubAccountMock,
+};
+
 type RefinementContracts = [
-  Expect<Equal<SDK.CreateMessageRequest["recipients"], SDK.NonEmptyArray<SDK.Recipient>>>,
-  Expect<Equal<SDK.CreateConversationMessageRequest["to"], SDK.NonEmptyArray<SDK.Address>>>,
-  Expect<
-    Equal<SDK.CreateConversationMessageRequest["cc"], SDK.NonEmptyArray<SDK.Address> | undefined>
-  >,
+  Expect<Equal<SDK.CreateMessageRequest["recipients"], readonly SDK.Recipient[]>>,
+  Expect<Equal<SDK.CreateConversationMessageRequest["to"], readonly SDK.Address[]>>,
+  Expect<Equal<SDK.CreateConversationMessageRequest["cc"], readonly SDK.Address[] | undefined>>,
   Expect<Equal<SDK.CreateMessageRequest["attachments"], readonly SDK.Attachment[] | undefined>>,
   Expect<Equal<SDK.CreateMessageRequest["tags"], readonly string[] | undefined>>,
-  Expect<Equal<SDK.CreateAPIKeyRequest["scopes"], [string, ...string[]]>>,
+  Expect<Equal<SDK.CreateAPIKeyRequest["scopes"], readonly string[]>>,
+  Expect<Equal<{} extends SDK.UpdateAPIKeyRequest ? true : false, false>>,
   Expect<
     Equal<
-      Extract<SDK.CreateWebhookRequest, { scope: "scoped" }>["domains"],
-      SDK.NonEmptyArray<string>
+      {
+        label: null;
+        scopes: null;
+        ip_allow_list: null;
+      } extends SDK.UpdateAPIKeyRequest
+        ? true
+        : false,
+      false
     >
+  >,
+  Expect<Extends<{ label: string }, SDK.UpdateAPIKeyRequest>>,
+  Expect<Extends<{ scopes: readonly string[] }, SDK.UpdateAPIKeyRequest>>,
+  Expect<Extends<{ ip_allow_list: readonly string[] }, SDK.UpdateAPIKeyRequest>>,
+  Expect<
+    Equal<Extract<SDK.CreateWebhookRequest, { scope: "scoped" }>["domains"], readonly string[]>
   >,
   Expect<
     Equal<
@@ -713,7 +1046,7 @@ type RefinementContracts = [
   Expect<
     Equal<
       Extract<SDK.CreateSMTPCredentialRequest, { scope: "scoped" }>["domains"],
-      SDK.NonEmptyArray<string>
+      readonly string[]
     >
   >,
   Expect<
@@ -722,7 +1055,6 @@ type RefinementContracts = [
       readonly string[] | null | undefined
     >
   >,
-  Expect<Equal<readonly [] extends SDK.NonEmptyArray<unknown> ? true : false, false>>,
   Expect<Equal<{} extends SDK.UpdateSubAccountRequest ? true : false, false>>,
   Expect<Equal<{ name: null } extends SDK.UpdateSubAccountRequest ? true : false, false>>,
   Expect<Extends<{ name: string }, SDK.UpdateSubAccountRequest>>,
@@ -756,6 +1088,109 @@ type RefinementContracts = [
   Expect<Equal<"secret" extends keyof SDK.Webhook ? true : false, false>>,
   Expect<Equal<"password" extends keyof SDK.SMTPCredential ? true : false, false>>,
 ];
+
+declare const operations: OperationExecutor;
+
+const readonlyAttachments: readonly SDK.Attachment[] = [
+  { data: "hello", content_type: "text/plain", file_name: "hello.txt" },
+];
+const readonlyTags: readonly string[] = ["transactional"];
+const readonlyRecipients: readonly SDK.Recipient[] = [{ email: "recipient@example.com" }];
+const readonlyAddresses: readonly SDK.Address[] = [{ email: "recipient@example.com" }];
+const messageBody: SDK.CreateMessageRequest = {
+  from: { email: "sender@example.com" },
+  recipients: readonlyRecipients,
+  subject: "Readonly message",
+  attachments: readonlyAttachments,
+  tags: readonlyTags,
+};
+const conversationBody: SDK.CreateConversationMessageRequest = {
+  from: { email: "sender@example.com" },
+  to: readonlyAddresses,
+  subject: "Readonly conversation",
+  attachments: readonlyAttachments,
+  tags: readonlyTags,
+};
+const readonlyWebhookDomains: readonly string[] = ["example.com"];
+const createWebhookBody: SDK.CreateWebhookRequest = {
+  name: "Readonly webhook",
+  url: "https://hooks.example.com/ahasend",
+  scope: "scoped",
+  domains: readonlyWebhookDomains,
+};
+const updateWebhookDomains: readonly string[] = ["example.com", "example.net"];
+const updateWebhookBody: SDK.UpdateWebhookRequest = { domains: updateWebhookDomains };
+const readonlySMTPDomains: readonly string[] = ["example.com"];
+const smtpBody: SDK.CreateSMTPCredentialRequest = {
+  name: "Readonly SMTP credential",
+  scope: "scoped",
+  domains: readonlySMTPDomains,
+};
+const createAPIKeyBody: SDK.CreateAPIKeyRequest = {
+  label: "Readonly API key",
+  scopes: ["messages:send:all"],
+  ip_allow_list: ["203.0.113.0/24"],
+};
+const updateAPIKeyBody: SDK.UpdateAPIKeyRequest = { ip_allow_list: [] };
+
+const pingExecution: SDK.AhaSendPromise<SDK.SuccessResponse> = operations.execute("ping", {});
+const messageExecution: SDK.AhaSendPromise<SDK.SendMessageResponse> = operations.execute(
+  "createMessage",
+  { path: { account_id: "22222222-2222-4222-8222-222222222222" }, body: messageBody },
+);
+operations.execute("createConversationMessage", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
+  body: conversationBody,
+});
+operations.execute("createWebhook", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
+  body: createWebhookBody,
+});
+operations.execute("updateWebhook", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222", webhook_id: "webhook-id" },
+  body: updateWebhookBody,
+});
+operations.execute("createSMTPCredential", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
+  body: smtpBody,
+});
+operations.execute("createAPIKey", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
+  body: createAPIKeyBody,
+});
+operations.execute("updateAPIKey", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222", key_id: "key-id" },
+  body: updateAPIKeyBody,
+});
+
+// @ts-expect-error Body-bearing operations require their generated request body.
+operations.execute("createMessage", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
+});
+operations.execute("ping", {
+  // @ts-expect-error Bodyless operations do not accept a request body.
+  body: {},
+});
+operations.execute("createWebhook", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
+  // Scoped domains are typed as a plain array so runtime-built lists assign;
+  // emptiness is rejected by assertNonEmptyArray at the resource boundary.
+  body: {
+    name: "Invalid empty scoped webhook",
+    url: "https://hooks.example.com/ahasend",
+    scope: "scoped",
+    domains: [],
+  },
+});
+operations.execute("createSMTPCredential", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
+  // Emptiness is rejected at runtime; see assertNonEmptyArray.
+  body: {
+    name: "Invalid empty scoped SMTP credential",
+    scope: "scoped",
+    domains: [],
+  },
+});
 
 declare const client: SDK.AhaSendClient;
 declare const dualCursor: { readonly limit: 10; readonly after: "next"; readonly before: "prev" };
@@ -851,6 +1286,7 @@ export type DeclarationContracts = [
   DomainSignatures,
   APIKeySignatures,
   WebhookSignatures,
+  WebhookHandlerSignatures,
   StatisticsSignatures,
   SuppressionSignatures,
   RouteSignatures,
@@ -859,7 +1295,98 @@ export type DeclarationContracts = [
   SubAccountSignatures,
   SubAccountAPIKeySignatures,
   RefinementContracts,
+  typeof structuralMessageMock,
+  typeof structuralAPIKeyMock,
+  typeof structuralWebhookMock,
+  typeof structuralRouteMock,
+  typeof structuralAccountMock,
+  typeof structuralStatisticsMock,
+  typeof structuralSubAccountMock,
+  typeof structuralSubAccountAPIKeyMock,
+  typeof structuralClientMock,
+  typeof expressHandler,
+  typeof fastifyHandler,
+  typeof nextHandler,
+  typeof pingExecution,
+  typeof messageExecution,
   DomainRequestOptions,
   APIKeyRequestOptions,
   ListMembersParams,
+];
+
+// Optional members admit `undefined` explicitly. JSON has no `undefined`, so
+// "absent" and "present but undefined" are the same value on the wire — but
+// under `exactOptionalPropertyTypes` (which this SDK and a growing number of
+// consumers enable) a bare `?: T` rejects the ordinary case of forwarding a
+// value that is already `T | undefined`. These pin the ergonomics so the
+// generator cannot silently drop the suffix again.
+declare const partialTemplate: { html: string | undefined; text: string | undefined };
+declare const optionalCursor: string | undefined;
+
+const optionalRequestFields: SDK.CreateMessageRequest = {
+  from: { email: "sender@example.com" },
+  recipients: [{ email: "recipient@example.com" }],
+  subject: "Optional content forwarded straight through",
+  html_content: partialTemplate.html,
+  text_content: partialTemplate.text,
+};
+
+// The manual cursor loop exactly as the docs present it.
+const documentedCursorPage: SDK.ListDomainsParams = { limit: 100, after: optionalCursor };
+const documentedBackwardPage: SDK.ListMessagesParams = { limit: 100, before: optionalCursor };
+
+// Real assignability checks, not `undefined extends T[K]` — indexed access on
+// an optional property always includes `undefined`, so that form is a tautology
+// and passes with or without the explicit suffix. Assigning a literal whose
+// property IS `undefined` is what `exactOptionalPropertyTypes` actually governs.
+const explicitlyUndefinedBody: SDK.CreateMessageRequest = {
+  from: { email: "sender@example.com" },
+  recipients: [{ email: "recipient@example.com" }],
+  subject: "Explicit undefined optionals",
+  html_content: undefined,
+  text_content: undefined,
+  attachments: undefined,
+};
+
+const explicitlyUndefinedOptions: SDK.ClientOptions = {
+  apiKey: "aha-sk-test",
+  baseUrl: undefined,
+  timeoutMs: undefined,
+  userAgent: undefined,
+};
+
+const explicitlyUndefinedRetry: SDK.RetryConfig = {
+  maxRetries: undefined,
+  baseDelayMs: undefined,
+};
+
+const explicitlyUndefinedListParams: SDK.ListMessagesParams = {
+  limit: undefined,
+  after: undefined,
+  status: undefined,
+};
+
+type OptionalUndefinedContracts = [
+  // Cursor exclusivity survives the widening.
+  Expect<Equal<{ after: "a"; before: "b" } extends SDK.PaginationParams ? true : false, false>>,
+  // Response types stay bare: widening them would break assigning an SDK
+  // response into a consumer's own interface, `"k" in obj` narrowing, and
+  // `Required<T>`.
+  Expect<
+    Equal<
+      { has_more: true; next_cursor: undefined } extends SDK.PaginationMeta ? true : false,
+      false
+    >
+  >,
+];
+
+export type TypeSurfaceContracts = [
+  OptionalUndefinedContracts,
+  typeof explicitlyUndefinedBody,
+  typeof explicitlyUndefinedOptions,
+  typeof explicitlyUndefinedRetry,
+  typeof explicitlyUndefinedListParams,
+  typeof optionalRequestFields,
+  typeof documentedCursorPage,
+  typeof documentedBackwardPage,
 ];

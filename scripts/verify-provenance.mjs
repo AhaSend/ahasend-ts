@@ -57,7 +57,6 @@ function parseCandidateEnvelope(manifestSource, manifestSidecar, tarballSource) 
       "contractSha256",
       "keysSha256",
       "profileSha256",
-      "rendererReportSha256",
       "sourceReportSha256",
       "tarballSha256",
       "version",
@@ -159,6 +158,9 @@ function parseAuditReport(source, identity, predicateType) {
     );
   }
   const verified = requireObject(matches[0], "Verified npm audit entry");
+  if (verified.location !== `node_modules/${identity.name}`) {
+    throw new TypeError("Verified npm audit entry is not the installed candidate package.");
+  }
   const attestations = requireObject(verified.attestations, "Verified npm attestations");
   const provenance = requireObject(attestations.provenance, "Verified npm provenance");
   if (provenance.predicateType !== predicateType) {
@@ -233,7 +235,20 @@ function statementCommits(statement) {
   return typeof digest.sha1 === "string" ? [digest.sha1] : [];
 }
 
-function validateProvenanceStatement({ bundles, candidateCommit, predicateType, registryTarball }) {
+function npmPackagePurl(identity) {
+  const separator = identity.name.indexOf("/");
+  const namespace = identity.name.slice(0, separator);
+  const packageName = identity.name.slice(separator + 1);
+  return `pkg:npm/${encodeURIComponent(namespace)}/${encodeURIComponent(packageName)}@${encodeURIComponent(identity.version)}`;
+}
+
+function validateProvenanceStatement({
+  bundles,
+  candidateCommit,
+  identity,
+  predicateType,
+  registryTarball,
+}) {
   const statements = bundles
     .map((bundle, index) => decodeStatement(bundle, index))
     .filter((statement) => statement.predicateType === predicateType);
@@ -241,26 +256,26 @@ function validateProvenanceStatement({ bundles, candidateCommit, predicateType, 
     throw new TypeError("Verified npm attestations must contain one SLSA provenance statement.");
   }
   const statement = statements[0];
-  if (statement._type !== "https://in-toto.io/Statement/v1") {
-    throw new TypeError("Verified npm provenance must be an in-toto v1 statement.");
+  const expectedStatementType =
+    predicateType === "https://slsa.dev/provenance/v1"
+      ? "https://in-toto.io/Statement/v1"
+      : "https://in-toto.io/Statement/v0.1";
+  if (statement._type !== expectedStatementType) {
+    throw new TypeError("Verified npm provenance uses the wrong in-toto statement version.");
   }
-  if (!Array.isArray(statement.subject)) {
-    throw new TypeError("Verified npm provenance subjects must be an array.");
+  if (!Array.isArray(statement.subject) || statement.subject.length !== 1) {
+    throw new TypeError("Verified npm provenance must contain exactly one subject.");
   }
+  const subject = requireObject(statement.subject[0], "Verified npm provenance subject");
+  if (subject.name !== npmPackagePurl(identity)) {
+    throw new TypeError("Verified npm provenance subject does not identify the candidate package.");
+  }
+  const subjectDigest = requireObject(subject.digest, "Verified npm provenance subject digest");
   const expectedSha512 = sha512Hex(registryTarball);
-  const subjects = statement.subject.filter((value) => {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-    const digest = value.digest;
-    return (
-      typeof value.name === "string" &&
-      typeof digest === "object" &&
-      digest !== null &&
-      !Array.isArray(digest) &&
-      digest.sha512 === expectedSha512
+  if (subjectDigest.sha512 !== expectedSha512) {
+    throw new TypeError(
+      "Verified npm provenance subject digest does not match the registry tarball.",
     );
-  });
-  if (subjects.length !== 1) {
-    throw new TypeError("Verified npm provenance subject does not match the registry tarball.");
   }
   const commits = statementCommits(statement);
   if (commits.length !== 1 || commits[0] !== candidateCommit) {
@@ -295,6 +310,7 @@ export function verifyRegistryProvenance({
   validateProvenanceStatement({
     bundles,
     candidateCommit: candidateEnvelope.commit,
+    identity,
     predicateType: metadata.predicateType,
     registryTarball,
   });

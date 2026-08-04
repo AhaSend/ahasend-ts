@@ -1,15 +1,25 @@
 // Explicit idempotency keys: drive the key from your own stable
 // identifier (job ID, order ID) so retries from YOUR side — not just
-// the SDK's internal retries — can never double-send.
+// the SDK's internal retries — replay one stored outcome instead of
+// sending again.
+//
+// This is not an absolute guarantee: the API stores 2xx and deterministic
+// 4xx outcomes for 24 hours, but releases the key on 5xx, handler failures,
+// and panics, so retrying after a server error re-executes the send.
 //
 // The SDK auto-generates a key for every create operation when you
 // don't pass one; an explicit key is for when the same logical
 // operation might be attempted from multiple places.
 //
-// Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID + AHASEND_FROM_EMAIL.
+// Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID + AHASEND_FROM_EMAIL and the
+// explicit AHASEND_ALLOW_MUTATIONS=1 acknowledgement.
 // Run:  node examples/idempotency.mjs
 
-import { AhaSendClient } from "../dist/index.js";
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
+
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Refusing mutation; set AHASEND_ALLOW_MUTATIONS=1 after reviewing the script.");
+}
 
 const fromEmail = process.env.AHASEND_FROM_EMAIL;
 if (!fromEmail) {
@@ -42,6 +52,8 @@ try {
   const replay = await send();
   console.log("✓ replay send:", replay.data[0]?.status, "(no duplicate email)");
 } catch (err) {
-  console.error("✗ send failed:", err.name, err.status ?? "", err.message);
+  console.error("✗ send failed", {
+    errorCode: isAhaSendError(err) ? err.code : "unknown",
+  });
   process.exit(1);
 }

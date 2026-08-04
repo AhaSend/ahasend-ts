@@ -3,6 +3,7 @@ import { AhaSendClient } from "../src/client.js";
 import { resolveConfig } from "../src/config.js";
 import { HttpClient } from "../src/http.js";
 import { OperationExecutor } from "../src/operations.js";
+import { ACCOUNT_ID, HOSTNAME } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -27,7 +28,7 @@ function makeHttp(fetchImpl: FetchImpl): HttpClient {
 }
 
 describe("OperationExecutor", () => {
-  it("resolves generated paths and independently encodes every path value", async () => {
+  it("resolves generated paths with schema-valid path values", async () => {
     let seenUrl = "";
     const http = makeHttp(
       mockFetch((url) => {
@@ -38,18 +39,22 @@ describe("OperationExecutor", () => {
     const request = vi.spyOn(http, "request");
     const executor = new OperationExecutor(http);
 
-    await executor.execute("getDomain", {
-      path: {
-        account_id: "account/sentinel",
-        domain: "mail/{sentinel}%example.com",
+    await executor.execute(
+      "getDomain",
+      {
+        path: {
+          account_id: ACCOUNT_ID,
+          domain: HOSTNAME,
+        },
       },
-    });
-
-    expect(new URL(seenUrl).pathname).toBe(
-      "/v2/accounts/account%2Fsentinel/domains/mail%2F%7Bsentinel%7D%25example.com",
+      { timeoutMs: 2_000, retry: false },
     );
+
+    expect(new URL(seenUrl).pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
+        timeoutMs: 2_000,
+        retry: false,
         execution: {
           operationId: "getDomain",
           retryMode: "safe",
@@ -59,7 +64,56 @@ describe("OperationExecutor", () => {
     );
   });
 
-  it("places only descriptor-declared query and body inputs", async () => {
+  it.each([
+    ["empty", ""],
+    ["dot", "."],
+    ["dot-dot", ".."],
+  ])("rejects an %s opaque path segment before dispatch", (_label, messageId) => {
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    expect(() =>
+      executor.execute("getMessage", {
+        path: { account_id: ACCOUNT_ID, message_id: messageId },
+      }),
+    ).toThrow(/path segments must not be empty/);
+    expect(request).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("rejects a generated UUID path format before dispatch", () => {
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    expect(() =>
+      executor.execute("getDomain", {
+        path: { account_id: "not-a-uuid", domain: HOSTNAME },
+      }),
+    ).toThrow('Invalid path parameter "account_id" for getDomain: expected uuid');
+    expect(request).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("rejects a generated hostname path format before dispatch", () => {
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    expect(() =>
+      executor.execute("getDomain", {
+        path: { account_id: ACCOUNT_ID, domain: "invalid_hostname.example" },
+      }),
+    ).toThrow('Invalid path parameter "domain" for getDomain: expected hostname');
+    expect(request).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("places a descriptor-declared request body", async () => {
     let seenUrl = "";
     let seenInit: RequestInit | undefined;
     const http = makeHttp(
@@ -74,8 +128,7 @@ describe("OperationExecutor", () => {
     const body = { domain: "example.com" };
 
     await executor.execute("createDomain", {
-      path: { account_id: "acc_1" },
-      query: { undeclared_sentinel: "must-not-be-sent" },
+      path: { account_id: ACCOUNT_ID },
       body,
     });
 
@@ -83,7 +136,7 @@ describe("OperationExecutor", () => {
     expect(seenInit?.body).toBe(JSON.stringify(body));
     expect(request).toHaveBeenCalledWith({
       method: "POST",
-      path: "/v2/accounts/acc_1/domains",
+      path: `/v2/accounts/${ACCOUNT_ID}/domains`,
       body,
       execution: {
         operationId: "createDomain",
@@ -99,12 +152,12 @@ describe("OperationExecutor", () => {
     const executor = new OperationExecutor(http);
 
     await executor.execute("createDomain", {
-      path: { account_id: "acc_1" },
+      path: { account_id: ACCOUNT_ID },
       body: { domain: "example.com" },
     });
     await executor.execute("createAPIKey", {
-      path: { account_id: "acc_1" },
-      body: { label: "key", scopes: [] },
+      path: { account_id: ACCOUNT_ID },
+      body: { label: "key", scopes: ["messages:send:all"] },
     });
 
     const automatic = request.mock.calls[0]![0].execution!;
@@ -117,7 +170,7 @@ describe("OperationExecutor", () => {
     expect(manual.idempotency?.completion).toBe("manual_secret");
   });
 
-  it("filters query values to the names declared by the descriptor", async () => {
+  it("serializes descriptor-declared query values for a bodyless operation", async () => {
     let seenUrl = "";
     let seenInit: RequestInit | undefined;
     const executor = new OperationExecutor(
@@ -131,13 +184,11 @@ describe("OperationExecutor", () => {
     );
 
     await executor.execute("deleteSuppression", {
-      path: { account_id: "acc_1" },
+      path: { account_id: ACCOUNT_ID },
       query: {
         email: "person+tag@example.com",
         domain: "example.com",
-        undeclared_sentinel: "must-not-be-sent",
       },
-      body: { undeclared_sentinel: "must-not-be-sent" },
     });
 
     const url = new URL(seenUrl);
@@ -148,15 +199,42 @@ describe("OperationExecutor", () => {
     expect(seenInit?.body).toBeUndefined();
   });
 
-  it("rejects missing path values before dispatch", () => {
+  it("rejects undeclared destructive query keys before dispatch", () => {
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
-    const executor = new OperationExecutor(makeHttp(transport));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
 
     expect(() =>
-      executor.execute("getDomain", {
-        path: { account_id: "acc_1" },
+      executor.execute("deleteAllSuppressions", {
+        path: { account_id: ACCOUNT_ID },
+        // @ts-expect-error Exercise the runtime boundary used by JavaScript consumers.
+        query: { domian: "example.com" },
       }),
-    ).toThrow('Missing path parameter "domain" for getDomain');
+    ).toThrow('Unknown query parameter "domian" for deleteAllSuppressions');
+    expect(request).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing query", undefined],
+    ["missing value", {}],
+    ["undefined value", { email: undefined }],
+    ["null value", { email: null }],
+  ])("rejects a required query with %s before dispatch", (_label, query) => {
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const http = makeHttp(transport);
+    const request = vi.spyOn(http, "request");
+    const executor = new OperationExecutor(http);
+
+    expect(() =>
+      executor.execute("deleteSuppression", {
+        path: { account_id: ACCOUNT_ID },
+        ...(query === undefined ? {} : { query }),
+        // The table deliberately exercises inputs that JavaScript can supply.
+      } as never),
+    ).toThrow('Missing required query parameter "email" for deleteSuppression');
+    expect(request).not.toHaveBeenCalled();
     expect(transport).not.toHaveBeenCalled();
   });
 
@@ -173,9 +251,13 @@ describe("OperationExecutor", () => {
     const executor = new OperationExecutor(http);
 
     await expect(
-      executor.execute("checkDomainDNS", {
-        path: { account_id: "acc_1", domain: "example.com" },
-      }),
+      executor.execute(
+        "checkDomainDNS",
+        {
+          path: { account_id: ACCOUNT_ID, domain: HOSTNAME },
+        },
+        { retry: { enabled: true, maxRetries: 2 } },
+      ),
     ).rejects.toMatchObject({ status: 500 });
     expect(transport).toHaveBeenCalledTimes(1);
   });
@@ -194,10 +276,14 @@ describe("OperationExecutor", () => {
     const executor = new OperationExecutor(http);
 
     await expect(
-      executor.execute("createDomain", {
-        path: { account_id: "acc_1" },
-        body: { domain: "example.com" },
-      }),
+      executor.execute(
+        "createDomain",
+        {
+          path: { account_id: ACCOUNT_ID },
+          body: { domain: "example.com" },
+        },
+        { retry: { enabled: true, maxRetries: 2 } },
+      ),
     ).rejects.toMatchObject({ status: 500 });
     expect(transport).toHaveBeenCalledTimes(1);
   });
@@ -213,13 +299,13 @@ describe("client-bound operation execution", () => {
     );
     const first = new AhaSendClient({
       apiKey: "aha-sk-first",
-      accountId: "acc_first",
+      accountId: "66666666-6666-4666-8666-666666666666",
       baseUrl: "https://first.test",
       fetch: firstTransport,
     });
     const second = new AhaSendClient({
       apiKey: "aha-sk-second",
-      accountId: "acc_second",
+      accountId: "44444444-4444-4444-8444-444444444444",
       baseUrl: "https://second.test",
       fetch: secondTransport,
     });

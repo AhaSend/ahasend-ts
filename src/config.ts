@@ -2,37 +2,54 @@ import type { IdempotencyConfig, ResolvedIdempotencyConfig } from "./idempotency
 import { assertValidIdempotencyKey, resolveIdempotencyConfig } from "./idempotency.js";
 import { AhaSendConfigurationError } from "./errors.js";
 import type { RateLimitConfig, ResolvedRateLimitConfig } from "./rate-limit.js";
-import { resolveRateLimitConfig } from "./rate-limit.js";
+import {
+  assertBurst,
+  assertMaxQueue,
+  assertRequestsPerSecond,
+  resolveRateLimitConfig,
+} from "./rate-limit.js";
 import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
-import { resolveRetryConfig } from "./retry.js";
+import { MAX_RETRIES, resolveRetryConfig } from "./retry.js";
 import type { ResolvedTelemetryHooks, TelemetryHooks } from "./telemetry.js";
 import { composeHooks, debugConsoleHooks, resolveTelemetryHooks } from "./telemetry.js";
 import type { IdempotencyRequestOptions, RequestOptions } from "./types/common.js";
 import { DEFAULT_USER_AGENT } from "./version.js";
 
+/**
+ * A `process.env`-shaped read-only lookup.
+ *
+ * Declared structurally rather than as `NodeJS.ProcessEnv` so the published
+ * declarations never name a type that only `@types/node` supplies. `process.env`
+ * satisfies this, as does any plain object of string values — which is also what
+ * makes {@link optionsFromEnv} testable without mutating the real environment.
+ */
+export type ProcessEnvLike = Readonly<Record<string, string | undefined>>;
+
 export const DEFAULT_BASE_URL = "https://api.ahasend.com";
 export const DEFAULT_TIMEOUT_MS = 30_000;
+/** @internal Largest delay supported by Node.js timer APIs without coercion. */
+export const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export interface ClientOptions {
   apiKey: string;
-  baseUrl?: string;
+  baseUrl?: string | undefined;
   /** Timeout for each fetch attempt, including response-body reading. */
-  timeoutMs?: number;
-  userAgent?: string;
-  debug?: boolean;
-  fetch?: typeof fetch;
-  defaultHeaders?: Record<string, string>;
-  idempotency?: IdempotencyConfig;
-  retry?: RetryConfig;
-  rateLimit?: RateLimitConfig;
-  hooks?: TelemetryHooks;
+  timeoutMs?: number | undefined;
+  userAgent?: string | undefined;
+  debug?: boolean | undefined;
+  fetch?: typeof fetch | undefined;
+  defaultHeaders?: Record<string, string> | undefined;
+  idempotency?: IdempotencyConfig | undefined;
+  retry?: RetryConfig | undefined;
+  rateLimit?: RateLimitConfig | undefined;
+  hooks?: TelemetryHooks | undefined;
   /**
    * Allow an HTTP `baseUrl` (other than localhost / loopback).
    * Defaults to `false`. Setting this to `true` lets the SDK send the
    * bearer token in plaintext, which is dangerous; only enable it for
    * development environments where you control the network.
    */
-  dangerouslyAllowInsecureBaseUrl?: boolean;
+  dangerouslyAllowInsecureBaseUrl?: boolean | undefined;
   /**
    * This SDK is server-side only — embedding the bearer API key in a
    * browser bundle exposes it to anyone visiting your site. The
@@ -40,7 +57,7 @@ export interface ClientOptions {
    * Set this to `true` only when you have a non-browser reason for the
    * `window` global to exist (e.g. JSDOM in unit tests).
    */
-  dangerouslyAllowBrowser?: boolean;
+  dangerouslyAllowBrowser?: boolean | undefined;
 }
 
 export interface ResolvedConfig {
@@ -73,22 +90,49 @@ const CLIENT_OPTION_NAMES = new Set([
   "dangerouslyAllowBrowser",
 ]);
 
-const REQUEST_OPTION_NAMES = new Set(["signal", "headers"]);
+const REQUEST_OPTION_NAMES = new Set(["signal", "headers", "timeoutMs", "retry"]);
 const IDEMPOTENCY_REQUEST_OPTION_NAMES = new Set([...REQUEST_OPTION_NAMES, "idempotencyKey"]);
 const RETRY_STRATEGIES = new Set(["exponential", "linear", "constant"]);
 const HOOK_NAMES = new Set(["onRequest", "onResponse", "onRetry", "onError"]);
 const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const INVALID_HEADER_VALUE_PATTERN = /[\u0000-\u0008\u000a-\u001f\u007f]|[^\u0000-\u00ff]/;
 const HTTP_ORIGIN_PATTERN = /^https?:\/\/[^\s/?#\\]+\/?$/i;
-const TRANSPORT_OWNED_HEADERS = new Set([
+const CONTROLLED_REQUEST_HEADERS = new Set([
   "accept",
+  "accept-charset",
+  "accept-encoding",
+  "access-control-request-headers",
+  "access-control-request-method",
   "authorization",
+  "connection",
   "content-length",
   "content-type",
+  "cookie",
+  "cookie2",
+  "date",
+  "dnt",
+  "expect",
   "host",
   "idempotency-key",
+  "keep-alive",
+  "origin",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "referer",
+  "set-cookie",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
   "user-agent",
+  "via",
 ]);
+const METHOD_OVERRIDE_HEADERS = new Set([
+  "x-http-method",
+  "x-http-method-override",
+  "x-method-override",
+]);
+const FORBIDDEN_METHODS = new Set(["connect", "trace", "track"]);
 
 export function resolveConfig(options: ClientOptions): ResolvedConfig {
   assertPlainRecord(options, "options");
@@ -107,7 +151,7 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
   );
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  assertPositiveFiniteNumber(timeoutMs, "timeoutMs");
+  assertTimeoutMs(timeoutMs, "timeoutMs");
 
   const userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
   assertNonEmptyString(userAgent, "userAgent");
@@ -116,13 +160,13 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
   const fetchImpl = options.fetch ?? globalThis.fetch;
   if (typeof fetchImpl !== "function") {
     throw new AhaSendConfigurationError(
-      "AhaSend: `fetch` is not available. Use Node.js 18+ or inject a `fetch` implementation via `options.fetch`.",
+      "AhaSend: `fetch` is not available. Use Node.js 22 or later, or inject a `fetch` implementation via `options.fetch`.",
     );
   }
 
-  assertHeaders(options.defaultHeaders, "defaultHeaders");
+  const defaultHeaders = assertHeaders(options.defaultHeaders, "defaultHeaders") ?? {};
   assertRetryConfig(options.retry);
-  assertRateLimitConfig(options.rateLimit);
+  const rateLimit = assertRateLimitConfig(options.rateLimit);
   assertTelemetryHooks(options.hooks);
 
   return {
@@ -132,18 +176,18 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
     userAgent,
     debug: options.debug ?? false,
     fetch: fetchImpl,
-    defaultHeaders: { ...(options.defaultHeaders ?? {}) },
+    defaultHeaders,
     idempotency: resolveIdempotencyConfig(options.idempotency),
     retry: resolveRetryConfig(options.retry),
-    rateLimit: resolveRateLimitConfig(options.rateLimit),
+    rateLimit: resolveRateLimitConfig(rateLimit),
     hooks: resolveTelemetryHooks(
       options.debug ? composeHooks(debugConsoleHooks(), options.hooks) : options.hooks,
     ),
   };
 }
 
-export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOptions {
-  const apiKey = env.AHASEND_API_KEY ?? env.AHASEND_TOKEN;
+export function optionsFromEnv(env: ProcessEnvLike = process.env): ClientOptions {
+  const apiKey = env.AHASEND_API_KEY || env.AHASEND_TOKEN;
   if (!apiKey) {
     throw new AhaSendConfigurationError(
       "AhaSend: missing API key. Set AHASEND_API_KEY (or AHASEND_TOKEN) environment variable.",
@@ -154,8 +198,21 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
 
   const options: ClientOptions = { apiKey };
 
+  const allowInsecureBaseUrl =
+    env.AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL === undefined
+      ? false
+      : parseBool(
+          env.AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL,
+          "AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL",
+        );
+  if (env.AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL !== undefined) {
+    options.dangerouslyAllowInsecureBaseUrl = allowInsecureBaseUrl;
+  }
+
   const baseUrl = env.AHASEND_BASE_URL ?? buildBaseUrl(env.AHASEND_SCHEME, env.AHASEND_HOST);
-  if (baseUrl !== undefined) options.baseUrl = normalizeBaseUrl(baseUrl, false);
+  if (baseUrl !== undefined) {
+    options.baseUrl = normalizeBaseUrl(baseUrl, allowInsecureBaseUrl, false);
+  }
 
   if (env.AHASEND_USER_AGENT !== undefined) {
     assertNonEmptyString(env.AHASEND_USER_AGENT, "AHASEND_USER_AGENT");
@@ -171,7 +228,7 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
       );
     }
     const timeoutMs = seconds * 1000;
-    assertPositiveFiniteNumber(timeoutMs, "AHASEND_TIMEOUT");
+    assertTimeoutMs(timeoutMs, "AHASEND_TIMEOUT");
     options.timeoutMs = timeoutMs;
   }
 
@@ -197,11 +254,7 @@ export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOpti
   const retry: RetryConfig = {};
   if (env.AHASEND_MAX_RETRIES !== undefined) {
     const maxRetries = parseFiniteNumber(env.AHASEND_MAX_RETRIES, "AHASEND_MAX_RETRIES");
-    if (!Number.isInteger(maxRetries) || maxRetries < 0) {
-      throw new AhaSendConfigurationError(
-        "AhaSend: `AHASEND_MAX_RETRIES` must be a non-negative integer.",
-      );
-    }
+    assertRetryCount(maxRetries, "AHASEND_MAX_RETRIES");
     retry.maxRetries = maxRetries;
   }
   if (Object.keys(retry).length > 0) {
@@ -236,19 +289,42 @@ export function assertRequestOptions(
     );
   }
   assertHeaders(options.headers, "request options.headers");
+  if (options.timeoutMs !== undefined) {
+    assertTimeoutMs(options.timeoutMs, "request options.timeoutMs");
+  }
+  if (options.retry !== undefined && options.retry !== false) {
+    assertRequestRetryOverride(options.retry);
+  }
 
   if (allowIdempotencyKey && options.idempotencyKey !== undefined) {
     assertValidIdempotencyKey(options.idempotencyKey, "request options.idempotencyKey");
   }
 }
 
+/** @internal Validate the public per-call retry override shape. */
+export function assertRequestRetryOverride(
+  retry: unknown,
+): asserts retry is false | Partial<RetryConfig> {
+  if (retry === false) return;
+  assertRetryConfig(retry, "request options.retry", false);
+}
+
 /** @internal Validate caller headers and reject names owned by the SDK transport. */
+/**
+ * Validate a header record and return a plain snapshot of it.
+ *
+ * The snapshot is what callers must store. `assertPlainRecord` permits
+ * accessors, so validating the caller's object and then reading it again to
+ * copy it lets a getter return one value to the check and another to the
+ * store — which is how an unvalidated CRLF could reach the transport.
+ */
 export function assertHeaders(
   headers: unknown,
   name: string,
-): asserts headers is Record<string, string> {
-  if (headers === undefined) return;
+): Readonly<Record<string, string>> | undefined {
+  if (headers === undefined) return undefined;
   assertPlainRecord(headers, name);
+  const snapshot: Record<string, string> = {};
   for (const [headerName, value] of Object.entries(headers)) {
     if (!HEADER_NAME_PATTERN.test(headerName)) {
       throw new AhaSendConfigurationError(
@@ -259,12 +335,27 @@ export function assertHeaders(
       throw new AhaSendConfigurationError(`AhaSend: \`${name}.${headerName}\` must be a string.`);
     }
     assertHeaderValue(value, `${name}.${headerName}`);
-    if (TRANSPORT_OWNED_HEADERS.has(headerName.toLowerCase())) {
+    if (isControlledRequestHeader(headerName, value)) {
       throw new AhaSendConfigurationError(
-        `AhaSend: \`${name}.${headerName}\` is owned by the SDK transport and cannot be overridden.`,
+        `AhaSend: \`${name}.${headerName}\` is controlled by the SDK transport or Fetch and cannot be overridden.`,
       );
     }
+    snapshot[headerName] = value;
   }
+  return snapshot;
+}
+
+function isControlledRequestHeader(name: string, value: string): boolean {
+  const normalizedName = name.toLowerCase();
+  if (
+    CONTROLLED_REQUEST_HEADERS.has(normalizedName) ||
+    normalizedName.startsWith("proxy-") ||
+    normalizedName.startsWith("sec-")
+  ) {
+    return true;
+  }
+  if (!METHOD_OVERRIDE_HEADERS.has(normalizedName)) return false;
+  return value.split(",").some((method) => FORBIDDEN_METHODS.has(method.trim().toLowerCase()));
 }
 
 function buildBaseUrl(scheme: string | undefined, host: string | undefined): string | undefined {
@@ -300,7 +391,7 @@ function assertNotBrowser(allow: boolean): void {
   }
 }
 
-function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
+function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean, allowLocalhost = true): string {
   assertNonEmptyString(baseUrl, "baseUrl");
 
   let parsed: URL;
@@ -336,7 +427,7 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
   }
 
   const isLocalhost = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\/?$/i.test(baseUrl);
-  if (parsed.protocol === "http:" && !isLocalhost && !allowInsecure) {
+  if (parsed.protocol === "http:" && (!isLocalhost || !allowLocalhost) && !allowInsecure) {
     throw new AhaSendConfigurationError(
       "AhaSend: refusing to send the bearer API key over an insecure baseUrl. " +
         `Use https:// or set { dangerouslyAllowInsecureBaseUrl: true } to override.`,
@@ -346,44 +437,58 @@ function normalizeBaseUrl(baseUrl: unknown, allowInsecure: boolean): string {
   return parsed.origin;
 }
 
-function assertRetryConfig(config: unknown): void {
+function assertRetryConfig(config: unknown, name = "retry", checkResolvedDelays = true): void {
   if (config === undefined) return;
-  assertPlainRecord(config, "retry");
+  assertPlainRecord(config, name);
   assertKnownKeys(
     config,
     new Set(["enabled", "maxRetries", "baseDelayMs", "maxDelayMs", "strategy", "jitter"]),
-    "retry",
+    name,
   );
-  assertOptionalBoolean(config.enabled, "retry.enabled");
-  assertOptionalBoolean(config.jitter, "retry.jitter");
+  assertOptionalBoolean(config.enabled, `${name}.enabled`);
+  assertOptionalBoolean(config.jitter, `${name}.jitter`);
   if (config.maxRetries !== undefined) {
-    assertNonNegativeInteger(config.maxRetries, "retry.maxRetries");
+    assertRetryCount(config.maxRetries, `${name}.maxRetries`);
   }
   if (config.baseDelayMs !== undefined) {
-    assertNonNegativeFiniteNumber(config.baseDelayMs, "retry.baseDelayMs");
+    assertNonNegativeFiniteNumber(config.baseDelayMs, `${name}.baseDelayMs`);
+    assertSupportedTimerDelay(config.baseDelayMs, `${name}.baseDelayMs`);
   }
   if (config.maxDelayMs !== undefined) {
-    assertNonNegativeFiniteNumber(config.maxDelayMs, "retry.maxDelayMs");
+    assertNonNegativeFiniteNumber(config.maxDelayMs, `${name}.maxDelayMs`);
+    assertSupportedTimerDelay(config.maxDelayMs, `${name}.maxDelayMs`);
   }
   if (config.strategy !== undefined && !RETRY_STRATEGIES.has(config.strategy as string)) {
     throw new AhaSendConfigurationError(
-      'AhaSend: `retry.strategy` must be "exponential", "linear", or "constant".',
+      `AhaSend: \`${name}.strategy\` must be "exponential", "linear", or "constant".`,
     );
   }
 
   const resolved = resolveRetryConfig(config);
-  if (resolved.maxDelayMs < resolved.baseDelayMs) {
+  if (checkResolvedDelays && resolved.maxDelayMs < resolved.baseDelayMs) {
     throw new AhaSendConfigurationError(
-      "AhaSend: `retry.maxDelayMs` must be greater than or equal to `retry.baseDelayMs`.",
+      `AhaSend: \`${name}.maxDelayMs\` must be greater than or equal to \`${name}.baseDelayMs\`.`,
     );
   }
 }
 
-function assertRateLimitConfig(config: unknown): void {
-  if (config === undefined) return;
+/**
+ * Validate the rate-limit options and return a plain snapshot of them.
+ *
+ * The snapshot is what gets resolved. `assertPlainRecord` permits accessors, so
+ * reading a field again after validating it could install a value that never
+ * passed — returning the values read during validation closes that gap instead
+ * of trusting the caller's object to be stable.
+ */
+function assertRateLimitConfig(config: unknown): RateLimitConfig | undefined {
+  if (config === undefined) return undefined;
   assertPlainRecord(config, "rateLimit");
   assertKnownKeys(config, new Set(["enabled", "standard", "statistics"]), "rateLimit");
-  assertOptionalBoolean(config.enabled, "rateLimit.enabled");
+  const masterEnabled = config.enabled;
+  assertOptionalBoolean(masterEnabled, "rateLimit.enabled");
+  const snapshot: RateLimitConfig = {
+    ...(masterEnabled !== undefined ? { enabled: masterEnabled } : {}),
+  };
 
   for (const category of ["standard", "statistics"] as const) {
     const value = config[category];
@@ -391,25 +496,27 @@ function assertRateLimitConfig(config: unknown): void {
     assertPlainRecord(value, `rateLimit.${category}`);
     assertKnownKeys(
       value,
-      new Set(["enabled", "requestsPerSecond", "burst"]),
+      new Set(["enabled", "requestsPerSecond", "burst", "maxQueue"]),
       `rateLimit.${category}`,
     );
-    assertOptionalBoolean(value.enabled, `rateLimit.${category}.enabled`);
-    if (value.requestsPerSecond !== undefined) {
-      assertPositiveFiniteNumber(
-        value.requestsPerSecond,
-        `rateLimit.${category}.requestsPerSecond`,
-      );
+    // Read each value once and validate the snapshot, not the source object.
+    const { enabled, requestsPerSecond, burst, maxQueue } = value;
+    assertOptionalBoolean(enabled, `rateLimit.${category}.enabled`);
+    if (requestsPerSecond !== undefined) {
+      assertRequestsPerSecond(requestsPerSecond, `rateLimit.${category}.requestsPerSecond`);
     }
-    if (value.burst !== undefined) {
-      assertPositiveFiniteNumber(value.burst, `rateLimit.${category}.burst`);
-      if (value.burst < 1) {
-        throw new AhaSendConfigurationError(
-          `AhaSend: \`rateLimit.${category}.burst\` must be greater than or equal to 1.`,
-        );
-      }
-    }
+    if (burst !== undefined) assertBurst(burst, `rateLimit.${category}.burst`);
+    if (maxQueue !== undefined) assertMaxQueue(maxQueue, `rateLimit.${category}.maxQueue`);
+
+    snapshot[category] = {
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(requestsPerSecond !== undefined ? { requestsPerSecond } : {}),
+      ...(burst !== undefined ? { burst } : {}),
+      ...(maxQueue !== undefined ? { maxQueue } : {}),
+    };
   }
+
+  return snapshot;
 }
 
 function assertTelemetryHooks(hooks: unknown): void {
@@ -417,7 +524,7 @@ function assertTelemetryHooks(hooks: unknown): void {
   assertPlainRecord(hooks, "hooks");
   assertKnownKeys(hooks, HOOK_NAMES, "hooks");
   for (const [name, hook] of Object.entries(hooks)) {
-    if (typeof hook !== "function") {
+    if (hook !== undefined && typeof hook !== "function") {
       throw new AhaSendConfigurationError(`AhaSend: \`hooks.${name}\` must be a function.`);
     }
   }
@@ -470,7 +577,7 @@ function assertHeaderValue(value: string, name: string): void {
   }
 }
 
-function assertOptionalBoolean(value: unknown, name: string): void {
+function assertOptionalBoolean(value: unknown, name: string): asserts value is boolean | undefined {
   if (value !== undefined && typeof value !== "boolean") {
     throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a boolean.`);
   }
@@ -482,6 +589,12 @@ function assertPositiveFiniteNumber(value: unknown, name: string): asserts value
   }
 }
 
+/** @internal Validate a timeout against Node.js's supported timer range. */
+export function assertTimeoutMs(value: unknown, name: string): asserts value is number {
+  assertPositiveFiniteNumber(value, name);
+  assertSupportedTimerDelay(value, name);
+}
+
 function assertNonNegativeFiniteNumber(value: unknown, name: string): asserts value is number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw new AhaSendConfigurationError(
@@ -490,9 +603,24 @@ function assertNonNegativeFiniteNumber(value: unknown, name: string): asserts va
   }
 }
 
-function assertNonNegativeInteger(value: unknown, name: string): asserts value is number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a non-negative integer.`);
+function assertSupportedTimerDelay(value: number, name: string): void {
+  if (value > MAX_TIMER_DELAY_MS) {
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` must be less than or equal to ${MAX_TIMER_DELAY_MS} milliseconds.`,
+    );
+  }
+}
+
+function assertRetryCount(value: unknown, name: string): asserts value is number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > MAX_RETRIES
+  ) {
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`${name}\` must be a safe integer from 0 through ${MAX_RETRIES}.`,
+    );
   }
 }
 

@@ -1,21 +1,38 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { APIKey, APIKeyScope, CreatedAPIKey } from "../src/resources/api-keys.js";
+import { AhaSendConfigurationError, isAhaSendError } from "../src/errors.js";
+import type { OperationRequestBodyById } from "../src/generated/operations.js";
+import type { components } from "../src/generated/rest-types.js";
+import type {
+  APIKey,
+  APIKeyScope,
+  CreateAPIKeyRequest,
+  CreatedAPIKey,
+  UpdateAPIKeyRequest,
+} from "../src/resources/api-keys.js";
 // @ts-expect-error APIKeyRequestOptions was never released from the API-key module.
 import type { APIKeyRequestOptions as RemovedAPIKeyRequestOptions } from "../src/resources/api-keys.js";
 import type { Account } from "../src/resources/accounts.js";
 // @ts-expect-error ListMembersParams is not part of the account resource surface.
 import type { ListMembersParams as RemovedListMembersParams } from "../src/resources/accounts.js";
-import type { Domain, ListDomainsParams } from "../src/resources/domains.js";
+import type {
+  CreateDomainRequest,
+  DNSRecord,
+  Domain,
+  ListDomainsParams,
+  UpdateDomainRequest,
+} from "../src/resources/domains.js";
 // @ts-expect-error DomainRequestOptions was never released from the domain module.
 import type { DomainRequestOptions as RemovedDomainRequestOptions } from "../src/resources/domains.js";
 import type {
+  Attachment,
   CreateConversationMessageRequest,
   CreateMessageRequest,
   ListMessagesParams,
   Message,
   MessageSummary,
+  Recipient,
   SendMessageResult,
 } from "../src/resources/messages.js";
 import type {
@@ -23,8 +40,15 @@ import type {
   SMTPCredential,
   SMTPCredentialsClient,
 } from "../src/resources/smtp-credentials.js";
-import type { PaginationParams } from "../src/types/common.js";
-import { captureFetch, makeClient } from "./helpers/resource-call.js";
+import type { Route, UpdateRouteRequest } from "../src/resources/routes.js";
+import type { PaginationMeta, PaginationParams } from "../src/types/common.js";
+import {
+  ACCOUNT_ID,
+  API_KEY_ID,
+  captureFetch,
+  HOSTNAME,
+  makeClient,
+} from "./helpers/resource-call.js";
 
 describe("Resource helper boundary", () => {
   it("contains no generated route, path encoding, method, or transport idempotency policy", () => {
@@ -53,6 +77,32 @@ describe("Pagination parameter declarations", () => {
     expect([limitOnly, after, before, both]).toHaveLength(4);
   });
 
+  it("round-trips optional response cursors without nullable request values", () => {
+    const omitted: PaginationMeta = { has_more: false };
+    const pagination: PaginationMeta = {
+      has_more: true,
+      next_cursor: "next",
+      previous_cursor: "previous",
+    };
+    const requests: PaginationParams[] = [];
+
+    if (pagination.next_cursor !== undefined) {
+      requests.push({ after: pagination.next_cursor });
+    }
+    if (pagination.previous_cursor !== undefined) {
+      requests.push({ before: pagination.previous_cursor });
+    }
+
+    // @ts-expect-error Response cursors cannot be null when present.
+    const nullableNext: PaginationMeta = { has_more: true, next_cursor: null };
+    // @ts-expect-error Response cursors cannot be null when present.
+    const nullablePrevious: PaginationMeta = { has_more: true, previous_cursor: null };
+
+    expect(omitted).toEqual({ has_more: false });
+    expect(requests).toEqual([{ after: "next" }, { before: "previous" }]);
+    void [nullableNext, nullablePrevious];
+  });
+
   it("retains filters on named list parameter aliases", () => {
     const messages: ListMessagesParams = { limit: 25, after: "next", status: "queued" };
     const domains: ListDomainsParams = { limit: 50, before: "previous", dns_valid: true };
@@ -71,26 +121,90 @@ describe("Pagination parameter declarations", () => {
 });
 
 describe("Account declarations", () => {
-  it("requires a nullable parent account identifier", () => {
+  it("matches authoritative response requiredness and nullability", () => {
     const account: Account = {
       object: "account",
-      id: "acc_1",
+      id: ACCOUNT_ID,
       parent_account_id: null,
       created_at: "2026-07-21T08:00:00Z",
       updated_at: "2026-07-21T08:01:00Z",
       name: "Primary account",
+      website: "https://example.com",
+      about: "Primary transactional email account",
+      track_opens: true,
+      track_clicks: false,
+      reject_bad_recipients: true,
+      reject_mistyped_recipients: false,
+      message_metadata_retention: 30,
+      message_data_retention: 7,
       owner_id: "usr_1",
     };
-    const { parent_account_id: _parentAccountId, ...withoutParentAccountId } = account;
-    // @ts-expect-error parent_account_id is a required nullable response key.
-    const missingParentAccountId: Account = withoutParentAccountId;
+    const { website: _website, ...withoutWebsite } = account;
+    // @ts-expect-error website is a required response key.
+    const missingWebsite: Account = withoutWebsite;
+    // @ts-expect-error website is not nullable in the response schema.
+    const nullWebsite: Account = { ...account, website: null };
 
+    expectTypeOf<Account>().toEqualTypeOf<components["schemas"]["Account"]>();
     expect(account.parent_account_id).toBeNull();
-    void [missingParentAccountId, _parentAccountId];
+    expect(account.website).toBe("https://example.com");
+    void [missingWebsite, nullWebsite, _website];
   });
 
   it("does not expose the account-specific ListMembersParams alias", () => {
     expectTypeOf<RemovedListMembersParams>().toEqualTypeOf<RemovedListMembersParams>();
+  });
+});
+
+describe("Route declarations", () => {
+  it("matches authoritative response requiredness and nullability", () => {
+    const route: Route = {
+      object: "route",
+      id: "route_1",
+      created_at: "2026-07-21T08:00:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      name: "Inbound support",
+      url: "https://example.com/routes/support",
+      recipient: "support@example.com",
+      attachments: true,
+      headers: false,
+      group_by_message_id: true,
+      strip_replies: false,
+      enabled: true,
+      success_count: 42,
+      error_count: 2,
+      errors_since_last_success: 0,
+      last_request_at: null,
+    };
+    const { success_count: _successCount, ...withoutSuccessCount } = route;
+    // @ts-expect-error success_count is a required response key.
+    const missingSuccessCount: Route = withoutSuccessCount;
+    // @ts-expect-error recipient is not nullable in the response schema.
+    const nullRecipient: Route = { ...route, recipient: null };
+
+    expectTypeOf<Route>().toEqualTypeOf<components["schemas"]["Route"]>();
+    expect(route.last_request_at).toBeNull();
+    expect(route.recipient).toBe("support@example.com");
+    void [missingSuccessCount, nullRecipient, _successCount];
+  });
+
+  it("accepts every nullable update field without widening other values", () => {
+    const clearable: UpdateRouteRequest = {
+      name: null,
+      url: null,
+      recipient: null,
+      attachments: null,
+      headers: null,
+      group_by_message_id: null,
+      strip_replies: null,
+      enabled: null,
+    };
+    // @ts-expect-error Route update fields retain their declared primitive types.
+    const invalidName: UpdateRouteRequest = { name: 42 };
+
+    expectTypeOf<UpdateRouteRequest>().toEqualTypeOf<components["schemas"]["UpdateRouteRequest"]>();
+    expect(Object.values(clearable).every((value) => value === null)).toBe(true);
+    void invalidName;
   });
 });
 
@@ -125,12 +239,6 @@ describe("SMTP credential declarations", () => {
       name: "scoped missing",
       scope: "scoped",
     };
-    // @ts-expect-error Scoped credential domains must be non-empty.
-    const scopedEmpty: CreateSMTPCredentialRequest = {
-      name: "scoped empty",
-      scope: "scoped",
-      domains: [],
-    };
     if (false) {
       // @ts-expect-error Request domain arrays are readonly.
       scoped.domains.push("another.example");
@@ -141,7 +249,7 @@ describe("SMTP credential declarations", () => {
     expect(globalEmpty.domains).toEqual([]);
     expect(globalNonEmpty.domains).toEqual(["ignored.example"]);
     expect(scoped.domains).toEqual(["example.com"]);
-    void [scopedMissing, scopedEmpty];
+    void [scopedMissing];
   });
 
   it("requires non-null response domains and exposes no update method", () => {
@@ -174,19 +282,19 @@ describe("SMTP credential declarations", () => {
 });
 
 describe("MessagesClient", () => {
-  it("matches nested substitution, nullability, non-empty array, and response declarations", () => {
-    const recipients = [
+  it("matches nested substitution, nullability, array, and response declarations", () => {
+    const recipients: readonly Recipient[] = [
       {
         email: "recipient@example.com",
         substitutions: {
           customer: { preferences: ["email", { digest: true }] },
         },
       },
-    ] as const;
-    const attachments = [
+    ];
+    const attachments: readonly Attachment[] = [
       { data: "hello", content_type: "text/plain", file_name: "hello.txt" },
-    ] as const;
-    const tags = ["transactional"] as const;
+    ];
+    const tags: readonly string[] = ["transactional"];
     const request: CreateMessageRequest = {
       from: { email: "sender@example.com" },
       recipients,
@@ -199,23 +307,15 @@ describe("MessagesClient", () => {
     };
     const conversation: CreateConversationMessageRequest = {
       from: { email: "sender@example.com" },
-      to: [{ email: "to@example.com" }] as const,
-      cc: [{ email: "cc@example.com" }] as const,
-      bcc: [{ email: "bcc@example.com" }] as const,
+      to: [{ email: "to@example.com" }],
+      cc: [{ email: "cc@example.com" }],
+      bcc: [{ email: "bcc@example.com" }],
       subject: "Conversation",
       attachments,
       tags,
       tracking: null,
       retention: null,
     };
-    // @ts-expect-error recipients has minItems: 1.
-    const emptyRecipients: CreateMessageRequest = { ...request, recipients: [] };
-    // @ts-expect-error to has minItems: 1.
-    const emptyTo: CreateConversationMessageRequest = { ...conversation, to: [] };
-    // @ts-expect-error cc has minItems: 1 when present.
-    const emptyCc: CreateConversationMessageRequest = { ...conversation, cc: [] };
-    // @ts-expect-error bcc has minItems: 1 when present.
-    const emptyBcc: CreateConversationMessageRequest = { ...conversation, bcc: [] };
     if (false) {
       // @ts-expect-error request arrays are readonly.
       request.recipients.push({ email: "another@example.com" });
@@ -260,7 +360,7 @@ describe("MessagesClient", () => {
       open_count: 0,
       reference_message_id: null,
       domain_id: "domain_1",
-      account_id: "acc_1",
+      account_id: ACCOUNT_ID,
     };
     const message: Message = { ...summary, content: "raw message" };
     const { sent_at: _sentAt, ...withoutSentAt } = summary;
@@ -289,10 +389,6 @@ describe("MessagesClient", () => {
 
     // Keep compile-only negative cases referenced without treating their runtime values as evidence.
     void [
-      emptyRecipients,
-      emptyTo,
-      emptyCc,
-      emptyBcc,
       missingId,
       missingError,
       missingSentAt,
@@ -338,7 +434,7 @@ describe("MessagesClient", () => {
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.method).toBe("POST");
-    expect(call.url).toBe("https://api.test/v2/accounts/acc_1/messages");
+    expect(call.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages`);
     expect(call.body).toContain(`"recipients":[{"email":"x@y.com"}]`);
     expect(JSON.parse(call.body!)).toMatchObject({
       substitutions: { customer: { tier: "gold", preferences: ["email"] } },
@@ -365,8 +461,103 @@ describe("MessagesClient", () => {
       text_content: "hi",
     });
 
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/conversation");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages/conversation`);
     expect(calls[0]!.operationId).toBe("createConversationMessage");
+  });
+
+  it("accepts recipient arrays built at runtime", async () => {
+    // The canonical fan-out. This assigned only with a cast while the field
+    // was typed as a non-empty tuple, which is why the tuple was dropped.
+    const rows = [{ email: "a@example.com" }, { email: "b@example.com" }];
+    const recipients = rows.map((row) => ({ email: row.email }));
+
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.messages.send({
+      from: { email: "a@b.com" },
+      recipients,
+      subject: "hi",
+      text_content: "hi",
+    });
+
+    expect(JSON.parse(calls[0]!.body!)).toMatchObject({ recipients });
+  });
+
+  it("rejects empty recipient, to, cc, and bcc arrays before sending", async () => {
+    // The non-emptiness guarantee the tuple type used to provide, now enforced
+    // at runtime so it also covers JavaScript callers. Input validation throws
+    // synchronously here, matching the rest of the resource surface.
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() =>
+      client.messages.send({
+        from: { email: "a@b.com" },
+        recipients: [],
+        subject: "hi",
+        text_content: "hi",
+      }),
+    ).toThrow(/`recipients` must contain at least one item/);
+
+    const conversation = {
+      from: { email: "a@b.com" },
+      to: [{ email: "x@y.com" }],
+      subject: "hi",
+      text_content: "hi",
+    };
+    expect(() => client.messages.sendConversation({ ...conversation, to: [] })).toThrow(
+      /`to` must contain at least one item/,
+    );
+    expect(() => client.messages.sendConversation({ ...conversation, cc: [] })).toThrow(
+      /`cc` must contain at least one item/,
+    );
+    expect(() => client.messages.sendConversation({ ...conversation, bcc: [] })).toThrow(
+      /`bcc` must contain at least one item/,
+    );
+
+    // Nothing reached the network. Flush the microtask+timer queues first —
+    // without this the assertion passes even if the guard ran AFTER dispatch,
+    // because fetch is only invoked asynchronously.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects a missing or non-array recipients value from JavaScript callers", () => {
+    // The guard's other half: TypeScript callers cannot reach these, but the
+    // JS consumers it exists for can.
+    const { fetch } = captureFetch();
+    const client = makeClient(fetch);
+    const send = client.messages.send as unknown as (body: unknown) => unknown;
+
+    for (const recipients of [undefined, null, "a@b.com", { email: "a@b.com" }, 42]) {
+      expect(() =>
+        send({ from: { email: "a@b.com" }, recipients, subject: "hi", text_content: "hi" }),
+      ).toThrow(/`recipients` must be an array/);
+    }
+
+    // A missing body at all is still a guard failure, not a TypeError.
+    expect(() => send(undefined)).toThrow(AhaSendConfigurationError);
+  });
+
+  it("reports an empty recipients array as a catchable AhaSend error", () => {
+    const { fetch } = captureFetch();
+    const client = makeClient(fetch);
+
+    let caught: unknown;
+    try {
+      client.messages.send({
+        from: { email: "a@b.com" },
+        recipients: [],
+        subject: "hi",
+        text_content: "hi",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AhaSendConfigurationError);
+    expect(isAhaSendError(caught)).toBe(true);
   });
 
   it("list() GETs /messages with query params", async () => {
@@ -376,7 +567,7 @@ describe("MessagesClient", () => {
     await client.messages.list({ limit: 25, after: "next", status: "queued" });
 
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/messages");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/messages`);
     expect(url.searchParams.get("limit")).toBe("25");
     expect(url.searchParams.get("after")).toBe("next");
     expect(url.searchParams.has("before")).toBe(false);
@@ -411,7 +602,7 @@ describe("MessagesClient", () => {
             open_count: 1,
             reference_message_id: 42,
             domain_id: "domain_1",
-            account_id: "acc_1",
+            account_id: ACCOUNT_ID,
             content: "raw message",
           }),
           { headers: { "content-type": "application/json" } },
@@ -422,7 +613,9 @@ describe("MessagesClient", () => {
     const message = await client.messages.get("opaque/message:id");
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/messages/opaque%2Fmessage%3Aid");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/opaque%2Fmessage%3Aid`,
+    );
     expect(calls[0]!.operationId).toBe("getMessage");
     expect(message).toMatchObject({
       created_at: "2026-07-21T08:00:00Z",
@@ -448,33 +641,85 @@ describe("MessagesClient", () => {
 
     expect(calls[0]!.method).toBe("DELETE");
     expect(calls[0]!.url).toBe(
-      "https://api.test/v2/accounts/acc_1/messages/opaque%2Fmessage%3Aid/cancel",
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/opaque%2Fmessage%3Aid/cancel`,
     );
     expect(calls[0]!.operationId).toBe("cancelMessage");
   });
 });
 
 describe("DomainsClient", () => {
-  it("requires the nullable selector and keeps the request-options alias absent", () => {
+  it("models the distinct create, unchanged-update, and clear-update DKIM selector inputs", () => {
+    const createDefault: CreateDomainRequest = {
+      domain: "example.com",
+      dkim_selector: null,
+    };
+    const createCustom: CreateDomainRequest = {
+      domain: "example.com",
+      dkim_selector: "selector-1",
+    };
+    const updateUnchanged: UpdateDomainRequest = { dkim_selector: null };
+    const updateClearEmpty: UpdateDomainRequest = { dkim_selector: "" };
+    const updateClearWhitespace: UpdateDomainRequest = { dkim_selector: " \t " };
+    // @ts-expect-error DKIM selectors accept only strings or null.
+    const invalidCreate: CreateDomainRequest = { domain: "example.com", dkim_selector: 1 };
+    // @ts-expect-error DKIM selectors accept only strings or null.
+    const invalidUpdate: UpdateDomainRequest = { dkim_selector: false };
+
+    expectTypeOf<CreateDomainRequest>().toEqualTypeOf<
+      components["schemas"]["CreateDomainRequest"]
+    >();
+    expectTypeOf<UpdateDomainRequest>().toEqualTypeOf<
+      components["schemas"]["UpdateDomainRequest"]
+    >();
+    expect(createDefault.dkim_selector).toBeNull();
+    expect(createCustom.dkim_selector).toBe("selector-1");
+    expect(updateUnchanged.dkim_selector).toBeNull();
+    expect(updateClearEmpty.dkim_selector).toBe("");
+    expect(updateClearWhitespace.dkim_selector).toBe(" \t ");
+    void [invalidCreate, invalidUpdate];
+  });
+
+  it("matches authoritative Domain and DNSRecord response declarations", () => {
+    const dnsRecord: DNSRecord = {
+      type: "TXT",
+      host: "selector._domainkey.example.com",
+      content: "v=DKIM1; k=rsa; p=public-key",
+      required: true,
+      propagated: false,
+    };
     const domain: Domain = {
       object: "domain",
       id: "domain_1",
       created_at: "2026-07-21T08:00:00Z",
       updated_at: "2026-07-21T08:01:00Z",
       domain: "example.com",
-      account_id: "acc_1",
-      dns_records: [],
+      account_id: ACCOUNT_ID,
+      dns_records: [dnsRecord],
+      last_dns_check_at: null,
       dns_valid: true,
+      tracking_subdomain: null,
+      return_path_subdomain: null,
+      subscription_subdomain: null,
+      media_subdomain: null,
+      dkim_rotation_interval_days: null,
       dkim_selector: null,
+      rotation_ready: false,
+      dsn_recipient: null,
     };
-    const { dkim_selector: _selector, ...withoutSelector } = domain;
-    // @ts-expect-error dkim_selector is a required nullable response key.
-    const missingSelector: Domain = withoutSelector;
+    const { last_dns_check_at: _lastDnsCheckAt, ...withoutLastDnsCheckAt } = domain;
+    // @ts-expect-error last_dns_check_at is a required nullable response key.
+    const missingLastDnsCheckAt: Domain = withoutLastDnsCheckAt;
+    // @ts-expect-error rotation_ready is not nullable in the response schema.
+    const nullRotationReady: Domain = { ...domain, rotation_ready: null };
+    // @ts-expect-error DNS record labels are optional but cannot be null when present.
+    const nullDnsRecordLabel: DNSRecord = { ...dnsRecord, label: null };
 
-    expectTypeOf<Domain["dkim_selector"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Domain>().toEqualTypeOf<components["schemas"]["Domain"]>();
+    expectTypeOf<DNSRecord>().toEqualTypeOf<components["schemas"]["DNSRecord"]>();
     expectTypeOf<RemovedDomainRequestOptions>().toEqualTypeOf<RemovedDomainRequestOptions>();
-    expect(domain).toHaveProperty("dkim_selector", null);
-    void [missingSelector, _selector];
+    expect(domain.last_dns_check_at).toBeNull();
+    expect(dnsRecord).not.toHaveProperty("label");
+    void [missingLastDnsCheckAt, nullRotationReady, nullDnsRecordLabel, _lastDnsCheckAt];
   });
 
   it("create() dispatches createDomain with its body and idempotency key", async () => {
@@ -484,10 +729,19 @@ describe("DomainsClient", () => {
     await client.domains.create({ domain: "example.com" }, { idempotencyKey: "key-1" });
 
     expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/domains`);
     expect(calls[0]!.body).toBe(JSON.stringify({ domain: "example.com" }));
     expect(calls[0]!.headers["idempotency-key"]).toBe("key-1");
     expect(calls[0]!.operationId).toBe("createDomain");
+  });
+
+  it("create() forwards a null DKIM selector as the no-override create input", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.domains.create({ domain: "example.com", dkim_selector: null });
+
+    expect(calls[0]!.body).toBe(JSON.stringify({ domain: "example.com", dkim_selector: null }));
   });
 
   it("list() dispatches getDomains with filters, limit, and one cursor", async () => {
@@ -497,7 +751,7 @@ describe("DomainsClient", () => {
     await client.domains.list({ dns_valid: true, limit: 50, before: "previous" });
 
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/domains");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/domains`);
     expect(url.searchParams.get("dns_valid")).toBe("true");
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("before")).toBe("previous");
@@ -530,7 +784,7 @@ describe("DomainsClient", () => {
     expect(calls[0]!.operationId).toBe("getDomains");
   });
 
-  it("get() dispatches getDomain, encodes the domain, and preserves its selector", async () => {
+  it("get() dispatches getDomain with the hostname and preserves its selector", async () => {
     const { fetch, calls } = captureFetch(
       () =>
         new Response(JSON.stringify({ dkim_selector: null }), {
@@ -539,10 +793,10 @@ describe("DomainsClient", () => {
     );
     const client = makeClient(fetch);
 
-    const domain = await client.domains.get("example.com/path");
+    const domain = await client.domains.get(HOSTNAME);
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com%2Fpath");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(calls[0]!.operationId).toBe("getDomain");
     expect(domain).toHaveProperty("dkim_selector", null);
   });
@@ -551,22 +805,35 @@ describe("DomainsClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.domains.update("example.com/path", { tracking_subdomain: "track" });
+    await client.domains.update(HOSTNAME, { tracking_subdomain: "track" });
 
     expect(calls[0]!.method).toBe("PUT");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com%2Fpath");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(calls[0]!.body).toBe(JSON.stringify({ tracking_subdomain: "track" }));
     expect(calls[0]!.operationId).toBe("updateDomain");
+  });
+
+  it.each([
+    ["null to leave the selector unchanged", null],
+    ["an empty string to clear the selector", ""],
+    ["whitespace to clear the selector", " \t "],
+  ])("update() forwards %s", async (_case, dkimSelector) => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.domains.update(HOSTNAME, { dkim_selector: dkimSelector });
+
+    expect(calls[0]!.body).toBe(JSON.stringify({ dkim_selector: dkimSelector }));
   });
 
   it("delete() dispatches deleteDomain", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.domains.delete("example.com");
+    await client.domains.delete(HOSTNAME);
 
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}`);
     expect(calls[0]!.operationId).toBe("deleteDomain");
   });
 
@@ -574,32 +841,87 @@ describe("DomainsClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.domains.checkDns("example.com");
+    await client.domains.checkDns(HOSTNAME);
 
     expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/domains/example.com/check-dns");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/domains/${HOSTNAME}/check-dns`,
+    );
     expect(calls[0]!.headers).not.toHaveProperty("idempotency-key");
     expect(calls[0]!.operationId).toBe("checkDomainDNS");
   });
 });
 
 describe("APIKeysClient", () => {
+  it("rejects empty scopes on create and on a scopes-bearing update", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() => client.apiKeys.create({ label: "CI", scopes: [] })).toThrow(
+      /`scopes` must contain at least one item/,
+    );
+    expect(() => client.apiKeys.update(API_KEY_ID, { scopes: [] })).toThrow(
+      /`scopes` must contain at least one item/,
+    );
+
+    // A null scopes update means "leave unchanged" and is still allowed, so
+    // long as some other field actually selects an update.
+    await client.apiKeys.update(API_KEY_ID, { label: "CI", scopes: null });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("requires readonly non-empty scopes and a concrete API-key update", () => {
+    const createScopes: readonly string[] = ["messages:send:all"];
+    const updateScopes: readonly string[] = ["domains:read"];
+    const ipAllowList: readonly string[] = ["203.0.113.0/24"];
+    const create: CreateAPIKeyRequest = {
+      label: "CI",
+      scopes: createScopes,
+      ip_allow_list: ipAllowList,
+    };
+    const update: UpdateAPIKeyRequest = { scopes: updateScopes };
+    const clearIPAllowList: UpdateAPIKeyRequest = { ip_allow_list: [] };
+    // @ts-expect-error API-key updates must select at least one field.
+    const emptyUpdate: UpdateAPIKeyRequest = {};
+    // @ts-expect-error Null-only fields do not select an API-key update.
+    const nullOnlyUpdate: UpdateAPIKeyRequest = {
+      label: null,
+      scopes: null,
+      ip_allow_list: null,
+    };
+    if (false) {
+      // @ts-expect-error API-key creation scopes are readonly.
+      create.scopes.push("domains:read");
+      // @ts-expect-error API-key update scopes are readonly.
+      update.scopes?.push("domains:write");
+      // @ts-expect-error API-key request IP allow lists are readonly.
+      create.ip_allow_list?.push("198.51.100.7");
+    }
+
+    expect(create.scopes).toBe(createScopes);
+    expect(update.scopes).toBe(updateScopes);
+    expect(clearIPAllowList.ip_allow_list).toEqual([]);
+    expectTypeOf<CreateAPIKeyRequest>().toExtend<OperationRequestBodyById["createAPIKey"]>();
+    expectTypeOf<UpdateAPIKeyRequest>().toExtend<OperationRequestBodyById["updateAPIKey"]>();
+    void [emptyUpdate, nullOnlyUpdate];
+  });
+
   it("requires response IP lists and scopes while exposing the secret only after create", () => {
     const scope: APIKeyScope = {
       id: "scope_1",
       created_at: "2026-07-21T08:00:00Z",
       updated_at: "2026-07-21T08:01:00Z",
-      api_key_id: "key_1",
+      api_key_id: API_KEY_ID,
       scope: "messages:send:all",
       domain_id: null,
     };
     const apiKey: APIKey = {
       object: "api_key",
-      id: "key_1",
+      id: API_KEY_ID,
       created_at: "2026-07-21T08:00:00Z",
       updated_at: "2026-07-21T08:01:00Z",
       last_used_at: null,
-      account_id: "acc_1",
+      account_id: ACCOUNT_ID,
       label: "CI",
       public_key: "aha-pk-test",
       scopes: [scope],
@@ -643,7 +965,7 @@ describe("APIKeysClient", () => {
     );
 
     expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/api-keys`);
     expect(calls[0]!.body).toBe(
       JSON.stringify({
         label: "ci",
@@ -663,7 +985,7 @@ describe("APIKeysClient", () => {
     await client.apiKeys.list({ limit: 50, before: "previous" });
 
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/api-keys");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/api-keys`);
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("before")).toBe("previous");
     expect(url.searchParams.has("after")).toBe(false);
@@ -679,7 +1001,7 @@ describe("APIKeysClient", () => {
             data: [
               {
                 object: "api_key",
-                id: "key_1",
+                id: API_KEY_ID,
                 scopes: [],
                 ip_allow_list: [],
               },
@@ -695,7 +1017,7 @@ describe("APIKeysClient", () => {
 
     await expect(apiKeys.next()).resolves.toMatchObject({
       done: false,
-      value: { id: "key_1", scopes: [], ip_allow_list: [] },
+      value: { id: API_KEY_ID, scopes: [], ip_allow_list: [] },
     });
     await expect(apiKeys.next()).resolves.toEqual({ done: true, value: undefined });
     expect(calls).toHaveLength(1);
@@ -703,14 +1025,14 @@ describe("APIKeysClient", () => {
     expect(calls[0]!.operationId).toBe("getAPIKeys");
   });
 
-  it("get() dispatches getAPIKey and encodes the key ID", async () => {
+  it("get() dispatches getAPIKey with the API-key ID", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.apiKeys.get("key/1");
+    await client.apiKeys.get(API_KEY_ID);
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys/key%2F1");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/api-keys/${API_KEY_ID}`);
     expect(calls[0]!.operationId).toBe("getAPIKey");
   });
 
@@ -718,14 +1040,14 @@ describe("APIKeysClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.apiKeys.update("key/1", {
+    await client.apiKeys.update(API_KEY_ID, {
       label: null,
       scopes: ["domains:read"],
       ip_allow_list: [],
     });
 
     expect(calls[0]!.method).toBe("PUT");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys/key%2F1");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/api-keys/${API_KEY_ID}`);
     expect(calls[0]!.body).toBe(
       JSON.stringify({ label: null, scopes: ["domains:read"], ip_allow_list: [] }),
     );
@@ -736,10 +1058,10 @@ describe("APIKeysClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.apiKeys.delete("key_1");
+    await client.apiKeys.delete(API_KEY_ID);
 
     expect(calls[0]!.method).toBe("DELETE");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/api-keys/key_1");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/api-keys/${API_KEY_ID}`);
     expect(calls[0]!.operationId).toBe("deleteAPIKey");
   });
 });

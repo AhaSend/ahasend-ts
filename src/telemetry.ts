@@ -1,8 +1,6 @@
-import type { OperationId } from "./generated/operations.js";
-
 export interface RequestEvent {
   /** Generated OpenAPI operation identity, when the request uses a known operation. */
-  operationId: OperationId | undefined;
+  operationId: string | undefined;
   method: string;
   /** OpenAPI route template. Path parameters are never expanded with caller values. */
   routeTemplate: string;
@@ -27,6 +25,7 @@ export interface RetryEvent extends RequestEvent {
 }
 
 export interface ErrorEvent extends RequestEvent {
+  phase: "pacing" | "attempt" | "backoff";
   durationMs: number;
   error: unknown;
   /** HTTP status from the failed response, when a response was received. */
@@ -35,16 +34,36 @@ export interface ErrorEvent extends RequestEvent {
   requestId?: string;
 }
 
+/**
+ * Isolated observability callbacks for the request attempt lifecycle.
+ *
+ * Every member is explicitly `| undefined` so that under
+ * `exactOptionalPropertyTypes` a consumer can build the set from
+ * conditionally-present hooks (`onRequest: maybeHook`) — the runtime has
+ * always treated an explicit `undefined` member as absent.
+ */
 export interface TelemetryHooks {
-  onRequest?(event: RequestEvent): void;
-  onResponse?(event: ResponseEvent): void;
-  onRetry?(event: RetryEvent): void;
-  onError?(event: ErrorEvent): void;
+  /** Runs when an attempt starts. The request does not wait for the returned promise. */
+  onRequest?: ((event: RequestEvent) => void | Promise<void>) | undefined;
+  /**
+   * Runs only after a **2xx** response is read. Non-2xx responses reject the
+   * attempt, so they fire `onError` instead — count completions from both
+   * hooks if you need a total. The request does not wait for the returned
+   * promise.
+   */
+  onResponse?: ((event: ResponseEvent) => void | Promise<void>) | undefined;
+  /** Runs before a retry delay. The request does not wait for the returned promise. */
+  onRetry?: ((event: RetryEvent) => void | Promise<void>) | undefined;
+  /**
+   * Runs after each failed attempt, even if a retry later succeeds.
+   * The request does not wait for the returned promise.
+   */
+  onError?: ((event: ErrorEvent) => void | Promise<void>) | undefined;
 }
 
-export type ResolvedTelemetryHooks = Required<{
-  [K in keyof TelemetryHooks]: TelemetryHooks[K];
-}>;
+export type ResolvedTelemetryHooks = {
+  [K in keyof TelemetryHooks]-?: NonNullable<TelemetryHooks[K]>;
+};
 
 const NOOP = () => {};
 
@@ -94,17 +113,16 @@ export function composeHooks(...hookSets: Array<TelemetryHooks | undefined>): Te
   };
 }
 
-function deferCall<T>(fn: ((event: T) => void) | undefined, event: T): void {
+function deferCall<T>(fn: ((event: T) => void | Promise<void>) | undefined, event: T): void {
   if (!fn) return;
   queueMicrotask(() => safeCall(fn, event));
 }
 
-function safeCall<T>(fn: ((event: T) => void) | undefined, event: T): void {
+function safeCall<T>(fn: ((event: T) => void | Promise<void>) | undefined, event: T): void {
   if (!fn) return;
   try {
-    // A callback typed as returning void may still return a Promise in TypeScript.
-    // Observe that promise solely to prevent a rejected hook from becoming unhandled.
-    const result: unknown = fn(event);
+    // Observe returned promises solely to prevent a rejected hook from becoming unhandled.
+    const result = fn(event);
     if (result) void Promise.resolve(result).catch(NOOP);
   } catch {
     // hooks must never throw into the request pipeline

@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { ReadableStreamReadResult } from "node:stream/web";
-import { AhaSendWebhookVerificationError } from "../errors.js";
+import { isAhaSendError } from "../errors.js";
+import type { AhaSendWebhookVerificationError } from "../errors.js";
 import { MAX_WEBHOOK_BODY_BYTES, WebhookVerifier } from "./verifier.js";
 import type { AnyWebhookEvent } from "./events.js";
 
@@ -17,8 +18,20 @@ export interface WebhookAdapterErrorContext {
 
 /** Options shared by every framework adapter. */
 export interface WebhookAdapterOptions {
-  maxBodyBytes?: number;
-  onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
+  /**
+   * Maximum raw body bytes to buffer. Defaults to the fixed 30,000,000-byte
+   * verifier ceiling and may only narrow that ceiling.
+   */
+  maxBodyBytes?: number | undefined;
+  /**
+   * Explicitly `| undefined` so that under `exactOptionalPropertyTypes` a
+   * consumer can forward an observer of type `Observer | undefined` — the
+   * ordinary shape when observability is conditionally configured. The
+   * runtime always supported the explicit `undefined`.
+   */
+  onError?:
+    | ((error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>)
+    | undefined;
 }
 
 /**
@@ -27,11 +40,32 @@ export interface WebhookAdapterOptions {
  */
 export interface NodeStyleRequest {
   headers: Record<string, string | string[] | undefined>;
-  rawBody?: string | Buffer;
+  /**
+   * `Uint8Array` rather than `Buffer`, so the published declarations name
+   * nothing that only `@types/node` supplies. Supplying a `Buffer` still
+   * satisfies it.
+   *
+   * This is the one widening that is also visible in an output position: a
+   * handler receives its request typed as this interface, so `req.rawBody`
+   * arrives as `Uint8Array` and no longer goes straight into a parameter
+   * declared `Buffer`. Narrow with `Buffer.isBuffer(req.rawBody)`, or wrap the
+   * bytes without copying them:
+   * `Buffer.from(b.buffer, b.byteOffset, b.byteLength)`.
+   *
+   * Explicitly `| undefined` so that under `exactOptionalPropertyTypes` a
+   * consumer can forward a `Buffer | undefined` — the ordinary shape when a
+   * raw-body parser may or may not have run.
+   */
+  rawBody?: string | Uint8Array | undefined;
   body?: unknown;
-  readableEnded?: boolean;
-  on?(event: string, listener: (...args: unknown[]) => void): unknown;
-  off?(event: string, listener: (...args: unknown[]) => void): unknown;
+  // Like `rawBody` and `onError`, every optional member here is explicitly
+  // `| undefined` (which for `on`/`off` forces property rather than method
+  // syntax): under `exactOptionalPropertyTypes` a consumer forwarding a
+  // conditionally-present member gets TS2375 otherwise, and the runtime has
+  // always treated an explicit `undefined` as absent.
+  readableEnded?: boolean | undefined;
+  on?: ((event: string, listener: (...args: unknown[]) => void) => unknown) | undefined;
+  off?: ((event: string, listener: (...args: unknown[]) => void) => unknown) | undefined;
 }
 
 /**
@@ -39,43 +73,45 @@ export interface NodeStyleRequest {
  * raw http.ServerResponse.
  */
 export interface NodeStyleResponse {
-  statusCode?: number;
-  writableEnded?: boolean;
-  end(payload?: string | Buffer): unknown;
+  statusCode?: number | undefined;
+  writableEnded?: boolean | undefined;
+  end(payload?: string | Uint8Array): unknown;
 }
 
 /** Minimal Fastify reply shape. */
 export interface FastifyStyleReply {
-  sent?: boolean;
+  sent?: boolean | undefined;
   code(status: number): FastifyStyleReply;
   send(payload?: unknown): unknown;
 }
 
-export type ExpressHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
-  event: T,
+export type ExpressHandler = (
+  event: AnyWebhookEvent,
   req: NodeStyleRequest,
   res: NodeStyleResponse,
 ) => Promise<void> | void;
 
-export type FastifyHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
-  event: T,
+export type FastifyHandler = (
+  event: AnyWebhookEvent,
   request: NodeStyleRequest,
   reply: FastifyStyleReply,
 ) => Promise<void> | void;
 
-export type NextHandler<T extends AnyWebhookEvent = AnyWebhookEvent> = (
-  event: T,
+export type NextHandler = (
+  event: AnyWebhookEvent,
   request: Request,
 ) => Response | Promise<Response>;
 
 /**
- * Express middleware. Captures the raw request body (or reuses `req.rawBody`
- * if already populated by `express.raw()`), verifies the AhaSend signature,
- * parses the typed event, and dispatches to your handler.
+ * Express middleware. Mount directly so it can buffer the unconsumed raw
+ * request stream. It can also reuse raw bytes already provided as a string or
+ * Buffer in `req.rawBody` or `req.body`; a parsed object cannot be verified.
+ * Verifies the AhaSend signature, parses the typed event, and dispatches to
+ * your handler.
  */
-export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
+export function expressWebhookHandler(
   verifier: WebhookVerifier,
-  handler: ExpressHandler<T>,
+  handler: ExpressHandler,
   options: WebhookAdapterOptions = {},
 ): (
   req: NodeStyleRequest,
@@ -85,7 +121,7 @@ export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
   const adapterOptions = normalizeOptions(options);
 
   return async (req, res, next) => {
-    let rawBody: Buffer;
+    let rawBody: Uint8Array;
     try {
       const availableBody = pickNodeRawBody(req, adapterOptions.maxBodyBytes);
       rawBody = availableBody ?? (await readNodeRawBody(req, adapterOptions.maxBodyBytes));
@@ -102,13 +138,8 @@ export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
     try {
       event = verifier.parse(req.headers, rawBody);
     } catch (error) {
-      if (error instanceof AhaSendWebhookVerificationError) {
-        completeExpress(
-          res,
-          error.reason === "body_too_large" ? 413 : 400,
-          next,
-          adapterOptions.onError,
-        );
+      if (isWebhookVerificationError(error)) {
+        completeExpress(res, verificationFailureStatus(error), next, adapterOptions.onError);
         return;
       }
       propagateExpress(error, "setup", next, adapterOptions.onError);
@@ -116,7 +147,7 @@ export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
     }
 
     try {
-      await handler(event as T, req, res);
+      await handler(event, req, res);
       if (!res.writableEnded) {
         if (!res.statusCode) res.statusCode = 200;
         res.end();
@@ -128,23 +159,28 @@ export function expressWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
 }
 
 /**
- * Fastify handler. Requires the route (or the global plugin) to be configured
- * with `rawBody: true` so that the request body is available unparsed.
+ * Fastify handler. Requires the route (or the global plugin) to capture the
+ * authentic bytes in `request.rawBody`, typically by configuring
+ * `rawBody: true`. A parsed object in `request.body` is not a substitute.
  */
-export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
+export function fastifyWebhookHandler(
   verifier: WebhookVerifier,
-  handler: FastifyHandler<T>,
+  handler: FastifyHandler,
   options: WebhookAdapterOptions = {},
 ): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void> {
   const adapterOptions = normalizeOptions(options);
 
   return async (request, reply) => {
-    let rawBody: string | Buffer;
+    let rawBody: string | Uint8Array;
     try {
       rawBody = pickFastifyRawBody(request, adapterOptions.maxBodyBytes);
     } catch (error) {
       if (error instanceof BodyTooLargeError) {
         completeFastify(reply, 413, adapterOptions.onError);
+        return;
+      }
+      if (error instanceof ParsedFastifyBodyError) {
+        completeFastify(reply, 400, adapterOptions.onError);
         return;
       }
       observeError(adapterOptions.onError, error, "fastify", "setup");
@@ -155,12 +191,8 @@ export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
     try {
       event = verifier.parse(request.headers, rawBody);
     } catch (error) {
-      if (error instanceof AhaSendWebhookVerificationError) {
-        completeFastify(
-          reply,
-          error.reason === "body_too_large" ? 413 : 400,
-          adapterOptions.onError,
-        );
+      if (isWebhookVerificationError(error)) {
+        completeFastify(reply, verificationFailureStatus(error), adapterOptions.onError);
         return;
       }
       observeError(adapterOptions.onError, error, "fastify", "setup");
@@ -168,7 +200,7 @@ export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
     }
 
     try {
-      await handler(event as T, request, reply);
+      await handler(event, request, reply);
       if (!reply.sent) reply.code(200).send();
     } catch (error) {
       observeError(adapterOptions.onError, error, "fastify", "application");
@@ -178,9 +210,9 @@ export function fastifyWebhookHandler<T extends AnyWebhookEvent = AnyWebhookEven
 }
 
 /** Next.js app-router route handler. */
-export function nextRouteHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
+export function nextRouteHandler(
   verifier: WebhookVerifier,
-  handler: NextHandler<T>,
+  handler: NextHandler,
   options: WebhookAdapterOptions = {},
 ): (request: Request) => Promise<Response> {
   const adapterOptions = normalizeOptions(options);
@@ -199,15 +231,15 @@ export function nextRouteHandler<T extends AnyWebhookEvent = AnyWebhookEvent>(
     try {
       event = verifier.parse(request.headers, rawBody);
     } catch (error) {
-      if (error instanceof AhaSendWebhookVerificationError) {
-        return opaqueResponse(error.reason === "body_too_large" ? 413 : 400);
+      if (isWebhookVerificationError(error)) {
+        return opaqueResponse(verificationFailureStatus(error));
       }
       observeError(adapterOptions.onError, error, "next", "setup");
       throw error;
     }
 
     try {
-      return await handler(event as T, request);
+      return await handler(event, request);
     } catch (error) {
       observeError(adapterOptions.onError, error, "next", "application");
       throw error;
@@ -222,6 +254,8 @@ interface NormalizedAdapterOptions {
 
 class BodyTooLargeError extends Error {}
 
+class ParsedFastifyBodyError extends Error {}
+
 class NodeStreamError extends Error {
   constructor(readonly originalCause: unknown) {
     super("Webhook request stream failed", { cause: originalCause });
@@ -230,17 +264,23 @@ class NodeStreamError extends Error {
 
 function normalizeOptions(options: WebhookAdapterOptions): NormalizedAdapterOptions {
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-  if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) {
-    throw new TypeError("maxBodyBytes must be a positive safe integer");
+  if (
+    !Number.isInteger(maxBodyBytes) ||
+    maxBodyBytes < 1 ||
+    maxBodyBytes > MAX_WEBHOOK_BODY_BYTES
+  ) {
+    throw new TypeError(
+      `maxBodyBytes must be an integer from 1 through ${String(MAX_WEBHOOK_BODY_BYTES)}`,
+    );
   }
   return { maxBodyBytes, onError: options.onError };
 }
 
-function pickNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Buffer | undefined {
-  if (req.rawBody !== undefined) return toBoundedBuffer(req.rawBody, maxBodyBytes);
+function pickNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Uint8Array | undefined {
+  if (req.rawBody !== undefined) return toBoundedBytes(req.rawBody, maxBodyBytes);
   if (req.body !== undefined) {
-    if (Buffer.isBuffer(req.body) || typeof req.body === "string") {
-      return toBoundedBuffer(req.body, maxBodyBytes);
+    if (isBytes(req.body) || typeof req.body === "string") {
+      return toBoundedBytes(req.body, maxBodyBytes);
     }
     throw new Error("Raw webhook body unavailable: configure a route-specific raw-body parser.");
   }
@@ -309,14 +349,19 @@ function readNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Promise<B
   });
 }
 
-function pickFastifyRawBody(request: NodeStyleRequest, maxBodyBytes: number): string | Buffer {
+function pickFastifyRawBody(request: NodeStyleRequest, maxBodyBytes: number): string | Uint8Array {
   if (request.rawBody !== undefined) {
     assertBodyWithinLimit(request.rawBody, maxBodyBytes);
     return request.rawBody;
   }
-  if (typeof request.body === "string" || Buffer.isBuffer(request.body)) {
+  if (typeof request.body === "string" || isBytes(request.body)) {
     assertBodyWithinLimit(request.body, maxBodyBytes);
     return request.body;
+  }
+  if (request.body !== undefined) {
+    throw new ParsedFastifyBodyError(
+      "Raw webhook body unavailable: enable Fastify raw-body capture.",
+    );
   }
   throw new Error("Raw webhook body unavailable: enable Fastify raw-body capture.");
 }
@@ -343,13 +388,82 @@ async function readWebRawBody(request: Request, maxBodyBytes: number): Promise<B
   }
 }
 
-function toBoundedBuffer(body: string | Buffer, maxBodyBytes: number): Buffer {
-  assertBodyWithinLimit(body, maxBodyBytes);
-  return Buffer.isBuffer(body) ? body : Buffer.from(body, "utf-8");
+/**
+ * Byte-array test, replacing the `Buffer.isBuffer` gate that `rawBody`'s
+ * widening to `Uint8Array` outgrew.
+ *
+ * `instanceof Uint8Array` is the broader of the two and subsumes it: every
+ * `Buffer` this can reach is a `Uint8Array` in this realm. It is also the only
+ * one that accepts a `Buffer` delivered by `postMessage`, which arrives
+ * structured-cloned and reports `Buffer.isBuffer` false but `instanceof` true.
+ *
+ * A typed array built inside a `vm` context has neither this realm's `Buffer`
+ * nor its `Uint8Array` in its prototype chain, so it is refused here along with
+ * a `DataView` or an `Int8Array`, and the caller gets the "configure a
+ * route-specific raw-body parser" error. That is a conservative reading of an
+ * unrecognised `req.body`, not a safety property: the signature path itself
+ * handles all of those shapes correctly, and the same bytes arriving one field
+ * over in `req.rawBody` bypass this test and verify normally. Widening it is a
+ * behaviour change, not a bug fix — decide it on its own merits.
+ */
+function isBytes(value: unknown): value is Uint8Array {
+  return value instanceof Uint8Array;
 }
 
-function assertBodyWithinLimit(body: string | Buffer, maxBodyBytes: number): void {
-  const byteLength = typeof body === "string" ? Buffer.byteLength(body, "utf-8") : body.length;
+/**
+ * Brand-based replacement for `instanceof AhaSendWebhookVerificationError`.
+ *
+ * The adapter and the verifier it is handed can come from different module
+ * instances of this package — the ESM and CJS halves of one application, or
+ * two copies in a dependency tree. Each instance has its own class object, so
+ * `instanceof` against this module's class let a verification failure raised
+ * by the other instance fall through to the framework error path: a forged
+ * signature became a 500 that reveals which check failed instead of the
+ * opaque 400. The `Symbol.for` brand and the `code` field survive
+ * duplication — the same dispatch `http.ts` already uses via
+ * `AhaSendError.is()`. A cross-instance error also carries `reason`; if a
+ * branded impostor omits it, {@link verificationFailureStatus} reads
+ * `undefined` and the response is the plain 400.
+ *
+ * The brand alone does not make the object trustworthy — any code in the
+ * process can set a global-registry symbol — so the `code` read is guarded
+ * the same way `isAhaSendError` guards its own brand read: a throwing `code`
+ * accessor means "not a verification error", not a crash in the adapter.
+ */
+function isWebhookVerificationError(error: unknown): error is AhaSendWebhookVerificationError {
+  if (!isAhaSendError(error)) return false;
+  try {
+    return error.code === "webhook_verification_error";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Map a verification failure to its opaque response status. Guarded for the
+ * same reason as the `code` read above: on a branded impostor, a throwing
+ * `reason` accessor must yield the default 400, not escape into the
+ * framework error path this classification exists to avoid.
+ */
+function verificationFailureStatus(error: AhaSendWebhookVerificationError): 400 | 413 {
+  try {
+    return error.reason === "body_too_large" ? 413 : 400;
+  } catch {
+    return 400;
+  }
+}
+
+function toBoundedBytes(body: string | Uint8Array, maxBodyBytes: number): Uint8Array {
+  assertBodyWithinLimit(body, maxBodyBytes);
+  // A caller-supplied Uint8Array is handed on untouched: it is only read, so
+  // the copy the old code made bought nothing. Measured on a 30 MB body that
+  // copy costs about +29 MB and 10 ms — roughly half again the ~52 MB the
+  // decode and JSON.parse already cost, not a doubling of the whole request.
+  return typeof body === "string" ? Buffer.from(body, "utf-8") : body;
+}
+
+function assertBodyWithinLimit(body: string | Uint8Array, maxBodyBytes: number): void {
+  const byteLength = typeof body === "string" ? Buffer.byteLength(body, "utf-8") : body.byteLength;
   if (byteLength > maxBodyBytes) throw new BodyTooLargeError();
 }
 

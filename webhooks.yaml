@@ -548,6 +548,10 @@ webhooks:
         - Choose whether to include attachments and headers
         - Set recipient filters and processing options
 
+        When attachments are enabled, `attachments` includes conventional attachments,
+        inline MIME parts (such as images referenced by `cid:` URLs in `html_body`), and
+        filename-bearing MIME parts that omit the `Content-Disposition` header.
+
         **Use cases**:
         - Support ticket systems
         - Email-to-ticket conversion
@@ -585,7 +589,12 @@ webhooks:
                 html_body: "<p>I need help with my account settings.</p>"
                 plain_body: "I need help with my account settings."
                 reply_from_plain_body: "I need help with my account settings."
-                attachments: []
+                attachments:
+                  - filename: "logo.png"
+                    content_type: "image/png"
+                    content_id: "logo-123"
+                    disposition: "inline"
+                    data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB..."
                 headers:
                   "X-Mailer": "Gmail"
                   "X-Priority": "3"
@@ -693,6 +702,7 @@ components:
       type: object
       required:
         - type
+        - webhook_id
         - timestamp
         - data
       properties:
@@ -701,6 +711,10 @@ components:
           enum:
             - message.clicked
           description: The event type
+        webhook_id:
+          type: string
+          description: The webhook ID (the same ID as returned by the [Create Webhook API](https://ahasend.com/docs/api-reference/webhooks/create-webhook))
+          format: uuid
         timestamp:
           type: string
           format: date-time
@@ -760,7 +774,17 @@ components:
           description: IP address (only for opened/clicked events)
         is_bot:
           type: boolean
-          description: Whether the action was performed by a bot
+          description: |
+            Whether the action was performed by a bot.
+
+            The one field on these payloads that is optional despite the producer
+            emitting it — everywhere else `required` mirrors the struct tags. The open
+            event declares `IsBot *bool` with omitempty so it is genuinely absent there,
+            while the click event declares a bare `bool` and always sends it. Requiring it
+            is also forbidden outright by a contract rule
+            (`scripts/generate-contracts.mjs`), because a campaign producer has shipped a
+            `string` zero value here and a receiver that fails closed on this field loses
+            the whole webhook.
 
     MessageClickedWebhookData:
       type: object
@@ -811,12 +835,18 @@ components:
           description: Internal AhaSend message ID
         is_bot:
           type: boolean
-          description: Whether the click was performed by a bot
+          description: |
+            Whether the click was performed by a bot.
+
+            Optional despite the producer declaring a bare `bool` that is always emitted —
+            see the note on `MessageWebhookData.is_bot`. This is the single documented
+            exception to `required` mirroring the producer's struct tags.
 
     SuppressionWebhookPayload:
       type: object
       required:
         - type
+        - webhook_id
         - timestamp
         - data
       properties:
@@ -824,6 +854,10 @@ components:
           type: string
           enum: [suppression.created]
           description: The event type
+        webhook_id:
+          type: string
+          description: The webhook ID (the same ID as returned by the [Create Webhook API](https://ahasend.com/docs/api-reference/webhooks/create-webhook))
+          format: uuid
         timestamp:
           type: string
           format: date-time
@@ -868,8 +902,8 @@ components:
       type: object
       required:
         - type
-        - timestamp
         - webhook_id
+        - timestamp
         - data
       properties:
         type:
@@ -944,24 +978,34 @@ components:
 
     RouteWebhookData:
       type: object
+      # Mirrors the producer's struct tags: every field except `headers`
+      # carries no `omitempty`, so Go emits it on every delivery.
       required:
         - id
         - from
+        - reply_to
         - to
         - subject
         - message_id
         - size
+        - spam_score
         - bounce
+        - cc
+        - date
+        - in_reply_to
+        - references
+        - auto_submitted
         - html_body
         - plain_body
+        - reply_from_plain_body
+        - attachments
       properties:
         id:
           type: string
           description: Unique route message ID
         from:
           type: string
-          format: email
-          description: Sender email address
+          description: Sender mailbox text
         reply_to:
           type: string
           format: email
@@ -1014,7 +1058,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RouteAttachment'
-          description: Email attachments (if route is configured to include them)
+          description: |
+            MIME attachments, if the route is configured to include them. This includes
+            conventional attachments, inline parts, and filename-bearing parts without a
+            Content-Disposition header. Use `content_id` to resolve `cid:` references in
+            `html_body`.
         headers:
           type: object
           additionalProperties:
@@ -1026,6 +1074,8 @@ components:
       required:
         - filename
         - content_type
+        - content_id
+        - disposition
         - data
       properties:
         filename:
@@ -1036,7 +1086,39 @@ components:
           description: MIME content type
         content_id:
           type: string
-          description: Content-ID for inline attachments
+          description: |
+            Content-ID with the angle brackets stripped and the remainder
+            percent-decoded, so `<a+b%40x>` arrives as `a b@x`. Empty when the part had
+            no Content-ID header — the key is always present.
+
+            This is what distinguishes an embedded part from a real attachment, not
+            `disposition`: an image referenced by a `cid:` URL commonly arrives with no
+            Content-Disposition header at all.
+        disposition:
+          type: string
+          description: |
+            Content-Disposition type of the MIME part, usually `attachment` or `inline`,
+            and `""` when the part carried no Content-Disposition header.
+
+            Note that `""` does not mean "not inline". An embedded image sent as a
+            `multipart/related` part with a Content-ID and no Content-Disposition — what
+            Gmail and Outlook produce — arrives with `disposition: ""` and a populated
+            `content_id`. Use `content_id` to separate embedded parts from real
+            attachments.
+
+            Required, matching the producer, which emits the key on every attachment. The
+            value is deliberately left unconstrained, unlike the upstream spec, which
+            additionally declares `enum: [attachment, inline, ""]`. That enum does not hold
+            on the wire: the value is whatever token the sending server wrote, merely
+            lowercased and trimmed of parameters. Verified against the producer's MIME
+            parser — a part with `Content-Type: application/octet-stream` (the commonest
+            attachment type there is) reaches the payload with any disposition token at
+            all, as does any single-part binary body. `Content-Disposition: form-data`
+            arrives as `form-data`.
+
+            Enforcing the enum would therefore let an arbitrary sender return 400 from a
+            receiver, and 100 consecutive errors disable the whole route webhook. Treat an
+            unrecognized value as `attachment`.
         data:
           type: string
           description: Base64-encoded attachment data

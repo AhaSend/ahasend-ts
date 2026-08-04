@@ -2,15 +2,18 @@
 // Requires: AHASEND_API_KEY + AHASEND_ACCOUNT_ID env vars.
 // Run:  node examples/get-account.mjs
 
-import { AhaSendClient } from "../dist/index.js";
+import { AhaSendClient, isAhaSendError } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
 
 try {
-  const account = await client.accounts.get();
-  console.log(`✓ account: ${account.name}  (id=${account.id})`);
-  console.log(`  website=${account.website ?? "n/a"}  owner=${account.owner_id}`);
+  const result = await client.accounts.get().withResponse();
+  console.log(
+    `✓ account id=${result.data.id} status=${result.response.status} request-id=${result.requestId ?? "n/a"}`,
+  );
 } catch (err) {
-  console.error("✗ get account failed:", err.name, err.status ?? "", err.message);
+  console.error("✗ get account failed", {
+    errorCode: isAhaSendError(err) ? err.code : "unknown",
+  });
   process.exit(1);
 }

@@ -10,7 +10,7 @@
     "reportFileName": "ahasend-sdk",
     "reportFolder": "<projectFolder>/etc",
     "reportTempFolder": "<projectFolder>/temp",
-    "includeForgottenExports": true
+    "includeForgottenExports": false
   },
   "docModel": {
     "enabled": false
@@ -23,6 +23,10 @@
   },
   "messages": {
     "extractorMessageReporting": {
+      "ae-forgotten-export": {
+        "logLevel": "error",
+        "addToApiReportFile": false
+      },
       "ae-missing-release-tag": {
         "logLevel": "none"
       },

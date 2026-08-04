@@ -6,6 +6,7 @@ import { resolveConfig } from "../src/config.js";
 import { AhaSendAbortError } from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 import { OperationExecutor } from "../src/operations.js";
+import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -49,6 +50,8 @@ describe("deterministic execution state machines", () => {
     const released = fixture("released server failure");
     const calls: Array<{ url: string; body: BodyInit | null | undefined; key?: string }> = [];
     const events: string[] = [];
+    const responseStatuses: number[] = [];
+    const errorStatuses: Array<number | undefined> = [];
     const fetch = mockFetch((url, init, attempt) => {
       const key = (init.headers as Record<string, string>)["idempotency-key"];
       calls.push({ url, body: init.body, ...(key ? { key } : {}) });
@@ -83,22 +86,29 @@ describe("deterministic execution state machines", () => {
           jitter: false,
         },
         hooks: {
-          onRequest: ({ attempt }) => events.push(`request:${attempt}`),
-          onResponse: ({ attempt, status }) => events.push(`response:${attempt}:${status}`),
-          onError: ({ attempt, status }) => events.push(`error:${attempt}:${status}`),
-          onRetry: ({ attempt, delayMs }) => events.push(`retry:${attempt}:${delayMs}`),
+          onRequest: ({ attempt }) => {
+            events.push(`request:${attempt}`);
+          },
+          onResponse: ({ attempt, status }) => {
+            responseStatuses.push(status);
+            events.push(`response:${attempt}:${status}`);
+          },
+          onError: ({ attempt, status }) => {
+            errorStatuses.push(status);
+            events.push(`error:${attempt}:${status}`);
+          },
+          onRetry: ({ attempt, delayMs }) => {
+            events.push(`retry:${attempt}:${delayMs}`);
+          },
         },
       }),
     );
     const executor = new OperationExecutor(client);
     const body = { domain: "example.com" };
     const request = executor
-      .execute<{
-        object: string;
-        domain: string;
-      }>(
+      .execute(
         "createDomain",
-        { path: { account_id: "acc_1" }, body },
+        { path: { account_id: ACCOUNT_ID }, body },
         { idempotencyKey: "execution-key" },
       )
       .withResponse();
@@ -120,33 +130,35 @@ describe("deterministic execution state machines", () => {
     expect(result.idempotentReplayed).toBe(true);
     expect(calls).toEqual([
       {
-        url: "https://api.test/v2/accounts/acc_1/domains",
+        url: `https://api.test/v2/accounts/${ACCOUNT_ID}/domains`,
         body: JSON.stringify(body),
         key: "execution-key",
       },
       {
-        url: "https://api.test/v2/accounts/acc_1/domains",
+        url: `https://api.test/v2/accounts/${ACCOUNT_ID}/domains`,
         body: JSON.stringify(body),
         key: "execution-key",
       },
       {
-        url: "https://api.test/v2/accounts/acc_1/domains",
+        url: `https://api.test/v2/accounts/${ACCOUNT_ID}/domains`,
         body: JSON.stringify(body),
         key: "execution-key",
       },
     ]);
     expect(events).toEqual([
       "request:1",
-      `response:1:${inProgress.status}`,
       `error:1:${inProgress.status}`,
       "retry:1:2000",
       "request:2",
-      `response:2:${released.status}`,
       `error:2:${released.status}`,
       "retry:2:100",
       "request:3",
       "response:3:201",
     ]);
+    expect(errorStatuses).toEqual([inProgress.status, released.status]);
+    expect(responseStatuses).toEqual([201]);
+    expect(responseStatuses).not.toContain(inProgress.status);
+    expect(responseStatuses).not.toContain(released.status);
   });
 
   it("removes caller-cancelled work from a paced FIFO without starting its timeout", async () => {
@@ -167,9 +179,15 @@ describe("deterministic execution state machines", () => {
         retry: { enabled: false },
         rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
         hooks: {
-          onRequest: ({ routeTemplate }) => events.push(`request:${routeTemplate}`),
-          onResponse: ({ routeTemplate }) => events.push(`response:${routeTemplate}`),
-          onError: ({ routeTemplate }) => events.push(`error:${routeTemplate}`),
+          onRequest: ({ routeTemplate }) => {
+            events.push(`request:${routeTemplate}`);
+          },
+          onResponse: ({ routeTemplate }) => {
+            events.push(`response:${routeTemplate}`);
+          },
+          onError: ({ routeTemplate }) => {
+            events.push(`error:${routeTemplate}`);
+          },
         },
       }),
     );
@@ -220,7 +238,7 @@ describe("deterministic execution state machines", () => {
     });
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       fetch,
       retry: { enabled: false },

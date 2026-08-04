@@ -1,6 +1,7 @@
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
+  AhaSendPromise,
   ISODateTime,
   PaginatedResponse,
   PaginationParams,
@@ -23,8 +24,8 @@ export interface Suppression {
 
 export interface CreateSuppressionRequest {
   email: string;
-  domain?: string;
-  reason?: string;
+  domain?: string | undefined;
+  reason?: string | undefined;
   expires_at: ISODateTime;
 }
 
@@ -34,19 +35,19 @@ export interface CreateSuppressionResponse {
 }
 
 export type ListSuppressionsParams = PaginationParams & {
-  domain?: string;
-  email?: string;
-  from_time?: ISODateTime;
-  to_time?: ISODateTime;
+  domain?: string | undefined;
+  email?: string | undefined;
+  from_time?: ISODateTime | undefined;
+  to_time?: ISODateTime | undefined;
 };
 
 export interface DeleteSuppressionParams {
   email: string;
-  domain?: string;
+  domain?: string | undefined;
 }
 
 export interface WipeSuppressionsParams {
-  domain?: string;
+  domain?: string | undefined;
 }
 
 /**
@@ -54,7 +55,48 @@ export interface WipeSuppressionsParams {
  * send to (after hard bounces, complaints, or manual additions).
  * Suppressions are identified by `(email, domain)`, not by id.
  */
-export class SuppressionsClient {
+export interface SuppressionsClient {
+  /**
+   * Fetch one cursor-paginated page of suppressions, optionally filtered by domain,
+   * email address, or creation time. Authorization requires `suppressions:read`.
+   */
+  list(
+    params?: ListSuppressionsParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<PaginatedResponse<Suppression>>;
+
+  /** Iterate through every matching suppression, fetching cursor pages lazily. */
+  iterate(
+    params?: ListSuppressionsParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<Suppression, void, undefined>;
+
+  /**
+   * Add an email address to the suppression list, optionally scoped to a domain.
+   * Authorization requires `suppressions:write`.
+   */
+  create(
+    body: CreateSuppressionRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<CreateSuppressionResponse>;
+
+  /**
+   * Delete suppressions for an email address, optionally scoped to a domain.
+   * Authorization requires `suppressions:delete`.
+   */
+  delete(
+    params: DeleteSuppressionParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<SuccessResponse>;
+
+  /**
+   * Delete every suppression for the account, optionally scoped to a domain.
+   * This operation cannot be undone. Authorization requires `suppressions:wipe`.
+   */
+  wipe(params?: WipeSuppressionsParams, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+}
+
+class SuppressionsClientImplementation implements SuppressionsClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -63,11 +105,15 @@ export class SuppressionsClient {
     this.#accountId = accountId;
   }
 
+  /**
+   * Fetch one cursor-paginated page of suppressions, optionally filtered by domain,
+   * email address, or creation time. Authorization requires `suppressions:read`.
+   */
   list(
     params: ListSuppressionsParams = {},
     options: RequestOptions = {},
-  ): Promise<PaginatedResponse<Suppression>> {
-    return this.#operations.execute<PaginatedResponse<Suppression>>(
+  ): AhaSendPromise<PaginatedResponse<Suppression>> {
+    return this.#operations.execute(
       "getSuppressions",
       {
         path: { account_id: this.#accountId },
@@ -77,6 +123,7 @@ export class SuppressionsClient {
     );
   }
 
+  /** Iterate through every matching suppression, fetching cursor pages lazily. */
   iterate(
     params: ListSuppressionsParams = {},
     options: RequestOptions = {},
@@ -84,11 +131,15 @@ export class SuppressionsClient {
     return paginate<Suppression, ListSuppressionsParams>((p) => this.list(p, options), params);
   }
 
+  /**
+   * Add an email address to the suppression list, optionally scoped to a domain.
+   * Authorization requires `suppressions:write`.
+   */
   create(
     body: CreateSuppressionRequest,
     options: IdempotencyRequestOptions = {},
-  ): Promise<CreateSuppressionResponse> {
-    return this.#operations.execute<CreateSuppressionResponse>(
+  ): AhaSendPromise<CreateSuppressionResponse> {
+    return this.#operations.execute(
       "createSuppression",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
@@ -96,36 +147,46 @@ export class SuppressionsClient {
   }
 
   /**
-   * Delete a suppression. The AhaSend API identifies suppressions by
-   * `(email, domain)` — there is no suppression-by-id endpoint — so this
-   * method accepts those fields directly as query parameters.
+   * Delete suppressions for an email address, optionally scoped to a domain.
+   * Authorization requires `suppressions:delete`.
    */
-  delete(params: DeleteSuppressionParams, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+  delete(
+    params: DeleteSuppressionParams,
+    options: RequestOptions = {},
+  ): AhaSendPromise<SuccessResponse> {
+    return this.#operations.execute(
       "deleteSuppression",
       {
         path: { account_id: this.#accountId },
-        query: params as unknown as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );
   }
 
   /**
-   * Dangerous: deletes ALL suppressions for the account, optionally
-   * scoped to a single domain. Cannot be undone.
+   * Delete every suppression for the account, optionally scoped to a domain.
+   * This operation cannot be undone. Authorization requires `suppressions:wipe`.
    */
   wipe(
     params: WipeSuppressionsParams = {},
     options: RequestOptions = {},
-  ): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+  ): AhaSendPromise<SuccessResponse> {
+    return this.#operations.execute(
       "deleteAllSuppressions",
       {
         path: { account_id: this.#accountId },
-        query: params as unknown as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the suppression resource implementation for the root client. */
+export function createSuppressionsClient(
+  operations: OperationExecutor,
+  accountId: UUID,
+): SuppressionsClient {
+  return new SuppressionsClientImplementation(operations, accountId);
 }

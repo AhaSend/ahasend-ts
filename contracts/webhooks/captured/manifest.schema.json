@@ -1,17 +1,27 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ahasend.com/contracts/webhooks/captured-manifest.schema.json",
-  "title": "AhaSend captured webhook evidence manifest",
+  "title": "AhaSend webhook evidence manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "version", "serverCommit", "headerRecordFormat", "captures"],
+  "required": [
+    "$schema",
+    "version",
+    "serverCommit",
+    "headerRecordFormat",
+    "captures"
+  ],
   "properties": {
-    "$schema": { "const": "manifest.schema.json" },
-    "version": { "const": 1 },
+    "$schema": {
+      "const": "manifest.schema.json"
+    },
+    "version": {
+      "const": 1
+    },
     "serverCommit": {
       "type": "string",
       "pattern": "^[a-f0-9]{40}$",
-      "description": "Server revision that produced the captured webhook deliveries."
+      "description": "Server revision the evidence corresponds to: the revision that sent the bytes for `captured`, or the revision whose payload structs were serialised for `derived`."
     },
     "headerRecordFormat": {
       "const": "webhook-id:{webhookId}\nwebhook-timestamp:{webhookTimestamp}\nwebhook-signature:{signature}\n",
@@ -20,11 +30,16 @@
     "captures": {
       "type": "array",
       "minItems": 2,
-      "items": { "$ref": "#/$defs/capture" }
+      "items": {
+        "$ref": "#/$defs/capture"
+      }
     }
   },
   "$defs": {
-    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "capture": {
       "type": "object",
       "additionalProperties": false,
@@ -41,18 +56,29 @@
         "expectedResult"
       ],
       "properties": {
-        "fixtureId": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "fixtureId": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        },
         "bodyPath": {
           "type": "string",
           "pattern": "^contracts/webhooks/captured/bodies/[a-z0-9-]+\\.json$"
         },
         "rawBodySha256": {
           "$ref": "#/$defs/hash",
-          "description": "SHA-256 of the exact fixture bytes, including whitespace and the final LF."
+          "description": "SHA-256 of the exact fixture bytes. The file stores the payload verbatim, with no trailing newline, so this digest and the signature match what the server emits."
         },
-        "signingResource": { "$ref": "#/$defs/signingResource" },
-        "webhookId": { "type": "string", "minLength": 1 },
-        "webhookTimestamp": { "type": "string", "pattern": "^[0-9]+$" },
+        "signingResource": {
+          "$ref": "#/$defs/signingResource"
+        },
+        "webhookId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "webhookTimestamp": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
         "signature": {
           "type": "string",
           "pattern": "^v1,[A-Za-z0-9+/]{43}=$",
@@ -62,17 +88,36 @@
           "$ref": "#/$defs/hash",
           "description": "SHA-256 of headerRecordFormat populated with the three exact persisted header values."
         },
-        "provenance": { "$ref": "#/$defs/provenance" },
-        "expectedResult": { "const": "valid" }
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "expectedResult": {
+          "const": "valid"
+        }
       }
     },
     "signingResource": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "id", "idSha256", "keyPath", "keySha256", "bindingSha256"],
+      "required": [
+        "type",
+        "id",
+        "idSha256",
+        "keyPath",
+        "keySha256",
+        "bindingSha256"
+      ],
       "properties": {
-        "type": { "enum": ["configured-webhook", "route"] },
-        "id": { "type": "string", "format": "uuid" },
+        "type": {
+          "enum": [
+            "configured-webhook",
+            "route"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
         "idSha256": {
           "$ref": "#/$defs/hash",
           "description": "SHA-256 of the UTF-8 string type + ':' + id."
@@ -93,14 +138,93 @@
     },
     "provenance": {
       "type": "object",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/capturedProvenance"
+        },
+        {
+          "$ref": "#/$defs/derivedProvenance"
+        }
+      ]
+    },
+    "capturedProvenance": {
+      "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "environment", "capturedAt", "source"],
+      "required": [
+        "kind",
+        "environment",
+        "capturedAt",
+        "source"
+      ],
       "properties": {
-        "kind": { "const": "captured" },
-        "environment": { "type": "string", "minLength": 1 },
-        "capturedAt": { "type": "string", "format": "date-time" },
-        "source": { "type": "string", "minLength": 1 }
+        "kind": {
+          "const": "captured",
+          "description": "Body bytes were observed on the wire from a running server."
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "derivedProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "environment",
+        "derivedAt",
+        "source",
+        "generator",
+        "producerStructs",
+        "producerTreeClean"
+      ],
+      "properties": {
+        "kind": {
+          "const": "derived",
+          "description": "Body bytes were produced by serialising the server's payload structs, not observed on the wire. Agrees with the producer by construction, so it guards against future drift rather than proving present wire-correctness."
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "derivedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generator": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path, in the server repository, of the serialisation entry point."
+        },
+        "producerStructs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Server source files whose struct definitions were serialised."
+        },
+        "producerTreeClean": {
+          "type": "boolean",
+          "description": "False when the serialised structs included uncommitted working-tree changes, so serverCommit alone does not identify them."
+        }
       }
     }
-  }
+  },
+  "description": "Signed webhook fixture evidence. Each capture records how its body bytes were obtained: `captured` for bytes observed on the wire from a running server, `derived` for bytes produced by serialising the server's own payload structs. Derived evidence proves the SDK stays in step with the producer's source; it is not evidence of what a live server sent."
 }

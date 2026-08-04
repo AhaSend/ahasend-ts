@@ -1,7 +1,26 @@
+import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
 import type { ClientOptions } from "../src/config.js";
-import { DEFAULT_BASE_URL, optionsFromEnv, resolveConfig } from "../src/config.js";
+import {
+  DEFAULT_BASE_URL,
+  MAX_TIMER_DELAY_MS,
+  optionsFromEnv,
+  resolveConfig,
+} from "../src/config.js";
+import { DEFAULT_MAX_QUEUE, MIN_REQUESTS_PER_SECOND } from "../src/rate-limit.js";
+import { MAX_RETRIES } from "../src/retry.js";
+
+function renderErrorDiagnostics(error: unknown): string[] {
+  return [
+    String(error),
+    error instanceof Error ? error.message : undefined,
+    error instanceof Error ? error.stack : undefined,
+    JSON.stringify(error),
+    inspect(error),
+    inspect(error, { showHidden: true }),
+  ].filter((diagnostic): diagnostic is string => diagnostic !== undefined);
+}
 
 describe("resolveConfig", () => {
   it("requires an apiKey", () => {
@@ -50,8 +69,13 @@ describe("resolveConfig", () => {
 
     expect(resolved.rateLimit).toEqual({
       enabled: true,
-      standard: { requestsPerSecond: 50, burst: 200, enabled: true },
-      statistics: { requestsPerSecond: 1, burst: 1, enabled: false },
+      standard: { requestsPerSecond: 50, burst: 200, enabled: true, maxQueue: DEFAULT_MAX_QUEUE },
+      statistics: {
+        requestsPerSecond: 1,
+        burst: 1,
+        enabled: false,
+        maxQueue: DEFAULT_MAX_QUEUE,
+      },
     });
   });
 
@@ -59,6 +83,55 @@ describe("resolveConfig", () => {
     expect(() =>
       resolveConfig({ apiKey: "aha-sk-test", rateLimit: { [key]: {} } } as never),
     ).toThrow(/unknown .* option/i);
+  });
+
+  // Every rule below was deletable with a green suite: the option had only
+  // positive-path coverage, so nothing pinned what it refuses.
+  it.each([
+    ["zero", 0],
+    ["negative", -1],
+    ["fractional", 0.5],
+    ["not a number", "5"],
+    ["NaN", Number.NaN],
+    ["infinite", Number.POSITIVE_INFINITY],
+    // Number.isInteger(Number.MAX_VALUE) is true, so an integer check alone
+    // lets a value through that stops behaving like a count and silently
+    // removes the bound this option exists to provide.
+    ["beyond safe-integer range", Number.MAX_VALUE],
+    ["exactly 2^53", 2 ** 53],
+  ])("rejects a %s maxQueue", (_label, maxQueue) => {
+    expect(() =>
+      resolveConfig({
+        apiKey: "aha-sk-test",
+        rateLimit: { standard: { maxQueue } as never },
+      }),
+    ).toThrow(/maxQueue.*safe integer greater than or equal to 1/i);
+  });
+
+  it.each(["standard", "statistics"] as const)("accepts a usable %s maxQueue", (category) => {
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      rateLimit: { [category]: { maxQueue: 25 } },
+    });
+    expect(resolved.rateLimit[category].maxQueue).toBe(25);
+  });
+
+  it("validates the value it installs, not one a getter showed it", () => {
+    // assertPlainRecord permits accessors, so reading the field more than once
+    // would let a changing getter install a value that never passed.
+    let reads = 0;
+    const category = {
+      get maxQueue() {
+        reads += 1;
+        return reads > 1 ? Number.NaN : 25;
+      },
+    };
+
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      rateLimit: { standard: category as never },
+    });
+    expect(resolved.rateLimit.standard.maxQueue).toBe(25);
   });
 
   it.each(["standard", "statistics"] as const)(
@@ -70,6 +143,32 @@ describe("resolveConfig", () => {
           rateLimit: { [category]: { burst: 0.5 } },
         }),
       ).toThrow(/burst.*greater than or equal to 1/i);
+    },
+  );
+
+  it.each(["standard", "statistics"] as const)(
+    "accepts the exact minimum pacing rate for %s requests",
+    (category) => {
+      const resolved = resolveConfig({
+        apiKey: "aha-sk-test",
+        rateLimit: { [category]: { requestsPerSecond: MIN_REQUESTS_PER_SECOND } },
+      });
+
+      expect(resolved.rateLimit[category].requestsPerSecond).toBe(MIN_REQUESTS_PER_SECOND);
+    },
+  );
+
+  it.each(["standard", "statistics"] as const)(
+    "rejects a pacing rate immediately below the timer-safe minimum for %s requests",
+    (category) => {
+      const immediatelyBelowMinimum = MIN_REQUESTS_PER_SECOND * (1 - Number.EPSILON);
+
+      expect(() =>
+        resolveConfig({
+          apiKey: "aha-sk-test",
+          rateLimit: { [category]: { requestsPerSecond: immediatelyBelowMinimum } },
+        }),
+      ).toThrow(/requestsPerSecond.*greater than or equal/i);
     },
   );
 
@@ -180,6 +279,53 @@ describe("resolveConfig", () => {
   });
 
   it.each([
+    ["below", MAX_TIMER_DELAY_MS - 1],
+    ["at", MAX_TIMER_DELAY_MS],
+  ])("accepts a constructor timeout %s the timer maximum", (_position, timeoutMs) => {
+    expect(resolveConfig({ apiKey: "aha-sk-test", timeoutMs }).timeoutMs).toBe(timeoutMs);
+  });
+
+  it.each([
+    ["timeoutMs", { timeoutMs: MAX_TIMER_DELAY_MS + 1 }],
+    [
+      "retry.baseDelayMs",
+      {
+        retry: {
+          baseDelayMs: MAX_TIMER_DELAY_MS + 1,
+          maxDelayMs: MAX_TIMER_DELAY_MS + 1,
+        },
+      },
+    ],
+    ["retry.maxDelayMs", { retry: { maxDelayMs: MAX_TIMER_DELAY_MS + 1 } }],
+  ])("rejects constructor %s above the timer maximum before fetch", (_name, invalid) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+
+    expect(
+      () =>
+        new AhaSendClient({
+          apiKey: "aha-sk-test",
+          accountId: "22222222-2222-4222-8222-222222222222",
+          fetch: fetchImpl,
+          ...invalid,
+        }),
+    ).toThrow(/2147483647 milliseconds/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["below", MAX_TIMER_DELAY_MS - 1],
+    ["at", MAX_TIMER_DELAY_MS],
+  ])("accepts retry delays %s the timer maximum", (_position, delayMs) => {
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      retry: { baseDelayMs: delayMs, maxDelayMs: delayMs },
+    });
+
+    expect(resolved.retry.baseDelayMs).toBe(delayMs);
+    expect(resolved.retry.maxDelayMs).toBe(delayMs);
+  });
+
+  it.each([
     ["timeoutMs", { timeoutMs: 0 }],
     ["timeoutMs", { timeoutMs: Number.POSITIVE_INFINITY }],
     ["debug", { debug: "true" }],
@@ -197,14 +343,32 @@ describe("resolveConfig", () => {
   });
 
   it.each([
-    ["Date", Object.assign(new Date(0), { apiKey: "aha-sk-test", accountId: "account-id" })],
-    ["Map", Object.assign(new Map(), { apiKey: "aha-sk-test", accountId: "account-id" })],
-    ["array", Object.assign([], { apiKey: "aha-sk-test", accountId: "account-id" })],
+    [
+      "Date",
+      Object.assign(new Date(0), {
+        apiKey: "aha-sk-test",
+        accountId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ],
+    [
+      "Map",
+      Object.assign(new Map(), {
+        apiKey: "aha-sk-test",
+        accountId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ],
+    [
+      "array",
+      Object.assign([], {
+        apiKey: "aha-sk-test",
+        accountId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ],
     [
       "custom prototype",
       Object.assign(Object.create({ inherited: true }) as object, {
         apiKey: "aha-sk-test",
-        accountId: "account-id",
+        accountId: "22222222-2222-4222-8222-222222222222",
       }),
     ],
   ])("rejects a non-plain %s container through the public constructor", (_name, options) => {
@@ -227,21 +391,68 @@ describe("resolveConfig", () => {
 
   it.each([
     "Accept",
+    "Accept-Charset",
+    "Accept-Encoding",
+    "Access-Control-Request-Headers",
+    "Access-Control-Request-Method",
     "AUTHORIZATION",
+    "Connection",
     "Content-Length",
     "content-TYPE",
+    "Cookie",
+    "Cookie2",
+    "Date",
+    "DNT",
+    "Expect",
     "HOST",
     "Idempotency-Key",
+    "Keep-Alive",
+    "Origin",
+    "Proxy-Authenticate",
+    "Proxy-Authorization",
+    "Referer",
+    "Set-Cookie",
+    "TE",
+    "Trailer",
+    "Transfer-Encoding",
+    "Upgrade",
     "User-Agent",
-  ])("rejects the transport-owned default header %s case-insensitively", (header) => {
+    "Via",
+    "Proxy-Custom",
+    "Sec-Custom",
+  ])("rejects the controlled default header %s case-insensitively", (header) => {
     expect(() =>
       resolveConfig({ apiKey: "aha-sk-test", defaultHeaders: { [header]: "override" } }),
     ).toThrow(/owned|cannot be overridden/i);
   });
 
+  it.each([0, MAX_RETRIES])("accepts constructor maxRetries at the boundary: %d", (maxRetries) => {
+    expect(resolveConfig({ apiKey: "aha-sk-test", retry: { maxRetries } }).retry.maxRetries).toBe(
+      maxRetries,
+    );
+  });
+
   it.each([
-    ["negative retries", { maxRetries: -1 }],
-    ["fractional retries", { maxRetries: 1.5 }],
+    ["below range", -1],
+    ["above range", MAX_RETRIES + 1],
+    ["non-integer", 1.5],
+    ["unsafe integer", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects constructor maxRetries that is %s before fetch", (_case, maxRetries) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+
+    expect(
+      () =>
+        new AhaSendClient({
+          apiKey: "aha-sk-test",
+          accountId: "22222222-2222-4222-8222-222222222222",
+          fetch: fetchImpl,
+          retry: { maxRetries },
+        }),
+    ).toThrow(/retry\.maxRetries.*safe integer.*0.*20/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["negative base delay", { baseDelayMs: -1 }],
     ["infinite maximum delay", { maxDelayMs: Number.POSITIVE_INFINITY }],
     ["maximum below base", { baseDelayMs: 10, maxDelayMs: 5 }],
@@ -263,16 +474,30 @@ describe("resolveConfig", () => {
     );
   });
 
+  it.each(["onRequest", "onResponse", "onRetry", "onError"] as const)(
+    "accepts an explicitly undefined hooks.%s member",
+    (hookName) => {
+      const resolved = resolveConfig({
+        apiKey: "aha-sk-test",
+        hooks: { [hookName]: undefined },
+      } as unknown as ClientOptions);
+
+      expect(resolved.hooks[hookName]).toBeTypeOf("function");
+    },
+  );
+
   it("rejects invalid per-request options synchronously before fetch", () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "account-id",
+      accountId: "22222222-2222-4222-8222-222222222222",
       fetch: fetchImpl,
     });
 
     expect(() => client.ping({ headers: { "bad header": "value" } })).toThrow(/header/i);
     expect(() => client.ping({ signal: {} as AbortSignal })).toThrow(/AbortSignal/);
+    expect(() => client.ping({ timeoutMs: 0 })).toThrow(/timeoutMs/);
+    expect(() => client.ping({ timeoutMs: MAX_TIMER_DELAY_MS + 1 })).toThrow(/timeoutMs/);
     expect(() => client.messages.send({} as never, { idempotencyKey: "" })).toThrow(
       /idempotencyKey/i,
     );
@@ -294,17 +519,40 @@ describe("resolveConfig", () => {
 
   it.each([
     "aCcEpT",
+    "Accept-Charset",
+    "ACCEPT-ENCODING",
+    "Access-Control-Request-Headers",
+    "Access-Control-Request-Method",
     "Authorization",
+    "Connection",
     "CONTENT-LENGTH",
     "Content-Type",
+    "Cookie",
+    "Cookie2",
+    "Date",
+    "DNT",
+    "Expect",
     "Host",
     "IDEMPOTENCY-KEY",
+    "Keep-Alive",
+    "Origin",
+    "Proxy-Authenticate",
+    "Proxy-Authorization",
+    "Referer",
+    "Set-Cookie",
+    "TE",
+    "Trailer",
+    "Transfer-Encoding",
+    "Upgrade",
     "USER-AGENT",
-  ])("rejects the transport-owned request header %s before fetch", (header) => {
+    "Via",
+    "Proxy-Custom",
+    "Sec-Custom",
+  ])("rejects the controlled request header %s before fetch", (header) => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "account-id",
+      accountId: "22222222-2222-4222-8222-222222222222",
       fetch: fetchImpl,
     });
 
@@ -313,21 +561,104 @@ describe("resolveConfig", () => {
     );
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it.each(["X-HTTP-Method", "x-http-method-override", "X-Method-Override"])(
+    "rejects a forbidden method in the fetch-controlled request header %s before fetch",
+    (header) => {
+      const fetchImpl = vi.fn<typeof fetch>();
+      const client = new AhaSendClient({
+        apiKey: "aha-sk-test",
+        accountId: "22222222-2222-4222-8222-222222222222",
+        fetch: fetchImpl,
+      });
+
+      expect(() => client.ping({ headers: { [header]: "POST, TRACE" } })).toThrow(
+        /controlled|cannot be overridden/i,
+      );
+      expect(fetchImpl).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows a method-override header whose value is not a forbidden Fetch method", () => {
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      defaultHeaders: { "X-HTTP-Method-Override": "POST" },
+    });
+
+    expect(resolved.defaultHeaders).toEqual({ "X-HTTP-Method-Override": "POST" });
+  });
+
+  it("does not mutate the caller's readonly headers when controlled-header validation fails", () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: "22222222-2222-4222-8222-222222222222",
+      fetch: fetchImpl,
+    });
+    const headers: Readonly<Record<string, string>> = {
+      Connection: "keep-alive",
+      "X-Trace-Id": "trace-1",
+    };
+    const originalHeaders = { ...headers };
+
+    expect(() => client.ping({ headers })).toThrow(/controlled|cannot be overridden/i);
+
+    expect(headers).toEqual(originalHeaders);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });
 
 describe("optionsFromEnv", () => {
-  it("throws when neither AHASEND_API_KEY nor AHASEND_TOKEN is set", () => {
-    expect(() => optionsFromEnv({})).toThrow(/AHASEND_API_KEY/);
+  it.each([
+    ["reads AHASEND_API_KEY", { AHASEND_API_KEY: "aha-sk-env" }, "aha-sk-env"],
+    ["falls back to AHASEND_TOKEN", { AHASEND_TOKEN: "aha-sk-token" }, "aha-sk-token"],
+    [
+      "falls back to AHASEND_TOKEN when AHASEND_API_KEY is empty",
+      { AHASEND_API_KEY: "", AHASEND_TOKEN: "aha-sk-token" },
+      "aha-sk-token",
+    ],
+    [
+      "prefers a non-empty AHASEND_API_KEY",
+      { AHASEND_API_KEY: "aha-sk-env", AHASEND_TOKEN: "aha-sk-token" },
+      "aha-sk-env",
+    ],
+  ])("%s", (_case, env, expected) => {
+    expect(optionsFromEnv(env).apiKey).toBe(expected);
   });
 
-  it("reads AHASEND_API_KEY", () => {
-    const options = optionsFromEnv({ AHASEND_API_KEY: "aha-sk-env" });
-    expect(options.apiKey).toBe("aha-sk-env");
+  it("throws when neither AHASEND_API_KEY nor AHASEND_TOKEN has a credential", () => {
+    expect(() => optionsFromEnv({ AHASEND_API_KEY: "", AHASEND_TOKEN: "" })).toThrow(
+      /AHASEND_API_KEY/,
+    );
   });
 
-  it("falls back to AHASEND_TOKEN", () => {
-    const options = optionsFromEnv({ AHASEND_TOKEN: "aha-sk-token" });
-    expect(options.apiKey).toBe("aha-sk-token");
+  it.each([
+    [
+      "API key",
+      {
+        AHASEND_API_KEY: "aha-sk-secret\nmaterial",
+        AHASEND_TOKEN: "aha-token-backup-secret",
+      },
+      ["aha-sk-secret\nmaterial", "aha-token-backup-secret"],
+    ],
+    [
+      "fallback token",
+      { AHASEND_API_KEY: "", AHASEND_TOKEN: "aha-token-secret\nmaterial" },
+      ["aha-token-secret\nmaterial"],
+    ],
+  ])("keeps a rejected %s out of credential diagnostics", (_case, env, secrets) => {
+    let error: unknown;
+    try {
+      optionsFromEnv(env);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toMatch(/HTTP header/);
+    for (const diagnostic of renderErrorDiagnostics(error)) {
+      for (const secret of secrets) expect(diagnostic).not.toContain(secret);
+    }
   });
 
   it("reads AHASEND_BASE_URL", () => {
@@ -338,21 +669,94 @@ describe("optionsFromEnv", () => {
     expect(options.baseUrl).toBe("https://example.ahasend.com");
   });
 
+  it("gives AHASEND_BASE_URL precedence over AHASEND_SCHEME and AHASEND_HOST", () => {
+    const options = optionsFromEnv({
+      AHASEND_API_KEY: "aha-sk-test",
+      AHASEND_BASE_URL: "https://primary.example.com",
+      AHASEND_SCHEME: "http",
+      AHASEND_HOST: "ignored.example.com",
+    });
+
+    expect(options.baseUrl).toBe("https://primary.example.com");
+  });
+
   it("builds baseUrl from scheme and host when AHASEND_BASE_URL is not set", () => {
     const options = optionsFromEnv({
       AHASEND_API_KEY: "aha-sk-test",
       AHASEND_HOST: "localhost:4010",
       AHASEND_SCHEME: "http",
+      AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL: "true",
     });
     expect(options.baseUrl).toBe("http://localhost:4010");
   });
 
-  it("converts AHASEND_TIMEOUT seconds to milliseconds", () => {
-    const options = optionsFromEnv({
-      AHASEND_API_KEY: "aha-sk-test",
-      AHASEND_TIMEOUT: "5",
-    });
-    expect(options.timeoutMs).toBe(5000);
+  it.each([
+    ["explicit true", "true", false],
+    ["explicit false", "false", true],
+    ["absent", undefined, true],
+    ["malformed", "sometimes", true],
+  ])("%s controls environment-derived insecure HTTP base URLs", (_case, optIn, shouldReject) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchImpl);
+    const optInEnv =
+      optIn === undefined ? {} : { AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL: optIn };
+    const construct = () =>
+      AhaSendClient.fromEnv({
+        AHASEND_API_KEY: "aha-sk-test",
+        AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
+        AHASEND_BASE_URL: "http://api.example.com",
+        ...optInEnv,
+      });
+
+    try {
+      if (shouldReject) {
+        expect(construct).toThrow(/insecure|boolean|https/i);
+      } else {
+        expect(construct).not.toThrow();
+      }
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    ["below", "2147482.647", MAX_TIMER_DELAY_MS - 1000],
+    ["at", "2147483.647", MAX_TIMER_DELAY_MS],
+    ["above", "2147483.648", undefined],
+  ])(
+    "validates AHASEND_TIMEOUT %s the timer maximum",
+    (_position, timeoutSeconds, expectedTimeoutMs) => {
+      const readOptions = () =>
+        optionsFromEnv({
+          AHASEND_API_KEY: "aha-sk-test",
+          AHASEND_TIMEOUT: timeoutSeconds,
+        });
+
+      if (expectedTimeoutMs === undefined) {
+        expect(readOptions).toThrow(/2147483647 milliseconds/);
+      } else {
+        expect(readOptions().timeoutMs).toBe(expectedTimeoutMs);
+      }
+    },
+  );
+
+  it("rejects AHASEND_TIMEOUT above the timer maximum before fetch", () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      expect(() =>
+        AhaSendClient.fromEnv({
+          AHASEND_API_KEY: "aha-sk-test",
+          AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
+          AHASEND_TIMEOUT: "2147483.648",
+        }),
+      ).toThrow(/2147483647 milliseconds/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("parses AHASEND_DEBUG truthy values", () => {
@@ -394,11 +798,44 @@ describe("optionsFromEnv", () => {
     expect(options.idempotency).toEqual({ autoGenerate: true, prefix: "staging" });
   });
 
+  it.each(["0", String(MAX_RETRIES)])(
+    "accepts AHASEND_MAX_RETRIES at the boundary: %s",
+    (maxRetries) => {
+      expect(
+        optionsFromEnv({
+          AHASEND_API_KEY: "aha-sk-test",
+          AHASEND_MAX_RETRIES: maxRetries,
+        }).retry,
+      ).toEqual({ maxRetries: Number(maxRetries) });
+    },
+  );
+
+  it.each([
+    ["below range", "-1"],
+    ["above range", String(MAX_RETRIES + 1)],
+    ["non-integer", "1.5"],
+    ["unsafe integer", "9007199254740992"],
+  ])("rejects AHASEND_MAX_RETRIES that is %s before fetch", (_case, maxRetries) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      expect(() =>
+        AhaSendClient.fromEnv({
+          AHASEND_API_KEY: "aha-sk-test",
+          AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
+          AHASEND_MAX_RETRIES: maxRetries,
+        }),
+      ).toThrow(/AHASEND_MAX_RETRIES.*safe integer.*0.*20/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each([
     ["AHASEND_TIMEOUT", { AHASEND_TIMEOUT: "0" }],
     ["AHASEND_TIMEOUT", { AHASEND_TIMEOUT: "not-a-number" }],
-    ["AHASEND_MAX_RETRIES", { AHASEND_MAX_RETRIES: "-1" }],
-    ["AHASEND_MAX_RETRIES", { AHASEND_MAX_RETRIES: "1.5" }],
     ["AHASEND_DEBUG", { AHASEND_DEBUG: "sometimes" }],
     ["AHASEND_ENABLE_RATE_LIMIT", { AHASEND_ENABLE_RATE_LIMIT: "" }],
     ["AHASEND_IDEMPOTENCY_AUTO_GENERATE", { AHASEND_IDEMPOTENCY_AUTO_GENERATE: "automatic" }],
@@ -415,5 +852,64 @@ describe("optionsFromEnv", () => {
         AHASEND_BASE_URL: "http://api.example.com",
       }),
     ).toThrow(/insecure|https/i);
+  });
+
+  it("uses the Node.js 22 support wording without exposing environment credentials", () => {
+    const apiKey = "aha-sk-environment-secret";
+    const token = "aha-token-environment-secret";
+    vi.stubGlobal("fetch", undefined);
+
+    try {
+      let error: unknown;
+      try {
+        AhaSendClient.fromEnv({
+          AHASEND_API_KEY: apiKey,
+          AHASEND_TOKEN: token,
+          AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
+        });
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(String(error)).toMatch(/Node\.js 22 or later/);
+      for (const diagnostic of renderErrorDiagnostics(error)) {
+        expect(diagnostic).not.toContain(apiKey);
+        expect(diagnostic).not.toContain(token);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("header snapshot integrity", () => {
+  it("stores the value it validated, not one a getter showed it", () => {
+    // assertPlainRecord permits accessors, so validating the caller's object
+    // and then re-reading it to copy let a getter return one value to the
+    // check and another to the store — putting an unvalidated CRLF into a
+    // request header. Only the pre-flight Request caught it, and that is now
+    // skipped where the runtime has no Request constructor.
+    let reads = 0;
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      defaultHeaders: {
+        get "x-trace"() {
+          reads += 1;
+          return reads > 1 ? "injected\r\nx-evil: 1" : "safe";
+        },
+      },
+    });
+
+    expect(resolved.defaultHeaders["x-trace"]).toBe("safe");
+    expect(reads).toBe(1);
+  });
+
+  it("still rejects a header value that cannot appear in a request", () => {
+    expect(() =>
+      resolveConfig({
+        apiKey: "aha-sk-test",
+        defaultHeaders: { "x-trace": "bad\r\nx-evil: 1" },
+      }),
+    ).toThrow(/invalid in an HTTP header/i);
   });
 });

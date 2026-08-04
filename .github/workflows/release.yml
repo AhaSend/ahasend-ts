@@ -30,6 +30,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
+
       - run: npm ci
 
       - name: Verify tag and source revision
@@ -47,7 +53,7 @@ jobs:
         run: npm run lint
 
       - name: Unit test gate
-        run: npm run test:unit -- --exclude tests/package.test.ts
+        run: npm run test:unit -- tests/openapi-authoritative-contract.test.ts
 
       - name: State test gate
         run: npx vitest run tests/state-machines.test.ts
@@ -59,7 +65,7 @@ jobs:
         run: npx vitest run tests/webhook-express.integration.test.ts
 
       - name: Coverage gate
-        run: npm run test:coverage -- --exclude tests/package.test.ts
+        run: npm run test:coverage
 
       - name: Format gate
         run: npx prettier --check "src/**/*.ts" "tests/**/*.ts"
@@ -91,19 +97,9 @@ jobs:
       - name: Audit gate
         run: npm run verify:audit
 
-      - name: Materialize signed external reports
-        env:
-          RENDERER_REPORT_JSON: ${{ secrets.RENDERER_REPORT_JSON }}
-          GO_WEBHOOK_ATTESTATION_JSON: ${{ secrets.GO_WEBHOOK_ATTESTATION_JSON }}
-        run: |
-          test -n "$RENDERER_REPORT_JSON"
-          test -n "$GO_WEBHOOK_ATTESTATION_JSON"
-          mkdir -p /tmp/source-report
-          printf '%s' "$RENDERER_REPORT_JSON" > /tmp/source-report/renderer-report.json
-          printf '%s' "$GO_WEBHOOK_ATTESTATION_JSON" > /tmp/source-report/go-webhook-attestation.json
-
       - name: Create detached source report
         run: |
+          mkdir -p /tmp/source-report
           node --input-type=module <<'NODE'
           import { writeFile } from "node:fs/promises";
           import { canonicalizeJson, sha256Hex } from "./scripts/digest-artifact.mjs";
@@ -131,6 +127,14 @@ jobs:
           ]);
           NODE
 
+      - name: Documentation workflow gate
+        run: |
+          npm run test:docs:workflows:source -- \
+            /tmp/source-report/source-report.json \
+            /tmp/source-report/source-report.sha256 \
+            /tmp/source-report/documentation-workflows.json \
+            /tmp/source-report/documentation-workflows.sha256
+
       - name: Retain provenance verification tools
         run: |
           mkdir -p /tmp/release-tools/scripts
@@ -143,7 +147,11 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: source-report
-          path: /tmp/source-report
+          path: |
+            /tmp/source-report/source-report.json
+            /tmp/source-report/source-report.sha256
+            /tmp/source-report/documentation-workflows.json
+            /tmp/source-report/documentation-workflows.sha256
           if-no-files-found: error
           retention-days: ${{ env.RETENTION_DAYS }}
 
@@ -169,6 +177,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
+
       - run: npm ci
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -180,7 +194,6 @@ jobs:
         run: |
           node scripts/create-candidate.mjs \
             /tmp/source-report/source-report.json \
-            /tmp/source-report/renderer-report.json \
             /tmp/candidate \
             /tmp/source-report/source-report.sha256
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
@@ -208,9 +221,13 @@ jobs:
           retention-days: ${{ env.RETENTION_DAYS }}
 
   artifact-gates:
-    name: Artifact gates
+    name: Artifact gates (Node ${{ matrix.node }})
     needs: candidate
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -219,8 +236,14 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node }}
           cache: npm
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - run: npm ci
 
@@ -233,61 +256,31 @@ jobs:
         with:
           name: candidate-manifest
           path: /tmp/candidate
-
-      - name: Verify retained package artifact
-        run: |
-          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
-          SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
-          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
-          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
-          node scripts/verify-package.mjs "$TARBALL" "$SHA256"
-
-  external-gates:
-    name: External attestation gates
-    needs: artifact-gates
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - run: npm ci
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: source-report
           path: /tmp/source-report
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: candidate-tarball
-          path: /tmp/candidate
-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: candidate-manifest
-          path: /tmp/candidate
-
-      - name: Verify retained external attestations
+      - name: Verify retained package artifact
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
-          export SDK_TARBALL="$TARBALL"
-          export SDK_TARBALL_SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
+          test -n "$TARBALL"
+          SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" "$TARBALL")" = "$SHA256"
           test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
-          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SDK_TARBALL_SHA256"
-          node scripts/verify-external-attestations.mjs \
-            /tmp/source-report/renderer-report.json \
-            /tmp/source-report/go-webhook-attestation.json
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
+          node scripts/verify-doc-workflows.mjs --artifact \
+            "$TARBALL" \
+            "$SHA256" \
+            /tmp/source-report/source-report.json \
+            /tmp/source-report/source-report.sha256 \
+            /tmp/source-report/documentation-workflows.json \
+            /tmp/source-report/documentation-workflows.sha256
 
   live-gates:
     name: Live candidate gates
-    needs: external-gates
+    needs: artifact-gates
     runs-on: ubuntu-latest
     environment: live-release
     steps:
@@ -300,6 +293,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - run: npm ci
 
@@ -331,7 +330,19 @@ jobs:
             /tmp/gate-report/live-report.sha256 \
             /tmp/candidate/candidate-manifest.sha256
 
+      - name: Retain live report evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: live-report-evidence
+          path: |
+            /tmp/gate-report/live-report.json
+            /tmp/gate-report/live-report.sha256
+          if-no-files-found: error
+          retention-days: ${{ env.RETENTION_DAYS }}
+
       - name: Create detached gate report
+        if: ${{ success() }}
         run: |
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
@@ -354,7 +365,8 @@ jobs:
             liveReportSha256,
             results: [
               { name: "artifact", passed: true },
-              { name: "external", passed: true },
+              { name: "installed-documentation-links", passed: true },
+              { name: "documentation-workflows", passed: true },
               { name: "live", passed: true },
             ],
           });
@@ -368,7 +380,8 @@ jobs:
           ]);
           NODE
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - if: ${{ success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gate-report
           path: /tmp/gate-report
@@ -377,7 +390,7 @@ jobs:
 
   next-publish:
     name: Publish candidate to next
-    needs: live-gates
+    needs: [source-gate, candidate, artifact-gates, live-gates]
     runs-on: ubuntu-latest
     environment: npm-next
     permissions:
@@ -389,8 +402,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
 
-      - name: Install npm with trusted-publishing support
+      - name: Install asserted npm version
         run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -407,7 +423,12 @@ jobs:
           name: gate-report
           path: /tmp/gate-report
 
-      - name: Publish the retained bytes with provenance
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-tools
+          path: /tmp/release-tools
+
+      - name: Validate exact publication evidence
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
@@ -417,6 +438,46 @@ jobs:
           test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
           test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
           test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/gate-report/gate-report.json)" = "$(tr -d '\n' < /tmp/gate-report/gate-report.sha256)"
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import { sha256Hex } from "/tmp/release-tools/scripts/digest-artifact.mjs";
+          import {
+            parseCanonicalJson,
+            parseSha256Sidecar,
+            validateGateReport,
+          } from "/tmp/release-tools/scripts/report-validation.mjs";
+
+          const [manifestSource, tarballSource, reportSource, reportSidecarSource] =
+            await Promise.all([
+              readFile("/tmp/candidate/candidate-manifest.json"),
+              readFile(process.env.SDK_TARBALL),
+              readFile("/tmp/gate-report/gate-report.json"),
+              readFile("/tmp/gate-report/gate-report.sha256"),
+            ]);
+          const reportDigest = sha256Hex(reportSource);
+          if (
+            parseSha256Sidecar(reportSidecarSource, "Gate report sidecar") !==
+            reportDigest
+          ) {
+            throw new TypeError("Gate report does not match its detached digest.");
+          }
+          const { value: report } = parseCanonicalJson(reportSource, "Gate report");
+          validateGateReport({
+            report,
+            requiredGates: [
+              "artifact",
+              "installed-documentation-links",
+              "documentation-workflows",
+              "live",
+            ],
+            expectedManifestSha256: sha256Hex(manifestSource),
+            expectedTarballSha256: sha256Hex(tarballSource),
+          });
+          NODE
+
+      - name: Publish the retained bytes with provenance
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           npm publish "$TARBALL" --tag next --provenance --access public
 
   registry-smoke:
@@ -429,8 +490,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
 
-      - name: Install npm with attestation bundle output
+      - name: Install asserted npm version
         run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -451,7 +515,10 @@ jobs:
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
-          PACKAGE="$(node -e "const p=JSON.parse(process.argv[1]); process.stdout.write(p.name+'@'+p.version)" "$PACKAGE_JSON")"
+          PACKAGE_NAME="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")"
+          PACKAGE_VERSION="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$PACKAGE_JSON")"
+          test "$PACKAGE_NAME" = "@ahasend/sdk"
+          PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"
           mkdir -p /tmp/registry
           for ATTEMPT in 1 2 3 4 5
           do
@@ -466,20 +533,33 @@ jobs:
           curl --fail --location --proto '=https' --tlsv1.2 \
             "$REGISTRY_TARBALL_URL" --output /tmp/registry/package.tgz
 
-      - name: Cryptographically verify npm attestations
+      - name: Install the exact registry version in a clean directory
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
+          PACKAGE_NAME="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")"
+          PACKAGE_VERSION="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$PACKAGE_JSON")"
+          test "$PACKAGE_NAME" = "@ahasend/sdk"
+          PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"
+          mkdir /tmp/registry-smoke
+          node -e "const fs=require('fs'); fs.writeFileSync('/tmp/registry-smoke/package.json', JSON.stringify({name:'ahasend-registry-smoke',private:true,version:'1.0.0'}))"
+          for ATTEMPT in 1 2 3 4 5
+          do
+            if npm install --ignore-scripts --save-exact "$PACKAGE" --prefix /tmp/registry-smoke
+            then
+              break
+            fi
+            test "$ATTEMPT" -lt 5
+            sleep 5
+          done
+          test "$(node -p "require('/tmp/registry-smoke/node_modules/@ahasend/sdk/package.json').version")" = "$PACKAGE_VERSION"
+
+      - name: Verify registry bytes and npm provenance
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           export SDK_TARBALL="$TARBALL"
           export SDK_TARBALL_SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
-          PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
-          PACKAGE="$(node -e "const p=JSON.parse(process.argv[1]); process.stdout.write(p.name+'@'+p.version)" "$PACKAGE_JSON")"
-          mkdir -p /tmp/registry-audit
-          node -e "const fs=require('fs'); const [name,version]=process.argv.slice(1); fs.writeFileSync('/tmp/registry-audit/package.json', JSON.stringify({name:'ahasend-registry-smoke',private:true,version:'1.0.0',dependencies:{[name]:version}}))" \
-            "$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")" \
-            "$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$PACKAGE_JSON")"
-          npm install --ignore-scripts --package-lock-only --prefix /tmp/registry-audit
-          npm ci --ignore-scripts --prefix /tmp/registry-audit
-          npm audit signatures --json --include-attestations --prefix /tmp/registry-audit \
+          npm audit signatures --json --include-attestations --prefix /tmp/registry-smoke \
             > /tmp/registry/npm-audit-signatures.json
           node /tmp/release-tools/scripts/verify-provenance.mjs \
             "$TARBALL" \
@@ -489,9 +569,111 @@ jobs:
             /tmp/registry/metadata.json \
             /tmp/registry/npm-audit-signatures.json
 
+      - name: Run ESM first-use smoke
+        working-directory: /tmp/registry-smoke
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { AhaSendClient } from "@ahasend/sdk";
+
+          const accountId = "11111111-1111-4111-8111-111111111111";
+          const calls = [];
+          const stubFetch = async (input, init = {}) => {
+            const url = new URL(input);
+            calls.push({ method: init.method, pathname: url.pathname });
+            if (url.pathname === "/v2/ping") {
+              return Response.json({ message: "pong" });
+            }
+            if (url.pathname === `/v2/accounts/${accountId}/domains`) {
+              return Response.json(
+                { object: "list", data: [], pagination: { has_more: false } },
+                { headers: { "x-request-id": "req_registry_esm" } },
+              );
+            }
+            return Response.json({ message: "unexpected request" }, { status: 500 });
+          };
+          const client = new AhaSendClient({
+            apiKey: "aha-sk-registry-smoke",
+            accountId,
+            baseUrl: "https://api.registry-smoke.test",
+            fetch: stubFetch,
+            retry: { enabled: false },
+          });
+
+          assert.equal(client.accountId, accountId);
+          assert.deepEqual(await client.ping(), { message: "pong" });
+          const domains = await client.domains.list({ limit: 1 }).withResponse();
+          assert.deepEqual(domains.data, {
+            object: "list",
+            data: [],
+            pagination: { has_more: false },
+          });
+          assert.equal(domains.response.status, 200);
+          assert.equal(domains.requestId, "req_registry_esm");
+          assert.deepEqual(calls, [
+            { method: "GET", pathname: "/v2/ping" },
+            { method: "GET", pathname: `/v2/accounts/${accountId}/domains` },
+          ]);
+          NODE
+
+      - name: Run CommonJS first-use smoke
+        working-directory: /tmp/registry-smoke
+        run: |
+          node <<'NODE'
+          const assert = require("node:assert/strict");
+          const { AhaSendClient } = require("@ahasend/sdk");
+
+          const accountId = "11111111-1111-4111-8111-111111111111";
+          const calls = [];
+          const stubFetch = async (input, init = {}) => {
+            const url = new URL(input);
+            calls.push({ method: init.method, pathname: url.pathname });
+            if (url.pathname === "/v2/ping") {
+              return Response.json({ message: "pong" });
+            }
+            if (url.pathname === `/v2/accounts/${accountId}/domains`) {
+              return Response.json(
+                { object: "list", data: [], pagination: { has_more: false } },
+                { headers: { "x-request-id": "req_registry_cjs" } },
+              );
+            }
+            return Response.json({ message: "unexpected request" }, { status: 500 });
+          };
+          const client = new AhaSendClient({
+            apiKey: "aha-sk-registry-smoke",
+            accountId,
+            baseUrl: "https://api.registry-smoke.test",
+            fetch: stubFetch,
+            retry: { enabled: false },
+          });
+
+          async function main() {
+            assert.equal(client.accountId, accountId);
+            assert.deepEqual(await client.ping(), { message: "pong" });
+            const domains = await client.domains.list({ limit: 1 }).withResponse();
+            assert.deepEqual(domains.data, {
+              object: "list",
+              data: [],
+              pagination: { has_more: false },
+            });
+            assert.equal(domains.response.status, 200);
+            assert.equal(domains.requestId, "req_registry_cjs");
+            assert.deepEqual(calls, [
+              { method: "GET", pathname: "/v2/ping" },
+              { method: "GET", pathname: `/v2/accounts/${accountId}/domains` },
+            ]);
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+          });
+          NODE
+
   latest-promotion:
     name: Promote verified candidate to latest
-    needs: registry-smoke
+    needs: [live-gates, registry-smoke]
+    if: ${{ needs.live-gates.result == 'success' && needs.registry-smoke.result == 'success' }}
     runs-on: ubuntu-latest
     environment: npm-latest
     steps:
@@ -499,6 +681,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -536,7 +724,20 @@ jobs:
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
           PACKAGE_NAME="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")"
-          PREVIOUS_LATEST="$(npm view "$PACKAGE_NAME" dist-tags.latest)"
+          # Retried like every other registry read in this workflow: a
+          # transient failure here would otherwise fail the job before the
+          # promotion-state upload, leaving release-compensation with no
+          # artifact to download. An empty result on a first release is a
+          # success, not a retry case.
+          for ATTEMPT in 1 2 3 4 5
+          do
+            if PREVIOUS_LATEST="$(npm view "$PACKAGE_NAME" dist-tags.latest)"
+            then
+              break
+            fi
+            test "$ATTEMPT" -lt 5
+            sleep 5
+          done
           mkdir -p /tmp/promotion-state
           node -e "const fs=require('fs'); const [name,previous]=process.argv.slice(1); fs.writeFileSync('/tmp/promotion-state/promotion-state.json', JSON.stringify({name,previousLatest:previous || null})+'\\n', {flag:'wx'})" \
             "$PACKAGE_NAME" "$PREVIOUS_LATEST"
@@ -548,6 +749,52 @@ jobs:
           path: /tmp/promotion-state
           if-no-files-found: error
           retention-days: ${{ env.RETENTION_DAYS }}
+
+      - name: Validate exact promotion evidence
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
+          export SDK_TARBALL="$TARBALL"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" "$TARBALL")" = "$SHA256"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/gate-report/gate-report.json)" = "$(tr -d '\n' < /tmp/gate-report/gate-report.sha256)"
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import { sha256Hex } from "/tmp/release-tools/scripts/digest-artifact.mjs";
+          import {
+            parseCanonicalJson,
+            parseSha256Sidecar,
+            validateGateReport,
+          } from "/tmp/release-tools/scripts/report-validation.mjs";
+
+          const [manifestSource, tarballSource, reportSource, reportSidecarSource] =
+            await Promise.all([
+              readFile("/tmp/candidate/candidate-manifest.json"),
+              readFile(process.env.SDK_TARBALL),
+              readFile("/tmp/gate-report/gate-report.json"),
+              readFile("/tmp/gate-report/gate-report.sha256"),
+            ]);
+          const reportDigest = sha256Hex(reportSource);
+          if (
+            parseSha256Sidecar(reportSidecarSource, "Gate report sidecar") !==
+            reportDigest
+          ) {
+            throw new TypeError("Gate report does not match its detached digest.");
+          }
+          const { value: report } = parseCanonicalJson(reportSource, "Gate report");
+          validateGateReport({
+            report,
+            requiredGates: [
+              "artifact",
+              "installed-documentation-links",
+              "documentation-workflows",
+              "live",
+            ],
+            expectedManifestSha256: sha256Hex(manifestSource),
+            expectedTarballSha256: sha256Hex(tarballSource),
+          });
+          NODE
 
       - name: Promote only the verified version
         env:
@@ -576,6 +823,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -660,12 +913,27 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
 
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: candidate-tarball
           path: /tmp/candidate
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      # Tolerating a failed download keeps the cleanup below reachable —
+      # otherwise a latest-promotion failure *before* the state upload (the
+      # capture step, an evidence check) made this job fail right here,
+      # skipping the GitHub-release removal it can still perform. The download
+      # cannot distinguish "never uploaded" from "exists but the download
+      # failed", so the restore step treats a missing file as UNKNOWN state
+      # and fails the job after cleaning up, rather than declaring latest
+      # untouched.
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: promotion-state
           path: /tmp/promotion-state
@@ -684,11 +952,26 @@ jobs:
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
           PACKAGE_NAME="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name)" "$PACKAGE_JSON")"
-          STATE_NAME="$(node -p "JSON.parse(require('fs').readFileSync('/tmp/promotion-state/promotion-state.json')).name")"
-          PREVIOUS_LATEST="$(node -p "JSON.parse(require('fs').readFileSync('/tmp/promotion-state/promotion-state.json')).previousLatest || ''")"
-          test "$STATE_NAME" = "$PACKAGE_NAME"
-          node /tmp/release-tools/scripts/restore-latest.mjs \
-            "$PACKAGE_NAME" "$PREVIOUS_LATEST" || FAILED=1
+          # Every branch keeps the gh-release cleanup below reachable, and
+          # only a completed restore counts as success: a missing state file
+          # means "never uploaded, OR the download of an existing one failed"
+          # — indistinguishable here — and an unusable one proves nothing
+          # either, so both mark the job failed after cleanup instead of
+          # silently declaring latest untouched.
+          if ! test -f /tmp/promotion-state/promotion-state.json
+          then
+            echo "promotion-state unavailable (never uploaded, or its download failed): verify npm dist-tags manually" >&2
+            FAILED=1
+          elif STATE_NAME="$(node -p "JSON.parse(require('fs').readFileSync('/tmp/promotion-state/promotion-state.json')).name" 2>/dev/null)" \
+            && PREVIOUS_LATEST="$(node -p "JSON.parse(require('fs').readFileSync('/tmp/promotion-state/promotion-state.json')).previousLatest || ''" 2>/dev/null)" \
+            && test "$STATE_NAME" = "$PACKAGE_NAME"
+          then
+            node /tmp/release-tools/scripts/restore-latest.mjs \
+              "$PACKAGE_NAME" "$PREVIOUS_LATEST" || FAILED=1
+          else
+            echo "promotion-state present but unusable (unparseable, or naming another package): verify npm dist-tags manually" >&2
+            FAILED=1
+          fi
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
           then
             gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes || FAILED=1

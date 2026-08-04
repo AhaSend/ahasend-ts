@@ -4,6 +4,8 @@ export function loadDocumentation(root?: string): Promise<Record<string, string>
 
 export function verifyDocumentation(documents: Readonly<Record<string, string>>): void;
 
+export function verifySafeOutput(label: string, source: string): void;
+
 export interface DocumentationSource {
   readonly path: string;
   readonly line: number;
@@ -22,6 +24,7 @@ export interface DocumentationIndex {
   readonly links: readonly DocumentationLink[];
   readonly snippets: readonly (DocumentationSource & { readonly language: string })[];
   readonly examples: readonly { readonly path: string; readonly source: string }[];
+  readonly supportingExamples: readonly { readonly path: string; readonly source: string }[];
   readonly nodeSamples: Readonly<
     Record<string, { readonly lang: "javascript"; readonly label: string; readonly source: string }>
   >;
@@ -35,8 +38,40 @@ export function buildDocumentationIndex(root?: string): Promise<DocumentationInd
 
 export function verifyDocumentationIndex(index: DocumentationIndex, root?: string): Promise<void>;
 
+export const INSTALLED_EXTERNAL_URLS: readonly string[];
+
+export interface InstalledExternalResponse {
+  readonly status: number;
+  readonly location?: string | null;
+}
+
+export interface InstalledLinkVerificationOptions {
+  readonly externalUrls?: readonly string[];
+  readonly request?: (
+    url: URL,
+    options: { readonly signal: AbortSignal },
+  ) => Promise<InstalledExternalResponse>;
+  readonly requestCap?: number;
+  readonly timeoutMs?: number;
+  readonly verifyExternalTargets?: boolean;
+}
+
+export function verifyInstalledLinks(
+  documents: Readonly<Record<string, string>>,
+  installedPaths: ReadonlySet<string>,
+  options?: InstalledLinkVerificationOptions,
+): Promise<void>;
+
+export function verifyInstalledDocumentation(
+  tarballPath: string,
+  expectedChecksum: string,
+  root?: string,
+  options?: InstalledLinkVerificationOptions,
+): Promise<void>;
+
 export function verifyPackagedJavaScript(
   tarballPath: string,
   expectedChecksum: string,
   root?: string,
+  nodeSamples?: DocumentationIndex["nodeSamples"],
 ): Promise<void>;

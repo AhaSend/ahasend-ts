@@ -7,29 +7,24 @@
 // Run:  npm install express && node examples/webhook-express.mjs
 
 import express from "express";
-import { WebhookVerifier, expressWebhookHandler } from "../dist/webhooks/index.js";
-
-const secret = process.env.AHASEND_WEBHOOK_SECRET;
-if (!secret) {
-  console.error("✗ AHASEND_WEBHOOK_SECRET is required.");
-  process.exit(1);
-}
+import { WebhookVerifier, expressWebhookHandler } from "@ahasend/sdk/webhooks";
+import { pathToFileURL } from "node:url";
 
 // Replace this stub with one database transaction that inserts a unique
 // webhook-id and durable work/outbox row together. Return false only when the
 // unique webhook-id was already committed. Other database failures must throw.
-const webhookDeliveries = {
+const defaultWebhookDeliveries = {
   async enqueueOnce(_webhookId, _event) {
     throw new Error("Connect webhookDeliveries.enqueueOnce() to a durable transaction.");
   },
 };
 
-const verifier = new WebhookVerifier(secret);
-const app = express();
+export function createWebhookApp({ secret, enqueueOnce }) {
+  const verifier = new WebhookVerifier(secret);
+  const app = express();
+  const webhookDeliveries = { enqueueOnce };
 
-app.post(
-  "/webhooks/ahasend",
-  expressWebhookHandler(verifier, async (event, req, res) => {
+  const handler = expressWebhookHandler(verifier, async (event, req, res) => {
     const value = req.headers["webhook-id"];
     const webhookId = Array.isArray(value) ? value[0] : value;
     if (!webhookId) throw new Error("verified webhook-id missing");
@@ -45,9 +40,25 @@ app.post(
 
     res.statusCode = 202;
     res.end();
-  }),
-);
+  });
+  app.post("/webhooks/ahasend", handler);
 
-app.listen(3000, () => {
-  console.log("listening on :3000 — POST /webhooks/ahasend");
-});
+  return app;
+}
+
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const secret = process.env.AHASEND_WEBHOOK_SECRET;
+  if (!secret) {
+    console.error("✗ AHASEND_WEBHOOK_SECRET is required.");
+    process.exit(1);
+  }
+
+  const app = createWebhookApp({
+    secret,
+    enqueueOnce: defaultWebhookDeliveries.enqueueOnce.bind(defaultWebhookDeliveries),
+  });
+  const port = Number.parseInt(process.env.PORT ?? "3000", 10);
+  app.listen(port, () => {
+    console.log("✓ webhook server listening");
+  });
+}

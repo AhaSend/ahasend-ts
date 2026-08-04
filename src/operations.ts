@@ -1,14 +1,14 @@
-import type { OperationId, RetryMode } from "./generated/operations.js";
+import type {
+  OperationId,
+  OperationInputById,
+  OperationSuccessById,
+  RetryMode,
+} from "./generated/operations.js";
 import { OPERATION_DESCRIPTORS } from "./generated/operations.js";
 import type { HttpClient } from "./http.js";
 import type { IdempotencyOperationPolicy } from "./idempotency.js";
+import { assertExclusiveCursors } from "./pagination.js";
 import type { AhaSendPromise, IdempotencyRequestOptions } from "./types/common.js";
-
-export interface OperationParameters {
-  readonly path?: Readonly<Record<string, string | number>>;
-  readonly query?: Readonly<Record<string, unknown>>;
-  readonly body?: unknown;
-}
 
 type OperationTransport = Pick<HttpClient, "request">;
 
@@ -19,6 +19,7 @@ export interface OperationExecutionRecord {
 }
 
 const PATH_PARAMETER = /\{([^{}]+)\}/g;
+const UUID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const MANUAL_SECRET_COMPLETION_OPERATIONS: ReadonlySet<OperationId> = new Set([
   "createAPIKey",
   "createSubAccountAPIKey",
@@ -31,23 +32,32 @@ const MANUAL_SECRET_COMPLETION_OPERATIONS: ReadonlySet<OperationId> = new Set([
 export class OperationExecutor {
   constructor(private readonly http: OperationTransport) {}
 
-  execute<T>(
-    operationId: OperationId,
-    parameters: OperationParameters = {},
+  execute<K extends OperationId>(
+    operationId: K,
+    parameters: OperationInputById[K],
     options: IdempotencyRequestOptions = {},
-  ): AhaSendPromise<T> {
+  ): AhaSendPromise<OperationSuccessById[K]> {
     const descriptor = OPERATION_DESCRIPTORS[operationId];
+    const pathParameters = validatePathParameters(
+      operationId,
+      parameters.path,
+      descriptor.pathParameters,
+    );
     const path = descriptor.path.replace(PATH_PARAMETER, (_placeholder, name: string) => {
-      const value = parameters.path?.[name];
-      if (!Object.hasOwn(parameters.path ?? {}, name) || value === undefined || value === null) {
+      const value = pathParameters[name];
+      if (value === undefined) {
         throw new TypeError(`Missing path parameter ${JSON.stringify(name)} for ${operationId}`);
       }
       return encodeURIComponent(String(value));
     });
 
-    const query = selectDeclaredQuery(parameters.query, descriptor.query);
+    const query = validateAndSelectDeclaredQuery(
+      operationId,
+      "query" in parameters ? parameters.query : undefined,
+      descriptor.query,
+    );
     const execution = createOperationExecutionRecord(operationId);
-    return this.http.request<T>({
+    return this.http.request<OperationSuccessById[K]>({
       method: descriptor.method,
       path,
       ...(query ? { query } : {}),
@@ -56,10 +66,64 @@ export class OperationExecutor {
         : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.headers ? { headers: options.headers } : {}),
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      ...(options.retry !== undefined ? { retry: options.retry } : {}),
       ...(options.idempotencyKey !== undefined ? { idempotencyKey: options.idempotencyKey } : {}),
       execution,
     });
   }
+}
+
+function readPathParameter(values: object | undefined, name: string): string | number | undefined {
+  if (values === undefined || !Object.hasOwn(values, name)) return undefined;
+  const value: unknown = Reflect.get(values, name);
+  return typeof value === "string" || typeof value === "number" ? value : undefined;
+}
+
+function validatePathParameters(
+  operationId: OperationId,
+  values: object | undefined,
+  declarations: readonly { readonly name: string; readonly format: string | null }[],
+): Record<string, string | number> {
+  const selected: Record<string, string | number> = {};
+  for (const { name, format } of declarations) {
+    const value = readPathParameter(values, name);
+    if (value === undefined) {
+      throw new TypeError(`Missing path parameter ${JSON.stringify(name)} for ${operationId}`);
+    }
+
+    const segment = String(value);
+    if (segment === "" || segment === "." || segment === "..") {
+      throw new TypeError(
+        `Invalid path parameter ${JSON.stringify(name)} for ${operationId}: path segments must not be empty, ".", or ".."`,
+      );
+    }
+    if (format === "uuid" && !UUID_PATTERN.test(segment)) {
+      throw new TypeError(
+        `Invalid path parameter ${JSON.stringify(name)} for ${operationId}: expected uuid`,
+      );
+    }
+    if (format === "hostname" && !matchesHostname(segment)) {
+      throw new TypeError(
+        `Invalid path parameter ${JSON.stringify(name)} for ${operationId}: expected hostname`,
+      );
+    }
+    selected[name] = value;
+  }
+  return selected;
+}
+
+function matchesHostname(value: string): boolean {
+  const absolute = value.endsWith(".");
+  if (value.length > (absolute ? 254 : 253)) return false;
+
+  const hostname = absolute ? value.slice(0, -1) : value;
+  return hostname
+    .split(".")
+    .every(
+      (label) =>
+        label.length >= 1 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label),
+    );
 }
 
 function createOperationExecutionRecord(operationId: OperationId): OperationExecutionRecord {
@@ -79,11 +143,37 @@ function createOperationExecutionRecord(operationId: OperationId): OperationExec
   });
 }
 
-function selectDeclaredQuery(
+function validateAndSelectDeclaredQuery(
+  operationId: OperationId,
   values: Readonly<Record<string, unknown>> | undefined,
-  declarations: readonly { readonly name: string }[],
+  declarations: readonly { readonly name: string; readonly required: boolean }[],
 ): Record<string, unknown> | undefined {
+  const declaredNames = new Set(declarations.map(({ name }) => name));
+  if (values !== undefined) {
+    const undeclaredName = Object.keys(values).find((name) => !declaredNames.has(name));
+    if (undeclaredName !== undefined) {
+      throw new TypeError(
+        `Unknown query parameter ${JSON.stringify(undeclaredName)} for ${operationId}`,
+      );
+    }
+  }
+
+  for (const { name, required } of declarations) {
+    if (
+      required &&
+      (values === undefined ||
+        !Object.hasOwn(values, name) ||
+        values[name] === undefined ||
+        values[name] === null)
+    ) {
+      throw new TypeError(
+        `Missing required query parameter ${JSON.stringify(name)} for ${operationId}`,
+      );
+    }
+  }
+
   if (values === undefined) return undefined;
+  assertExclusiveCursors(values);
 
   const query: Record<string, unknown> = {};
   for (const { name } of declarations) {

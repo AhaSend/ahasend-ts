@@ -5,7 +5,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, extname, join, resolve, sep } from "node:path";
+import { dirname, extname, join, posix, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import tsParser from "@typescript-eslint/parser";
 import { ESLint } from "eslint";
@@ -18,6 +18,9 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const EXPECTED_NODE_SAMPLE_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
+const SUPPORTING_EXAMPLE_PATHS = Object.freeze([
+  "examples/next-webhook-route/create-webhook-route.mjs",
+]);
 export const REQUIRED_DOCUMENT_PATHS = Object.freeze([
   "README.md",
   "CHANGELOG.md",
@@ -31,6 +34,37 @@ export const REQUIRED_DOCUMENT_PATHS = Object.freeze([
   "docs/subaccounts.md",
 ]);
 const MARKDOWN_PATHS = Object.freeze([...REQUIRED_DOCUMENT_PATHS, "examples/README.md"]);
+const INSTALLED_DOCUMENT_PATHS = Object.freeze(["README.md", "CHANGELOG.md"]);
+const AUTHORITATIVE_LINK_HOSTS = Object.freeze([
+  "ahasend.com",
+  "www.ahasend.com",
+  "dashboard.ahasend.com",
+  "github.com",
+  "keepachangelog.com",
+  "semver.org",
+]);
+export const INSTALLED_EXTERNAL_URLS = Object.freeze([
+  "https://ahasend.com",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/CHANGELOG.md",
+  "https://dashboard.ahasend.com",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/api-reference.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/retries-and-idempotency.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/cancellation.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/rate-pacing.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/safe-logging.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/security-and-webhooks.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/subaccounts.md",
+  "https://github.com/AhaSend/ahasend-ts/tree/v0.1.0/examples",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/examples/README.md",
+  "https://github.com/AhaSend/ahasend-ts/issues",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/SECURITY.md",
+  "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/LICENSE",
+  "https://keepachangelog.com/en/1.1.0/",
+  "https://semver.org/",
+]);
+const INSTALLED_LINK_TIMEOUT_MS = 10_000;
+const INSTALLED_LINK_REQUEST_CAP = 64;
+const INSTALLED_LINK_REDIRECT_CAP = 2;
 
 const REQUIREMENTS = Object.freeze([
   {
@@ -338,12 +372,151 @@ function fencedBlocks(source, path) {
   return blocks;
 }
 
+function maskMarkdownCode(source) {
+  const masked = source.split("");
+  const mask = (start, end) => {
+    for (let index = start; index < end; index += 1) {
+      if (masked[index] !== "\n" && masked[index] !== "\r") masked[index] = " ";
+    }
+  };
+  for (const match of source.matchAll(/^[ \t]{0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)/gmu)) {
+    const marker = match[1];
+    const markerIndex = match.index + match[0].indexOf(marker);
+    if (masked[markerIndex] === " ") continue;
+    const closing = new RegExp(
+      `^[ \\t]{0,3}${marker[0]}{${marker.length},}[ \\t]*(?:\\n|$)`,
+      "gmu",
+    );
+    closing.lastIndex = match.index + match[0].length;
+    const closingMatch = closing.exec(source);
+    mask(
+      match.index,
+      closingMatch === null ? source.length : closingMatch.index + closingMatch[0].length,
+    );
+  }
+  for (const match of source.matchAll(/<!--[\s\S]*?-->/gu)) {
+    mask(match.index, match.index + match[0].length);
+  }
+  const withoutBlocks = masked.join("");
+  for (let cursor = 0; cursor < withoutBlocks.length; cursor += 1) {
+    if (withoutBlocks[cursor] !== "`") continue;
+    let openingEnd = cursor + 1;
+    while (withoutBlocks[openingEnd] === "`") openingEnd += 1;
+    const marker = withoutBlocks.slice(cursor, openingEnd);
+    let closing = withoutBlocks.indexOf(marker, openingEnd);
+    while (
+      closing !== -1 &&
+      (withoutBlocks[closing - 1] === "`" || withoutBlocks[closing + marker.length] === "`")
+    ) {
+      closing = withoutBlocks.indexOf(marker, closing + marker.length);
+    }
+    if (closing === -1) {
+      cursor = openingEnd - 1;
+      continue;
+    }
+    mask(cursor, closing + marker.length);
+    cursor = closing + marker.length - 1;
+  }
+  return masked.join("");
+}
+
+function markdownClosingBracket(source, start) {
+  let depth = 1;
+  for (let index = start + 1; index < source.length; index += 1) {
+    if (source[index] === "\\") {
+      index += 1;
+    } else if (source[index] === "[") {
+      depth += 1;
+    } else if (source[index] === "]") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function markdownInlineDestination(source, openParenthesis) {
+  let cursor = openParenthesis + 1;
+  while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
+  const start = cursor;
+  if (source[cursor] === "<") {
+    const end = source.indexOf(">", cursor + 1);
+    if (end === -1 || source.indexOf(")", end + 1) === -1) return undefined;
+    return source.slice(cursor + 1, end);
+  }
+
+  let nestedParentheses = 0;
+  for (; cursor < source.length; cursor += 1) {
+    const character = source[cursor];
+    if (character === "\\") {
+      cursor += 1;
+    } else if (character === "(") {
+      nestedParentheses += 1;
+    } else if (character === ")") {
+      if (nestedParentheses === 0) return source.slice(start, cursor);
+      nestedParentheses -= 1;
+    } else if (/\s/u.test(character)) {
+      return source.indexOf(")", cursor) === -1 ? undefined : source.slice(start, cursor);
+    }
+  }
+  return undefined;
+}
+
+function trimBareUrl(target) {
+  let trimmed = target.replace(/[!*,.:;?_~]+$/u, "");
+  while (
+    trimmed.endsWith(")") &&
+    [...trimmed].filter((character) => character === ")").length >
+      [...trimmed].filter((character) => character === "(").length
+  ) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  return trimmed;
+}
+
 function markdownLinks(source, path) {
-  return [...source.matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/gu)].map((match) => ({
-    path,
-    line: source.slice(0, match.index).split("\n").length,
-    target: match[1],
-  }));
+  const links = [];
+  const markdown = maskMarkdownCode(source);
+  const add = (target, index) => {
+    if (target === "") return;
+    links.push({
+      path,
+      line: source.slice(0, index).split("\n").length,
+      target,
+    });
+  };
+
+  for (let index = 0; index < markdown.length; index += 1) {
+    if (markdown[index] !== "[") continue;
+    const closingBracket = markdownClosingBracket(markdown, index);
+    if (closingBracket === -1) continue;
+    let openParenthesis = closingBracket + 1;
+    while (/\s/u.test(markdown[openParenthesis] ?? "")) openParenthesis += 1;
+    if (markdown[openParenthesis] !== "(") continue;
+    const target = markdownInlineDestination(markdown, openParenthesis);
+    if (target !== undefined) add(target, index);
+  }
+
+  const patterns = [
+    /^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:(?:\r?\n)[ \t]+)?(?:<([^>\n]+)>|([^\s]+))/gmu,
+    /<((?:https?):\/\/[^<>\s]+)>/giu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of markdown.matchAll(pattern)) add(match[1] ?? match[2], match.index);
+  }
+
+  for (const tag of markdown.matchAll(/<[A-Za-z][^<>]*>/gu)) {
+    for (const attribute of tag[0].matchAll(
+      /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/giu,
+    )) {
+      add(attribute[1] ?? attribute[2] ?? attribute[3], tag.index + attribute.index);
+    }
+  }
+
+  for (const match of markdown.matchAll(/https?:\/\/[^\s<>"'\[\]]+/giu)) {
+    add(trimBareUrl(match[0]), match.index);
+  }
+  return links;
 }
 
 function shellCommands(block) {
@@ -352,13 +525,7 @@ function shellCommands(block) {
     .map((source, index) => ({ path: block.path, line: block.line + index + 1, source }))
     .filter(({ source }) => {
       const trimmed = source.trim();
-      return (
-        trimmed !== "" &&
-        !trimmed.startsWith("#") &&
-        !trimmed.startsWith("$env:") &&
-        !trimmed.startsWith("export ") &&
-        !trimmed.startsWith("set ")
-      );
+      return trimmed !== "" && !trimmed.startsWith("#");
     });
 }
 
@@ -369,6 +536,15 @@ async function loadExamples(root) {
     names.map(async (name) => ({
       path: `examples/${name}`,
       source: await readFile(resolve(directory, name), "utf8"),
+    })),
+  );
+}
+
+async function loadSupportingExamples(root) {
+  return Promise.all(
+    SUPPORTING_EXAMPLE_PATHS.map(async (path) => ({
+      path,
+      source: await readFile(resolve(root, path), "utf8"),
     })),
   );
 }
@@ -391,7 +567,9 @@ export async function buildDocumentationIndex(root = repositoryRoot) {
     documents,
     commands: Object.freeze(
       blocks
-        .filter(({ language }) => language === "bash" || language === "sh" || language === "shell")
+        .filter(({ language }) =>
+          ["bash", "powershell", "ps1", "pwsh", "sh", "shell"].includes(language),
+        )
         .flatMap(shellCommands),
     ),
     links: Object.freeze(
@@ -403,6 +581,7 @@ export async function buildDocumentationIndex(root = repositoryRoot) {
       ),
     ),
     examples: Object.freeze(await loadExamples(root)),
+    supportingExamples: Object.freeze(await loadSupportingExamples(root)),
     nodeSamples: NODE_CODE_SAMPLES,
     profileSummary: Object.freeze({
       operations: profile.operations?.length,
@@ -447,21 +626,196 @@ function sourceFileFor(label, source, scriptKind = ts.ScriptKind.JS) {
   return ts.createSourceFile(label, source, ts.ScriptTarget.ESNext, true, scriptKind);
 }
 
-function hasUnsafeConsoleOutput(sourceFile) {
+function isAllowedOutputName(name) {
+  return (
+    /^(?:count|status|code|errorCode|requestId|request_id)$/u.test(name) ||
+    /(?:Count|_count|Id|_id)$/u.test(name) ||
+    name === "id" ||
+    name === "length"
+  );
+}
+
+function unwrapOutputExpression(node) {
+  let expression = node;
+  while (
+    ts.isAwaitExpression(expression) ||
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isNonNullExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+  return expression;
+}
+
+function isStaticOutputValue(node) {
+  return (
+    ts.isStringLiteral(node) ||
+    ts.isNumericLiteral(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node) ||
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword ||
+    node.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isIdentifier(node) && node.text === "undefined")
+  );
+}
+
+function isOutputScope(node) {
+  return (
+    ts.isSourceFile(node) ||
+    ts.isBlock(node) ||
+    ts.isCaseBlock(node) ||
+    ts.isFunctionLike(node) ||
+    ts.isCatchClause(node) ||
+    ts.isForStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isForOfStatement(node)
+  );
+}
+
+function bindingForName(name, identifier) {
+  if (ts.isIdentifier(name)) return name.text === identifier ? name.parent : undefined;
+  for (const element of name.elements) {
+    if (ts.isOmittedExpression(element)) continue;
+    const binding = bindingForName(element.name, identifier);
+    if (binding !== undefined) return binding;
+  }
+  return undefined;
+}
+
+function isBlockScopedVariableDeclaration(node) {
+  return (
+    ts.isVariableDeclaration(node) &&
+    ts.isVariableDeclarationList(node.parent) &&
+    (node.parent.flags & ts.NodeFlags.BlockScoped) !== 0
+  );
+}
+
+function bindingInOutputScope(scope, name) {
+  if (ts.isFunctionLike(scope)) {
+    for (const parameter of scope.parameters) {
+      const binding = bindingForName(parameter.name, name);
+      if (binding !== undefined) return binding;
+    }
+  }
+  if (ts.isCatchClause(scope) && scope.variableDeclaration !== undefined) {
+    const binding = bindingForName(scope.variableDeclaration.name, name);
+    if (binding !== undefined) return binding;
+  }
+
+  let binding;
+  function visit(node, nestedScope = false) {
+    if (binding !== undefined) return;
+    if (node !== scope && isOutputScope(node)) {
+      if (!ts.isSourceFile(scope) && !ts.isFunctionLike(scope)) return;
+      if (ts.isFunctionLike(node)) return;
+      nestedScope = true;
+    }
+    if (ts.isVariableDeclaration(node)) {
+      const blockScoped = isBlockScopedVariableDeclaration(node);
+      const belongsToScope =
+        ts.isFunctionLike(scope) || nestedScope
+          ? !blockScoped
+          : blockScoped || ts.isSourceFile(scope);
+      if (belongsToScope) {
+        binding = bindingForName(node.name, name);
+        if (binding !== undefined) return;
+      }
+    }
+    ts.forEachChild(node, (child) => visit(child, nestedScope));
+  }
+  visit(scope);
+  return binding;
+}
+
+function outputBindingAt(identifier) {
+  for (let ancestor = identifier.parent; ancestor !== undefined; ancestor = ancestor.parent) {
+    if (!isOutputScope(ancestor)) continue;
+    const binding = bindingInOutputScope(ancestor, identifier.text);
+    if (binding !== undefined) return binding;
+  }
+  return undefined;
+}
+
+function isAssignmentOperator(kind) {
+  return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+}
+
+function isExternalOutputBinding(binding) {
+  return (
+    ts.isParameter(binding) ||
+    (ts.isVariableDeclaration(binding) && ts.isCatchClause(binding.parent))
+  );
+}
+
+function staticPropertyName(name) {
+  if (
+    ts.isIdentifier(name) ||
+    ts.isStringLiteral(name) ||
+    ts.isNumericLiteral(name) ||
+    ts.isNoSubstitutionTemplateLiteral(name)
+  ) {
+    return name.text;
+  }
+  if (ts.isComputedPropertyName(name)) {
+    return staticElementAccessName(name.expression);
+  }
+  return undefined;
+}
+
+function staticElementAccessName(node, seenBindings = new Set()) {
+  const expression = unwrapOutputExpression(node);
+  if (
+    ts.isStringLiteral(expression) ||
+    ts.isNumericLiteral(expression) ||
+    ts.isNoSubstitutionTemplateLiteral(expression)
+  ) {
+    return expression.text;
+  }
+  if (!ts.isIdentifier(expression)) return undefined;
+  const binding = outputBindingAt(expression);
+  if (
+    binding === undefined ||
+    seenBindings.has(binding.pos) ||
+    !ts.isVariableDeclaration(binding) ||
+    binding.initializer === undefined ||
+    !ts.isVariableDeclarationList(binding.parent) ||
+    (binding.parent.flags & ts.NodeFlags.Const) === 0
+  ) {
+    return undefined;
+  }
+  const nextSeen = new Set(seenBindings);
+  nextSeen.add(binding.pos);
+  return staticElementAccessName(binding.initializer, nextSeen);
+}
+
+function memberAccessPath(node) {
+  const expression = unwrapOutputExpression(node);
+  if (ts.isIdentifier(expression)) return { root: expression, properties: [] };
+  if (ts.isPropertyAccessExpression(expression)) {
+    const parent = memberAccessPath(expression.expression);
+    if (parent === undefined) return undefined;
+    return { root: parent.root, properties: [...parent.properties, expression.name.text] };
+  }
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined) {
+    const name = staticElementAccessName(expression.argumentExpression);
+    const parent = memberAccessPath(expression.expression);
+    if (name === undefined || parent === undefined) return undefined;
+    return { root: parent.root, properties: [...parent.properties, name] };
+  }
+  return undefined;
+}
+
+function hasUnsafeConsoleOutput(sourceFile, enforceAllowlist = false) {
   const sensitiveIdentifiers = new Set();
   function isSensitiveReference(node) {
-    if (
-      ts.isAwaitExpression(node) ||
-      ts.isParenthesizedExpression(node) ||
-      ts.isAsExpression(node) ||
-      ts.isTypeAssertionExpression(node)
-    ) {
-      return isSensitiveReference(node.expression);
-    }
-    const path = propertyPath(node);
+    const expression = unwrapOutputExpression(node);
+    const path = propertyPath(expression);
     return (
-      (ts.isIdentifier(node) &&
-        (node.text === "idempotencyKey" || sensitiveIdentifiers.has(node.text))) ||
+      (ts.isIdentifier(expression) &&
+        (expression.text === "idempotencyKey" || sensitiveIdentifiers.has(expression.text))) ||
       path?.endsWith(".secret_key") === true ||
       /(?:^|\.)(?:err|error)\.body$/u.test(path ?? "") ||
       /(?:^|\.)event\.data\.(?:recipient|subject)$/u.test(path ?? "")
@@ -488,6 +842,430 @@ function hasUnsafeConsoleOutput(sourceFile) {
   }
   collectSensitiveIdentifiers(sourceFile);
 
+  function visitBeforeOutputUse(use, inspect) {
+    const invokedFunctions = new Set();
+    function collectInvocations(node) {
+      if (node.getStart(sourceFile) >= use.getStart(sourceFile)) return;
+      if (ts.isCallExpression(node)) {
+        const expression = unwrapOutputExpression(node.expression);
+        if (ts.isIdentifier(expression)) invokedFunctions.add(expression.text);
+      }
+      ts.forEachChild(node, collectInvocations);
+    }
+    collectInvocations(sourceFile);
+
+    function visit(node, inInvokedFunction = false) {
+      if (!inInvokedFunction && node.getStart(sourceFile) >= use.getStart(sourceFile)) {
+        if (
+          ts.isFunctionDeclaration(node) &&
+          node.name !== undefined &&
+          invokedFunctions.has(node.name.text) &&
+          node.body !== undefined
+        ) {
+          visit(node.body, true);
+        }
+        return;
+      }
+      inspect(node);
+      ts.forEachChild(node, (child) => visit(child, inInvokedFunction));
+    }
+    visit(sourceFile);
+  }
+
+  function outputBindingValues(binding, use) {
+    const values = [];
+    const selections = [];
+    let unsupportedWrite = false;
+    if (ts.isVariableDeclaration(binding) || ts.isParameter(binding)) {
+      if (binding.initializer !== undefined) values.push(binding.initializer);
+      else if (!isExternalOutputBinding(binding)) unsupportedWrite = true;
+    } else if (!ts.isBindingElement(binding)) {
+      unsupportedWrite = true;
+    }
+
+    function assignmentSelections(node, properties = [], defaults = []) {
+      const target = unwrapOutputExpression(node);
+      if (ts.isIdentifier(target)) {
+        return outputBindingAt(target) === binding
+          ? { found: true, unsupported: false, values: [{ properties, defaults }] }
+          : { found: false, unsupported: false, values: [] };
+      }
+      if (
+        ts.isBinaryExpression(target) &&
+        target.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ) {
+        return assignmentSelections(target.left, properties, [...defaults, target.right]);
+      }
+      if (ts.isObjectLiteralExpression(target)) {
+        let found = false;
+        let unsupported = false;
+        const values = [];
+        for (const property of target.properties) {
+          if (ts.isSpreadAssignment(property)) {
+            const result = assignmentSelections(property.expression, properties, defaults);
+            found ||= result.found;
+            unsupported ||= result.found || result.unsupported;
+            values.push(...result.values);
+            continue;
+          }
+          const name = staticPropertyName(property.name);
+          if (name === undefined) {
+            unsupported = true;
+            continue;
+          }
+          if (ts.isPropertyAssignment(property)) {
+            const result = assignmentSelections(
+              property.initializer,
+              [...properties, name],
+              defaults,
+            );
+            found ||= result.found;
+            unsupported ||= result.unsupported;
+            values.push(...result.values);
+          } else if (ts.isShorthandPropertyAssignment(property)) {
+            const propertyDefaults =
+              property.objectAssignmentInitializer === undefined
+                ? defaults
+                : [...defaults, property.objectAssignmentInitializer];
+            const result = assignmentSelections(
+              property.name,
+              [...properties, name],
+              propertyDefaults,
+            );
+            found ||= result.found;
+            unsupported ||= result.unsupported;
+            values.push(...result.values);
+          }
+        }
+        return { found, unsupported, values };
+      }
+      if (ts.isArrayLiteralExpression(target)) {
+        let found = false;
+        let unsupported = false;
+        const values = [];
+        for (const [index, element] of target.elements.entries()) {
+          if (ts.isOmittedExpression(element)) continue;
+          if (ts.isSpreadElement(element)) {
+            const result = assignmentSelections(element.expression, properties, defaults);
+            found ||= result.found;
+            unsupported ||= result.found || result.unsupported;
+            values.push(...result.values);
+            continue;
+          }
+          const result = assignmentSelections(element, [...properties, String(index)], defaults);
+          found ||= result.found;
+          unsupported ||= result.unsupported;
+          values.push(...result.values);
+        }
+        return { found, unsupported, values };
+      }
+      return { found: false, unsupported: false, values: [] };
+    }
+
+    function inspect(node) {
+      if (
+        node !== binding &&
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer !== undefined &&
+        outputBindingAt(node.name) === binding
+      ) {
+        values.push(node.initializer);
+      }
+      if (
+        ts.isBinaryExpression(node) &&
+        isAssignmentOperator(node.operatorToken.kind) &&
+        ts.isIdentifier(unwrapOutputExpression(node.left)) &&
+        outputBindingAt(unwrapOutputExpression(node.left)) === binding
+      ) {
+        if (node.operatorToken.kind === ts.SyntaxKind.EqualsToken) values.push(node.right);
+        else unsupportedWrite = true;
+      }
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        (ts.isObjectLiteralExpression(unwrapOutputExpression(node.left)) ||
+          ts.isArrayLiteralExpression(unwrapOutputExpression(node.left)))
+      ) {
+        const result = assignmentSelections(node.left);
+        unsupportedWrite ||= result.unsupported;
+        selections.push(
+          ...result.values.map(({ properties, defaults }) => ({
+            root: node.right,
+            properties,
+            defaults,
+          })),
+        );
+      }
+      if (
+        (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+        ts.isIdentifier(unwrapOutputExpression(node.operand)) &&
+        outputBindingAt(unwrapOutputExpression(node.operand)) === binding
+      ) {
+        unsupportedWrite = true;
+      }
+    }
+    visitBeforeOutputUse(use, inspect);
+    return { values, selections, unsupportedWrite };
+  }
+
+  function objectPropertyInitializers(object, name) {
+    const values = [];
+    for (const property of object.properties) {
+      if (ts.isSpreadAssignment(property)) return undefined;
+      if (staticPropertyName(property.name) !== name) continue;
+      if (ts.isPropertyAssignment(property)) values.push(property.initializer);
+      else if (ts.isShorthandPropertyAssignment(property)) values.push(property.name);
+      else return undefined;
+    }
+    return values.length === 0 ? undefined : values;
+  }
+
+  function bindingElementPath(binding) {
+    const properties = [];
+    const defaults = [];
+    let element = binding;
+    while (ts.isBindingElement(element)) {
+      if (!ts.isObjectBindingPattern(element.parent) || element.dotDotDotToken !== undefined) {
+        return undefined;
+      }
+      const name = staticPropertyName(element.propertyName ?? element.name);
+      if (name === undefined) return undefined;
+      properties.unshift(name);
+      if (element.initializer !== undefined) defaults.push(element.initializer);
+      element = element.parent.parent;
+    }
+    if (!ts.isVariableDeclaration(element) && !ts.isParameter(element)) return undefined;
+    return { root: element.initializer, properties, defaults };
+  }
+
+  function objectLocations(binding, properties, use, seenBindings = new Set()) {
+    if (seenBindings.has(binding.pos)) return [];
+    const nextSeen = new Set(seenBindings);
+    nextSeen.add(binding.pos);
+    const locations = [{ binding, properties }];
+
+    function resolveValue(value, pendingProperties) {
+      const expression = unwrapOutputExpression(value);
+      const [name, ...remaining] = pendingProperties;
+      if (name !== undefined && ts.isObjectLiteralExpression(expression)) {
+        const initializers = objectPropertyInitializers(expression, name);
+        if (initializers !== undefined) {
+          for (const initializer of initializers) resolveValue(initializer, remaining);
+        }
+        return;
+      }
+      if (name !== undefined && ts.isArrayLiteralExpression(expression)) {
+        const index = Number(name);
+        const element =
+          Number.isSafeInteger(index) && index >= 0 ? expression.elements[index] : undefined;
+        if (element !== undefined && !ts.isOmittedExpression(element)) {
+          resolveValue(ts.isSpreadElement(element) ? element.expression : element, remaining);
+        }
+        return;
+      }
+      const access = memberAccessPath(expression);
+      if (access === undefined) return;
+      const rootBinding = outputBindingAt(access.root);
+      if (rootBinding === undefined) return;
+      locations.push(
+        ...objectLocations(
+          rootBinding,
+          [...access.properties, ...pendingProperties],
+          use,
+          nextSeen,
+        ),
+      );
+    }
+
+    function addValue(value, selectedProperties = []) {
+      resolveValue(value, [...selectedProperties, ...properties]);
+    }
+
+    if (ts.isBindingElement(binding)) {
+      const path = bindingElementPath(binding);
+      if (path?.root !== undefined) addValue(path.root, path.properties);
+      return locations;
+    }
+
+    const { values, selections } = outputBindingValues(binding, use);
+    for (const value of values) addValue(value);
+    for (const selection of selections) addValue(selection.root, selection.properties);
+    return locations;
+  }
+
+  function propertyWritesAreAllowed(binding, properties, use, seenAliases) {
+    let allowed = true;
+    function inspect(node) {
+      if (!allowed) return;
+      if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
+        const access = memberAccessPath(node.left);
+        const rootBinding = access === undefined ? undefined : outputBindingAt(access.root);
+        if (access !== undefined && rootBinding !== undefined) {
+          for (const location of objectLocations(rootBinding, access.properties, use)) {
+            if (location.binding !== binding) continue;
+            const writeIsPrefix = location.properties.every(
+              (property, index) => property === properties[index],
+            );
+            const outputIsPrefix = properties.every(
+              (property, index) => property === location.properties[index],
+            );
+            if (writeIsPrefix) {
+              allowed =
+                node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+                isAllowedPropertyFromValue(
+                  node.right,
+                  properties.slice(location.properties.length),
+                  use,
+                  seenAliases,
+                );
+            } else if (outputIsPrefix) {
+              allowed = false;
+            }
+            if (!allowed) return;
+          }
+        }
+      }
+    }
+    visitBeforeOutputUse(use, inspect);
+    return allowed;
+  }
+
+  function isAllowedPropertyFromValue(node, properties, use, seenAliases) {
+    if (properties.length === 0) return isAllowedOutputValue(node, seenAliases);
+    const [name, ...remaining] = properties;
+    if (name === undefined || !isAllowedOutputName(properties.at(-1))) return false;
+    const expression = unwrapOutputExpression(node);
+    if (ts.isObjectLiteralExpression(expression)) {
+      const initializers = objectPropertyInitializers(expression, name);
+      return (
+        initializers !== undefined &&
+        initializers.every((initializer) =>
+          isAllowedPropertyFromValue(initializer, remaining, use, seenAliases),
+        )
+      );
+    }
+    if (ts.isIdentifier(expression)) {
+      const binding = outputBindingAt(expression);
+      if (binding !== undefined) {
+        return isAllowedBindingProperties(binding, properties, use, seenAliases);
+      }
+    }
+    return true;
+  }
+
+  function isAllowedBindingProperties(binding, properties, use, seenAliases) {
+    const key = `${binding.pos}:${properties.join(".")}`;
+    if (seenAliases.has(key)) return false;
+    const nextSeen = new Set(seenAliases);
+    nextSeen.add(key);
+
+    if (ts.isBindingElement(binding)) {
+      const path = bindingElementPath(binding);
+      const writes = outputBindingValues(binding, use);
+      return (
+        path !== undefined &&
+        !writes.unsupportedWrite &&
+        isAllowedOutputName(path.properties.at(-1) ?? "") &&
+        path.defaults.every((value) => isAllowedOutputValue(value, nextSeen)) &&
+        writes.values.every((value) => isAllowedOutputValue(value, nextSeen)) &&
+        writes.selections.every(
+          (selection) =>
+            selection.defaults.every((value) => isAllowedOutputValue(value, nextSeen)) &&
+            isAllowedPropertyFromValue(
+              selection.root,
+              [...selection.properties, ...properties],
+              use,
+              nextSeen,
+            ),
+        ) &&
+        (path.root === undefined ||
+          isAllowedPropertyFromValue(path.root, [...path.properties, ...properties], use, nextSeen))
+      );
+    }
+
+    const { values, selections, unsupportedWrite } = outputBindingValues(binding, use);
+    const externalValueIsAllowed =
+      isExternalOutputBinding(binding) &&
+      ((properties.length > 0 && isAllowedOutputName(properties.at(-1) ?? "")) ||
+        (ts.isParameter(binding) &&
+          ts.isIdentifier(binding.name) &&
+          isAllowedOutputName(binding.name.text)));
+    return (
+      !unsupportedWrite &&
+      (values.length > 0 || selections.length > 0 || externalValueIsAllowed) &&
+      values.every((value) => isAllowedPropertyFromValue(value, properties, use, nextSeen)) &&
+      selections.every(
+        (selection) =>
+          selection.defaults.every((value) => isAllowedOutputValue(value, nextSeen)) &&
+          isAllowedPropertyFromValue(
+            selection.root,
+            [...selection.properties, ...properties],
+            use,
+            nextSeen,
+          ),
+      ) &&
+      propertyWritesAreAllowed(binding, properties, use, nextSeen)
+    );
+  }
+
+  function isAllowedOutputValue(node, seenAliases = new Set()) {
+    const expression = unwrapOutputExpression(node);
+    if (isStaticOutputValue(expression)) return true;
+    if (ts.isIdentifier(expression)) {
+      const binding = outputBindingAt(expression);
+      if (binding !== undefined)
+        return isAllowedBindingProperties(binding, [], expression, seenAliases);
+      return isAllowedOutputName(expression.text);
+    }
+    if (ts.isTemplateExpression(expression)) {
+      return expression.templateSpans.every((span) => isAllowedOutputValue(span.expression));
+    }
+    if (ts.isConditionalExpression(expression)) {
+      return (
+        isAllowedOutputValue(expression.whenTrue) && isAllowedOutputValue(expression.whenFalse)
+      );
+    }
+    if (ts.isBinaryExpression(expression)) {
+      return (
+        [
+          ts.SyntaxKind.PlusToken,
+          ts.SyntaxKind.QuestionQuestionToken,
+          ts.SyntaxKind.BarBarToken,
+          ts.SyntaxKind.AmpersandAmpersandToken,
+        ].includes(expression.operatorToken.kind) &&
+        isAllowedOutputValue(expression.left) &&
+        isAllowedOutputValue(expression.right)
+      );
+    }
+    const access = memberAccessPath(expression);
+    if (access === undefined || access.properties.length === 0) return false;
+    const binding = outputBindingAt(access.root);
+    return binding === undefined
+      ? isAllowedOutputName(access.properties.at(-1) ?? "")
+      : isAllowedBindingProperties(binding, access.properties, expression, seenAliases);
+  }
+
+  function isAllowedOutputArgument(node) {
+    const expression = unwrapOutputExpression(node);
+    if (!ts.isObjectLiteralExpression(expression)) return isAllowedOutputValue(expression);
+    return expression.properties.every((property) => {
+      if (ts.isPropertyAssignment(property)) {
+        return (
+          (!ts.isComputedPropertyName(property.name) ||
+            isAllowedOutputValue(property.name.expression)) &&
+          !ts.isObjectLiteralExpression(unwrapOutputExpression(property.initializer)) &&
+          !ts.isArrayLiteralExpression(unwrapOutputExpression(property.initializer)) &&
+          isAllowedOutputValue(property.initializer)
+        );
+      }
+      if (ts.isShorthandPropertyAssignment(property)) {
+        return isAllowedOutputValue(property.name);
+      }
+      return false;
+    });
+  }
+
   let unsafe = false;
   function visit(node) {
     if (unsafe) return;
@@ -497,12 +1275,22 @@ function hasUnsafeConsoleOutput(sourceFile) {
         propertyPath(node.expression) ?? "",
       )
     ) {
-      unsafe = node.arguments.some(containsSensitiveValue);
+      unsafe = enforceAllowlist
+        ? node.arguments.some((argument) => !isAllowedOutputArgument(argument))
+        : node.arguments.some(containsSensitiveValue);
     }
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
   return unsafe;
+}
+
+/** Verify one focused source fixture against the documented output allowlist. */
+export function verifySafeOutput(label, source) {
+  verifyJavaScriptSyntax(label, source);
+  if (hasUnsafeConsoleOutput(sourceFileFor(label, source), true)) {
+    throw new TypeError(`${label} contains unsafe secret or payload output.`);
+  }
 }
 
 function statementTerminates(statement) {
@@ -688,6 +1476,7 @@ async function verifyLint(index, root) {
   });
   const sources = [
     ...index.examples.map((example) => ({ ...example, language: "mjs" })),
+    ...index.supportingExamples.map((example) => ({ ...example, language: "mjs" })),
     ...index.snippets.filter(({ path }) => path !== "docs/api-reference.md"),
   ];
   const results = (
@@ -826,7 +1615,38 @@ async function verifyCommands(index, manifest, root) {
   }
 }
 
+function advertisedExamplePaths(source) {
+  const paths = [];
+  for (const pattern of [
+    /^###\s+\d+\.\s+`([A-Za-z0-9_-]+\.mjs)`/gmu,
+    /^\|\s*`([A-Za-z0-9_-]+\.mjs)`\s*\|/gmu,
+  ]) {
+    for (const match of source.matchAll(pattern)) paths.push(`examples/${match[1]}`);
+  }
+  return paths;
+}
+
+function verifyExampleInventory(index) {
+  const advertised = advertisedExamplePaths(index.documents["examples/README.md"] ?? "");
+  const examples = index.examples.map(({ path }) => path);
+  const duplicate = advertised.find((path, position) => advertised.indexOf(path) !== position);
+  if (duplicate !== undefined) {
+    throw new TypeError(
+      `The advertised example inventory contains a duplicate entry: ${duplicate}`,
+    );
+  }
+  const orphan = advertised.find((path) => !examples.includes(path));
+  if (orphan !== undefined) {
+    throw new TypeError(`The advertised example inventory contains an orphan entry: ${orphan}`);
+  }
+  const missing = examples.find((path) => !advertised.includes(path));
+  if (missing !== undefined) {
+    throw new TypeError(`The advertised example inventory is missing: ${missing}`);
+  }
+}
+
 function verifyExamples(index) {
+  verifyExampleInventory(index);
   if (Object.keys(index.nodeSamples).length !== EXPECTED_NODE_SAMPLE_COUNT) {
     throw new TypeError(`Expected ${EXPECTED_NODE_SAMPLE_COUNT} Node samples.`);
   }
@@ -875,7 +1695,25 @@ function verifyExamples(index) {
       throw new TypeError(`Node sample ${operationId} contains unsafe secret output.`);
     }
   }
+  for (const snippet of index.snippets.filter(({ path }) => path === "README.md")) {
+    const label = `${snippet.path}:${snippet.line}`;
+    if (hasUnsafeConsoleOutput(sourceFileFor(label, snippet.source), true)) {
+      throw new TypeError(`${label} contains unsafe secret or payload output.`);
+    }
+  }
   for (const example of index.examples) {
+    const sourceFile = sourceFileFor(example.path, example.source);
+    verifyJavaScriptSyntax(example.path, example.source);
+    for (const pattern of SECRET_PATTERNS) {
+      if (pattern.test(example.source)) {
+        throw new TypeError(`${example.path} contains unsafe secret or payload output.`);
+      }
+    }
+    if (hasUnsafeConsoleOutput(sourceFile, true)) {
+      throw new TypeError(`${example.path} contains unsafe secret or payload output.`);
+    }
+  }
+  for (const example of index.supportingExamples) {
     const sourceFile = sourceFileFor(example.path, example.source);
     verifyJavaScriptSyntax(example.path, example.source);
     for (const pattern of SECRET_PATTERNS) {
@@ -901,8 +1739,13 @@ function verifyExamples(index) {
     }
   }
 
-  for (const path of ["examples/webhook-express.mjs", "examples/next-webhook-route.mjs"]) {
-    const example = index.examples.find((candidate) => candidate.path === path);
+  for (const path of [
+    "examples/webhook-express.mjs",
+    "examples/next-webhook-route/create-webhook-route.mjs",
+  ]) {
+    const example = [...index.examples, ...index.supportingExamples].find(
+      (candidate) => candidate.path === path,
+    );
     if (
       example === undefined ||
       !hasDurableWebhookDeduplication(sourceFileFor(example.path, example.source))
@@ -918,6 +1761,34 @@ function verifyExamples(index) {
   if (!next?.source.includes('export const runtime = "nodejs"')) {
     throw new TypeError("The Next.js example must select the Node.js runtime explicitly.");
   }
+  const nextSourceFile = sourceFileFor("examples/next-webhook-route.mjs", next.source);
+  const nextExports = nextSourceFile.statements.flatMap((statement) => {
+    if (ts.isExportDeclaration(statement)) {
+      return statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)
+        ? statement.exportClause.elements.map((element) => element.name.text)
+        : ["unsupported export"];
+    }
+    if (ts.isExportAssignment(statement)) return ["unsupported export"];
+    const exported = statement.modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    );
+    if (!exported) return [];
+    if (ts.isVariableStatement(statement)) {
+      return statement.declarationList.declarations.flatMap((declaration) =>
+        ts.isIdentifier(declaration.name) ? [declaration.name.text] : [],
+      );
+    }
+    if (
+      (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
+      statement.name !== undefined
+    ) {
+      return [statement.name.text];
+    }
+    return ["unsupported export"];
+  });
+  if (nextExports.sort().join(",") !== "POST,runtime") {
+    throw new TypeError("The Next.js route module may export only POST and runtime.");
+  }
 }
 
 async function verifyFormatting(index, root) {
@@ -925,6 +1796,7 @@ async function verifyFormatting(index, root) {
   for (const [path, source] of [
     ...Object.entries(index.documents),
     ...index.examples.map((example) => [example.path, example.source]),
+    ...index.supportingExamples.map((example) => [example.path, example.source]),
   ]) {
     const formatted = await format(source, { ...config, filepath: resolve(root, path) });
     if (formatted !== source) {
@@ -1014,6 +1886,268 @@ async function assertTarball(tarballPath, expectedChecksum) {
   }
 }
 
+function archiveCommand(args, label) {
+  const result = spawnSync("tar", args, {
+    encoding: "utf8",
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  if (result.error !== undefined) throw result.error;
+  if (result.status !== 0) {
+    throw new TypeError(`${label} failed: ${result.stderr || result.stdout}`.trimEnd());
+  }
+  return result.stdout;
+}
+
+function installedArchivePaths(tarballPath) {
+  const paths = archiveCommand(["-tzf", tarballPath], "SDK tarball inventory").split("\n");
+  const installed = new Set();
+  for (const archivePath of paths) {
+    if (archivePath === "") continue;
+    if (!archivePath.startsWith("package/")) {
+      throw new TypeError(`SDK tarball contains a path outside package/: ${archivePath}`);
+    }
+    const packagePath = archivePath.slice("package/".length).replace(/\/$/u, "");
+    if (
+      packagePath !== "" &&
+      (posix.isAbsolute(packagePath) || packagePath.split("/").includes(".."))
+    ) {
+      throw new TypeError(`SDK tarball contains an unsafe package path: ${archivePath}`);
+    }
+    installed.add(packagePath);
+  }
+  return installed;
+}
+
+function installedArchiveFile(tarballPath, path) {
+  return archiveCommand(
+    ["-xOzf", tarballPath, `package/${path}`],
+    `Unable to read installed ${path}`,
+  );
+}
+
+function validateExternalInventory(inventory) {
+  const canonicalTargets = new Set();
+  for (const target of inventory) {
+    const url = new URL(target);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new TypeError(`Installed external URL inventory has an unsupported target: ${target}`);
+    }
+    if (url.username !== "" || url.password !== "") {
+      throw new TypeError(`Installed external URL contains credentials: ${target}`);
+    }
+    if (url.hash !== "") {
+      throw new TypeError(`Installed external URL contains an unverifiable fragment: ${target}`);
+    }
+    if (canonicalTargets.has(url.href)) {
+      throw new TypeError(`Installed external URL inventory contains a duplicate entry: ${target}`);
+    }
+    canonicalTargets.add(url.href);
+  }
+  return canonicalTargets;
+}
+
+function installedLocalTarget(link, installedPaths) {
+  if (link.target.includes("#")) {
+    throw new TypeError(
+      `${link.path}:${link.line} has an installed link with an unverifiable fragment: ${link.target}`,
+    );
+  }
+  const targetPath = link.target.split("?", 1)[0];
+  let decoded;
+  try {
+    decoded = decodeURIComponent(targetPath);
+  } catch (error) {
+    throw new TypeError(`${link.path}:${link.line} has an invalid installed link: ${link.target}`, {
+      cause: error,
+    });
+  }
+  if (decoded.includes("\\") || posix.isAbsolute(decoded)) {
+    throw new TypeError(`${link.path}:${link.line} has an unsafe installed link: ${link.target}`);
+  }
+  const packagePath = posix
+    .normalize(posix.join(posix.dirname(link.path), decoded))
+    .replace(/\/$/u, "");
+  if (packagePath === ".." || packagePath.startsWith("../")) {
+    throw new TypeError(`${link.path}:${link.line} has an unsafe installed link: ${link.target}`);
+  }
+  const exists =
+    installedPaths.has(packagePath) ||
+    [...installedPaths].some((path) => path.startsWith(`${packagePath}/`));
+  if (!exists) {
+    throw new TypeError(
+      `${link.path}:${link.line} has an unresolved installed link: ${link.target}`,
+    );
+  }
+}
+
+async function defaultExternalRequest(url, { signal }) {
+  const response = await fetch(url, {
+    method: "GET",
+    redirect: "manual",
+    headers: { "user-agent": "@ahasend/sdk documentation verifier" },
+    signal,
+  });
+  const result = { status: response.status, location: response.headers.get("location") };
+  await response.body?.cancel();
+  return result;
+}
+
+async function verifyExternalTarget(target, state) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), state.timeoutMs);
+  let current = new URL(target);
+  let redirects = 0;
+  try {
+    while (true) {
+      if (!state.allowedHosts.has(current.hostname)) {
+        throw new TypeError(
+          `Installed external URL left the authoritative host allowlist: ${current.href}`,
+        );
+      }
+      state.requests += 1;
+      if (state.requests > state.requestCap) {
+        throw new TypeError(
+          `Installed external URL request cap exceeded while validating ${target}`,
+        );
+      }
+      let response;
+      try {
+        response = await state.request(current, { signal: controller.signal });
+      } catch (error) {
+        const outcome = controller.signal.aborted ? "timed out" : "request failed";
+        throw new TypeError(`Installed external URL ${outcome}: ${target}`, { cause: error });
+      }
+      if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599) {
+        throw new TypeError(`Installed external URL returned an invalid status: ${target}`);
+      }
+      if (response.status >= 300 && response.status < 400) {
+        if (response.location === null || response.location === undefined) {
+          throw new TypeError(
+            `Installed external URL returned a redirect without Location: ${target}`,
+          );
+        }
+        if (redirects >= INSTALLED_LINK_REDIRECT_CAP) {
+          throw new TypeError(`Installed external URL exceeded two redirects: ${target}`);
+        }
+        let redirected;
+        try {
+          redirected = new URL(response.location, current);
+        } catch (error) {
+          throw new TypeError(`Installed external URL redirected to an invalid target: ${target}`, {
+            cause: error,
+          });
+        }
+        if (
+          (redirected.protocol !== "http:" && redirected.protocol !== "https:") ||
+          redirected.username !== "" ||
+          redirected.password !== "" ||
+          redirected.hash !== "" ||
+          redirected.port !== ""
+        ) {
+          throw new TypeError(`Installed external URL redirected to an unsafe target: ${target}`);
+        }
+        if (redirected.hostname !== current.hostname) {
+          throw new TypeError(`Installed external URL crossed hosts: ${target}`);
+        }
+        current = redirected;
+        redirects += 1;
+        continue;
+      }
+      if (response.status < 200 || response.status >= 300) {
+        throw new TypeError(`Installed external URL returned HTTP ${response.status}: ${target}`);
+      }
+      return;
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Verify links indexed from the README and CHANGELOG present in installed package bytes.
+ * Options support network-isolated tests and source preflight; retained release callers use defaults.
+ */
+export async function verifyInstalledLinks(documents, installedPaths, options = {}) {
+  const inventory = options.externalUrls ?? INSTALLED_EXTERNAL_URLS;
+  const expected = validateExternalInventory(inventory);
+  const links = Object.entries(documents).flatMap(([path, source]) => markdownLinks(source, path));
+  const externalTargets = [];
+  for (const link of links) {
+    if (link.target.startsWith("#")) {
+      throw new TypeError(
+        `${link.path}:${link.line} has an installed link with an unverifiable fragment: ${link.target}`,
+      );
+    }
+    if (/^mailto:/iu.test(link.target)) continue;
+    if (!/^https?:/iu.test(link.target)) {
+      if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(link.target)) {
+        throw new TypeError(
+          `${link.path}:${link.line} has an unsupported installed link: ${link.target}`,
+        );
+      }
+      installedLocalTarget(link, installedPaths);
+      continue;
+    }
+    const url = new URL(link.target);
+    if (url.username !== "" || url.password !== "") {
+      throw new TypeError(
+        `${link.path}:${link.line} has an external URL with credentials: ${link.target}`,
+      );
+    }
+    if (url.hash !== "") {
+      throw new TypeError(
+        `${link.path}:${link.line} has an external URL with an unverifiable fragment: ${link.target}`,
+      );
+    }
+    externalTargets.push(url.href);
+  }
+
+  const actual = new Set(externalTargets);
+  const unregistered = [...actual].find((target) => !expected.has(target));
+  if (unregistered !== undefined) {
+    throw new TypeError(
+      `Installed documentation contains an unregistered external URL: ${unregistered}`,
+    );
+  }
+  const missing = [...expected].find((target) => !actual.has(target));
+  if (missing !== undefined) {
+    throw new TypeError(`Installed documentation is missing registered external URL: ${missing}`);
+  }
+
+  if (options.verifyExternalTargets === false) return;
+
+  const state = {
+    allowedHosts: new Set(AUTHORITATIVE_LINK_HOSTS),
+    request: options.request ?? defaultExternalRequest,
+    requestCap: options.requestCap ?? INSTALLED_LINK_REQUEST_CAP,
+    requests: 0,
+    timeoutMs: options.timeoutMs ?? INSTALLED_LINK_TIMEOUT_MS,
+  };
+  for (const target of expected) await verifyExternalTarget(target, state);
+}
+
+/** Verify installed documentation from checksum-bound candidate bytes. */
+export async function verifyInstalledDocumentation(
+  tarballPath,
+  expectedChecksum,
+  root = repositoryRoot,
+  options = {},
+) {
+  const tarball = resolve(tarballPath);
+  await assertTarball(tarball, expectedChecksum);
+  const installedPaths = installedArchivePaths(tarball);
+  const documents = Object.fromEntries(
+    INSTALLED_DOCUMENT_PATHS.map((path) => [path, installedArchiveFile(tarball, path)]),
+  );
+  for (const path of INSTALLED_DOCUMENT_PATHS) {
+    const checkoutSource = await readFile(resolve(root, path), "utf8");
+    if (documents[path] !== checkoutSource) {
+      throw new TypeError(`Installed ${path} differs from checkout documentation.`);
+    }
+  }
+  await verifyInstalledLinks(documents, installedPaths, options);
+}
+
 /**
  * Type-check runnable examples and all generated Node samples against an
  * installed, checksum-verified package tarball.
@@ -1022,9 +2156,13 @@ export async function verifyPackagedJavaScript(
   tarballPath,
   expectedChecksum,
   root = repositoryRoot,
+  nodeSamples = NODE_CODE_SAMPLES,
 ) {
   const tarball = resolve(tarballPath);
   await assertTarball(tarball, expectedChecksum);
+  if (Object.keys(nodeSamples).length !== EXPECTED_NODE_SAMPLE_COUNT) {
+    throw new TypeError(`Expected ${EXPECTED_NODE_SAMPLE_COUNT} packaged Node samples.`);
+  }
   const index = await buildDocumentationIndex(root);
   const temporaryRoot = await mkdtemp(join(tmpdir(), "ahasend-sdk-docs-"));
   try {
@@ -1075,7 +2213,7 @@ export async function verifyPackagedJavaScript(
       await writeFile(path, source);
       run(process.execPath, ["--check", path], temporaryRoot);
     }
-    for (const [operationId, sample] of Object.entries(NODE_CODE_SAMPLES)) {
+    for (const [operationId, sample] of Object.entries(nodeSamples)) {
       const path = resolve(samplesDirectory, `${operationId}.mjs`);
       await writeFile(path, sample.source);
       run(process.execPath, ["--check", path], temporaryRoot);
@@ -1135,7 +2273,6 @@ declare global {
           },
           include: [
             "examples/**/*.mjs",
-            "node-samples/**/*.mjs",
             "snippets/**/*.mjs",
             "snippets/**/*.ts",
             "snippets/**/*.d.ts",
@@ -1144,6 +2281,37 @@ declare global {
         null,
         2,
       )}\n`,
+    );
+    await writeFile(
+      resolve(temporaryRoot, "tsconfig.node-samples.json"),
+      `${JSON.stringify(
+        {
+          compilerOptions: {
+            allowJs: true,
+            checkJs: true,
+            noEmit: true,
+            target: "ES2023",
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            strict: true,
+            skipLibCheck: true,
+          },
+          include: ["node-samples/**/*.mjs"],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    run(
+      process.execPath,
+      [
+        resolve(root, "node_modules/typescript/bin/tsc"),
+        "--project",
+        "tsconfig.node-samples.json",
+        "--pretty",
+        "false",
+      ],
+      temporaryRoot,
     );
     run(
       process.execPath,
@@ -1187,18 +2355,20 @@ export function verifyDocumentation(documents) {
 
 async function main() {
   if (process.argv.length > 4) {
-    throw new TypeError("Usage: node scripts/verify-docs.mjs [tarball sha256]");
+    throw new TypeError("Usage: node scripts/verify-docs.mjs <tarball> <sha256>");
+  }
+  const tarball = process.argv[2] ?? process.env.SDK_TARBALL;
+  const checksum = process.argv[3] ?? process.env.SDK_TARBALL_SHA256;
+  if (tarball === undefined || checksum === undefined) {
+    throw new TypeError("Provide both SDK_TARBALL and SDK_TARBALL_SHA256.");
   }
   const index = await buildDocumentationIndex();
   await verifyDocumentationIndex(index);
-  const tarball = process.argv[2] ?? process.env.SDK_TARBALL;
-  const checksum = process.argv[3] ?? process.env.SDK_TARBALL_SHA256;
-  if ((tarball === undefined) !== (checksum === undefined)) {
-    throw new TypeError("Provide both SDK_TARBALL and SDK_TARBALL_SHA256.");
-  }
-  if (tarball !== undefined && checksum !== undefined) {
-    await verifyPackagedJavaScript(tarball, checksum);
-  }
+  const retainedArtifactInvocation = process.argv[2] !== undefined && process.argv[3] !== undefined;
+  await verifyInstalledDocumentation(tarball, checksum, repositoryRoot, {
+    verifyExternalTargets: retainedArtifactInvocation,
+  });
+  await verifyPackagedJavaScript(tarball, checksum);
   process.stdout.write(
     `verify-docs: ${REQUIRED_DOCUMENT_PATHS.length} documents passed; ${index.examples.length} examples and ${Object.keys(index.nodeSamples).length} Node samples passed\n`,
   );

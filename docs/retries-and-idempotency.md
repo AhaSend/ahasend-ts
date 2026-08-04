@@ -43,6 +43,23 @@ const client = new AhaSendClient({
 });
 ```
 
+Every resource method also accepts a restricted per-call override. Use `retry: false` (or
+`retry: { enabled: false }`) to make one attempt. An object is merged field by field with the
+client policy: `maxRetries`, `baseDelayMs`, and `maxDelayMs` may stay the same or decrease, while
+`strategy` and `jitter` may only repeat their configured values. `enabled: true` is accepted only
+when client retries are enabled. Invalid increases or changes are rejected before any request is
+sent.
+
+```ts
+await client.messages.send(message, {
+  retry: { maxRetries: 1, maxDelayMs: 5_000 },
+});
+```
+
+These overrides can only restrict client policy. They never override the generated operation
+profile: an operation marked never retryable still gets one attempt, and a key-protected operation
+still requires an idempotency key.
+
 See [Cancellation and timeouts](cancellation.md) for the boundaries of attempt timeouts and abort
 signals.
 
@@ -84,8 +101,31 @@ after its server retention window expires.
 
 `idempotency.autoGenerate: false` disables automatic keys. Create operations without a key are
 then attempted only once because they are no longer retry-safe. `IdempotencyKeyBuilder` is useful
-for related but distinct operations; its prefix is prepended literally, so include any desired
-separator yourself.
+for related but distinct operations. Its first `next()` call returns the base key unchanged.
+`IdempotencyKeyBuilder` inserts a hyphen between its prefix and the generated key remainder on each
+later `next()` call; `withSuffix()` inserts the same separator before an explicit suffix. By contrast,
+`generateIdempotencyKey(prefix)` prepends its prefix literally, so include any desired separator in
+that function's prefix yourself.
 
 An abort or timeout does not prove that the server did no work. Reconcile using the stable
-idempotency key or a subsequent read before issuing a new business operation.
+idempotency key or a subsequent read before issuing a new business operation. If an
+idempotency-in-progress conflict remains after automatic retries, the terminal
+`AhaSendIdempotencyConflictError.idempotencyKey` contains the same stable key used for every
+attempt:
+
+```ts
+import { AhaSendIdempotencyConflictError } from "@ahasend/sdk";
+
+try {
+  await client.messages.send(message);
+} catch (error) {
+  if (error instanceof AhaSendIdempotencyConflictError && error.idempotencyKey) {
+    const recoveryKey = error.idempotencyKey;
+    // Reconcile with recoveryKey before starting a new business operation.
+  }
+}
+```
+
+Read the property directly for reconciliation. The SDK deliberately omits it from property
+enumeration, JSON serialization, inspection, and telemetry errors so routine diagnostics do not
+disclose the key.

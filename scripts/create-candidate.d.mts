@@ -6,7 +6,6 @@ export interface CandidateBindings {
   readonly contractSha256: Readonly<Record<string, string>>;
   readonly captureSha256: string;
   readonly keysSha256: Readonly<Record<string, string>>;
-  readonly rendererReportSha256: string;
   readonly profileSha256: string;
   readonly tarballSha256: string;
 }
@@ -65,7 +64,6 @@ export type CandidateCommandRunner = (
 export interface CreateCandidateOptions {
   readonly sourceReportPath: string;
   readonly sourceReportSidecarPath?: string;
-  readonly rendererReportPath: string;
   readonly outputDirectory: string;
   readonly runCommand?: CandidateCommandRunner;
 }

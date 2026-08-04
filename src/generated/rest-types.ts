@@ -138,13 +138,13 @@ export interface components {
     };
     CreateAPIKeyRequest: {
       label: string;
-      scopes: Array<string>;
-      ip_allow_list?: Array<string>;
+      scopes: ReadonlyArray<string>;
+      ip_allow_list?: Array<string> | undefined;
     };
     UpdateAPIKeyRequest: {
-      label?: string | null;
-      scopes?: Array<string> | null;
-      ip_allow_list?: Array<string> | null;
+      label?: string | null | undefined;
+      scopes?: ReadonlyArray<string> | null | undefined;
+      ip_allow_list?: Array<string> | null | undefined;
     } & (
       | {
           label: string;
@@ -190,21 +190,21 @@ export interface components {
     };
     CreateDomainRequest: {
       domain: string;
-      dkim_private_key?: string;
-      tracking_subdomain?: string;
-      return_path_subdomain?: string;
-      subscription_subdomain?: string;
-      media_subdomain?: string;
-      dkim_rotation_interval_days?: number;
-      dkim_selector?: string | null;
+      dkim_private_key?: string | undefined;
+      tracking_subdomain?: string | undefined;
+      return_path_subdomain?: string | undefined;
+      subscription_subdomain?: string | undefined;
+      media_subdomain?: string | undefined;
+      dkim_rotation_interval_days?: number | undefined;
+      dkim_selector?: string | null | undefined;
     };
     UpdateDomainRequest: {
-      tracking_subdomain?: string;
-      return_path_subdomain?: string;
-      subscription_subdomain?: string;
-      media_subdomain?: string;
-      dkim_rotation_interval_days?: number;
-      dkim_selector?: string | null;
+      tracking_subdomain?: string | undefined;
+      return_path_subdomain?: string | undefined;
+      subscription_subdomain?: string | undefined;
+      media_subdomain?: string | undefined;
+      dkim_rotation_interval_days?: number | undefined;
+      dkim_selector?: string | null | undefined;
     };
     PaginatedDomainsResponse: {
       object: "list";
@@ -213,83 +213,91 @@ export interface components {
     };
     Address: {
       email: string;
-      name?: string;
+      name?: string | undefined;
     };
     Recipient: {
       email: string;
-      name?: string;
-      substitutions?: {
-        [key: string]: unknown;
-      };
+      name?: string | undefined;
+      substitutions?:
+        | {
+            [key: string]: unknown;
+          }
+        | undefined;
     };
     Attachment: {
-      base64?: boolean;
+      base64?: boolean | undefined;
       data: string;
       content_type: string;
-      content_disposition?: string;
-      content_id?: string;
+      content_disposition?: string | undefined;
+      content_id?: string | undefined;
       file_name: string;
     };
     Tracking: {
-      open?: boolean | null;
-      click?: boolean | null;
+      open?: boolean | null | undefined;
+      click?: boolean | null | undefined;
     } | null;
     Retention: {
-      metadata?: number | null;
-      data?: number | null;
+      metadata?: number | null | undefined;
+      data?: number | null | undefined;
     } | null;
     MessageSchedule: {
-      first_attempt?: string;
-      expires?: string;
+      first_attempt?: string | undefined;
+      expires?: string | undefined;
     };
     CreateMessageRequest: {
       from: components["schemas"]["Address"];
-      recipients: Array<components["schemas"]["Recipient"]>;
-      reply_to?: components["schemas"]["Address"];
+      recipients: ReadonlyArray<components["schemas"]["Recipient"]>;
+      reply_to?: components["schemas"]["Address"] | undefined;
       subject: string;
-      text_content?: string;
-      html_content?: string;
-      amp_content?: string;
-      attachments?: Array<components["schemas"]["Attachment"]>;
-      headers?: {
-        [key: string]: string;
-      };
-      substitutions?: {
-        [key: string]: unknown;
-      };
-      tags?: Array<string>;
-      sandbox?: boolean;
-      sandbox_result?: "deliver" | "bounce" | "defer" | "fail" | "suppress";
-      tracking?: components["schemas"]["Tracking"];
-      retention?: components["schemas"]["Retention"];
-      schedule?: components["schemas"]["MessageSchedule"];
+      text_content?: string | undefined;
+      html_content?: string | undefined;
+      amp_content?: string | undefined;
+      attachments?: Array<components["schemas"]["Attachment"]> | undefined;
+      headers?:
+        | {
+            [key: string]: string;
+          }
+        | undefined;
+      substitutions?:
+        | {
+            [key: string]: unknown;
+          }
+        | undefined;
+      tags?: Array<string> | undefined;
+      sandbox?: boolean | undefined;
+      sandbox_result?: "deliver" | "bounce" | "defer" | "fail" | "suppress" | undefined;
+      tracking?: components["schemas"]["Tracking"] | undefined;
+      retention?: components["schemas"]["Retention"] | undefined;
+      schedule?: components["schemas"]["MessageSchedule"] | undefined;
     };
     CreateConversationMessageRequest: {
       from: components["schemas"]["Address"];
-      to: Array<components["schemas"]["Address"]>;
-      cc?: Array<components["schemas"]["Address"]>;
-      bcc?: Array<components["schemas"]["Address"]>;
-      reply_to?: components["schemas"]["Address"];
+      to: ReadonlyArray<components["schemas"]["Address"]>;
+      cc?: ReadonlyArray<components["schemas"]["Address"]> | undefined;
+      bcc?: ReadonlyArray<components["schemas"]["Address"]> | undefined;
+      reply_to?: components["schemas"]["Address"] | undefined;
       subject: string;
-      text_content?: string;
-      html_content?: string;
-      amp_content?: string;
-      attachments?: Array<components["schemas"]["Attachment"]>;
-      headers?: {
-        [key: string]: string;
-      };
-      tags?: Array<string>;
-      sandbox?: boolean;
-      sandbox_result?: "deliver" | "bounce" | "defer" | "fail" | "suppress";
-      tracking?: components["schemas"]["Tracking"];
-      retention?: components["schemas"]["Retention"];
-      schedule?: components["schemas"]["MessageSchedule"];
+      text_content?: string | undefined;
+      html_content?: string | undefined;
+      amp_content?: string | undefined;
+      attachments?: Array<components["schemas"]["Attachment"]> | undefined;
+      headers?:
+        | {
+            [key: string]: string;
+          }
+        | undefined;
+      tags?: Array<string> | undefined;
+      sandbox?: boolean | undefined;
+      sandbox_result?: "deliver" | "bounce" | "defer" | "fail" | "suppress" | undefined;
+      tracking?: components["schemas"]["Tracking"] | undefined;
+      retention?: components["schemas"]["Retention"] | undefined;
+      schedule?: components["schemas"]["MessageSchedule"] | undefined;
     };
     CreateSingleMessageResponse: {
       object: "message";
       id: string | null;
       recipient: components["schemas"]["Recipient"] & {
-        name: unknown;
+        name: string;
       };
       status: "queued" | "scheduled" | "error";
       error: string | null;
@@ -388,12 +396,12 @@ export interface components {
     CreateSubAccountRequest: {
       name: string;
       website: string;
-      monthly_credit?: number;
+      monthly_credit?: number | undefined;
     };
     UpdateSubAccountRequest: {
-      name?: string | null;
-      website?: string | null;
-      monthly_credit?: number | null;
+      name?: string | null | undefined;
+      website?: string | null | undefined;
+      monthly_credit?: number | null | undefined;
     } & (
       | {
           name: string;
@@ -423,12 +431,12 @@ export interface components {
       allocation_method: "proportional";
       allocation_note: string;
       parent: components["schemas"]["SubAccountUsageBreakdown"] & {
-        account_id: unknown;
+        account_id: string;
       };
       sub_accounts: Array<
         components["schemas"]["SubAccountUsageBreakdown"] & {
-          account_id: unknown;
-          name: unknown;
+          account_id: string;
+          name: string;
         }
       >;
       removed_sub_accounts: components["schemas"]["SubAccountUsageBreakdown"];
@@ -440,15 +448,15 @@ export interface components {
       pagination: components["schemas"]["PaginationInfo"];
     };
     UpdateAccountRequest: {
-      name?: string;
-      website?: string;
-      about?: string;
-      track_opens?: boolean;
-      track_clicks?: boolean;
-      reject_bad_recipients?: boolean;
-      reject_mistyped_recipients?: boolean;
-      message_metadata_retention?: number;
-      message_data_retention?: number;
+      name?: string | undefined;
+      website?: string | undefined;
+      about?: string | undefined;
+      track_opens?: boolean | undefined;
+      track_clicks?: boolean | undefined;
+      reject_bad_recipients?: boolean | undefined;
+      reject_mistyped_recipients?: boolean | undefined;
+      message_metadata_retention?: number | undefined;
+      message_data_retention?: number | undefined;
     };
     UserAccount: {
       created_at: string;
@@ -463,7 +471,7 @@ export interface components {
     };
     AddMemberRequest: {
       email: string;
-      name?: string;
+      name?: string | undefined;
       role: "Administrator" | "Developer" | "Analyst" | "Billing Manager";
     };
     Suppression: {
@@ -481,8 +489,8 @@ export interface components {
     };
     CreateSuppressionRequest: {
       email: string;
-      domain?: string;
-      reason?: string;
+      domain?: string | undefined;
+      reason?: string | undefined;
       expires_at: string;
     };
     PaginatedSuppressionsResponse: {
@@ -515,21 +523,21 @@ export interface components {
       name: string;
       url: string;
       recipient: string;
-      attachments?: boolean;
-      headers?: boolean;
-      group_by_message_id?: boolean;
-      strip_replies?: boolean;
-      enabled?: boolean;
+      attachments?: boolean | undefined;
+      headers?: boolean | undefined;
+      group_by_message_id?: boolean | undefined;
+      strip_replies?: boolean | undefined;
+      enabled?: boolean | undefined;
     };
     UpdateRouteRequest: {
-      name?: string | null;
-      url?: string | null;
-      recipient?: string | null;
-      attachments?: boolean | null;
-      headers?: boolean | null;
-      group_by_message_id?: boolean | null;
-      strip_replies?: boolean | null;
-      enabled?: boolean | null;
+      name?: string | null | undefined;
+      url?: string | null | undefined;
+      recipient?: string | null | undefined;
+      attachments?: boolean | null | undefined;
+      headers?: boolean | null | undefined;
+      group_by_message_id?: boolean | null | undefined;
+      strip_replies?: boolean | null | undefined;
+      enabled?: boolean | null | undefined;
     };
     PaginatedRoutesResponse: {
       object: "list";
@@ -567,45 +575,45 @@ export interface components {
     CreateWebhookRequest: {
       name: string;
       url: string;
-      enabled?: boolean;
-      on_reception?: boolean;
-      on_delivered?: boolean;
-      on_transient_error?: boolean;
-      on_failed?: boolean;
-      on_bounced?: boolean;
-      on_suppressed?: boolean;
-      on_opened?: boolean;
-      on_clicked?: boolean;
-      on_suppression_created?: boolean;
-      on_dns_error?: boolean;
+      enabled?: boolean | undefined;
+      on_reception?: boolean | undefined;
+      on_delivered?: boolean | undefined;
+      on_transient_error?: boolean | undefined;
+      on_failed?: boolean | undefined;
+      on_bounced?: boolean | undefined;
+      on_suppressed?: boolean | undefined;
+      on_opened?: boolean | undefined;
+      on_clicked?: boolean | undefined;
+      on_suppression_created?: boolean | undefined;
+      on_dns_error?: boolean | undefined;
       scope: "global" | "scoped";
-      domains?: Array<string> | null;
+      domains?: Array<string> | null | undefined;
     } & (
       | ({
           scope: "scoped";
         } & {
-          domains: Array<string>;
+          domains: ReadonlyArray<string>;
         })
       | {
           scope?: Exclude<"global" | "scoped", "scoped">;
         }
     );
     UpdateWebhookRequest: {
-      name?: string | null;
-      url?: string | null;
-      enabled?: boolean | null;
-      on_reception?: boolean | null;
-      on_delivered?: boolean | null;
-      on_transient_error?: boolean | null;
-      on_failed?: boolean | null;
-      on_bounced?: boolean | null;
-      on_suppressed?: boolean | null;
-      on_opened?: boolean | null;
-      on_clicked?: boolean | null;
-      on_suppression_created?: boolean | null;
-      on_dns_error?: boolean | null;
-      scope?: "global" | "scoped" | null;
-      domains?: Array<string> | null;
+      name?: string | null | undefined;
+      url?: string | null | undefined;
+      enabled?: boolean | null | undefined;
+      on_reception?: boolean | null | undefined;
+      on_delivered?: boolean | null | undefined;
+      on_transient_error?: boolean | null | undefined;
+      on_failed?: boolean | null | undefined;
+      on_bounced?: boolean | null | undefined;
+      on_suppressed?: boolean | null | undefined;
+      on_opened?: boolean | null | undefined;
+      on_clicked?: boolean | null | undefined;
+      on_suppression_created?: boolean | null | undefined;
+      on_dns_error?: boolean | null | undefined;
+      scope?: "global" | "scoped" | null | undefined;
+      domains?: Array<string> | null | undefined;
     };
     PaginatedWebhooksResponse: {
       object: "list";
@@ -628,14 +636,14 @@ export interface components {
     };
     CreateSMTPCredentialRequest: {
       name: string;
-      sandbox?: boolean;
+      sandbox?: boolean | undefined;
       scope: "global" | "scoped";
-      domains?: Array<string> | null;
+      domains?: Array<string> | null | undefined;
     } & (
       | ({
           scope: "scoped";
         } & {
-          domains: Array<string>;
+          domains: ReadonlyArray<string>;
         })
       | {
           scope?: Exclude<"global" | "scoped", "scoped">;
@@ -713,9 +721,9 @@ export interface operations {
         account_id: string;
       };
       query: {
-        limit?: number;
-        after?: string;
-        before?: string;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
       };
     };
     responses: {
@@ -744,8 +752,8 @@ export interface operations {
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -805,10 +813,10 @@ export interface operations {
         account_id: string;
       };
       query: {
-        dns_valid?: boolean | null;
-        limit?: number;
-        after?: string;
-        before?: string;
+        dns_valid?: boolean | null | undefined;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
       };
     };
     responses: {
@@ -831,8 +839,8 @@ export interface operations {
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -907,17 +915,17 @@ export interface operations {
         account_id: string;
       };
       query: {
-        status?: string;
-        sender?: string;
-        recipient?: string;
-        subject?: string;
-        message_id_header?: string;
-        tags?: string;
-        from_time?: string;
-        to_time?: string;
-        limit?: number;
-        after?: string;
-        before?: string;
+        status?: string | undefined;
+        sender?: string | undefined;
+        recipient?: string | undefined;
+        subject?: string | undefined;
+        message_id_header?: string | undefined;
+        tags?: string | undefined;
+        from_time?: string | undefined;
+        to_time?: string | undefined;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
       };
     };
     responses: {
@@ -942,8 +950,8 @@ export interface operations {
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -961,8 +969,8 @@ export interface operations {
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -1055,8 +1063,8 @@ export interface operations {
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -1082,9 +1090,9 @@ export interface operations {
         account_id: string;
       };
       query: {
-        limit?: number;
-        after?: string;
-        before?: string;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
       };
     };
     responses: {
@@ -1113,8 +1121,8 @@ export interface operations {
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -1226,9 +1234,9 @@ export interface operations {
         sub_account_id: string;
       };
       query: {
-        limit?: number;
-        after?: string;
-        before?: string;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
       };
     };
     responses: {
@@ -1260,8 +1268,8 @@ export interface operations {
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -1323,13 +1331,13 @@ export interface operations {
         account_id: string;
       };
       query: {
-        domain?: string;
-        email?: string;
-        from_time?: string;
-        to_time?: string;
-        limit?: number;
-        after?: string;
-        before?: string;
+        domain?: string | undefined;
+        email?: string | undefined;
+        from_time?: string | undefined;
+        to_time?: string | undefined;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
       };
     };
     responses: {
@@ -1360,7 +1368,7 @@ export interface operations {
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "422": { content?: never };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -1371,7 +1379,7 @@ export interface operations {
       };
       query: {
         email: string;
-        domain?: string;
+        domain?: string | undefined;
       };
     };
     responses: {
@@ -1389,7 +1397,7 @@ export interface operations {
         account_id: string;
       };
       query: {
-        domain?: string;
+        domain?: string | undefined;
       };
     };
     responses: {
@@ -1407,10 +1415,10 @@ export interface operations {
         account_id: string;
       };
       query: {
-        domain?: string;
-        limit?: number;
-        after?: string;
-        before?: string;
+        domain?: string | undefined;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
       };
     };
     responses: {
@@ -1433,8 +1441,8 @@ export interface operations {
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -1493,20 +1501,20 @@ export interface operations {
         account_id: string;
       };
       query: {
-        enabled?: boolean;
-        on_reception?: boolean;
-        on_delivered?: boolean;
-        on_transient_error?: boolean;
-        on_failed?: boolean;
-        on_bounced?: boolean;
-        on_suppressed?: boolean;
-        on_opened?: boolean;
-        on_clicked?: boolean;
-        on_suppression_created?: boolean;
-        on_dns_error?: boolean;
-        limit?: number;
-        after?: string;
-        before?: string;
+        enabled?: boolean | undefined;
+        on_reception?: boolean | undefined;
+        on_delivered?: boolean | undefined;
+        on_transient_error?: boolean | undefined;
+        on_failed?: boolean | undefined;
+        on_bounced?: boolean | undefined;
+        on_suppressed?: boolean | undefined;
+        on_opened?: boolean | undefined;
+        on_clicked?: boolean | undefined;
+        on_suppression_created?: boolean | undefined;
+        on_dns_error?: boolean | undefined;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
       };
     };
     responses: {
@@ -1531,8 +1539,8 @@ export interface operations {
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -1591,9 +1599,9 @@ export interface operations {
         account_id: string;
       };
       query: {
-        limit?: number;
-        after?: string;
-        before?: string;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
       };
     };
     responses: {
@@ -1620,8 +1628,8 @@ export interface operations {
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
-      "409": { content?: never };
-      "422": { content?: never };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
@@ -1663,12 +1671,12 @@ export interface operations {
         account_id: string;
       };
       query: {
-        from_time?: string;
-        to_time?: string;
-        sender_domain?: string;
-        recipient_domains?: string;
-        tags?: string;
-        group_by?: "hour" | "day" | "week" | "month";
+        from_time?: string | undefined;
+        to_time?: string | undefined;
+        sender_domain?: string | undefined;
+        recipient_domains?: string | undefined;
+        tags?: string | undefined;
+        group_by?: "hour" | "day" | "week" | "month" | undefined;
       };
     };
     responses: {
@@ -1688,12 +1696,12 @@ export interface operations {
         account_id: string;
       };
       query: {
-        from_time?: string;
-        to_time?: string;
-        sender_domain?: string;
-        recipient_domains?: string;
-        tags?: string;
-        group_by?: "hour" | "day" | "week" | "month";
+        from_time?: string | undefined;
+        to_time?: string | undefined;
+        sender_domain?: string | undefined;
+        recipient_domains?: string | undefined;
+        tags?: string | undefined;
+        group_by?: "hour" | "day" | "week" | "month" | undefined;
       };
     };
     responses: {
@@ -1711,12 +1719,12 @@ export interface operations {
         account_id: string;
       };
       query: {
-        from_time?: string;
-        to_time?: string;
-        sender_domain?: string;
-        recipient_domains?: string;
-        tags?: string;
-        group_by?: "hour" | "day" | "week" | "month";
+        from_time?: string | undefined;
+        to_time?: string | undefined;
+        sender_domain?: string | undefined;
+        recipient_domains?: string | undefined;
+        tags?: string | undefined;
+        group_by?: "hour" | "day" | "week" | "month" | undefined;
       };
     };
     responses: {

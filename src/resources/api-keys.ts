@@ -1,6 +1,7 @@
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
+  AhaSendPromise,
   ISODateTime,
   PaginatedResponse,
   PaginationParams,
@@ -9,6 +10,7 @@ import type {
   UUID,
 } from "../types/common.js";
 import {
+  assertNonEmptyArray,
   forwardOptions,
   forwardWithIdempotency,
   type IdempotencyRequestOptions,
@@ -63,22 +65,60 @@ export interface CreatedAPIKey extends APIKey {
 export interface CreateAPIKeyRequest {
   label: string;
   /** At least one scope is required by the API. */
-  scopes: [APIKeyScopeName, ...APIKeyScopeName[]];
-  ip_allow_list?: string[];
+  scopes: readonly APIKeyScopeName[];
+  ip_allow_list?: readonly string[] | undefined;
 }
 
-export interface UpdateAPIKeyRequest {
-  label?: string | null;
-  scopes?: APIKeyScopeName[] | null;
-  ip_allow_list?: string[] | null;
-}
+/** At least one field must select a non-null update value. */
+export type UpdateAPIKeyRequest = {
+  label?: string | null | undefined;
+  scopes?: readonly APIKeyScopeName[] | null | undefined;
+  ip_allow_list?: readonly string[] | null | undefined;
+} & (
+  | { label: string }
+  | { scopes: readonly APIKeyScopeName[] }
+  | { ip_allow_list: readonly string[] }
+);
 
 /**
  * Manage API keys and their scopes. Scope strings follow
  * `resource:action:target`, e.g. `messages:send:all` or
  * `messages:send:example.com` (domain-scoped).
  */
-export class APIKeysClient {
+export interface APIKeysClient {
+  /** List API keys for the account using cursor pagination. */
+  list(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<PaginatedResponse<APIKey>>;
+
+  /** Iterate through every API key, following cursor pagination until exhausted. */
+  iterate(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<APIKey, void, undefined>;
+
+  /**
+   * Create an API key with one or more scopes.
+   *
+   * The response is the only time `secret_key` is visible; persist it immediately.
+   */
+  create(
+    body: CreateAPIKeyRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<CreatedAPIKey>;
+
+  /** Retrieve an API key by its ID without exposing its secret key. */
+  get(keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey>;
+
+  /** Update at least one field to a non-null value; omitted or null fields remain unchanged. */
+  update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): AhaSendPromise<APIKey>;
+
+  /** Delete an API key by its ID. */
+  delete(keyId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+}
+
+class APIKeysClientImplementation implements APIKeysClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -90,8 +130,8 @@ export class APIKeysClient {
   list(
     params: PaginationParams = {},
     options: RequestOptions = {},
-  ): Promise<PaginatedResponse<APIKey>> {
-    return this.#operations.execute<PaginatedResponse<APIKey>>(
+  ): AhaSendPromise<PaginatedResponse<APIKey>> {
+    return this.#operations.execute(
       "getAPIKeys",
       {
         path: { account_id: this.#accountId },
@@ -108,42 +148,53 @@ export class APIKeysClient {
     return paginate<APIKey, PaginationParams>((p) => this.list(p, options), params);
   }
 
-  /**
-   * Create a key. The response is the only time `secret_key` is
-   * visible — persist it immediately.
-   */
   create(
     body: CreateAPIKeyRequest,
     options: IdempotencyRequestOptions = {},
-  ): Promise<CreatedAPIKey> {
-    return this.#operations.execute<CreatedAPIKey>(
+  ): AhaSendPromise<CreatedAPIKey> {
+    const forwarded = forwardWithIdempotency(options);
+    assertNonEmptyArray(body?.scopes, "scopes");
+    return this.#operations.execute(
       "createAPIKey",
       { path: { account_id: this.#accountId }, body },
-      forwardWithIdempotency(options),
+      forwarded,
     );
   }
 
-  get(keyId: UUID, options: RequestOptions = {}): Promise<APIKey> {
-    return this.#operations.execute<APIKey>(
+  get(keyId: UUID, options: RequestOptions = {}): AhaSendPromise<APIKey> {
+    return this.#operations.execute(
       "getAPIKey",
       { path: { account_id: this.#accountId, key_id: keyId } },
       forwardOptions(options),
     );
   }
 
-  update(keyId: UUID, body: UpdateAPIKeyRequest, options: RequestOptions = {}): Promise<APIKey> {
-    return this.#operations.execute<APIKey>(
+  update(
+    keyId: UUID,
+    body: UpdateAPIKeyRequest,
+    options: RequestOptions = {},
+  ): AhaSendPromise<APIKey> {
+    const forwarded = forwardOptions(options);
+    if (body?.scopes !== undefined && body.scopes !== null) {
+      assertNonEmptyArray(body.scopes, "scopes");
+    }
+    return this.#operations.execute(
       "updateAPIKey",
       { path: { account_id: this.#accountId, key_id: keyId }, body },
-      forwardOptions(options),
+      forwarded,
     );
   }
 
-  delete(keyId: UUID, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+  delete(keyId: UUID, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
+    return this.#operations.execute(
       "deleteAPIKey",
       { path: { account_id: this.#accountId, key_id: keyId } },
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the API-key resource implementation for the root client. */
+export function createAPIKeysClient(operations: OperationExecutor, accountId: UUID): APIKeysClient {
+  return new APIKeysClientImplementation(operations, accountId);
 }

@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { AhaSendConfigurationError } from "./errors.js";
 
 export interface IdempotencyConfig {
-  autoGenerate?: boolean;
-  prefix?: string;
+  autoGenerate?: boolean | undefined;
+  prefix?: string | undefined;
 }
 
 export interface ResolvedIdempotencyConfig {

@@ -1,22 +1,26 @@
 import {
   AhaSendAbortError,
   AhaSendAPIError,
+  AhaSendConfigurationError,
   AhaSendConnectionError,
   AhaSendIdempotencyConflictError,
   AhaSendRateLimitError,
   AhaSendServerError,
   AhaSendTimeoutError,
+  parseRetryAfter,
 } from "./errors.js";
 
 export type RetryStrategy = "exponential" | "linear" | "constant";
 
+export const MAX_RETRIES = 20;
+
 export interface RetryConfig {
-  enabled?: boolean;
-  maxRetries?: number;
-  baseDelayMs?: number;
-  maxDelayMs?: number;
-  strategy?: RetryStrategy;
-  jitter?: boolean;
+  enabled?: boolean | undefined;
+  maxRetries?: number | undefined;
+  baseDelayMs?: number | undefined;
+  maxDelayMs?: number | undefined;
+  strategy?: RetryStrategy | undefined;
+  jitter?: boolean | undefined;
 }
 
 export interface ResolvedRetryConfig {
@@ -46,6 +50,63 @@ export function resolveRetryConfig(override?: RetryConfig): ResolvedRetryConfig 
     strategy: override?.strategy ?? DEFAULT_RETRY_CONFIG.strategy,
     jitter: override?.jitter ?? DEFAULT_RETRY_CONFIG.jitter,
   };
+}
+
+/** Resolve a per-call retry restriction without broadening the client policy. */
+export function resolveRetryOverride(
+  configured: ResolvedRetryConfig,
+  override?: false | Partial<RetryConfig>,
+): ResolvedRetryConfig {
+  if (override === undefined) return configured;
+  if (override === false) return { ...configured, enabled: false };
+
+  if (override.enabled === true && !configured.enabled) {
+    throw new AhaSendConfigurationError(
+      "AhaSend: `request options.retry.enabled` cannot enable retries disabled by the client.",
+    );
+  }
+
+  assertRetryLimitDoesNotIncrease("maxRetries", override.maxRetries, configured.maxRetries);
+  assertRetryLimitDoesNotIncrease("baseDelayMs", override.baseDelayMs, configured.baseDelayMs);
+  assertRetryLimitDoesNotIncrease("maxDelayMs", override.maxDelayMs, configured.maxDelayMs);
+
+  if (override.strategy !== undefined && override.strategy !== configured.strategy) {
+    throw new AhaSendConfigurationError(
+      "AhaSend: `request options.retry.strategy` cannot change the client retry strategy.",
+    );
+  }
+  if (override.jitter !== undefined && override.jitter !== configured.jitter) {
+    throw new AhaSendConfigurationError(
+      "AhaSend: `request options.retry.jitter` cannot change the client retry jitter setting.",
+    );
+  }
+
+  const resolved: ResolvedRetryConfig = {
+    enabled: override.enabled ?? configured.enabled,
+    maxRetries: override.maxRetries ?? configured.maxRetries,
+    baseDelayMs: override.baseDelayMs ?? configured.baseDelayMs,
+    maxDelayMs: override.maxDelayMs ?? configured.maxDelayMs,
+    strategy: override.strategy ?? configured.strategy,
+    jitter: override.jitter ?? configured.jitter,
+  };
+  if (resolved.maxDelayMs < resolved.baseDelayMs) {
+    throw new AhaSendConfigurationError(
+      "AhaSend: resolved `request options.retry.maxDelayMs` must be greater than or equal to `baseDelayMs`.",
+    );
+  }
+  return resolved;
+}
+
+function assertRetryLimitDoesNotIncrease(
+  field: "maxRetries" | "baseDelayMs" | "maxDelayMs",
+  override: number | undefined,
+  configured: number,
+): void {
+  if (override !== undefined && override > configured) {
+    throw new AhaSendConfigurationError(
+      `AhaSend: \`request options.retry.${field}\` cannot exceed the client value (${configured}).`,
+    );
+  }
 }
 
 export function isRetryableError(err: unknown): boolean {
@@ -96,18 +157,39 @@ export function computeRetryDelayMs(
 ): number {
   const backoff = computeBackoffMs(attempt, config, random);
 
-  if (
-    (err instanceof AhaSendRateLimitError || err instanceof AhaSendIdempotencyConflictError) &&
-    err.retryAfterSeconds !== undefined &&
-    Number.isSafeInteger(err.retryAfterSeconds) &&
-    err.retryAfterSeconds > 0
-  ) {
+  const retryAfterSeconds = retryAfterForError(err);
+  if (retryAfterSeconds !== undefined) {
     // A valid server delay is authoritative, while the caller's configured
     // maximum remains the upper bound on how long one retry can sleep.
-    return Math.min(err.retryAfterSeconds * 1000, config.maxDelayMs);
+    return Math.min(retryAfterSeconds * 1000, config.maxDelayMs);
   }
 
   return backoff;
+}
+
+function retryAfterForError(err: unknown): number | undefined {
+  if (err instanceof AhaSendIdempotencyConflictError) {
+    return isValidRetryAfterSeconds(err.retryAfterSeconds, false)
+      ? err.retryAfterSeconds
+      : undefined;
+  }
+
+  if (
+    err instanceof AhaSendAPIError &&
+    (err.status === 408 || err.status === 429 || err.status >= 500)
+  ) {
+    const retryAfterSeconds =
+      err instanceof AhaSendRateLimitError && err.retryAfterSeconds !== undefined
+        ? err.retryAfterSeconds
+        : parseRetryAfter(err.headers["retry-after"]);
+    return isValidRetryAfterSeconds(retryAfterSeconds, true) ? retryAfterSeconds : undefined;
+  }
+
+  return undefined;
+}
+
+function isValidRetryAfterSeconds(value: number | undefined, allowZero: boolean): value is number {
+  return value !== undefined && Number.isSafeInteger(value) && (allowZero ? value >= 0 : value > 0);
 }
 
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {

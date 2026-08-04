@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // Same floor as the ESM fixture: DOM for the four WHATWG globals the
+    // declarations name, and no @types on disk or in scope.
+    "lib": ["ES2023", "DOM"],
+    "types": [],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": false,
+    "noEmit": true
+  },
+  "include": ["index.ts"]
+}

@@ -8,6 +8,31 @@ import auditExceptions from "../../security/audit-exceptions.json";
 import auditPolicy from "../../security/audit-policy.json";
 import auditCases from "../fixtures/release/audit-cases.json";
 
+interface PackageManifest {
+  readonly dependencies?: Readonly<Record<string, string>>;
+  readonly devDependencies: Readonly<Record<string, string>>;
+  readonly overrides?: Readonly<Record<string, unknown>>;
+}
+
+interface LockfilePackage {
+  readonly version?: string;
+  readonly dev?: boolean;
+  readonly engines?: Readonly<Record<string, string>>;
+  readonly dependencies?: Readonly<Record<string, string>>;
+  readonly devDependencies?: Readonly<Record<string, string>>;
+}
+
+interface PackageLock {
+  readonly packages: Readonly<Record<string, LockfilePackage>>;
+}
+
+const repositoryRoot = process.cwd();
+const packageJson = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
+) as PackageManifest;
+const packageLock = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "package-lock.json"), "utf8"),
+) as PackageLock;
 const reports = auditCases.reports as Record<string, unknown>;
 const exceptionSets = auditCases.exceptionSets as Record<string, unknown>;
 const temporaryDirectories: string[] = [];
@@ -15,6 +40,12 @@ const temporaryDirectories: string[] = [];
 function fixtureValue(fixtures: Record<string, unknown>, name: string): unknown {
   const value = fixtures[name];
   if (value === undefined) throw new TypeError(`Unknown audit fixture ${name}.`);
+  return value;
+}
+
+function lockfilePackage(path: string): LockfilePackage {
+  const value = packageLock.packages[path];
+  if (value === undefined) throw new TypeError(`Missing lockfile package ${path}.`);
   return value;
 }
 
@@ -43,6 +74,61 @@ describe("dependency audit policy", () => {
       }
     });
   }
+
+  it("pins the dependency overrides that keep the audit surface clean", () => {
+    // These overrides are the only thing holding the audit gate green: without
+    // them postman-collection pulls lodash 4.17.21 (high: _.template code
+    // injection) and uuid 8.3.2, which re-flags the DIRECT devDependency
+    // @stoplight/prism-cli — a class the policy forbids with no exception path.
+    // npm does not record overrides in the lockfile, and package.json is not
+    // hashed into the release evidence, so deleting this block is otherwise
+    // undetectable until someone regenerates the lockfile.
+    expect(packageJson.overrides).toEqual({
+      esbuild: "^0.28.1",
+      "postman-collection": { lodash: "^4.18.1", uuid: "^11.1.1" },
+    });
+
+    expect(lockfilePackage("node_modules/lodash")).toMatchObject({ version: "4.18.1", dev: true });
+    expect(lockfilePackage("node_modules/uuid")).toMatchObject({ version: "11.1.1", dev: true });
+
+    // The nested copies are exactly what the overrides removed.
+    expect(
+      packageLock.packages["node_modules/postman-collection/node_modules/lodash"],
+    ).toBeUndefined();
+    expect(
+      packageLock.packages["node_modules/postman-collection/node_modules/uuid"],
+    ).toBeUndefined();
+  });
+
+  it("pins the corrected development tools without adding production dependencies", () => {
+    expect(packageJson.dependencies ?? {}).toEqual({});
+    expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.0");
+    expect(packageJson.devDependencies["@stoplight/prism-cli"]).toBe("5.14.2");
+
+    const rootPackage = lockfilePackage("");
+    expect(rootPackage.dependencies ?? {}).toEqual({});
+    expect(rootPackage.devDependencies?.["js-yaml"]).toBe("4.3.0");
+    expect(rootPackage.devDependencies?.["@stoplight/prism-cli"]).toBe("5.14.2");
+    expect(lockfilePackage("node_modules/js-yaml")).toMatchObject({
+      version: "4.3.0",
+      dev: true,
+    });
+    // prism-core and prism-http-server were advanced by the audit
+    // remediation that cleared the lodash/uuid advisories; they now declare a
+    // newer engines floor than the CLI that depends on them.
+    for (const [path, version, nodeEngine] of [
+      ["node_modules/@stoplight/prism-cli", "5.14.2", ">=18.20.1"],
+      ["node_modules/@stoplight/prism-core", "5.15.11", ">=24.14.0"],
+      ["node_modules/@stoplight/prism-http", "5.12.0", ">=18.20.1"],
+      ["node_modules/@stoplight/prism-http-server", "5.15.11", ">=24.14.0"],
+    ] as const) {
+      expect(lockfilePackage(path)).toMatchObject({
+        version,
+        dev: true,
+        engines: { node: nodeEngine },
+      });
+    }
+  });
 
   it("keeps the committed exception register empty while the dependency graph is clean", () => {
     expect(auditExceptions).toEqual({ version: 1, exceptions: [] });

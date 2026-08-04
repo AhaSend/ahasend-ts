@@ -1,9 +1,16 @@
+import { Buffer } from "node:buffer";
+import type { ReadableStreamReadResult } from "node:stream/web";
 import type { ResolvedConfig } from "./config.js";
-import { assertHeaders } from "./config.js";
+import { assertHeaders, assertRequestRetryOverride, assertTimeoutMs } from "./config.js";
 import {
   AhaSendAbortError,
+  AhaSendConfigurationError,
   AhaSendConnectionError,
+  AhaSendError,
+  AhaSendIdempotencyConflictError,
+  AhaSendRateLimitQueueFullError,
   AhaSendResponseParseError,
+  AhaSendResponseTooLargeError,
   AhaSendTimeoutError,
   createApiError,
 } from "./errors.js";
@@ -20,7 +27,8 @@ import { OPERATION_DESCRIPTORS } from "./generated/operations.js";
 import type { OperationId, RetryMode } from "./generated/operations.js";
 import type { OperationExecutionRecord } from "./operations.js";
 import { RateLimiter } from "./rate-limit.js";
-import { computeRetryDelayMs, isRetryableError, sleep } from "./retry.js";
+import { computeRetryDelayMs, isRetryableError, resolveRetryOverride, sleep } from "./retry.js";
+import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
 import type { AhaSendPromise, AhaSendResponse } from "./types/common.js";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -30,12 +38,16 @@ export interface RequestOptions {
   path: string;
   query?: Record<string, unknown>;
   body?: unknown;
-  headers?: Record<string, string>;
+  headers?: Readonly<Record<string, string>>;
   /** Validated explicit key forwarded separately from caller-controlled headers. */
   idempotencyKey?: string;
   signal?: AbortSignal;
+  /** Per-attempt override for the configured timeout. */
+  timeoutMs?: number;
+  /** Per-call restriction of the configured retry policy. */
+  retry?: false | Partial<RetryConfig>;
   /**
-   * Resource clients set this on the 9 spec-documented idempotency
+   * Resource clients set this on the 11 spec-documented idempotency
    * endpoints (every `create*` operation) so the transport layer will
    * inject an `Idempotency-Key` when the caller hasn't supplied one.
    * Other POSTs — notably `domains.checkDns()` and inbound webhook
@@ -60,6 +72,21 @@ export type QueryValue =
 
 const REQUEST_ID_HEADER = "x-request-id";
 
+/**
+ * Ceiling on a buffered API response body, counted AFTER decompression.
+ *
+ * Deliberately the same number as the inbound webhook ceiling
+ * (`MAX_WEBHOOK_BODY_BYTES`): the SDK should not cap attacker-adjacent inbound
+ * data at 30 MB while accepting unbounded data on the path that carries the
+ * bearer token. The largest legitimate response is a `limit=100` page, orders
+ * of magnitude below this.
+ *
+ * A `content-length` precheck would not do: under `content-encoding: gzip` the
+ * header reports the compressed size, and under chunked encoding there is no
+ * header at all.
+ */
+export const MAX_RESPONSE_BYTES = 30_000_000;
+
 export class HttpClient {
   public readonly rateLimiter: RateLimiter;
 
@@ -72,8 +99,15 @@ export class HttpClient {
     if (options.idempotencyKey !== undefined) {
       assertValidIdempotencyKey(options.idempotencyKey, "request idempotency key");
     }
+    if (options.timeoutMs !== undefined) {
+      assertTimeoutMs(options.timeoutMs, "request timeoutMs");
+    }
+    if (options.retry !== undefined) {
+      assertRequestRetryOverride(options.retry);
+    }
+    const retry = resolveRetryOverride(this.config.retry, options.retry);
     let responseEnvelope: AhaSendResponse<T>;
-    const bodyPromise = this.requestWithResponse<T>(options).then((envelope) => {
+    const bodyPromise = this.requestWithResponse<T>(options, retry).then((envelope) => {
       responseEnvelope = envelope;
       return envelope.data;
     }) as AhaSendPromise<T>;
@@ -84,89 +118,119 @@ export class HttpClient {
     return bodyPromise;
   }
 
-  private async requestWithResponse<T>(options: RequestOptions): Promise<AhaSendResponse<T>> {
+  private async requestWithResponse<T>(
+    options: RequestOptions,
+    retry: ResolvedRetryConfig,
+  ): Promise<AhaSendResponse<T>> {
     const url = this.buildUrl(options.path, options.query);
     const init = this.buildRequestInit(options);
+    this.assertRequestConstructible(url, init, options);
     const execution = this.buildExecutionRecord(options, url, init);
 
-    const retry = this.config.retry;
     const maxAttempts = retry.enabled && this.isRetryAllowed(execution) ? retry.maxRetries + 1 : 1;
     const hooks = this.config.hooks;
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      let startedAt: number | undefined;
+      const attemptEvent = this.buildAttemptEvent(execution, options, attempt);
+      const pacingStartedAt = performance.now();
       try {
-        const envelope = await this.executeAttempt<T>(
-          execution,
-          options,
-          () => {
-            startedAt = Date.now();
-            hooks.onRequest(this.buildAttemptEvent(execution, options, attempt));
-          },
-          (response, requestId) => {
-            const responseEvent: import("./telemetry.js").ResponseEvent = {
-              ...this.buildAttemptEvent(execution, options, attempt),
-              status: response.status,
-              durationMs: elapsedSince(startedAt),
-            };
-            if (requestId) responseEvent.requestId = requestId;
-            hooks.onResponse(Object.freeze(responseEvent));
-          },
-        );
+        await this.rateLimiter.acquire(options.method, options.path, options.signal);
+      } catch (err) {
+        // A pacing refusal on a retry means the API error that caused the retry
+        // is also worth reporting. Carry it as the refusal's `cause` rather than
+        // reporting it instead: queue-full is deliberately non-retryable, while
+        // the API error that preceded it usually is, and handing the caller the
+        // retryable one tells them to re-queue into the queue that just refused
+        // them.
+        //
+        // Only queue-full is wrapped. `acquire` also rejects with
+        // AhaSendAbortError, and a caller's cancellation must keep its own
+        // identity — relabelling it would both contradict the cancellation
+        // contract and make an aborted call look retryable.
+        const reported =
+          err instanceof AhaSendRateLimitQueueFullError && lastError !== undefined
+            ? new AhaSendRateLimitQueueFullError(err.category, err.maxQueue, lastError)
+            : err;
+        const errorEvent: import("./telemetry.js").ErrorEvent = {
+          ...attemptEvent,
+          phase: "pacing",
+          durationMs: elapsedSince(pacingStartedAt),
+          error: reported,
+        };
+        void hooks.onError(Object.freeze(errorEvent));
+        throw reported;
+      }
+
+      const controller = this.linkAbortSignal(
+        options.signal,
+        options.timeoutMs ?? this.config.timeoutMs,
+      );
+      const attemptStartedAt = performance.now();
+      void hooks.onRequest(attemptEvent);
+
+      try {
+        const envelope = await this.executeOnce<T>(execution, options, controller);
+        const responseEvent: import("./telemetry.js").ResponseEvent = {
+          ...attemptEvent,
+          status: envelope.response.status,
+          durationMs: elapsedSince(attemptStartedAt),
+        };
+        if (envelope.requestId) responseEvent.requestId = envelope.requestId;
+        void hooks.onResponse(Object.freeze(responseEvent));
         return envelope;
       } catch (err) {
         lastError = err;
-        const durationMs = elapsedSince(startedAt);
+        const durationMs = elapsedSince(attemptStartedAt);
         const requestId = extractRequestId(err);
         const status = extractStatus(err);
         const errorEvent: import("./telemetry.js").ErrorEvent = {
-          ...this.buildAttemptEvent(execution, options, attempt),
+          ...attemptEvent,
+          phase: "attempt",
           durationMs,
           error: err,
         };
         if (status !== undefined) errorEvent.status = status;
         if (requestId) errorEvent.requestId = requestId;
-        hooks.onError(Object.freeze(errorEvent));
-        if (attempt === maxAttempts) throw err;
+        void hooks.onError(Object.freeze(errorEvent));
+        if (attempt === maxAttempts) {
+          throw finalizeIdempotencyConflict(err, execution.idempotency.key);
+        }
         if (!isRetryableError(err)) throw err;
         const delayMs = computeRetryDelayMs(err, attempt, retry);
         const retryEvent: import("./telemetry.js").RetryEvent = {
-          ...this.buildAttemptEvent(execution, options, attempt),
+          ...attemptEvent,
           delayMs,
           durationMs,
           error: err,
         };
         if (status !== undefined) retryEvent.status = status;
         if (requestId) retryEvent.requestId = requestId;
-        hooks.onRetry(Object.freeze(retryEvent));
-        await sleep(delayMs, options.signal);
+        void hooks.onRetry(Object.freeze(retryEvent));
+        const backoffStartedAt = performance.now();
+        try {
+          await sleep(delayMs, options.signal);
+        } catch (backoffError) {
+          const backoffEvent: import("./telemetry.js").ErrorEvent = {
+            ...attemptEvent,
+            phase: "backoff",
+            durationMs: elapsedSince(backoffStartedAt),
+            error: backoffError,
+          };
+          if (status !== undefined) backoffEvent.status = status;
+          if (requestId) backoffEvent.requestId = requestId;
+          void hooks.onError(Object.freeze(backoffEvent));
+          throw backoffError;
+        }
       }
     }
     throw lastError;
-  }
-
-  private async executeAttempt<T>(
-    execution: HttpExecutionRecord,
-    options: RequestOptions,
-    onStarted: () => void,
-    onResponseComplete: (response: Response, requestId: string | undefined) => void,
-  ): Promise<AhaSendResponse<T>> {
-    // Local pacing is part of the total call, so it observes caller cancellation,
-    // but it is outside the per-attempt network timeout budget.
-    await this.rateLimiter.acquire(options.method, options.path, options.signal);
-
-    const controller = this.linkAbortSignal(options.signal, this.config.timeoutMs);
-    onStarted();
-
-    return this.executeOnce<T>(execution, options, controller, onResponseComplete);
   }
 
   private async executeOnce<T>(
     execution: HttpExecutionRecord,
     options: RequestOptions,
     controller: LinkedAbortSignal,
-    onResponseComplete: (response: Response, requestId: string | undefined) => void,
   ): Promise<AhaSendResponse<T>> {
     const { url, init } = execution;
     try {
@@ -183,8 +247,8 @@ export class HttpClient {
         if (controller.signal.aborted) {
           throw this.createAttemptAbortError(controller, options, "during fetch", err);
         }
-        if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
-        if (err instanceof Error && err.name === "AbortError") {
+        if (AhaSendError.is(err)) throw err;
+        if (isAbortError(err)) {
           throw new AhaSendAbortError("Request aborted", err);
         }
         throw new AhaSendConnectionError(
@@ -199,33 +263,32 @@ export class HttpClient {
       // attempt's timeout budget.
       const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
 
+      let data: T;
       try {
-        let data: T;
-        try {
-          data = await this.parseResponse<T>(response, execution.idempotency, requestId);
-        } catch (err) {
-          if (controller.signal.aborted) {
-            throw this.createAttemptAbortError(controller, options, "during body read", err);
-          }
-          if (err instanceof AhaSendAbortError || err instanceof AhaSendTimeoutError) throw err;
-          if (err instanceof Error && err.name === "AbortError") {
-            throw new AhaSendAbortError("Request aborted during body read", err);
-          }
-          throw err;
+        data = await this.parseResponse<T>(response, execution.idempotency, options, requestId);
+      } catch (err) {
+        if (controller.signal.aborted) {
+          throw this.createAttemptAbortError(controller, options, "during body read", err);
         }
-        this.throwIfAttemptAborted(controller, options, "during body read");
-
-        return {
-          data,
-          response,
-          ...(requestId ? { requestId } : {}),
-          ...(response.headers.get(IDEMPOTENT_REPLAYED_HEADER) === "true"
-            ? { idempotentReplayed: true as const }
-            : {}),
-        };
-      } finally {
-        onResponseComplete(response, requestId);
+        if (AhaSendError.is(err)) throw err;
+        if (isAbortError(err)) {
+          throw new AhaSendAbortError("Request aborted during body read", err);
+        }
+        throw new AhaSendConnectionError(
+          `Network error while reading the response body for ${options.method} ${options.path}`,
+          err,
+        );
       }
+      this.throwIfAttemptAborted(controller, options, "during body read");
+
+      return {
+        data,
+        response,
+        ...(requestId ? { requestId } : {}),
+        ...(response.headers.get(IDEMPOTENT_REPLAYED_HEADER) === "true"
+          ? { idempotentReplayed: true as const }
+          : {}),
+      };
     } finally {
       controller.cleanup();
     }
@@ -264,7 +327,16 @@ export class HttpClient {
     const init: RequestInit = {
       method: options.method,
       headers,
-      redirect: "error",
+      // "manual" rather than "error". Both refuse to follow, so the owned
+      // Authorization header can never be replayed to wherever a proxy
+      // points — but "error" surfaced the refusal as a fetch TypeError,
+      // indistinguishable from a network failure, so a *deterministic* 3xx (a
+      // corporate proxy, a captive portal) was classified as a retryable
+      // connection error and retried to exhaustion. "manual" hands back the
+      // 3xx response itself, which the non-2xx path turns into a
+      // non-retryable `AhaSendAPIError` carrying the status and, in
+      // `error.headers`, the `location` the API never sends.
+      redirect: "manual",
     };
 
     if (options.body !== undefined && options.method !== "GET") {
@@ -282,6 +354,54 @@ export class HttpClient {
 
     Object.freeze(headers);
     return Object.freeze(init);
+  }
+
+  private assertRequestConstructible(
+    url: string,
+    init: RequestInit,
+    options: RequestOptions,
+  ): void {
+    try {
+      // Native fetch reports both invalid Request inputs and network failures
+      // as rejected TypeErrors. Validate the stable request inputs before the
+      // retry loop so deterministic construction failures cannot be mistaken
+      // for retryable connection failures.
+      //
+      // The body is dropped deliberately: nothing being checked here depends
+      // on it, and passing it makes `Request` encode a second copy of the
+      // payload on every call — measured at 8ms and 5MB of garbage for a 5MB
+      // attachment send, against 0.01ms without.
+      //
+      // `Request` is also not required. A caller who supplies `options.fetch`
+      // may be doing so precisely because the global fetch stack is absent or
+      // unusable (a fetch-only polyfill, or `--no-experimental-fetch` — which
+      // Node 22 still accepts and 24 rejects outright, so the flag reaches only
+      // the minimum supported leg), and
+      // hard-requiring the constructor would break the escape hatch in exactly
+      // the environments it exists for.
+      //
+      // Skipping it there costs nothing that is reachable: every input this
+      // would examine is already validated earlier — the URL by `new URL` in
+      // buildUrl, `apiKey` and `userAgent` by resolveConfig, `defaultHeaders`
+      // by resolveConfig storing the *snapshot* assertHeaders returns rather
+      // than re-reading the caller's object, and per-call headers and
+      // idempotency keys at the top of `request`. This check is a backstop
+      // against a future input that skips those, not the primary guard.
+      //
+      // A sentinel body rather than none: `Request` rejects a body on a
+      // bodyless method, and that is the one check here that needs a body
+      // present. An empty string preserves it for 0.03ms instead of the 8ms
+      // the real payload costs.
+      const { body, ...bodylessInit } = init;
+      if (typeof Request === "function") {
+        void new Request(url, body === undefined ? bodylessInit : { ...bodylessInit, body: "" });
+      }
+    } catch (err) {
+      throw new AhaSendConfigurationError(
+        `AhaSend: failed to construct request for ${options.method} ${options.path}.`,
+        err,
+      );
+    }
   }
 
   private shouldAutoIdempotency(options: RequestOptions): boolean {
@@ -328,9 +448,47 @@ export class HttpClient {
     return execution.idempotency.key !== undefined;
   }
 
+  /**
+   * Buffer a response body, refusing to grow past {@link MAX_RESPONSE_BYTES}.
+   *
+   * `response.text()` reads to completion with no ceiling, so a compressed body
+   * could inflate a few hundred kilobytes on the wire into hundreds of
+   * megabytes resident — and because that surfaced as a generic failure the
+   * retry policy repeated it. The stream yields decompressed bytes, so counting
+   * here is what bounds the amplification.
+   */
+  private async readBoundedText(response: Response, options: RequestOptions): Promise<string> {
+    const body = response.body;
+    // A null-body response (204/205/304) or an injected fetch returning a
+    // Response built without a stream: nothing to bound.
+    if (!body) return response.text();
+
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = (await reader.read()) as ReadableStreamReadResult<Uint8Array>;
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_RESPONSE_BYTES) {
+          // Stop pulling immediately rather than reading to the end and then
+          // rejecting — that is the whole point of the ceiling.
+          void reader.cancel().catch(() => undefined);
+          throw new AhaSendResponseTooLargeError(MAX_RESPONSE_BYTES, options.method, options.path);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return new TextDecoder("utf-8").decode(Buffer.concat(chunks));
+  }
+
   private async parseResponse<T>(
     response: Response,
     idempotency: IdempotencyExecutionRecord,
+    options: RequestOptions,
     requestIdFromHeader?: string,
   ): Promise<T> {
     const requestId = requestIdFromHeader ?? response.headers.get(REQUEST_ID_HEADER) ?? undefined;
@@ -339,7 +497,7 @@ export class HttpClient {
       if (response.ok) return undefined as T;
     }
 
-    const rawText = await response.text();
+    const rawText = await this.readBoundedText(response, options);
     const parsed = rawText.length > 0 ? safeJsonParse(rawText) : undefined;
 
     if (!response.ok) {
@@ -400,6 +558,7 @@ export class HttpClient {
 
     return {
       signal: controller.signal,
+      timeoutMs,
       cleanup: () => {
         if (timer) clearTimeout(timer);
         if (userSignal) userSignal.removeEventListener("abort", onUserAbort);
@@ -429,7 +588,7 @@ export class HttpClient {
     if (controller.source === "timeout") {
       const bodyRead = phase === "during body read" ? " response body read" : "";
       return new AhaSendTimeoutError(
-        `Request${bodyRead} to ${options.method} ${options.path} timed out after ${this.config.timeoutMs}ms`,
+        `Request${bodyRead} to ${options.method} ${options.path} timed out after ${controller.timeoutMs}ms`,
         cause,
       );
     }
@@ -444,6 +603,7 @@ type AttemptPhase = "before fetch" | "during fetch" | "during body read";
 interface LinkedAbortSignal {
   readonly signal: AbortSignal;
   readonly source: AbortSource | undefined;
+  readonly timeoutMs: number;
   cleanup(): void;
 }
 
@@ -456,7 +616,7 @@ interface HttpExecutionRecord {
   readonly idempotency: IdempotencyExecutionRecord;
 }
 
-function lowercaseHeaders(headers?: Record<string, string>): Record<string, string> {
+function lowercaseHeaders(headers?: Readonly<Record<string, string>>): Record<string, string> {
   if (!headers) return {};
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) out[key.toLowerCase()] = value;
@@ -479,6 +639,15 @@ function safeJsonParse(text: string): { ok: true; value: unknown } | { ok: false
   }
 }
 
+function isAbortError(error: unknown): boolean {
+  if ((typeof error !== "object" && typeof error !== "function") || error === null) return false;
+  try {
+    return Reflect.get(error, "name") === "AbortError";
+  } catch {
+    return false;
+  }
+}
+
 function extractRequestId(err: unknown): string | undefined {
   if (typeof err !== "object" || err === null) return undefined;
   const candidate = (err as { requestId?: unknown }).requestId;
@@ -491,8 +660,23 @@ function extractStatus(err: unknown): number | undefined {
   return typeof candidate === "number" ? candidate : undefined;
 }
 
-function elapsedSince(startedAt: number | undefined): number {
-  return startedAt === undefined ? 0 : Date.now() - startedAt;
+function finalizeIdempotencyConflict(error: unknown, key: string | undefined): unknown {
+  if (!(error instanceof AhaSendIdempotencyConflictError) || key === undefined) return error;
+
+  return new AhaSendIdempotencyConflictError({
+    status: error.status,
+    message: error.message,
+    body: error.body,
+    requestId: error.requestId,
+    headers: error.headers,
+    cause: error.cause,
+    retryAfterSeconds: error.retryAfterSeconds,
+    idempotencyKey: key,
+  });
+}
+
+function elapsedSince(startedAt: number): number {
+  return Math.max(0, performance.now() - startedAt);
 }
 
 /**

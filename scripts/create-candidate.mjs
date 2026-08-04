@@ -2,7 +2,16 @@
 
 import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -31,7 +40,6 @@ import {
   SOURCE_KEY_PATHS,
   validateSourceGateReport,
 } from "./run-source-gates.mjs";
-import { validateRendererReport } from "./verify-renderer-report.mjs";
 
 const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
@@ -47,7 +55,6 @@ export function parseCandidateManifest(value, label = "Candidate manifest") {
       "contractSha256",
       "keysSha256",
       "profileSha256",
-      "rendererReportSha256",
       "sourceReportSha256",
       "tarballSha256",
       "version",
@@ -66,7 +73,6 @@ export function parseCandidateManifest(value, label = "Candidate manifest") {
     keysSha256: Object.freeze(
       parseSourceHashMap(value.keysSha256, SOURCE_KEY_PATHS, `${label} keysSha256`),
     ),
-    rendererReportSha256: requireHash(value.rendererReportSha256, `${label} rendererReportSha256`),
     profileSha256: requireHash(value.profileSha256, `${label} profileSha256`),
     tarballSha256: requireHash(value.tarballSha256, `${label} tarballSha256`),
   });
@@ -82,7 +88,6 @@ function parseExpectedCandidateBindings(value) {
       "contractSha256",
       "keysSha256",
       "profileSha256",
-      "rendererReportSha256",
       "sourceReportSha256",
       "tarballSha256",
     ],
@@ -97,12 +102,6 @@ function compareCandidateBindings(manifest, expected) {
     manifest.sourceReportSha256,
     expected.sourceReportSha256,
     "source report",
-    "Candidate manifest",
-  );
-  requireSourceBinding(
-    manifest.rendererReportSha256,
-    expected.rendererReportSha256,
-    "renderer report",
     "Candidate manifest",
   );
   requireSourceBinding(
@@ -454,22 +453,69 @@ function runNpm(runCommand, args, cwd) {
   return runCommand(invocation.command, invocation.args, { cwd, encoding: "utf8" });
 }
 
+async function readPackageSourceDigests(runCommand) {
+  const trackedPaths = String(
+    runCommand("git", ["ls-files", "-z"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    }),
+  )
+    .split("\0")
+    .filter(Boolean);
+  const entries = await Promise.all(
+    trackedPaths.map(async (path) => [
+      path,
+      sha256Hex(await readFile(resolve(repositoryRoot, path))),
+    ]),
+  );
+  return Object.fromEntries(entries);
+}
+
+function comparePackageSourceDigests(actual, expected) {
+  const paths = new Set([...Object.keys(actual), ...Object.keys(expected)]);
+  const changed = [...paths].filter((path) => actual[path] !== expected[path]);
+  if (changed.length > 0) {
+    throw new TypeError(
+      `Candidate package-source inputs changed during build: ${changed.join(", ")}.`,
+    );
+  }
+}
+
+function compareRepositorySourceBindings(actual, expected) {
+  compareSourceArtifactBindings(actual, expected, "Candidate inputs");
+  requireSourceBinding(
+    actual.lockfileSha256,
+    expected.lockfileSha256,
+    "package lockfile",
+    "Candidate inputs",
+  );
+  requireSourceBinding(
+    actual.auditPolicySha256,
+    expected.auditPolicySha256,
+    "audit policy",
+    "Candidate inputs",
+  );
+}
+
 function extractPackageFile(runCommand, tarballPath, packagePath, cwd) {
   return runCommand("tar", ["-xOf", tarballPath, `package/${packagePath}`], { cwd });
 }
 
-function parsePackResult(output) {
+async function parsePackResult(output, packDestination) {
   let value;
   try {
     value = JSON.parse(String(output));
   } catch (error) {
     throw new TypeError("npm pack did not return valid JSON.", { cause: error });
   }
-  if (!Array.isArray(value) || value.length !== 1) {
-    const count = Array.isArray(value) ? value.length : 0;
+  const results = Array.isArray(value)
+    ? value
+    : Object.values(requireObject(value, "npm pack result"));
+  if (results.length !== 1) {
+    const count = results.length;
     throw new TypeError(`npm pack must produce exactly one package, received ${count}.`);
   }
-  const result = requireObject(value[0], "npm pack result");
+  const result = requireObject(results[0], "npm pack result");
   if (
     typeof result.filename !== "string" ||
     basename(result.filename) !== result.filename ||
@@ -477,13 +523,20 @@ function parsePackResult(output) {
   ) {
     throw new TypeError("npm pack returned an invalid tarball filename.");
   }
+  try {
+    await access(resolve(packDestination, result.filename), constants.F_OK);
+  } catch (error) {
+    throw new TypeError(
+      "npm pack result must identify an existing tarball in the explicit pack destination.",
+      { cause: error },
+    );
+  }
   return result.filename;
 }
 
 export async function createCandidate({
   sourceReportPath,
   sourceReportSidecarPath,
-  rendererReportPath,
   outputDirectory,
   runCommand = defaultRunCommand,
 }) {
@@ -494,13 +547,11 @@ export async function createCandidate({
         ? `${sourcePath.slice(0, -5)}.sha256`
         : `${sourcePath}.sha256`
       : resolve(sourceReportSidecarPath);
-  const rendererPath = resolve(rendererReportPath);
   const destination = resolve(outputDirectory);
 
-  const [sourceReport, sourceSidecar, rendererReport, expectedSourceBindings] = await Promise.all([
+  const [sourceReport, sourceSidecar, initialSourceBindings] = await Promise.all([
     readFile(sourcePath),
     readFile(sourceSidecarPath),
-    readFile(rendererPath),
     readRepositorySourceBindings(),
   ]);
   const commit = validateCleanCommit({
@@ -510,7 +561,7 @@ export async function createCandidate({
         encoding: "utf8",
       }),
     ),
-    expectedCommit: expectedSourceBindings.commit,
+    expectedCommit: initialSourceBindings.commit,
     status: String(
       runCommand("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
         cwd: repositoryRoot,
@@ -518,36 +569,52 @@ export async function createCandidate({
       }),
     ),
   });
+  const [expectedSourceBindings, packageSourceDigests] = await Promise.all([
+    readRepositorySourceBindings(),
+    readPackageSourceDigests(runCommand),
+  ]);
   const sourceSummary = validateSourceGateReport({
     reportSource: sourceReport,
     reportSidecar: sourceSidecar,
     expectedBindings: expectedSourceBindings,
   });
 
-  const [handoffSource, handoffSidecar, sourceProfile, sourceProfileSidecar, openApiSource] =
-    await Promise.all([
-      readFile(resolve(repositoryRoot, "docs/renderer-handoff.json")),
-      readFile(resolve(repositoryRoot, "docs/renderer-handoff.sha256")),
-      readFile(resolve(repositoryRoot, "src/generated/operation-profile.json")),
-      readFile(resolve(repositoryRoot, "src/generated/operation-profile.sha256")),
-      readFile(resolve(repositoryRoot, "openapi.yaml")),
-    ]);
-  validateRendererReport({
-    handoffSource,
-    handoffSidecar,
-    reportSource: rendererReport,
-  });
-  const rendererReportSha256 = sha256Hex(rendererReport);
+  const [sourceProfile, sourceProfileSidecar, openApiSource] = await Promise.all([
+    readFile(resolve(repositoryRoot, "src/generated/operation-profile.json")),
+    readFile(resolve(repositoryRoot, "src/generated/operation-profile.sha256")),
+    readFile(resolve(repositoryRoot, "openapi.yaml")),
+  ]);
 
   const stagingDirectory = await mkdtemp(join(tmpdir(), "ahasend-sdk-candidate-"));
   try {
     runNpm(runCommand, ["run", "build"], repositoryRoot);
+    const [currentSourceBindings, currentPackageSourceDigests] = await Promise.all([
+      readRepositorySourceBindings(),
+      readPackageSourceDigests(runCommand),
+    ]);
+    compareRepositorySourceBindings(currentSourceBindings, expectedSourceBindings);
+    comparePackageSourceDigests(currentPackageSourceDigests, packageSourceDigests);
+    validateCleanCommit({
+      commit: String(
+        runCommand("git", ["rev-parse", "--verify", "HEAD"], {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+        }),
+      ),
+      expectedCommit: commit,
+      status: String(
+        runCommand("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+        }),
+      ),
+    });
     const packOutput = runNpm(
       runCommand,
       ["pack", "--json", "--ignore-scripts", "--pack-destination", stagingDirectory],
       repositoryRoot,
     );
-    const tarballName = parsePackResult(packOutput);
+    const tarballName = await parsePackResult(packOutput, stagingDirectory);
     const tarballs = (await readdir(stagingDirectory)).filter((name) => name.endsWith(".tgz"));
     if (tarballs.length !== 1 || tarballs[0] !== tarballName) {
       throw new TypeError(
@@ -595,7 +662,6 @@ export async function createCandidate({
       contractSha256: expectedSourceBindings.contractSha256,
       captureSha256: expectedSourceBindings.captureSha256,
       keysSha256: expectedSourceBindings.keysSha256,
-      rendererReportSha256,
       profileSha256: profileSummary.profileDigest,
       tarballSha256,
     };
@@ -631,21 +697,14 @@ export async function createCandidate({
 }
 
 async function main() {
-  const [sourceReportPath, rendererReportPath, outputDirectory, suppliedSidecarPath, ...extra] =
-    process.argv.slice(2);
-  if (
-    sourceReportPath === undefined ||
-    rendererReportPath === undefined ||
-    outputDirectory === undefined ||
-    extra.length > 0
-  ) {
+  const [sourceReportPath, outputDirectory, suppliedSidecarPath, ...extra] = process.argv.slice(2);
+  if (sourceReportPath === undefined || outputDirectory === undefined || extra.length > 0) {
     throw new TypeError(
-      "Usage: node scripts/create-candidate.mjs <source-report.json> <renderer-report.json> <output-directory> [source-report.sha256]",
+      "Usage: node scripts/create-candidate.mjs <source-report.json> <output-directory> [source-report.sha256]",
     );
   }
   const result = await createCandidate({
     sourceReportPath,
-    rendererReportPath,
     outputDirectory,
     ...(suppliedSidecarPath === undefined ? {} : { sourceReportSidecarPath: suppliedSidecarPath }),
   });

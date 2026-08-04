@@ -28,6 +28,283 @@
   },
   "componentCases": [
     {
+      "id": "account-complete-parent-null",
+      "schema": "Account",
+      "valid": true,
+      "value": {
+        "object": "account",
+        "id": "22222222-2222-4222-8222-222222222222",
+        "parent_account_id": null,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Primary account",
+        "website": "https://example.com",
+        "about": "Primary transactional email account",
+        "track_opens": true,
+        "track_clicks": false,
+        "reject_bad_recipients": true,
+        "reject_mistyped_recipients": false,
+        "message_metadata_retention": 30,
+        "message_data_retention": 7,
+        "owner_id": "33333333-3333-4333-8333-333333333333"
+      }
+    },
+    {
+      "id": "account-required-website-omitted",
+      "schema": "Account",
+      "valid": false,
+      "value": {
+        "object": "account",
+        "id": "22222222-2222-4222-8222-222222222222",
+        "parent_account_id": null,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Primary account",
+        "about": "Primary transactional email account",
+        "track_opens": true,
+        "track_clicks": false,
+        "reject_bad_recipients": true,
+        "reject_mistyped_recipients": false,
+        "message_metadata_retention": 30,
+        "message_data_retention": 7,
+        "owner_id": "33333333-3333-4333-8333-333333333333"
+      }
+    },
+    {
+      "id": "account-non-null-about-null",
+      "schema": "Account",
+      "valid": false,
+      "value": {
+        "object": "account",
+        "id": "22222222-2222-4222-8222-222222222222",
+        "parent_account_id": null,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Primary account",
+        "website": "https://example.com",
+        "about": null,
+        "track_opens": true,
+        "track_clicks": false,
+        "reject_bad_recipients": true,
+        "reject_mistyped_recipients": false,
+        "message_metadata_retention": 30,
+        "message_data_retention": 7,
+        "owner_id": "33333333-3333-4333-8333-333333333333"
+      }
+    },
+    {
+      "id": "domain-complete-nullable-fields-null",
+      "schema": "Domain",
+      "valid": true,
+      "value": {
+        "object": "domain",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "domain": "example.com",
+        "account_id": "22222222-2222-4222-8222-222222222222",
+        "dns_records": [],
+        "last_dns_check_at": null,
+        "dns_valid": false,
+        "tracking_subdomain": null,
+        "return_path_subdomain": null,
+        "subscription_subdomain": null,
+        "media_subdomain": null,
+        "dkim_rotation_interval_days": null,
+        "dkim_selector": null,
+        "rotation_ready": false,
+        "dsn_recipient": null
+      }
+    },
+    {
+      "id": "domain-required-last-dns-check-omitted",
+      "schema": "Domain",
+      "valid": false,
+      "value": {
+        "object": "domain",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "domain": "example.com",
+        "account_id": "22222222-2222-4222-8222-222222222222",
+        "dns_records": [],
+        "dns_valid": false,
+        "tracking_subdomain": null,
+        "return_path_subdomain": null,
+        "subscription_subdomain": null,
+        "media_subdomain": null,
+        "dkim_rotation_interval_days": null,
+        "dkim_selector": null,
+        "rotation_ready": false,
+        "dsn_recipient": null
+      }
+    },
+    {
+      "id": "domain-non-null-rotation-ready-null",
+      "schema": "Domain",
+      "valid": false,
+      "value": {
+        "object": "domain",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "domain": "example.com",
+        "account_id": "22222222-2222-4222-8222-222222222222",
+        "dns_records": [],
+        "last_dns_check_at": null,
+        "dns_valid": false,
+        "tracking_subdomain": null,
+        "return_path_subdomain": null,
+        "subscription_subdomain": null,
+        "media_subdomain": null,
+        "dkim_rotation_interval_days": null,
+        "dkim_selector": null,
+        "rotation_ready": null,
+        "dsn_recipient": null
+      }
+    },
+    {
+      "id": "dns-record-optional-label-omitted",
+      "schema": "DNSRecord",
+      "valid": true,
+      "value": {
+        "type": "TXT",
+        "host": "selector._domainkey.example.com",
+        "content": "v=DKIM1; k=rsa; p=public-key",
+        "required": true,
+        "propagated": false
+      }
+    },
+    {
+      "id": "dns-record-non-null-label-null",
+      "schema": "DNSRecord",
+      "valid": false,
+      "value": {
+        "type": "TXT",
+        "label": null,
+        "host": "selector._domainkey.example.com",
+        "content": "v=DKIM1; k=rsa; p=public-key",
+        "required": true,
+        "propagated": false
+      }
+    },
+    {
+      "id": "domain-create-dkim-selector-null",
+      "schema": "CreateDomainRequest",
+      "valid": true,
+      "value": {
+        "domain": "example.com",
+        "dkim_selector": null
+      }
+    },
+    {
+      "id": "domain-update-dkim-selector-null",
+      "schema": "UpdateDomainRequest",
+      "valid": true,
+      "value": {
+        "dkim_selector": null
+      }
+    },
+    {
+      "id": "domain-update-dkim-selector-empty",
+      "schema": "UpdateDomainRequest",
+      "valid": true,
+      "value": {
+        "dkim_selector": ""
+      }
+    },
+    {
+      "id": "domain-update-dkim-selector-whitespace",
+      "schema": "UpdateDomainRequest",
+      "valid": true,
+      "value": {
+        "dkim_selector": " \t "
+      }
+    },
+    {
+      "id": "route-complete-last-request-null",
+      "schema": "Route",
+      "valid": true,
+      "value": {
+        "object": "route",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Inbound support",
+        "url": "https://example.com/routes/support",
+        "recipient": "support@example.com",
+        "attachments": true,
+        "headers": false,
+        "group_by_message_id": true,
+        "strip_replies": false,
+        "enabled": true,
+        "success_count": 42,
+        "error_count": 2,
+        "errors_since_last_success": 0,
+        "last_request_at": null
+      }
+    },
+    {
+      "id": "route-required-success-count-omitted",
+      "schema": "Route",
+      "valid": false,
+      "value": {
+        "object": "route",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Inbound support",
+        "url": "https://example.com/routes/support",
+        "recipient": "support@example.com",
+        "attachments": true,
+        "headers": false,
+        "group_by_message_id": true,
+        "strip_replies": false,
+        "enabled": true,
+        "error_count": 2,
+        "errors_since_last_success": 0,
+        "last_request_at": null
+      }
+    },
+    {
+      "id": "route-non-null-recipient-null",
+      "schema": "Route",
+      "valid": false,
+      "value": {
+        "object": "route",
+        "id": "44444444-4444-4444-8444-444444444444",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-02T00:00:00Z",
+        "name": "Inbound support",
+        "url": "https://example.com/routes/support",
+        "recipient": null,
+        "attachments": true,
+        "headers": false,
+        "group_by_message_id": true,
+        "strip_replies": false,
+        "enabled": true,
+        "success_count": 42,
+        "error_count": 2,
+        "errors_since_last_success": 0,
+        "last_request_at": null
+      }
+    },
+    {
+      "id": "route-update-all-nullable-fields",
+      "schema": "UpdateRouteRequest",
+      "valid": true,
+      "value": {
+        "name": null,
+        "url": null,
+        "recipient": null,
+        "attachments": null,
+        "headers": null,
+        "group_by_message_id": null,
+        "strip_replies": null,
+        "enabled": null
+      }
+    },
+    {
       "id": "required-nullable-present-null-canary",
       "schema": "APIKey",
       "valid": true,
@@ -101,6 +378,100 @@
       "value": {
         "domain": "example.com",
         "tracking_subdomain": null
+      }
+    },
+    {
+      "id": "api-key-scopes-non-empty",
+      "schema": "CreateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "label": "Production",
+        "scopes": ["messages:send:all"]
+      }
+    },
+    {
+      "id": "api-key-scopes-empty",
+      "schema": "CreateAPIKeyRequest",
+      "valid": false,
+      "value": {
+        "label": "Production",
+        "scopes": []
+      }
+    },
+    {
+      "id": "api-key-update-scopes-non-empty",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": true,
+      "value": {
+        "scopes": ["domains:read"]
+      }
+    },
+    {
+      "id": "api-key-update-scopes-empty",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": false,
+      "value": {
+        "scopes": []
+      }
+    },
+    {
+      "id": "api-key-update-empty",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "api-key-update-null-only",
+      "schema": "UpdateAPIKeyRequest",
+      "valid": false,
+      "value": {
+        "label": null,
+        "scopes": null,
+        "ip_allow_list": null
+      }
+    },
+    {
+      "id": "message-recipient-inherited-name",
+      "schema": "CreateSingleMessageResponse",
+      "valid": true,
+      "value": {
+        "object": "message",
+        "id": null,
+        "recipient": {
+          "email": "user@example.com",
+          "name": "Example User"
+        },
+        "status": "queued",
+        "error": null
+      }
+    },
+    {
+      "id": "message-recipient-inherited-name-omitted",
+      "schema": "CreateSingleMessageResponse",
+      "valid": false,
+      "value": {
+        "object": "message",
+        "id": null,
+        "recipient": {
+          "email": "user@example.com"
+        },
+        "status": "queued",
+        "error": null
+      }
+    },
+    {
+      "id": "message-recipient-inherited-name-wrong-type",
+      "schema": "CreateSingleMessageResponse",
+      "valid": false,
+      "value": {
+        "object": "message",
+        "id": null,
+        "recipient": {
+          "email": "user@example.com",
+          "name": 42
+        },
+        "status": "queued",
+        "error": null
       }
     },
     {

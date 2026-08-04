@@ -3,24 +3,29 @@ import type {
   AhaSendPromise,
   AhaSendResponse,
   IdempotencyRequestOptions,
-  NonEmptyArray,
   RequestOptions,
+  RetryConfig,
 } from "../src/index.js";
-import { resolveConfig } from "../src/config.js";
+import { MAX_TIMER_DELAY_MS, resolveConfig } from "../src/config.js";
 import {
   AhaSendAbortError,
+  AhaSendAPIError,
   AhaSendAuthenticationError,
   AhaSendConflictError,
+  AhaSendConfigurationError,
   AhaSendConnectionError,
   AhaSendIdempotencyConflictError,
   AhaSendIdempotencyMismatchError,
   AhaSendNotFoundError,
   AhaSendRateLimitError,
+  AhaSendResponseParseError,
+  AhaSendResponseTooLargeError,
   AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
 } from "../src/errors.js";
-import { HttpClient } from "../src/http.js";
+import { HttpClient, MAX_RESPONSE_BYTES } from "../src/http.js";
 import { OperationExecutor } from "../src/operations.js";
+import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -37,6 +42,29 @@ function makeAbortError(): Error {
   const error = new Error("aborted");
   error.name = "AbortError";
   return error;
+}
+
+function makeForeignAbortError(): { readonly name: "AbortError"; readonly message: string } {
+  return { name: "AbortError", message: "aborted outside this Error realm" };
+}
+
+function responseWithRejectedBody(error: unknown): Response {
+  const prefix = new TextEncoder().encode('{"partial":');
+  let sentPrefix = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (!sentPrefix) {
+        sentPrefix = true;
+        controller.enqueue(prefix);
+        return;
+      }
+      controller.error(error);
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 function makeClient(
@@ -86,11 +114,11 @@ describe("HttpClient", () => {
 
     await client.request({
       method: "GET",
-      path: "/v2/accounts/acc_1/messages",
+      path: `/v2/accounts/${ACCOUNT_ID}/messages`,
       query: { limit: 10, after: "cursor", skip_me: undefined, also_skip: null, tag: "welcome" },
     });
 
-    expect(seenUrl).toContain("https://api.test/v2/accounts/acc_1/messages?");
+    expect(seenUrl).toContain(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages?`);
     expect(seenUrl).toContain("limit=10");
     expect(seenUrl).toContain("after=cursor");
     expect(seenUrl).toContain("tag=welcome");
@@ -161,7 +189,7 @@ describe("HttpClient", () => {
 
     await client.request({
       method: "POST",
-      path: "/v2/accounts/acc_1/domains",
+      path: `/v2/accounts/${ACCOUNT_ID}/domains`,
       body: { domain: "example.com" },
     });
 
@@ -249,6 +277,93 @@ describe("HttpClient", () => {
     );
   });
 
+  it("normalizes a foreign AbortError value rejected by fetch", async () => {
+    const abortError = makeForeignAbortError();
+    const fetchImpl = mockFetch(() => Promise.reject(abortError));
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    const request = client.request({ method: "GET", path: "/x" });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendAbortError);
+    await expect(request).rejects.toMatchObject({ cause: abortError });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("normalizes a foreign AbortError value rejected while reading the response body", async () => {
+    const abortError = makeForeignAbortError();
+    const fetchImpl = mockFetch(() => responseWithRejectedBody(abortError));
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    const request = client.request({ method: "GET", path: "/x" });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendAbortError);
+    await expect(request).rejects.toMatchObject({ cause: abortError });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("preserves SDK errors rejected while reading the response body", async () => {
+    const bodyError = new AhaSendConfigurationError("body fixture failed deterministically");
+    const fetchImpl = mockFetch(() => responseWithRejectedBody(bodyError));
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    await expect(client.request({ method: "GET", path: "/x" })).rejects.toBe(bodyError);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("preserves malformed successful JSON as AhaSendResponseParseError", async () => {
+    const fetchImpl = mockFetch(() =>
+      Promise.resolve(
+        new Response("not-json", {
+          status: 200,
+          headers: { "x-request-id": "req_parse" },
+        }),
+      ),
+    );
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    const request = client.request({ method: "GET", path: "/x" });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendResponseParseError);
+    await expect(request).rejects.toMatchObject({
+      code: "response_parse_error",
+      status: 200,
+      body: "not-json",
+      requestId: "req_parse",
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("classifies native request-construction failures without retrying them", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = makeClient(fetchImpl, {
+      retry: {
+        enabled: true,
+        maxRetries: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitter: false,
+      },
+    });
+
+    const request = client.request({ method: "CONNECT" as "GET", path: "/x" });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendConfigurationError);
+    await expect(request).rejects.not.toBeInstanceOf(AhaSendConnectionError);
+    await expect(request).rejects.toMatchObject({
+      code: "configuration_error",
+      cause: expect.any(TypeError),
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("auto-injects Idempotency-Key only when autoIdempotency:true is set (POST allowlist)", async () => {
     let seenInit: RequestInit | undefined;
     const client = makeClient(
@@ -315,24 +430,61 @@ describe("HttpClient", () => {
   });
 
   it("configures fetch to block redirects before owned headers can reach another origin", async () => {
+    // "manual" refuses to follow exactly as "error" did — the security
+    // property — but returns the 3xx itself instead of a TypeError that was
+    // indistinguishable from a network failure. The mock simulates a spec
+    // fetch facing a 302 under EVERY redirect mode, so reverting the mode
+    // (to "error", or worse to "follow") fails this test rather than being
+    // invisible to a mock that ignores `init.redirect`.
     let seenInit: RequestInit | undefined;
     const fetchImpl = mockFetch((_url, init) => {
       seenInit = init;
-      throw new TypeError("redirect mode prevented following the response");
+      if (init?.redirect === "follow" || init?.redirect === undefined) {
+        return new Response("{}", { status: 200 }); // followed to the other origin
+      }
+      if (init.redirect === "error") throw new TypeError("fetch failed");
+      return Response.redirect("https://evil.example/capture", 302);
     });
     const client = makeClient(fetchImpl, { retry: { enabled: false } });
 
-    await expect(
-      client.request({
+    const error: unknown = await client
+      .request({
         method: "POST",
         path: "/redirect",
         body: { secret: true },
         idempotencyKey: "redirect-key",
-      }),
-    ).rejects.toBeInstanceOf(AhaSendConnectionError);
+      })
+      .catch((cause: unknown) => cause);
 
+    expect(error).toBeInstanceOf(AhaSendAPIError);
+    expect(error).toMatchObject({ status: 302 });
+    expect((error as AhaSendAPIError).headers["location"]).toBe("https://evil.example/capture");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(seenInit?.redirect).toBe("error");
+    expect(seenInit?.redirect).toBe("manual");
+  });
+
+  it("does not retry a redirect response — it is deterministic, not a network failure", async () => {
+    // With redirect "error" a proxy or captive-portal 3xx was wrapped as a
+    // retryable AhaSendConnectionError and retried to exhaustion. The mock
+    // reproduces that pre-fix behaviour when asked for "error", so reverting
+    // the mode makes this test fail on both the error class and the call
+    // count instead of passing vacuously.
+    const fetchImpl = mockFetch((_url, init) => {
+      if (init?.redirect !== "manual") throw new TypeError("fetch failed");
+      return Response.redirect("https://portal.example/login", 307);
+    });
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+    });
+
+    const error: unknown = await client
+      .request({ method: "GET", path: "/v2/ping" })
+      .catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(AhaSendAPIError);
+    expect(error).not.toBeInstanceOf(AhaSendConnectionError);
+    expect(error).toMatchObject({ status: 307 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("does NOT auto-inject when idempotency.autoGenerate is disabled", async () => {
@@ -378,6 +530,33 @@ describe("HttpClient", () => {
 });
 
 describe("HttpClient cancellation and attempt timeouts", () => {
+  it.each([
+    ["fractional", 0.5],
+    ["one millisecond", 1],
+    ["the timer maximum", MAX_TIMER_DELAY_MS],
+  ])("accepts a per-call timeout at %s", async (_label, timeoutMs) => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl, { retry: { enabled: false } });
+
+    await expect(client.request({ method: "GET", path: "/x", timeoutMs })).resolves.toEqual({});
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["NaN", Number.NaN],
+    ["positive infinity", Number.POSITIVE_INFINITY],
+    ["negative infinity", Number.NEGATIVE_INFINITY],
+    ["zero", 0],
+    ["a negative value", -1],
+    ["above the timer maximum", MAX_TIMER_DELAY_MS + 1],
+  ])("rejects a per-call timeout of %s before fetch", (_label, timeoutMs) => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl, { retry: { enabled: false } });
+
+    expect(() => client.request({ method: "GET", path: "/x", timeoutMs })).toThrow(/timeoutMs/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("rejects an already-aborted consumer signal before fetch starts", async () => {
     const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
     const client = makeClient(fetchImpl, { retry: { enabled: false } });
@@ -398,14 +577,19 @@ describe("HttpClient cancellation and attempt timeouts", () => {
     try {
       const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
       const client = makeClient(fetchImpl, {
-        timeoutMs: 100,
+        timeoutMs: 5_000,
         retry: { enabled: false },
         rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
       });
       await client.request({ method: "GET", path: "/x" });
 
       const controller = new AbortController();
-      const queued = client.request({ method: "GET", path: "/x", signal: controller.signal });
+      const queued = client.request({
+        method: "GET",
+        path: "/x",
+        signal: controller.signal,
+        timeoutMs: 100,
+      });
       let settled = false;
       void queued.then(
         () => {
@@ -422,6 +606,33 @@ describe("HttpClient cancellation and attempt timeouts", () => {
 
       controller.abort("caller cancelled while queued");
       await expect(queued).rejects.toMatchObject({ code: "abort_error" });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies the per-call timeout while fetch is pending", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = mockFetch(
+        (_url, init) =>
+          new Promise<Response>((_, reject) => {
+            init.signal?.addEventListener("abort", () => reject(makeAbortError()), { once: true });
+          }),
+      );
+      const client = makeClient(fetchImpl, {
+        timeoutMs: 5_000,
+        retry: { enabled: false },
+      });
+      const request = client.request({ method: "GET", path: "/x", timeoutMs: 100 });
+      const rejected = expect(request).rejects.toMatchObject({
+        code: "timeout_error",
+        message: expect.stringContaining("100ms"),
+      });
+
+      await vi.advanceTimersByTimeAsync(100);
+      await rejected;
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -497,22 +708,27 @@ describe("HttpClient cancellation and attempt timeouts", () => {
     vi.useFakeTimers();
     try {
       const fetchImpl = mockFetch((_url, init) => {
-        const response = new Response("{}", { status: 200 });
-        vi.spyOn(response, "text").mockImplementation(
-          () =>
-            new Promise<string>((_, reject) => {
-              init.signal?.addEventListener("abort", () => reject(makeAbortError()), {
-                once: true,
-              });
-            }),
+        // Headers arrive, then the body stalls forever — the shape a slow
+        // upstream produces, and the reason the per-attempt budget has to
+        // cover body reading rather than stopping at the response.
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(streamController) {
+              init.signal?.addEventListener(
+                "abort",
+                () => streamController.error(makeAbortError()),
+                { once: true },
+              );
+            },
+          }),
+          { status: 200 },
         );
-        return response;
       });
       const client = makeClient(fetchImpl, {
-        timeoutMs: 100,
+        timeoutMs: 5_000,
         retry: { enabled: false },
       });
-      const request = client.request({ method: "GET", path: "/x" });
+      const request = client.request({ method: "GET", path: "/x", timeoutMs: 100 });
       const rejected = expect(request).rejects.toBeInstanceOf(AhaSendTimeoutError);
 
       await vi.advanceTimersByTimeAsync(100);
@@ -528,21 +744,21 @@ describe("HttpClient cancellation and attempt timeouts", () => {
     try {
       const controller = new AbortController();
       const fetchImpl = mockFetch((_url, init) => {
-        const response = new Response("{}", { status: 200 });
-        vi.spyOn(response, "text").mockImplementation(
-          () =>
-            new Promise<string>((_, reject) => {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(streamController) {
               init.signal?.addEventListener(
                 "abort",
                 () => {
-                  const reason = init.signal?.reason;
-                  setTimeout(() => reject(reason), 150);
+                  const reason: unknown = init.signal?.reason;
+                  setTimeout(() => streamController.error(reason), 150);
                 },
                 { once: true },
               );
-            }),
+            },
+          }),
+          { status: 200 },
         );
-        return response;
       });
       const client = makeClient(fetchImpl, {
         timeoutMs: 100,
@@ -572,10 +788,10 @@ describe("HttpClient cancellation and attempt timeouts", () => {
           : new Response("{}", { status: 200 });
       });
       const client = makeClient(fetchImpl, {
-        timeoutMs: 100,
+        timeoutMs: 5_000,
         retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 1000, jitter: false },
       });
-      const request = client.request({ method: "GET", path: "/x" });
+      const request = client.request({ method: "GET", path: "/x", timeoutMs: 100 });
 
       await vi.advanceTimersByTimeAsync(250);
       expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -642,9 +858,15 @@ describe("HttpClient cancellation and attempt timeouts", () => {
 });
 
 describe("HttpClient response promises", () => {
-  it("exports the shared promise, request-option, and non-empty-array types", () => {
-    expectTypeOf<NonEmptyArray<string>>().toEqualTypeOf<readonly [string, ...string[]]>();
+  it("exports the shared promise, response, and request-option types", () => {
     expectTypeOf<IdempotencyRequestOptions>().toExtend<RequestOptions>();
+    expectTypeOf<AhaSendResponse<string>>().toEqualTypeOf<{
+      data: string;
+      response: Response;
+      requestId?: string;
+      idempotentReplayed?: boolean;
+    }>();
+    expectTypeOf<AhaSendPromise<string>>().toExtend<Promise<string>>();
     expectTypeOf<AhaSendPromise<string>["withResponse"]>().returns.toEqualTypeOf<
       Promise<AhaSendResponse<string>>
     >();
@@ -700,7 +922,7 @@ describe("HttpClient response promises", () => {
       ),
     );
     const parameters = {
-      path: { account_id: "acc_1" },
+      path: { account_id: ACCOUNT_ID },
       body: { domain: "example.com" },
     };
     const options = { idempotencyKey: "stable-domain-key" };
@@ -827,6 +1049,278 @@ describe("HttpClient response promises", () => {
 describe("HttpClient retry behaviour", () => {
   const fastRetry = { baseDelayMs: 1, maxDelayMs: 5, jitter: false };
 
+  it.each([
+    ["false", false, 1],
+    ["enabled:false", { enabled: false }, 1],
+    ["enabled:true", { enabled: true }, 3],
+    ["maxRetries", { maxRetries: 1 }, 2],
+    ["strategy", { strategy: "constant" as const }, 3],
+    ["jitter", { jitter: false }, 3],
+  ])(
+    "applies the per-call %s override against enabled client retries",
+    async (_name, retry, attempts) => {
+      const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+      const client = makeClient(fetchImpl, {
+        retry: {
+          enabled: true,
+          maxRetries: 2,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          strategy: "constant",
+          jitter: false,
+        },
+      });
+
+      await expect(
+        client.request({
+          method: "GET",
+          path: "/x",
+          retry: retry as false | Partial<RetryConfig>,
+        }),
+      ).rejects.toMatchObject({ status: 500 });
+      expect(fetchImpl).toHaveBeenCalledTimes(attempts);
+    },
+  );
+
+  it("applies a per-call baseDelayMs decrease", async () => {
+    const retryDelays: number[] = [];
+    const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+    const client = makeClient(fetchImpl, {
+      hooks: {
+        onRetry: ({ delayMs }) => {
+          retryDelays.push(delayMs);
+        },
+      },
+      retry: {
+        enabled: true,
+        maxRetries: 1,
+        baseDelayMs: 4,
+        maxDelayMs: 8,
+        strategy: "constant",
+        jitter: false,
+      },
+    });
+
+    await expect(
+      client.request({ method: "GET", path: "/x", retry: { baseDelayMs: 1 } }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(retryDelays).toEqual([1]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies a per-call maxDelayMs decrease", async () => {
+    const retryDelays: number[] = [];
+    const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+    const client = makeClient(fetchImpl, {
+      hooks: {
+        onRetry: ({ delayMs }) => {
+          retryDelays.push(delayMs);
+        },
+      },
+      retry: {
+        enabled: true,
+        maxRetries: 3,
+        baseDelayMs: 1,
+        maxDelayMs: 4,
+        strategy: "exponential",
+        jitter: false,
+      },
+    });
+
+    await expect(
+      client.request({ method: "GET", path: "/x", retry: { maxDelayMs: 2 } }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(retryDelays).toEqual([1, 2, 2]);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([
+    ["false", false],
+    ["enabled:false", { enabled: false }],
+    ["maxRetries", { maxRetries: 1 }],
+    ["baseDelayMs", { baseDelayMs: 0 }],
+    ["maxDelayMs", { maxDelayMs: 0 }],
+    ["strategy", { strategy: "constant" as const }],
+    ["jitter", { jitter: false }],
+  ])("keeps retries disabled for a per-call %s override", async (_name, retry) => {
+    const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+    const client = makeClient(fetchImpl, {
+      retry: {
+        enabled: false,
+        maxRetries: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        strategy: "constant",
+        jitter: false,
+      },
+    });
+
+    await expect(
+      client.request({
+        method: "GET",
+        path: "/x",
+        retry: retry as false | Partial<RetryConfig>,
+      }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["enabled", { enabled: true }, { enabled: false }],
+    ["maxRetries", { maxRetries: 3 }, { enabled: true, maxRetries: 2 }],
+    ["baseDelayMs", { baseDelayMs: 6 }, { enabled: true, baseDelayMs: 5, maxDelayMs: 10 }],
+    ["maxDelayMs", { maxDelayMs: 11 }, { enabled: true, baseDelayMs: 5, maxDelayMs: 10 }],
+    ["strategy", { strategy: "linear" as const }, { enabled: true }],
+    ["jitter", { jitter: false }, { enabled: true }],
+  ])("rejects a per-call %s policy increase before fetch", (field, retry, configured) => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl, {
+      retry: {
+        maxRetries: 2,
+        baseDelayMs: 5,
+        maxDelayMs: 10,
+        strategy: "exponential",
+        jitter: true,
+        ...configured,
+      },
+    });
+
+    expect(() => client.request({ method: "GET", path: "/x", retry })).toThrow(
+      new RegExp(`request options\\.retry\\.${field}`),
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects a per-call delay cap below the resolved base delay before fetch", () => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl, {
+      retry: { baseDelayMs: 5, maxDelayMs: 10 },
+    });
+
+    expect(() => client.request({ method: "GET", path: "/x", retry: { maxDelayMs: 4 } })).toThrow(
+      /request options\.retry\.maxDelayMs.*greater than or equal to.*baseDelayMs/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["unknown field", { extra: true }],
+    ["non-boolean enabled", { enabled: "yes" }],
+    ["invalid maxRetries", { maxRetries: 1.5 }],
+    ["invalid baseDelayMs", { baseDelayMs: -1 }],
+    ["invalid maxDelayMs", { maxDelayMs: Number.NaN }],
+    ["invalid strategy", { strategy: "random" }],
+    ["non-boolean jitter", { jitter: 1 }],
+  ])("rejects a malformed per-call retry override with %s before fetch", (_name, retry) => {
+    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = makeClient(fetchImpl);
+
+    expect(() => client.request({ method: "GET", path: "/x", retry } as never)).toThrow(
+      /request options\.retry/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps generated never-retry safety final after resolving a per-call override", async () => {
+    const fetchImpl = mockFetch(() => new Response("server error", { status: 500 }));
+    const client = makeClient(fetchImpl, {
+      retry: { ...fastRetry, enabled: true, maxRetries: 2 },
+    });
+
+    await expect(
+      client.request({
+        method: "POST",
+        path: "/x",
+        retryMode: "never",
+        retry: { enabled: true, maxRetries: 2 },
+      }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("retries a generated safe GET after a mid-body reset and surfaces a connection error", async () => {
+    const bodyError = new TypeError("socket reset while reading response body");
+    const events: string[] = [];
+    const fetchImpl = mockFetch(() => responseWithRejectedBody(bodyError));
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, {
+        hooks: {
+          onRequest: ({ attempt }) => {
+            events.push(`request:${attempt}`);
+          },
+          onResponse: ({ attempt, status }) => {
+            events.push(`response:${attempt}:${status}`);
+          },
+          onError: ({ attempt, phase }) => {
+            events.push(`error:${attempt}:${phase}`);
+          },
+          onRetry: ({ attempt }) => {
+            events.push(`retry:${attempt}`);
+          },
+        },
+        retry: { ...fastRetry, enabled: true, maxRetries: 1 },
+      }),
+    );
+
+    const request = executor.execute("ping", {});
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendConnectionError);
+    await expect(request).rejects.toMatchObject({
+      code: "connection_error",
+      cause: bodyError,
+    });
+    await Promise.resolve();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(events).toEqual([
+      "request:1",
+      "error:1:attempt",
+      "retry:1",
+      "request:2",
+      "error:2:attempt",
+    ]);
+  });
+
+  it("retries a generated keyed operation after a mid-body reset with the same key", async () => {
+    const bodyError = new TypeError("socket reset while reading response body");
+    const keys: Array<string | undefined> = [];
+    const fetchImpl = mockFetch((_url, init) => {
+      keys.push((init.headers as Record<string, string>)["idempotency-key"]);
+      return responseWithRejectedBody(bodyError);
+    });
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, {
+        retry: { ...fastRetry, enabled: true, maxRetries: 1 },
+      }),
+    );
+
+    const request = executor.execute("createDomain", {
+      path: { account_id: ACCOUNT_ID },
+      body: { domain: "example.com" },
+    });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendConnectionError);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(keys[0]).toBeDefined();
+    expect(keys[1]).toBe(keys[0]);
+  });
+
+  it("does not retry a generated never-retry operation after a mid-body reset", async () => {
+    const bodyError = new TypeError("socket reset while reading response body");
+    const fetchImpl = mockFetch(() => responseWithRejectedBody(bodyError));
+    const executor = new OperationExecutor(
+      makeClient(fetchImpl, {
+        retry: { ...fastRetry, enabled: true, maxRetries: 2 },
+      }),
+    );
+
+    const request = executor.execute("checkDomainDNS", {
+      path: { account_id: ACCOUNT_ID, domain: "example.com" },
+    });
+
+    await expect(request).rejects.toBeInstanceOf(AhaSendConnectionError);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
   it("retries on a 500 then succeeds", async () => {
     let attempts = 0;
     const client = makeClient(
@@ -909,7 +1403,11 @@ describe("HttpClient retry behaviour", () => {
         return new Response("{}", { status: 200 });
       }),
       {
-        hooks: { onRetry: ({ delayMs }) => retryDelays.push(delayMs) },
+        hooks: {
+          onRetry: ({ delayMs }) => {
+            retryDelays.push(delayMs);
+          },
+        },
         retry: fastRetry,
       },
     );
@@ -1002,7 +1500,7 @@ describe("HttpClient retry behaviour", () => {
     await expect(
       executor.execute(
         "createDomain",
-        { path: { account_id: "acc_1" }, body },
+        { path: { account_id: ACCOUNT_ID }, body },
         {
           idempotencyKey: "stable-domain-key",
         },
@@ -1029,7 +1527,7 @@ describe("HttpClient retry behaviour", () => {
     await expect(
       executor.execute(
         "createDomain",
-        { path: { account_id: "acc_1" }, body: { domain: "example.com" } },
+        { path: { account_id: ACCOUNT_ID }, body: { domain: "example.com" } },
         { idempotencyKey: "stable-domain-key" },
       ),
     ).rejects.toBeInstanceOf(AhaSendConflictError);
@@ -1047,7 +1545,7 @@ describe("HttpClient retry behaviour", () => {
     await expect(
       executor.execute(
         "createDomain",
-        { path: { account_id: "acc_1" }, body: { domain: "example.com" } },
+        { path: { account_id: ACCOUNT_ID }, body: { domain: "example.com" } },
         { idempotencyKey: "stable-domain-key" },
       ),
     ).rejects.toBeInstanceOf(AhaSendIdempotencyMismatchError);
@@ -1073,7 +1571,7 @@ describe("HttpClient retry behaviour", () => {
     try {
       await executor.execute(
         "createDomain",
-        { path: { account_id: "acc_1" }, body: { domain: "example.com" } },
+        { path: { account_id: ACCOUNT_ID }, body: { domain: "example.com" } },
         { idempotencyKey: "stable-domain-key" },
       );
     } catch (error) {
@@ -1100,7 +1598,10 @@ describe("HttpClient retry behaviour", () => {
     try {
       await executor.execute(
         "createSuppression",
-        { path: { account_id: "acc_1" }, body: { email: "person@example.com" } },
+        {
+          path: { account_id: ACCOUNT_ID },
+          body: { email: "person@example.com", expires_at: "2027-01-01T00:00:00Z" },
+        },
         { idempotencyKey: "stored-suppression-key" },
       );
     } catch (error) {
@@ -1128,10 +1629,195 @@ describe("HttpClient retry behaviour", () => {
     await expect(
       executor.execute(
         "createAPIKey",
-        { path: { account_id: "acc_1" }, body: { label: "key", scopes: ["invalid"] } },
+        { path: { account_id: ACCOUNT_ID }, body: { label: "key", scopes: ["invalid"] } },
         { idempotencyKey: "secret-create-key" },
       ),
     ).rejects.toMatchObject({ status: 400 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("deterministic failures stay non-retryable without a Request constructor", () => {
+  // The pre-flight exists so a construction failure is reported as a
+  // configuration error rather than mistaken for a retryable network one.
+  // Skipping it where `Request` is absent only holds because every reachable
+  // input is validated earlier — including headers behind accessors, which
+  // resolveConfig now snapshots. Pin the property, not just the plumbing:
+  // one refusal, and zero requests, rather than four retried attempts.
+  it("rejects an accessor-backed header before any request is made", () => {
+    const RealRequest = globalThis.Request;
+    delete (globalThis as { Request?: unknown }).Request;
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("{}", { status: 200 })));
+    try {
+      expect(() =>
+        resolveConfig({
+          apiKey: "aha-sk-test",
+          fetch: fetchImpl as unknown as typeof fetch,
+          defaultHeaders: {
+            get "x-probe"() {
+              return "line1\nline2";
+            },
+          },
+        }),
+      ).toThrow(AhaSendConfigurationError);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      globalThis.Request = RealRequest;
+    }
+  });
+});
+
+describe("response body ceiling", () => {
+  const bodyOf = (bytes: number, chunk = 1024 * 1024) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        let sent = 0;
+        while (sent < bytes) {
+          const size = Math.min(chunk, bytes - sent);
+          controller.enqueue(new Uint8Array(size).fill(65));
+          sent += size;
+        }
+        controller.close();
+      },
+    });
+
+  it("abandons a body past the ceiling instead of buffering it", async () => {
+    // `response.text()` read to completion with no ceiling. Because the stream
+    // yields DECOMPRESSED bytes, a few hundred kilobytes of gzip could inflate
+    // to hundreds of megabytes resident — measured at 1028:1 — and the failure
+    // surfaced generically enough that the retry policy repeated it.
+    const client = makeClient(
+      mockFetch(() => new Response(bodyOf(MAX_RESPONSE_BYTES + 1024), { status: 200 })),
+      { retry: { enabled: false } },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
+      AhaSendResponseTooLargeError,
+    );
+  });
+
+  it("does not retry a body that exceeded the ceiling", async () => {
+    // The response was received; re-requesting can only reproduce it, and
+    // retrying is what turned one oversized body into four.
+    const fetchImpl = mockFetch(
+      () => new Response(bodyOf(MAX_RESPONSE_BYTES + 1024), { status: 200 }),
+    );
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    const error = await client.request({ method: "GET", path: "/x" }).then(
+      () => null,
+      (reason: unknown) => reason as { code?: string },
+    );
+
+    expect(error?.code).toBe("response_too_large_error");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reads a body up to the ceiling", async () => {
+    const payload = JSON.stringify({ value: "a".repeat(2 * 1024 * 1024) });
+    const client = makeClient(
+      mockFetch(() => new Response(payload, { status: 200 })),
+      { retry: { enabled: false } },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).resolves.toEqual(
+      JSON.parse(payload),
+    );
+  });
+
+  it("decodes a multi-byte character split across stream chunks", async () => {
+    // Concatenating chunks before decoding is what makes this work; decoding
+    // per chunk would corrupt any character straddling a boundary.
+    const encoded = new TextEncoder().encode(JSON.stringify({ text: "héllo — wörld 💥" }));
+    const client = makeClient(
+      mockFetch(
+        () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                for (const byte of encoded) controller.enqueue(new Uint8Array([byte]));
+                controller.close();
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+      { retry: { enabled: false } },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).resolves.toEqual({
+      text: "héllo — wörld 💥",
+    });
+  });
+});
+
+describe("request pre-flight validation", () => {
+  const baseOptions = { apiKey: "aha-sk-test" } as const;
+
+  it("does not encode the body while validating", async () => {
+    // The pre-flight exists to separate deterministic construction failures
+    // from retryable network ones, and nothing it checks depends on the body.
+    // Passing it made `Request` encode a second copy of the payload on every
+    // call — 8ms and 5MB of garbage for a 5MB attachment send.
+    const seen: RequestInit[] = [];
+    const client = new HttpClient(
+      resolveConfig({
+        ...baseOptions,
+        fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
+          seen.push(init!);
+          return Promise.resolve(new Response("{}", { status: 200 }));
+        },
+      }),
+    );
+
+    const payload = { attachments: [{ data: "A".repeat(2 * 1024 * 1024) }] };
+    const constructed: RequestInit[] = [];
+    const RealRequest = globalThis.Request;
+    class ObservingRequest extends RealRequest {
+      constructor(input: RequestInfo | URL, init?: RequestInit) {
+        super(input, init);
+        constructed.push(init ?? {});
+      }
+    }
+    globalThis.Request = ObservingRequest as unknown as typeof Request;
+    try {
+      await client.request({ method: "POST", path: "/v2/ping", body: payload });
+    } finally {
+      globalThis.Request = RealRequest;
+    }
+
+    // The validation Request saw a sentinel, not the payload — enough to keep
+    // the "no body on a bodyless method" check, none of the encoding cost.
+    expect(constructed).toHaveLength(1);
+    expect(constructed[0]!.body).toBe("");
+    // ...while the real request still carries it.
+    expect(seen[0]!.body).toBe(JSON.stringify(payload));
+  });
+
+  it("works when the runtime has no Request constructor", async () => {
+    // A caller supplies `options.fetch` precisely when the global fetch stack
+    // is absent or unusable, so requiring `Request` broke the escape hatch in
+    // the environments it exists for.
+    const RealRequest = globalThis.Request;
+    // Delete rather than assign undefined: a runtime without fetch has no
+    // `Request` binding at all, and only `typeof` survives that. An identity
+    // comparison would throw ReferenceError and this test would not notice.
+    delete (globalThis as { Request?: unknown }).Request;
+    try {
+      const client = new HttpClient(
+        resolveConfig({
+          ...baseOptions,
+          fetch: () => Promise.resolve(new Response('{"ok":true}', { status: 200 })),
+        }),
+      );
+
+      await expect(client.request({ method: "GET", path: "/v2/ping" })).resolves.toEqual({
+        ok: true,
+      });
+    } finally {
+      globalThis.Request = RealRequest;
+    }
   });
 });

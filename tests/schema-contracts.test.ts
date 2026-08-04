@@ -206,6 +206,124 @@ describe("REST schema golden contracts", () => {
     ]).toEqual([true, false, true, false]);
   });
 
+  it("enforces Account response requiredness and nullability", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const complete = byId["account-complete-parent-null"]!;
+    const missingWebsite = byId["account-required-website-omitted"]!;
+    const nullAbout = byId["account-non-null-about-null"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, complete.schema)(complete.value)).toBe(true);
+    expect(componentValidator(ajv, missingWebsite.schema)(missingWebsite.value)).toBe(false);
+    expect(componentValidator(ajv, nullAbout.schema)(nullAbout.value)).toBe(false);
+  });
+
+  it("enforces Domain and DNSRecord response requiredness and nullability", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const completeDomain = byId["domain-complete-nullable-fields-null"]!;
+    const missingLastDnsCheck = byId["domain-required-last-dns-check-omitted"]!;
+    const nullRotationReady = byId["domain-non-null-rotation-ready-null"]!;
+    const recordWithoutLabel = byId["dns-record-optional-label-omitted"]!;
+    const recordWithNullLabel = byId["dns-record-non-null-label-null"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, completeDomain.schema)(completeDomain.value)).toBe(true);
+    expect(componentValidator(ajv, missingLastDnsCheck.schema)(missingLastDnsCheck.value)).toBe(
+      false,
+    );
+    expect(componentValidator(ajv, nullRotationReady.schema)(nullRotationReady.value)).toBe(false);
+    expect(componentValidator(ajv, recordWithoutLabel.schema)(recordWithoutLabel.value)).toBe(true);
+    expect(componentValidator(ajv, recordWithNullLabel.schema)(recordWithNullLabel.value)).toBe(
+      false,
+    );
+  });
+
+  it("accepts the distinct create and update DKIM selector inputs", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const createDefault = byId["domain-create-dkim-selector-null"]!;
+    const updateUnchanged = byId["domain-update-dkim-selector-null"]!;
+    const updateClearEmpty = byId["domain-update-dkim-selector-empty"]!;
+    const updateClearWhitespace = byId["domain-update-dkim-selector-whitespace"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, createDefault.schema)(createDefault.value)).toBe(true);
+    expect(componentValidator(ajv, updateUnchanged.schema)(updateUnchanged.value)).toBe(true);
+    expect(componentValidator(ajv, updateClearEmpty.schema)(updateClearEmpty.value)).toBe(true);
+    expect(componentValidator(ajv, updateClearWhitespace.schema)(updateClearWhitespace.value)).toBe(
+      true,
+    );
+    expect(createDefault.value).toHaveProperty("dkim_selector", null);
+    expect(updateUnchanged.value).toHaveProperty("dkim_selector", null);
+    expect(updateClearEmpty.value).toHaveProperty("dkim_selector", "");
+    expect(updateClearWhitespace.value).toHaveProperty("dkim_selector", " \t ");
+  });
+
+  it("enforces Route response requiredness and update nullability", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const complete = byId["route-complete-last-request-null"]!;
+    const missingSuccessCount = byId["route-required-success-count-omitted"]!;
+    const nullRecipient = byId["route-non-null-recipient-null"]!;
+    const nullableUpdate = byId["route-update-all-nullable-fields"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, complete.schema)(complete.value)).toBe(true);
+    expect(componentValidator(ajv, missingSuccessCount.schema)(missingSuccessCount.value)).toBe(
+      false,
+    );
+    expect(componentValidator(ajv, nullRecipient.schema)(nullRecipient.value)).toBe(false);
+    expect(componentValidator(ajv, nullableUpdate.schema)(nullableUpdate.value)).toBe(true);
+  });
+
+  it("enforces non-empty API-key scope arrays on create and update", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const createNonEmpty = byId["api-key-scopes-non-empty"]!;
+    const createEmpty = byId["api-key-scopes-empty"]!;
+    const updateNonEmpty = byId["api-key-update-scopes-non-empty"]!;
+    const updateEmpty = byId["api-key-update-scopes-empty"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, createNonEmpty.schema)(createNonEmpty.value)).toBe(true);
+    expect(componentValidator(ajv, createEmpty.schema)(createEmpty.value)).toBe(false);
+    expect(componentValidator(ajv, updateNonEmpty.schema)(updateNonEmpty.value)).toBe(true);
+    expect(componentValidator(ajv, updateEmpty.schema)(updateEmpty.value)).toBe(false);
+  });
+
+  it("requires API-key updates to select at least one non-null field", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const empty = byId["api-key-update-empty"]!;
+    const nullOnly = byId["api-key-update-null-only"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, empty.schema)(empty.value)).toBe(false);
+    expect(componentValidator(ajv, nullOnly.schema)(nullOnly.value)).toBe(false);
+  });
+
+  it("enforces inherited properties in required-only allOf overlays", () => {
+    const byId = Object.fromEntries(
+      fixture.componentCases.map((testCase) => [testCase.id, testCase]),
+    );
+    const valid = byId["message-recipient-inherited-name"]!;
+    const missing = byId["message-recipient-inherited-name-omitted"]!;
+    const wrongType = byId["message-recipient-inherited-name-wrong-type"]!;
+    const ajv = schemaValidator();
+
+    expect(componentValidator(ajv, valid.schema)(valid.value)).toBe(true);
+    expect(componentValidator(ajv, missing.schema)(missing.value)).toBe(false);
+    expect(componentValidator(ajv, wrongType.schema)(wrongType.value)).toBe(false);
+  });
+
   it("requires one-time API-key secrets only on both creation responses", () => {
     const ajv = schemaValidator();
 

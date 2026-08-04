@@ -3,8 +3,7 @@
 //   2. Verify and parse it with the SDK's WebhookVerifier.
 // Run:  node examples/verify-webhook.mjs
 
-import { createHmac } from "node:crypto";
-import { WebhookVerifier } from "../dist/webhooks/index.js";
+import { AhaSendWebhookVerificationError, WebhookVerifier } from "@ahasend/sdk/webhooks";
 
 // Pass the secret string exactly as it appears in the AhaSend dashboard
 // (including any `aha-whsec-` prefix). The SDK uses the raw UTF-8 bytes
@@ -17,10 +16,10 @@ const timestamp = Math.floor(Date.now() / 1000);
 const body = JSON.stringify({
   type: "message.delivered",
   timestamp: new Date().toISOString(),
-  webhook_id: "wh_demo",
+  webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
   data: {
-    account_id: "acc_demo",
-    event: "delivered",
+    account_id: "00000000-0000-4000-8000-000000000001",
+    event: "on_delivered",
     from: "sender@example.com",
     recipient: "recipient@example.com",
     subject: "Hello",
@@ -30,7 +29,15 @@ const body = JSON.stringify({
 });
 
 const toSign = `${id}.${timestamp}.${body}`;
-const sig = `v1,${createHmac("sha256", Buffer.from(SECRET, "utf-8")).update(toSign).digest("base64")}`;
+const key = await globalThis.crypto.subtle.importKey(
+  "raw",
+  Buffer.from(SECRET, "utf8"),
+  { name: "HMAC", hash: "SHA-256" },
+  false,
+  ["sign"],
+);
+const signature = await globalThis.crypto.subtle.sign("HMAC", key, Buffer.from(toSign, "utf8"));
+const sig = `v1,${Buffer.from(signature).toString("base64")}`;
 
 const headers = {
   "webhook-id": id,
@@ -40,10 +47,10 @@ const headers = {
 
 try {
   const event = verifier.parse(headers, body);
+  if (event.type !== "message.delivered") throw new Error("Unexpected webhook event type.");
   console.log("✓ verified webhook signature");
-  console.log(`  type: ${event.type}`);
-} catch (err) {
-  console.error("✗ verification failed:", err.name, err.reason ?? "", err.message);
+} catch {
+  console.error("✗ webhook verification failed");
   process.exit(1);
 }
 
@@ -53,5 +60,9 @@ try {
   console.error("✗ verifier accepted a tampered body — this should not happen");
   process.exit(1);
 } catch (err) {
-  console.log(`✓ tampered body correctly rejected (reason: ${err.reason})`);
+  if (!(err instanceof AhaSendWebhookVerificationError) || err.reason !== "signature_mismatch") {
+    console.error("✗ unexpected tamper verification outcome");
+    process.exit(1);
+  }
+  console.log("✓ tampered body correctly rejected");
 }

@@ -1,6 +1,7 @@
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
+  AhaSendPromise,
   ISODateTime,
   PaginatedResponse,
   PaginationParams,
@@ -20,7 +21,7 @@ export interface DNSRecord {
   content: string;
   required: boolean;
   propagated: boolean;
-  label?: string | null;
+  label?: string;
 }
 
 export interface Domain {
@@ -32,41 +33,96 @@ export interface Domain {
   account_id: UUID;
   dns_records: DNSRecord[];
   dns_valid: boolean;
-  last_dns_check_at?: ISODateTime | null;
-  tracking_subdomain?: string | null;
-  return_path_subdomain?: string | null;
-  subscription_subdomain?: string | null;
-  media_subdomain?: string | null;
-  dkim_rotation_interval_days?: number | null;
+  last_dns_check_at: ISODateTime | null;
+  tracking_subdomain: string | null;
+  return_path_subdomain: string | null;
+  subscription_subdomain: string | null;
+  media_subdomain: string | null;
+  dkim_rotation_interval_days: number | null;
   dkim_selector: string | null;
-  rotation_ready?: boolean;
-  dsn_recipient?: string | null;
+  rotation_ready: boolean;
+  dsn_recipient: string | null;
 }
 
 export type ListDomainsParams = PaginationParams & {
-  dns_valid?: boolean;
+  dns_valid?: boolean | undefined;
 };
 
 export interface CreateDomainRequest {
   domain: string;
-  dkim_private_key?: string;
-  tracking_subdomain?: string;
-  return_path_subdomain?: string;
-  subscription_subdomain?: string;
-  media_subdomain?: string;
-  dkim_rotation_interval_days?: number;
+  dkim_private_key?: string | undefined;
+  tracking_subdomain?: string | undefined;
+  return_path_subdomain?: string | undefined;
+  subscription_subdomain?: string | undefined;
+  media_subdomain?: string | undefined;
+  dkim_rotation_interval_days?: number | undefined;
+  /** Custom selector; null, empty, or whitespace-only uses the default selector on create. */
+  dkim_selector?: string | null | undefined;
 }
 
 export interface UpdateDomainRequest {
-  tracking_subdomain?: string;
-  return_path_subdomain?: string;
-  subscription_subdomain?: string;
-  media_subdomain?: string;
-  dkim_rotation_interval_days?: number;
+  tracking_subdomain?: string | undefined;
+  return_path_subdomain?: string | undefined;
+  subscription_subdomain?: string | undefined;
+  media_subdomain?: string | undefined;
+  dkim_rotation_interval_days?: number | undefined;
+  /** Null leaves the selector unchanged; empty or whitespace-only clears the current override. */
+  dkim_selector?: string | null | undefined;
 }
 
 /** Manage sending domains and their DNS verification state. */
-export class DomainsClient {
+export interface DomainsClient {
+  /** Fetch one page of domains, optionally filtering by DNS verification state. */
+  list(
+    params?: ListDomainsParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<PaginatedResponse<Domain>>;
+
+  /** Iterate through every domain, following cursor pagination until exhausted. */
+  iterate(
+    params?: ListDomainsParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<Domain, void, undefined>;
+
+  /**
+   * Register a domain for sending.
+   *
+   * The returned `dns_records` are the records to publish. A null, empty, or
+   * whitespace-only `dkim_selector` selects the default selector on creation.
+   */
+  create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Domain>;
+
+  /** Retrieve a domain and its current DNS verification state by domain name. */
+  get(domain: string, options?: RequestOptions): AhaSendPromise<Domain>;
+
+  /**
+   * Update a domain's optional subdomains, DKIM rotation interval, or DKIM selector.
+   *
+   * A null `dkim_selector` leaves the selector unchanged; an empty or whitespace-only
+   * selector clears the current override.
+   */
+  update(
+    domain: string,
+    body: UpdateDomainRequest,
+    options?: RequestOptions,
+  ): AhaSendPromise<Domain>;
+
+  /** Delete a domain by domain name. */
+  delete(domain: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+
+  /**
+   * Trigger a DNS validation check and return the per-record propagation state.
+   *
+   * If the domain was checked within the last 60 seconds, the API returns the cached validation
+   * result instead of performing a fresh lookup.
+   *
+   * This POST operation does not accept an idempotency key because the API contract does not
+   * model it as idempotency-keyed.
+   */
+  checkDns(domain: string, options?: RequestOptions): AhaSendPromise<Domain>;
+}
+
+class DomainsClientImplementation implements DomainsClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -75,12 +131,11 @@ export class DomainsClient {
     this.#accountId = accountId;
   }
 
-  /** Fetch one page of domains. Filter with `dns_valid` to find broken setups. */
   list(
     params: ListDomainsParams = {},
     options: RequestOptions = {},
-  ): Promise<PaginatedResponse<Domain>> {
-    return this.#operations.execute<PaginatedResponse<Domain>>(
+  ): AhaSendPromise<PaginatedResponse<Domain>> {
+    return this.#operations.execute(
       "getDomains",
       {
         path: { account_id: this.#accountId },
@@ -97,53 +152,55 @@ export class DomainsClient {
     return paginate<Domain, ListDomainsParams>((p) => this.list(p, options), params);
   }
 
-  /**
-   * Register a domain for sending. The response's `dns_records` lists
-   * the records you must publish; poll {@link checkDns} afterwards to
-   * confirm propagation.
-   */
-  create(body: CreateDomainRequest, options: IdempotencyRequestOptions = {}): Promise<Domain> {
-    return this.#operations.execute<Domain>(
+  create(
+    body: CreateDomainRequest,
+    options: IdempotencyRequestOptions = {},
+  ): AhaSendPromise<Domain> {
+    return this.#operations.execute(
       "createDomain",
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
     );
   }
 
-  get(domain: string, options: RequestOptions = {}): Promise<Domain> {
-    return this.#operations.execute<Domain>(
+  get(domain: string, options: RequestOptions = {}): AhaSendPromise<Domain> {
+    return this.#operations.execute(
       "getDomain",
       { path: { account_id: this.#accountId, domain } },
       forwardOptions(options),
     );
   }
 
-  update(domain: string, body: UpdateDomainRequest, options: RequestOptions = {}): Promise<Domain> {
-    return this.#operations.execute<Domain>(
+  update(
+    domain: string,
+    body: UpdateDomainRequest,
+    options: RequestOptions = {},
+  ): AhaSendPromise<Domain> {
+    return this.#operations.execute(
       "updateDomain",
       { path: { account_id: this.#accountId, domain }, body },
       forwardOptions(options),
     );
   }
 
-  delete(domain: string, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+  delete(domain: string, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
+    return this.#operations.execute(
       "deleteDomain",
       { path: { account_id: this.#accountId, domain } },
       forwardOptions(options),
     );
   }
 
-  /**
-   * Trigger an immediate DNS re-check and return the refreshed domain,
-   * including per-record `propagated` status. (POST, but intentionally
-   * not idempotency-keyed — the spec does not model it.)
-   */
-  checkDns(domain: string, options: RequestOptions = {}): Promise<Domain> {
-    return this.#operations.execute<Domain>(
+  checkDns(domain: string, options: RequestOptions = {}): AhaSendPromise<Domain> {
+    return this.#operations.execute(
       "checkDomainDNS",
       { path: { account_id: this.#accountId, domain } },
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the domain resource implementation for the root client. */
+export function createDomainsClient(operations: OperationExecutor, accountId: UUID): DomainsClient {
+  return new DomainsClientImplementation(operations, accountId);
 }

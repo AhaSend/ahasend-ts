@@ -24,7 +24,9 @@ import { AhaSendConfigurationError } from "../src/errors.js";
 import {
   AhaSendWebhookVerificationError,
   MAX_WEBHOOK_BODY_BYTES,
+  WEBHOOK_TIMESTAMP_HEADER,
   WebhookVerifier,
+  createWebhookVerifierWithClock,
   type WebhookVerificationReason,
 } from "../src/webhooks/verifier.js";
 
@@ -37,6 +39,72 @@ const ROOT = process.cwd();
 const OPENAPI_SOURCE = readFileSync(resolve(ROOT, "openapi.yaml"), "utf8");
 const WEBHOOK_SOURCE = readFileSync(resolve(ROOT, "webhooks.yaml"), "utf8");
 const CAPTURED_PATH = resolve(ROOT, "contracts/webhooks/captured");
+const SYNTHETIC_PATH = resolve(ROOT, "contracts/webhooks/synthetic");
+const BODY_WEBHOOK_ID = "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1";
+const IS_BOT_FIXTURE_EXPECTATIONS = new Map<string, boolean | "absent">([
+  ["message-opened-bot-true", true],
+  ["message-clicked-bot-false", false],
+  ["message-opened-bot-absent", "absent"],
+]);
+const CONFIGURED_WEBHOOK_BODIES = [
+  {
+    type: "message.delivered",
+    webhook_id: BODY_WEBHOOK_ID,
+    timestamp: "2026-07-14T15:03:21.987654321Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      event: "on_delivered",
+      from: "sender@example.com",
+      recipient: "receiver@example.com",
+      subject: "Test",
+      message_id_header: "<delivery@example.com>",
+      id: "message-1",
+    },
+  },
+  {
+    type: "message.clicked",
+    webhook_id: BODY_WEBHOOK_ID,
+    timestamp: "2026-07-14T15:03:22Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      event: "on_clicked",
+      from: "sender@example.com",
+      recipient: "receiver@example.com",
+      subject: "Test",
+      message_id_header: "<clicked@example.com>",
+      url: "https://example.com/clicked",
+      user_agent: "AhaSend test",
+      ip: "192.0.2.1",
+      id: "message-2",
+    },
+  },
+  {
+    type: "suppression.created",
+    webhook_id: BODY_WEBHOOK_ID,
+    timestamp: "2026-07-14T15:03:23Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      recipient: "receiver@example.com",
+      created_at: "2026-07-14T15:03:23Z",
+      expires_at: "2026-08-13T15:03:23Z",
+      reason: "Too many hard bounces",
+      sending_domain: "example.com",
+    },
+  },
+  {
+    type: "domain.dns_error",
+    webhook_id: BODY_WEBHOOK_ID,
+    timestamp: "2026-07-14T15:03:24Z",
+    data: {
+      domain: "example.com",
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      spf_valid: true,
+      dkim_valid: false,
+      dmarc_valid: true,
+      dns_last_checked_at: "2026-07-14T15:03:24Z",
+    },
+  },
+] as const;
 
 function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -129,6 +197,7 @@ describe("generated webhook schema", () => {
   it("validates complete known envelopes and nested payload fields", () => {
     const clicked = {
       type: "message.clicked",
+      webhook_id: BODY_WEBHOOK_ID,
       timestamp: "2024-05-06T09:49:16.687031577Z",
       data: {
         account_id: "4cdd7bdd-294e-4762-892f-83d40abf5a87",
@@ -160,9 +229,26 @@ describe("generated webhook schema", () => {
     expect(validateKnownWebhookEvent(withoutUrl)).toBe(false);
   });
 
+  it("requires webhook_id on every configured-webhook envelope", () => {
+    // All six producers declare `WebhookID uuid.UUID` with no omitempty, so
+    // the key is always on the wire. It was optional only because the fixture
+    // it was aligned against omitted it, and that fixture was generated rather
+    // than captured. Routed messages are the exception and carry route_id.
+    for (const payload of CONFIGURED_WEBHOOK_BODIES) {
+      expect(validateKnownWebhookEvent(payload), `${payload.type} with webhook_id`).toBe(true);
+
+      const { webhook_id: _omitted, ...withoutWebhookId } = payload;
+      expect(
+        validateKnownWebhookEvent(withoutWebhookId),
+        `${payload.type} without webhook_id`,
+      ).toBe(false);
+    }
+  });
+
   it("validates RFC 3339 date-times and the complete UUID format", () => {
     const clicked = {
       type: "message.clicked",
+      webhook_id: BODY_WEBHOOK_ID,
       timestamp: "2024-05-06t09:49:16.687031577z",
       data: {
         account_id: "00000000-0000-0000-0000-000000000000",
@@ -216,9 +302,15 @@ describe("generated webhook schema", () => {
     ).toBe(false);
   });
 
-  it("validates email fields as RFC 5321 mailboxes", () => {
+  it("does not reject address fields on their shape", () => {
+    // Previously these fields were validated as strict RFC 5321 mailboxes.
+    // That rejected shapes AhaSend actually sends (campaign display-name
+    // mailboxes) and shapes arbitrary inbound senders use (SMTPUTF8), and a
+    // rejection costs the customer their whole webhook. Address fields are
+    // now carried through verbatim; consumers parse them as they see fit.
     const clicked = {
       type: "message.clicked",
+      webhook_id: BODY_WEBHOOK_ID,
       timestamp: "2024-05-06T09:49:16Z",
       data: {
         account_id: "4cdd7bdd-294e-4762-892f-83d40abf5a87",
@@ -235,40 +327,30 @@ describe("generated webhook schema", () => {
     };
 
     for (const email of [
-      '"a@b"@example.com',
-      '"a\\"b"@example.com',
+      // Shapes the old RFC 5321 check accepted.
+      '\"a@b\"@example.com',
       "postbox@mailserver1",
-      "customer/department=shipping@example.com",
       "user@[127.0.0.1]",
       "user@[IPv6:2001:db8::1]",
-      "user@[IPv6:2001:db8:0:0:0:0:0:1]",
-      "user@[IPv6:::ffff:192.0.2.1]",
-      "user@[example:address-literal]",
+      // Shapes it rejected that AhaSend or an inbound sender really sends.
+      "Acme Campaigns <news@example.com>",
+      "dörte@example.com",
+      "sender@bad_domain.com",
+      "sender..name@example.com",
+      "a,b@example.com",
     ]) {
       expect(
         validateKnownWebhookEvent({ ...clicked, data: { ...clicked.data, from: email } }),
         email,
       ).toBe(true);
     }
-    for (const email of [
-      "sender@bad_domain.com",
-      "a,b@example.com",
-      ".sender@example.com",
-      "sender..name@example.com",
-      "sender@-example.com",
-      "sender@example-.com",
-      "user@[300.0.0.1]",
-      "user@[IPv6:2001:db8::1::2]",
-      "user@[IPv6:]",
-      "user@[bad_tag:value]",
-      "user@[example:bad\\value]",
-      '"unterminated@example.com',
-      '"line\nbreak"@example.com',
-      "dörte@example.com",
-    ]) {
+
+    // The field must still be a string — a structural mismatch is not an
+    // address-shape question.
+    for (const notAString of [42, null, { address: "sender@example.com" }]) {
       expect(
-        validateKnownWebhookEvent({ ...clicked, data: { ...clicked.data, from: email } }),
-        email,
+        validateKnownWebhookEvent({ ...clicked, data: { ...clicked.data, from: notAString } }),
+        JSON.stringify(notAString),
       ).toBe(false);
     }
   });
@@ -281,20 +363,49 @@ describe("generated webhook schema", () => {
       data: {
         id: "route-message-1",
         from: "sender@example.com",
+        reply_to: "sender@example.com",
         to: "support@example.com",
         subject: "Help",
         message_id: "<route@example.com>",
         size: 512,
+        spam_score: 0,
         bounce: false,
+        cc: "",
+        date: "Mon, 06 May 2024 13:15:46 +0000",
+        in_reply_to: "",
+        references: "",
+        auto_submitted: "",
         html_body: "<p>Help</p>",
         plain_body: "Help",
-        attachments: [{ filename: "note.txt", content_type: "text/plain", data: "SGVsbG8=" }],
+        reply_from_plain_body: "",
+        attachments: [
+          {
+            filename: "note.txt",
+            content_type: "text/plain",
+            content_id: "",
+            disposition: "attachment",
+            data: "SGVsbG8=",
+          },
+        ],
         headers: { "X-Mailer": "AhaSend test" },
       },
     } as const;
 
     expect(validateKnownWebhookEvent(routing)).toBe(true);
     expect(validateKnownWebhookEvent({ ...routing, type: "route.message" })).toBe(true);
+    for (const from of [
+      "sender@example.com",
+      "<sender@example.com>",
+      '"AhaSend Support" <sender@example.com>',
+      "Dörte Beispiel <sender@example.com>",
+    ]) {
+      expect(validateKnownWebhookEvent({ ...routing, data: { ...routing.data, from } }), from).toBe(
+        true,
+      );
+    }
+    const withoutRouteId = structuredClone(routing);
+    Reflect.deleteProperty(withoutRouteId, "route_id");
+    expect(validateKnownWebhookEvent(withoutRouteId)).toBe(false);
     expect(
       validateKnownWebhookEvent({
         ...routing,
@@ -404,9 +515,10 @@ describe("captured TypeScript verification results", () => {
         capture.fixtureId,
       ).toBe(capture.signature);
 
-      const verifier = new WebhookVerifier(key.toString("utf8"), {
-        nowMs: () => Number(capture.webhookTimestamp) * 1000,
-      });
+      const verifier = createWebhookVerifierWithClock(
+        key.toString("utf8"),
+        () => Number(capture.webhookTimestamp) * 1000,
+      );
       expect(() =>
         verifier.verify(
           {
@@ -428,9 +540,10 @@ describe("captured TypeScript verification results", () => {
       const otherCapture = manifest.captures[(index + 1) % manifest.captures.length]!;
       const otherKeyFile = readFileSync(resolve(ROOT, otherCapture.signingResource.keyPath));
       const otherKey = otherKeyFile.subarray(0, otherKeyFile.length - 1).toString("utf8");
-      const verifier = new WebhookVerifier(key, {
-        nowMs: () => Number(capture.webhookTimestamp) * 1000,
-      });
+      const verifier = createWebhookVerifierWithClock(
+        key,
+        () => Number(capture.webhookTimestamp) * 1000,
+      );
       const headers = {
         "webhook-id": capture.webhookId,
         "webhook-timestamp": capture.webhookTimestamp,
@@ -468,9 +581,10 @@ describe("captured TypeScript verification results", () => {
       ).toBe("signature_mismatch");
       expect(
         reasonFrom(() =>
-          new WebhookVerifier(otherKey, {
-            nowMs: () => Number(capture.webhookTimestamp) * 1000,
-          }).verify(headers, rawBody),
+          createWebhookVerifierWithClock(
+            otherKey,
+            () => Number(capture.webhookTimestamp) * 1000,
+          ).verify(headers, rawBody),
         ),
       ).toBe("signature_mismatch");
     }
@@ -508,7 +622,7 @@ function buildEnvelope(
 
 const validDelivery = {
   type: "message.delivered" as const,
-  webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
+  webhook_id: BODY_WEBHOOK_ID,
   timestamp: "2026-07-14T15:03:21.987654321Z",
   data: {
     account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
@@ -520,6 +634,64 @@ const validDelivery = {
     id: "message-1",
   },
 };
+
+/**
+ * A routed-message envelope carrying every field the producer emits. Only
+ * `headers` has `omitempty` on the Go struct, so everything else is present on
+ * every delivery — including the empty strings.
+ */
+function routeEventWithAttachments(
+  attachments: Array<Partial<WebhookComponents["schemas"]["RouteAttachment"]>>,
+): { type: "message.routing"; route_id: string; timestamp: string; data: RouteEventDataFixture } {
+  return {
+    type: "message.routing",
+    route_id: "b33c56aa-4bb8-4796-a44e-e204c2a9cb49",
+    timestamp: "2026-07-14T15:04:07.123456789Z",
+    data: {
+      id: "route-message-1",
+      from: "Customer <customer@example.net>",
+      reply_to: "customer@example.net",
+      to: "inbound@example.com",
+      subject: "Attachment test",
+      message_id: "<routing@example.net>",
+      size: 2048,
+      spam_score: 0.1,
+      bounce: false,
+      cc: "",
+      date: "Tue, 14 Jul 2026 15:04:05 +0000",
+      in_reply_to: "",
+      references: "",
+      auto_submitted: "",
+      html_body: '<p><img src="cid:logo-123"></p>',
+      plain_body: "see attached",
+      reply_from_plain_body: "",
+      // Deliberately NOT defaulted: a caller that omits a key must produce a
+      // payload that omits it, or absence cannot be tested at all.
+      attachments: attachments.map((attachment) => ({ ...attachment })),
+    },
+  };
+}
+
+interface RouteEventDataFixture {
+  id: string;
+  from: string;
+  reply_to: string;
+  to: string;
+  subject: string;
+  message_id: string;
+  size: number;
+  spam_score: number;
+  bounce: boolean;
+  cc: string;
+  date: string;
+  in_reply_to: string;
+  references: string;
+  auto_submitted: string;
+  html_body: string;
+  plain_body: string;
+  reply_from_plain_body: string;
+  attachments: Array<Partial<WebhookComponents["schemas"]["RouteAttachment"]>>;
+}
 
 function reasonFrom(run: () => unknown): WebhookVerificationReason {
   try {
@@ -550,6 +722,77 @@ describe("WebhookVerifier", () => {
     expect(isKnownWebhookEvent(event)).toBe(true);
     if (isKnownWebhookEvent(event) && event.type === "message.delivered") {
       expect(event.data.recipient).toBe("receiver@example.com");
+    }
+  });
+
+  it("parses signed configured-webhook bodies with absent or present webhook IDs", () => {
+    const verifier = new WebhookVerifier(SECRET);
+
+    for (const payload of CONFIGURED_WEBHOOK_BODIES) {
+      for (const bodyPayload of [payload, { ...payload, webhook_id: BODY_WEBHOOK_ID }]) {
+        const { headers, body } = buildEnvelope(SECRET, bodyPayload);
+        expect(verifier.parse(headers, body)).toEqual(bodyPayload);
+      }
+    }
+  });
+
+  it("validates every signed synthetic body and preserves is_bot compatibility cases", () => {
+    const manifest = JSON.parse(readFileSync(resolve(SYNTHETIC_PATH, "manifest.json"), "utf8")) as {
+      fixtures: Array<{
+        fixtureId: string;
+        bodyPath: string;
+        rawBodySha256: string;
+        keyPath: string;
+        keySha256: string;
+        webhookId: string;
+        webhookTimestamp: string;
+        signature: string;
+        expectedResult: "valid";
+      }>;
+    };
+
+    expect(
+      manifest.fixtures
+        .map(({ fixtureId }) => fixtureId)
+        .filter((fixtureId) => IS_BOT_FIXTURE_EXPECTATIONS.has(fixtureId)),
+    ).toEqual([...IS_BOT_FIXTURE_EXPECTATIONS.keys()]);
+
+    for (const fixture of manifest.fixtures) {
+      const rawBody = readFileSync(resolve(ROOT, fixture.bodyPath));
+      const keyFile = readFileSync(resolve(ROOT, fixture.keyPath));
+      const key = keyFile.subarray(0, keyFile.length - 1);
+      const payload = JSON.parse(rawBody.toString("utf8")) as unknown;
+
+      expect(sha256Hex(rawBody), fixture.fixtureId).toBe(fixture.rawBodySha256);
+      expect(sha256Hex(key), fixture.fixtureId).toBe(fixture.keySha256);
+      expect(
+        sign(key.toString("utf8"), fixture.webhookId, fixture.webhookTimestamp, rawBody),
+        fixture.fixtureId,
+      ).toBe(fixture.signature);
+      expect(validateKnownWebhookEvent(payload), fixture.fixtureId).toBe(true);
+
+      const event = createWebhookVerifierWithClock(
+        key.toString("utf8"),
+        () => Number(fixture.webhookTimestamp) * 1000,
+      ).parse(
+        {
+          "webhook-id": fixture.webhookId,
+          "webhook-timestamp": fixture.webhookTimestamp,
+          "webhook-signature": fixture.signature,
+        },
+        rawBody,
+      );
+      expect(event, fixture.fixtureId).toEqual(payload);
+
+      const expectedIsBot = IS_BOT_FIXTURE_EXPECTATIONS.get(fixture.fixtureId);
+      if (expectedIsBot !== undefined) {
+        const data = record(event.data);
+        if (expectedIsBot === "absent") {
+          expect(Object.hasOwn(data, "is_bot"), fixture.fixtureId).toBe(false);
+        } else {
+          expect(data["is_bot"], fixture.fixtureId).toBe(expectedIsBot);
+        }
+      }
     }
   });
 
@@ -639,6 +882,54 @@ describe("WebhookVerifier", () => {
     expect(() => verifier.verify(headers, Buffer.from(body, "utf-8"))).not.toThrow();
   });
 
+  it("accepts a plain Uint8Array body and decodes it as UTF-8", () => {
+    // A Buffer passes either way, because `Buffer#toString("utf-8")` honours
+    // its argument. A plain Uint8Array is the case the published type now
+    // admits, and it is the one that breaks under `rawBody.toString("utf-8")`:
+    // `Uint8Array#toString` ignores every argument and returns comma-joined
+    // byte values, so a valid webhook reaches JSON.parse as "123,34,116,..."
+    // and is rejected as invalid_json. The non-ASCII subject additionally pins
+    // UTF-8 decoding rather than one character per byte.
+    const payload = {
+      ...validDelivery,
+      data: { ...validDelivery.data, subject: "Grüße 🎉" },
+    };
+    const { headers, body } = buildEnvelope(SECRET, payload);
+    const bytes = Uint8Array.from(Buffer.from(body, "utf-8"));
+    expect(Buffer.isBuffer(bytes)).toBe(false);
+    expect(bytes.byteLength).toBeGreaterThan(body.length);
+
+    const verifier = new WebhookVerifier(SECRET);
+    expect(() => verifier.verify(headers, bytes)).not.toThrow();
+    expect(verifier.parse(headers, bytes)).toEqual(payload);
+  });
+
+  it("keeps a leading byte-order mark in the decoded body", () => {
+    // Decoding moved from `Buffer#toString("utf-8")` to a TextDecoder, which
+    // strips a leading U+FEFF by default. That would quietly start accepting
+    // bodies that were previously rejected, so the decoder is constructed with
+    // `ignoreBOM: true` and this pins the result. The signature covers the raw
+    // bytes either way, so nothing here is load-bearing for verification —
+    // only for which bodies reach JSON.parse intact.
+    const json = JSON.stringify(validDelivery);
+    const bytes = Uint8Array.from(
+      Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(json, "utf-8")]),
+    );
+    const id = "msg_bom";
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const headers = {
+      "webhook-id": id,
+      "webhook-timestamp": timestamp,
+      "webhook-signature": sign(SECRET, id, timestamp, Buffer.from(bytes)),
+    };
+
+    const verifier = new WebhookVerifier(SECRET);
+    expect(() => verifier.verify(headers, bytes)).not.toThrow();
+    expect(() => verifier.parse(headers, bytes)).toThrowError(
+      expect.objectContaining({ reason: "invalid_json" }),
+    );
+  });
+
   it("accepts multiple signatures separated by spaces (key rotation)", () => {
     const verifier = new WebhookVerifier(SECRET);
     const ts = Math.floor(Date.now() / 1000);
@@ -673,6 +964,96 @@ describe("WebhookVerifier", () => {
     expect(() => verifier.verify(h, body)).not.toThrow();
   });
 
+  it("accepts a Headers that is not the realm's global one", () => {
+    // A separately installed undici or node-fetch, an edge runtime, or any
+    // value that crossed a realm boundary is not `instanceof` the realm's
+    // global Headers. Detecting by class sent those down the plain-record
+    // path, where Object.entries returns [] because the headers live in
+    // internal slots — so every header read as missing, the adapters answered
+    // 400, and 100 consecutive errors disabled the webhook. Nothing here
+    // inherits from the global Headers.
+    const { headers, body } = buildEnvelope(SECRET, validDelivery);
+
+    class ForeignHeaders {
+      readonly #entries = new Map<string, string>();
+      constructor(init: Record<string, string>) {
+        for (const [name, value] of Object.entries(init)) {
+          this.#entries.set(name.toLowerCase(), value);
+        }
+      }
+      get(name: string): string | null {
+        return this.#entries.get(name.toLowerCase()) ?? null;
+      }
+    }
+
+    const foreign = new ForeignHeaders(headers);
+    expect(foreign).not.toBeInstanceOf(Headers);
+    expect(new WebhookVerifier(SECRET).parse(foreign, body)).toEqual(validDelivery);
+
+    // A bare getter object — the minimum a header source can offer.
+    const minimal = { get: (name: string) => headers[name] };
+    expect(() => new WebhookVerifier(SECRET).verify(minimal, body)).not.toThrow();
+
+    // Case-insensitive lookup remains the header source's responsibility, as
+    // it is for the global Headers.
+    const map = new Map(Object.entries(headers));
+    expect(() => new WebhookVerifier(SECRET).verify(map, body)).not.toThrow();
+  });
+
+  it("keeps reading a plain record that happens to carry a get header", () => {
+    // Capability detection must not misread a header literally named `get`.
+    // A plain record's values are strings or string arrays, never functions,
+    // so the two shapes stay distinguishable.
+    const { headers, body } = buildEnvelope(SECRET, validDelivery);
+    const withGetHeader = { ...headers, get: "max-age=0" };
+
+    expect(new WebhookVerifier(SECRET).parse(withGetHeader, body)).toEqual(validDelivery);
+  });
+
+  it("treats a record whose get is a function as a header getter", () => {
+    // The one shape whose behaviour the capability check actually changed, and
+    // the boundary of the guarantee above: a *function* under `get` wins over
+    // the sibling header keys. TypeScript cannot produce this from the
+    // documented record type, but an untyped caller can, so pin it as intended
+    // rather than accidental. Delegating to the record makes it verify;
+    // ignoring the record makes every header missing.
+    const { headers, body } = buildEnvelope(SECRET, validDelivery);
+
+    const delegating = { ...headers, get: (name: string) => headers[name] };
+    expect(new WebhookVerifier(SECRET).parse(delegating, body)).toEqual(validDelivery);
+
+    const ignoring = { ...headers, get: () => undefined };
+    expect(reasonFrom(() => new WebhookVerifier(SECRET).verify(ignoring, body))).toBe(
+      "missing_webhook_id",
+    );
+  });
+
+  it("treats a non-string header value as absent, from either header shape", () => {
+    // A header source is caller supplied: a foreign Headers is not bound by
+    // the WHATWG return contract, and a JavaScript caller can put anything in
+    // a plain record. Both must report a missing header rather than handing a
+    // number to node:crypto, which throws a bare ERR_INVALID_ARG_TYPE from
+    // inside sign(). Failing closed is correct on the signature path.
+    const { headers, body } = buildEnvelope(SECRET, validDelivery);
+    const numericTimestamp = Number(headers[WEBHOOK_TIMESTAMP_HEADER]);
+
+    const foreign = {
+      get: (name: string) =>
+        name === WEBHOOK_TIMESTAMP_HEADER ? (numericTimestamp as unknown as string) : headers[name],
+    };
+    expect(reasonFrom(() => new WebhookVerifier(SECRET).verify(foreign, body))).toBe(
+      "missing_webhook_timestamp",
+    );
+
+    const record = {
+      ...headers,
+      [WEBHOOK_TIMESTAMP_HEADER]: numericTimestamp as unknown as string,
+    };
+    expect(reasonFrom(() => new WebhookVerifier(SECRET).verify(record, body))).toBe(
+      "missing_webhook_timestamp",
+    );
+  });
+
   it("constructor throws on empty secret", () => {
     expect(() => new WebhookVerifier("")).toThrow(/secret/);
   });
@@ -696,7 +1077,7 @@ describe("WebhookVerifier", () => {
       .digest("base64");
     const expectedSignature = `v1,${expectedDigest}`;
 
-    const verifier = new WebhookVerifier(secret, { nowMs: () => timestamp * 1000 });
+    const verifier = createWebhookVerifierWithClock(secret, () => timestamp * 1000);
     expect(() =>
       verifier.verify(
         {
@@ -717,13 +1098,24 @@ describe("WebhookVerifier", () => {
       data: {
         id: "route-message-1",
         from: "sender@example.com",
+        reply_to: "sender@example.com",
         to: "support@example.com",
         subject: "Help",
         message_id: "<route@example.com>",
         size: 512,
+        spam_score: 0,
         bounce: false,
+        cc: "",
+        date: "Tue, 14 Jul 2026 15:04:05 +0000",
+        in_reply_to: "",
+        references: "",
+        auto_submitted: "",
+        reply_from_plain_body: "",
         html_body: "<p>Help</p>",
         plain_body: "Help",
+        // Emitted even when a route does not include attachments: the Go
+        // slice is initialised to empty rather than left nil.
+        attachments: [],
       },
     };
     const { headers, body } = buildEnvelope(SECRET, payload);
@@ -765,6 +1157,268 @@ describe("WebhookVerifier", () => {
         new WebhookVerifier(SECRET).parse(incompleteUnknown.headers, incompleteUnknown.body),
       ),
     ).toBe("invalid_payload");
+  });
+
+  it("accepts sender and recipient mailboxes that are not bare RFC 5321 addresses", () => {
+    // Campaign deliveries carry a display-name mailbox built from the
+    // campaign's from-name, and inbound routes carry whatever an arbitrary
+    // external sender used. Rejecting these returns 400 to AhaSend, and 100
+    // consecutive 400s disable the webhook — including its transactional
+    // events. A receiver must be liberal about address shape.
+    const mailboxes = [
+      "Acme Campaigns <news@example.com>",
+      '"Doe, John" <john@example.com>',
+      "josé@example.com",
+      "user@localhost",
+    ];
+
+    for (const mailbox of mailboxes) {
+      const payload = {
+        ...validDelivery,
+        data: { ...validDelivery.data, from: mailbox, recipient: mailbox },
+      };
+      const { headers, body } = buildEnvelope(SECRET, payload);
+      expect(new WebhookVerifier(SECRET).parse(headers, body), mailbox).toEqual(payload);
+    }
+  });
+
+  it("carries attachment disposition through to the parsed route event", () => {
+    // Route attachments mix conventional attachments, inline `cid:` parts, and
+    // filename-bearing parts with no Content-Disposition header. Without
+    // `disposition` a receiver cannot tell an embedded image from a real
+    // attachment, and the field was present on the wire but absent from the
+    // type. The producer sends it without omitempty
+    // (ahasend/cmd/job-runner/jobs/routes/message_routing.go:78).
+    const payload = routeEventWithAttachments([
+      {
+        filename: "logo.png",
+        content_type: "image/png",
+        content_id: "logo-123",
+        disposition: "inline",
+        data: "AAAA",
+      },
+      {
+        filename: "invoice.pdf",
+        content_type: "application/pdf",
+        content_id: "",
+        disposition: "attachment",
+        data: "BBBB",
+      },
+    ]);
+
+    const { headers, body } = buildEnvelope(SECRET, payload);
+    const event = new WebhookVerifier(SECRET).parse(headers, body);
+
+    expect(event).toEqual(payload);
+    if (isKnownWebhookEvent(event) && event.type === "message.routing") {
+      const attachments = event.data.attachments ?? [];
+      expect(attachments.map((attachment) => attachment.disposition)).toEqual([
+        "inline",
+        "attachment",
+      ]);
+      expect(
+        attachments.filter((attachment) => attachment.disposition === "inline")[0]?.content_id,
+      ).toBe("logo-123");
+    } else {
+      throw new Error("expected a routing event");
+    }
+  });
+
+  it("separates a Content-Disposition-less embedded image from a real attachment", () => {
+    // The shape Gmail and Outlook actually produce: a multipart/related part
+    // with a Content-ID and NO Content-Disposition header. Verified against
+    // enmime v1.1.0 (the revision ahasend/go.mod pins) driving the
+    // producer's own routeAttachments(), which emits
+    // it as disposition "" with a populated content_id. `content_id` is ""
+    // rather than absent when there is no Content-ID, because the producer
+    // struct has no omitempty.
+    //
+    // This is why the documented split keys off content_id: a
+    // `disposition === "inline"` filter files this embedded image under real
+    // attachments, which is the exact confusion `disposition` was added to
+    // resolve.
+    const payload = routeEventWithAttachments([
+      {
+        filename: "logo.png",
+        content_type: "image/png",
+        content_id: "logo-123",
+        disposition: "",
+        data: "AAAA",
+      },
+      {
+        filename: "invoice.pdf",
+        content_type: "application/pdf",
+        content_id: "",
+        disposition: "attachment",
+        data: "BBBB",
+      },
+    ]);
+    const { headers, body } = buildEnvelope(SECRET, payload);
+    const event = new WebhookVerifier(SECRET).parse(headers, body);
+
+    if (!isKnownWebhookEvent(event) || event.type !== "message.routing") {
+      throw new Error("expected a routing event");
+    }
+    const attachments = event.data.attachments ?? [];
+
+    const embedded = new Map(
+      attachments.filter((attachment) => attachment.content_id).map((a) => [a.content_id, a]),
+    );
+    const files = attachments.filter(
+      (attachment) =>
+        !(attachment.content_id && event.data.html_body.includes(`cid:${attachment.content_id}`)),
+    );
+
+    expect([...embedded.keys()]).toEqual(["logo-123"]);
+    expect(files.map((file) => file.filename)).toEqual(["invoice.pdf"]);
+
+    // The naive disposition-only split gets this wrong, which is why the
+    // documentation steers away from it.
+    expect(attachments.filter((attachment) => attachment.disposition === "inline")).toHaveLength(0);
+  });
+
+  it("accepts any disposition token the sending server wrote", () => {
+    // The divergence from the upstream spec is on the ENUM, not on presence.
+    // `disposition` is parsed from an inbound message's Content-Disposition
+    // header, and an application/octet-stream part carries any RFC 2183
+    // extension token through verbatim, so constraining the value would let a
+    // stranger's email return 400 and disable the route webhook after 100 of
+    // them. Presence is a different question and is mirrored from the producer
+    // — see the required-key coverage below.
+    const attachment = {
+      filename: "f.bin",
+      content_type: "application/octet-stream",
+      data: "AAAA",
+    };
+    for (const disposition of ["attachment", "inline", "", "form-data", "x-vendor-thing"]) {
+      const payload = routeEventWithAttachments([{ ...attachment, content_id: "", disposition }]);
+      const { headers, body } = buildEnvelope(SECRET, payload);
+      expect(new WebhookVerifier(SECRET).parse(headers, body), disposition).toEqual(payload);
+    }
+
+    // Still a string, though — a receiver that reads it must not get an object.
+    const wrongType = routeEventWithAttachments([
+      { ...attachment, content_id: "", disposition: "" },
+    ]);
+    (wrongType.data.attachments[0] as Record<string, unknown>)["disposition"] = 1;
+    const bad = buildEnvelope(SECRET, wrongType);
+    expect(reasonFrom(() => new WebhookVerifier(SECRET).parse(bad.headers, bad.body))).toBe(
+      "invalid_event",
+    );
+  });
+
+  it("requires every key the route producer emits unconditionally", () => {
+    // `required` mirrors the producer's struct tags: in MessageData and
+    // MessageAttachmentsPayload only `headers` carries `omitempty`, so every
+    // other key is on the wire for every delivery.
+    //
+    // Without these assertions the only thing holding the required lists in
+    // place is the artifact-vs-source regeneration check, which a spec resync
+    // satisfies trivially — it compares the generated files to the YAML, not
+    // the YAML to the producer. That is exactly the path by which upstream's
+    // `disposition` enum could come back.
+    const complete = routeEventWithAttachments([
+      {
+        filename: "logo.png",
+        content_type: "image/png",
+        content_id: "logo-123",
+        disposition: "",
+        data: "AAAA",
+      },
+    ]);
+    expect(validateKnownWebhookEvent(complete)).toBe(true);
+
+    const dataKeys = [
+      "id",
+      "from",
+      "reply_to",
+      "to",
+      "subject",
+      "message_id",
+      "size",
+      "spam_score",
+      "bounce",
+      "cc",
+      "date",
+      "in_reply_to",
+      "references",
+      "auto_submitted",
+      "html_body",
+      "plain_body",
+      "reply_from_plain_body",
+      "attachments",
+    ] as const;
+    for (const key of dataKeys) {
+      const missing = structuredClone(complete);
+      Reflect.deleteProperty(missing.data, key);
+      expect(validateKnownWebhookEvent(missing), `data.${key}`).toBe(false);
+    }
+
+    for (const key of ["filename", "content_type", "content_id", "disposition", "data"] as const) {
+      const missing = structuredClone(complete);
+      Reflect.deleteProperty(missing.data.attachments[0]!, key);
+      expect(validateKnownWebhookEvent(missing), `attachment.${key}`).toBe(false);
+    }
+
+    // `headers` is the one field the producer marks omitempty, and `complete`
+    // already omits it — so the passing assertion above is also the proof that
+    // it stayed optional.
+    expect(Object.hasOwn(complete.data, "headers")).toBe(false);
+  });
+
+  it("keeps enforcing structural formats that discriminate the envelope", () => {
+    // Relaxing address formats must not relax uuid or date-time, which
+    // identify the account and order the event stream.
+    const badAccountId = buildEnvelope(SECRET, {
+      ...validDelivery,
+      data: { ...validDelivery.data, account_id: "not-a-uuid" },
+    });
+    expect(
+      reasonFrom(() => new WebhookVerifier(SECRET).parse(badAccountId.headers, badAccountId.body)),
+    ).toBe("invalid_event");
+
+    const badTimestamp = buildEnvelope(SECRET, { ...validDelivery, timestamp: "last Tuesday" });
+    expect(
+      reasonFrom(() => new WebhookVerifier(SECRET).parse(badTimestamp.headers, badTimestamp.body)),
+    ).toBe("invalid_event");
+  });
+
+  it("accepts is_bot as a boolean or absent, matching the wire contract", () => {
+    // Optional here covers both producers. The open event declares
+    // `IsBot *bool` with omitempty, so the wire carries `true`, `false`, or
+    // nothing; the click event declares a bare `bool` and always sends it. A
+    // contract rule (scripts/generate-contracts.mjs) forbids ever requiring
+    // this field, because a campaign producer has shipped a `string` zero
+    // value here and failing closed on it costs the whole webhook. Pinned so a
+    // producer regression to a non-boolean is caught here rather than by a
+    // disabled webhook.
+    const opened = {
+      ...validDelivery,
+      type: "message.opened" as const,
+      data: {
+        ...validDelivery.data,
+        event: "on_opened" as const,
+        user_agent: "Mozilla/5.0",
+        ip: "192.0.2.1",
+      },
+    };
+
+    for (const isBot of [true, false]) {
+      const payload = { ...opened, data: { ...opened.data, is_bot: isBot } };
+      const { headers, body } = buildEnvelope(SECRET, payload);
+      expect(new WebhookVerifier(SECRET).parse(headers, body), String(isBot)).toEqual(payload);
+    }
+
+    const absent = buildEnvelope(SECRET, opened);
+    expect(new WebhookVerifier(SECRET).parse(absent.headers, absent.body)).toEqual(opened);
+
+    const stringified = buildEnvelope(SECRET, {
+      ...opened,
+      data: { ...opened.data, is_bot: "" },
+    });
+    expect(
+      reasonFrom(() => new WebhookVerifier(SECRET).parse(stringified.headers, stringified.body)),
+    ).toBe("invalid_event");
   });
 
   it("reports malformed JSON separately from invalid envelopes", () => {
@@ -827,9 +1481,7 @@ describe("WebhookVerifier", () => {
     const timestamp = "01784041401";
     const id = "msg-exact-timestamp";
     const body = "{}";
-    const verifier = new WebhookVerifier(SECRET, {
-      nowMs: () => Number(timestamp) * 1000,
-    });
+    const verifier = createWebhookVerifierWithClock(SECRET, () => Number(timestamp) * 1000);
     const headers = {
       "webhook-id": id,
       "webhook-timestamp": timestamp,
@@ -844,9 +1496,8 @@ describe("WebhookVerifier", () => {
 
   it("accepts the tolerance boundary and rejects ancient and future timestamps", () => {
     const nowSeconds = 1_800_000_000;
-    const verifier = new WebhookVerifier(SECRET, {
+    const verifier = createWebhookVerifierWithClock(SECRET, () => nowSeconds * 1000, {
       toleranceSeconds: 300,
-      nowMs: () => nowSeconds * 1000,
     });
     const body = "{}";
     for (const timestamp of [nowSeconds - 300, nowSeconds + 300]) {
@@ -899,9 +1550,8 @@ describe("WebhookVerifier", () => {
   });
 
   it("accepts safe-integer timestamp endpoints before applying the time window", () => {
-    const verifier = new WebhookVerifier(SECRET, {
+    const verifier = createWebhookVerifierWithClock(SECRET, () => 0, {
       toleranceSeconds: Number.MAX_SAFE_INTEGER,
-      nowMs: () => 0,
     });
     const body = "{}";
     for (const timestamp of ["0", String(Number.MAX_SAFE_INTEGER)]) {
@@ -939,7 +1589,7 @@ describe("WebhookVerifier", () => {
     const envelope = buildEnvelope(SECRET, validDelivery);
     for (const nowMs of [Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
       expect(() =>
-        new WebhookVerifier(SECRET, { nowMs: () => nowMs }).verify(envelope.headers, envelope.body),
+        createWebhookVerifierWithClock(SECRET, () => nowMs).verify(envelope.headers, envelope.body),
       ).toThrow(AhaSendConfigurationError);
     }
   });
@@ -980,7 +1630,9 @@ describe("WebhookVerifier", () => {
   });
 
   it("keeps secret, tolerance, and clock state out of reflection", () => {
-    const verifier = new WebhookVerifier(SECRET, { nowMs: () => 0, toleranceSeconds: 1 });
+    const verifier = createWebhookVerifierWithClock(SECRET, () => 0, {
+      toleranceSeconds: 1,
+    });
     expect(Object.keys(verifier)).toEqual([]);
     expect(Reflect.ownKeys(verifier)).toEqual([]);
     expect(verifier).not.toHaveProperty("key");

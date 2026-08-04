@@ -3,6 +3,7 @@ import { AhaSendError, isAhaSendError } from "../src/index.js";
 import { collect, paginate } from "../src/pagination.js";
 import type { PaginatedResponse } from "../src/types/common.js";
 import { AhaSendClient } from "../src/client.js";
+import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -28,6 +29,20 @@ describe("paginate", () => {
       object: "list" as const,
       data: [1],
       pagination: { has_more: true },
+    }));
+
+    const out: number[] = [];
+    for await (const item of paginate(fetchPage, {})) out.push(item);
+
+    expect(out).toEqual([1]);
+    expect(fetchPage).toHaveBeenCalledOnce();
+  });
+
+  it("stops when has_more is false even if a stale cursor is present", async () => {
+    const fetchPage = vi.fn(async () => ({
+      object: "list" as const,
+      data: [1],
+      pagination: { has_more: false, next_cursor: "stale-next-page" },
     }));
 
     const out: number[] = [];
@@ -103,6 +118,27 @@ describe("paginate", () => {
     ]);
   });
 
+  it("rejects dual cursors before fetching a page", async () => {
+    const fetchPage = vi.fn(async () => ({
+      object: "list" as const,
+      data: [1],
+      pagination: { has_more: false },
+    }));
+    const drain = async () => {
+      for await (const _item of paginate(fetchPage, {
+        after: "next",
+        before: "previous",
+      } as never)) {
+        // drain
+      }
+    };
+
+    await expect(drain()).rejects.toThrow(
+      'Pagination parameters must not include both "after" and "before"',
+    );
+    expect(fetchPage).not.toHaveBeenCalled();
+  });
+
   it("rejects a cursor that would revisit a page", async () => {
     const pages = [
       { object: "list" as const, data: ["a"], pagination: { has_more: true, next_cursor: "c1" } },
@@ -126,6 +162,33 @@ describe("paginate", () => {
       message: "Pagination cursor did not advance",
     });
     expect(fetchPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a 2xx page missing its envelope with a branded error, not a TypeError", async () => {
+    // A server bug returning `{}` with a 200 used to surface as `Cannot read
+    // properties of undefined (reading 'has_more')` — outside the documented
+    // error hierarchy, so `AhaSendError.is()` dispatch missed it.
+    const malformedPages: unknown[] = [
+      {},
+      { data: [1] },
+      { pagination: { has_more: false } },
+      { data: "not-an-array", pagination: { has_more: false } },
+      { data: [1], pagination: null },
+      null,
+    ];
+
+    for (const malformed of malformedPages) {
+      const fetchPage = vi.fn(async () => malformed as PaginatedResponse<number>);
+      const error: unknown = await (async () => {
+        for await (const item of paginate(fetchPage, {})) void item;
+      })().catch((cause: unknown) => cause);
+
+      expect(isAhaSendError(error), `page ${JSON.stringify(malformed)}`).toBe(true);
+      expect(error).toMatchObject({
+        code: "ahasend_error",
+        message: "Pagination page is malformed: expected a `data` array and a `pagination` object",
+      });
+    }
   });
 
   it("collect() drains and respects an explicit limit", async () => {
@@ -157,7 +220,7 @@ describe("Resource client iterators", () => {
     ) as unknown as FetchImpl;
     return new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       fetch: fetchImpl,
     });

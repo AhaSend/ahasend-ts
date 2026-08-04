@@ -7,15 +7,15 @@
 // @public (undocumented)
 export interface Account {
     // (undocumented)
-    about?: string | null;
+    about: string;
     // (undocumented)
     created_at: ISODateTime;
     // (undocumented)
     id: UUID;
     // (undocumented)
-    message_data_retention?: number;
+    message_data_retention: number;
     // (undocumented)
-    message_metadata_retention?: number;
+    message_metadata_retention: number;
     // (undocumented)
     name: string;
     // (undocumented)
@@ -25,49 +25,37 @@ export interface Account {
     // (undocumented)
     parent_account_id: UUID | null;
     // (undocumented)
-    reject_bad_recipients?: boolean;
+    reject_bad_recipients: boolean;
     // (undocumented)
-    reject_mistyped_recipients?: boolean;
+    reject_mistyped_recipients: boolean;
     // (undocumented)
-    track_clicks?: boolean;
+    track_clicks: boolean;
     // (undocumented)
-    track_opens?: boolean;
+    track_opens: boolean;
     // (undocumented)
     updated_at: ISODateTime;
     // (undocumented)
-    website?: string | null;
+    website: string;
 }
 
 // @public (undocumented)
 export type AccountMemberRole = "Administrator" | "Developer" | "Analyst" | "Billing Manager";
 
 // @public
-class AccountsClient$1 {
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutor" needs to be exported by the entry point index.d.ts
-    constructor(operations: OperationExecutor, accountId: UUID);
-    // (undocumented)
-    addMember(body: AddAccountMemberRequest, options?: IdempotencyRequestOptions): Promise<UserAccount>;
-    // (undocumented)
-    get(options?: RequestOptions): Promise<Account>;
-    // (undocumented)
-    listMembers(options?: RequestOptions): Promise<ListAccountMembersResponse>;
-    // (undocumented)
-    removeMember(userId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    update(body: UpdateAccountRequest, options?: RequestOptions): Promise<Account>;
+export interface AccountsClient {
+    addMember(body: AddAccountMemberRequest, options?: IdempotencyRequestOptions): AhaSendPromise<UserAccount>;
+    get(options?: RequestOptions): AhaSendPromise<Account>;
+    listMembers(options?: RequestOptions): AhaSendPromise<ListAccountMembersResponse>;
+    removeMember(userId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    update(body: UpdateAccountRequest, options?: RequestOptions): AhaSendPromise<Account>;
 }
-
-// Warning: (ae-forgotten-export) The symbol "AccountsClient$1" needs to be exported by the entry point index.d.ts
-//
-// @public (undocumented)
-export type AccountsClient = AccountsClient$1;
 
 // @public (undocumented)
 export interface AddAccountMemberRequest {
     // (undocumented)
     email: string;
     // (undocumented)
-    name?: string;
+    name?: string | undefined;
     // (undocumented)
     role: AccountMemberRole;
 }
@@ -77,7 +65,7 @@ export interface Address {
     // (undocumented)
     email: string;
     // (undocumented)
-    name?: string;
+    name?: string | undefined;
 }
 
 // @public
@@ -99,6 +87,7 @@ export class AhaSendAPIError extends AhaSendError {
     readonly body: ApiErrorBody | string | null;
     // (undocumented)
     readonly headers: Record<string, string>;
+    static is(value: unknown): value is AhaSendAPIError;
     // (undocumented)
     readonly requestId: string | undefined;
     // (undocumented)
@@ -107,69 +96,54 @@ export class AhaSendAPIError extends AhaSendError {
 
 // @public
 export class AhaSendAuthenticationError extends AhaSendAPIError {
-    // Warning: (ae-forgotten-export) The symbol "APIErrorParams" needs to be exported by the entry point index.d.ts
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
 export class AhaSendBadRequestError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
 export class AhaSendClient {
-    // (undocumented)
-    [INSPECT_CUSTOM_2](): SerializedAhaSendClient;
     constructor(options: AhaSendClientOptions);
-    // (undocumented)
     get accountId(): UUID;
-    // (undocumented)
-    get accounts(): Readonly<AccountsClient$1>;
-    // Warning: (ae-forgotten-export) The symbol "APIKeysClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    get apiKeys(): Readonly<APIKeysClient$1>;
-    // Warning: (ae-forgotten-export) The symbol "DomainsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    get domains(): Readonly<DomainsClient$1>;
-    static fromEnv(env?: NodeJS.ProcessEnv): AhaSendClient;
-    // Warning: (ae-forgotten-export) The symbol "MessagesClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    get messages(): Readonly<MessagesClient$1>;
+    get accounts(): Readonly<AccountsClient>;
+    get apiKeys(): Readonly<APIKeysClient>;
+    get domains(): Readonly<DomainsClient>;
+    static fromEnv(env?: ProcessEnvLike): AhaSendClient;
+    get messages(): Readonly<MessagesClient>;
     ping(options?: RequestOptions): AhaSendPromise<PingResponse>;
-    // Warning: (ae-forgotten-export) The symbol "RoutesClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    get routes(): Readonly<RoutesClient$1>;
-    // Warning: (ae-forgotten-export) The symbol "SMTPCredentialsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    get smtpCredentials(): Readonly<SMTPCredentialsClient$1>;
-    // Warning: (ae-forgotten-export) The symbol "StatisticsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    get statistics(): Readonly<StatisticsClient$1>;
-    // Warning: (ae-forgotten-export) The symbol "SubAccountsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    get subAccounts(): Readonly<SubAccountsClient$1>;
-    // Warning: (ae-forgotten-export) The symbol "SuppressionsClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    get suppressions(): Readonly<SuppressionsClient$1>;
-    // Warning: (ae-forgotten-export) The symbol "SerializedAhaSendClient" needs to be exported by the entry point index.d.ts
-    toJSON(): SerializedAhaSendClient;
-    // Warning: (ae-forgotten-export) The symbol "WebhooksClient$1" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    get webhooks(): Readonly<WebhooksClient$1>;
+    get rateLimiter(): Readonly<RateLimiterController>;
+    get routes(): Readonly<RoutesClient>;
+    get smtpCredentials(): Readonly<SMTPCredentialsClient>;
+    get statistics(): Readonly<StatisticsClient>;
+    get subAccounts(): Readonly<SubAccountsClient>;
+    get suppressions(): Readonly<SuppressionsClient>;
+    toJSON(): {
+        readonly name: "AhaSendClient";
+        readonly accountId: UUID;
+        readonly apiKey: "[REDACTED]";
+    };
+    get webhooks(): Readonly<WebhooksClient>;
 }
 
-// @public (undocumented)
+// @public
 export interface AhaSendClientOptions extends ClientOptions {
-    // (undocumented)
     accountId: UUID;
 }
 
@@ -180,7 +154,14 @@ export class AhaSendConfigurationError extends AhaSendError {
 
 // @public
 export class AhaSendConflictError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
@@ -190,40 +171,68 @@ export class AhaSendConnectionError extends AhaSendError {
 
 // @public
 export class AhaSendError extends Error {
-    // (undocumented)
-    [INSPECT_CUSTOM](): SerializedAhaSendError;
     constructor(message: string, cause?: unknown);
     // (undocumented)
     readonly code: AhaSendErrorCode;
+    static is(value: unknown): value is AhaSendError;
     // (undocumented)
-    toJSON(): SerializedAhaSendError;
+    toJSON(depth?: number): SerializedAhaSendError;
 }
 
 // @public (undocumented)
-export type AhaSendErrorCode = "ahasend_error" | "configuration_error" | "connection_error" | "abort_error" | "timeout_error" | "response_parse_error" | "api_error" | "authentication_error" | "permission_error" | "not_found_error" | "bad_request_error" | "conflict_error" | "idempotency_conflict_error" | "unprocessable_entity_error" | "idempotency_mismatch_error" | "rate_limit_error" | "server_error" | "webhook_verification_error";
+export type AhaSendErrorCode = "ahasend_error" | "configuration_error" | "connection_error" | "abort_error" | "timeout_error" | "response_parse_error" | "api_error" | "authentication_error" | "permission_error" | "not_found_error" | "bad_request_error" | "conflict_error" | "idempotency_conflict_error" | "unprocessable_entity_error" | "idempotency_mismatch_error" | "rate_limit_error" | "rate_limit_queue_full_error" | "response_too_large_error" | "server_error" | "webhook_verification_error";
 
 // @public
 export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
-    constructor(params: APIErrorParams & {
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
         retryAfterSeconds?: number | undefined;
+        idempotencyKey?: string | undefined;
     });
+    readonly idempotencyKey: string | undefined;
     // (undocumented)
     readonly retryAfterSeconds: number | undefined;
 }
 
 // @public
 export class AhaSendIdempotencyMismatchError extends AhaSendUnprocessableEntityError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
 export class AhaSendNotFoundError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
 export class AhaSendPermissionError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public (undocumented)
@@ -234,11 +243,24 @@ export interface AhaSendPromise<T> extends Promise<T> {
 
 // @public
 export class AhaSendRateLimitError extends AhaSendAPIError {
-    constructor(params: APIErrorParams & {
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
         retryAfterSeconds?: number | undefined;
     });
     // (undocumented)
     readonly retryAfterSeconds: number | undefined;
+}
+
+// @public
+export class AhaSendRateLimitQueueFullError extends AhaSendError {
+    constructor(category: RateLimitCategory, maxQueue: number, cause?: unknown);
+    readonly category: RateLimitCategory;
+    readonly maxQueue: number;
 }
 
 // @public (undocumented)
@@ -270,8 +292,21 @@ export class AhaSendResponseParseError extends AhaSendError {
 }
 
 // @public
+export class AhaSendResponseTooLargeError extends AhaSendError {
+    constructor(maxBytes: number, method: string, path: string);
+    readonly maxBytes: number;
+}
+
+// @public
 export class AhaSendServerError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public
@@ -281,23 +316,21 @@ export class AhaSendTimeoutError extends AhaSendConnectionError {
 
 // @public
 export class AhaSendUnprocessableEntityError extends AhaSendAPIError {
-    constructor(params: APIErrorParams);
+    constructor(params: {
+        status: number;
+        message: string;
+        body: ApiErrorBody | string | null;
+        requestId?: string | undefined;
+        headers?: Record<string, string>;
+        cause?: unknown;
+    });
 }
 
 // @public (undocumented)
 export interface ApiErrorBody {
     // (undocumented)
-    [key: string]: unknown;
-    // (undocumented)
-    code?: string;
-    // (undocumented)
-    details?: unknown;
-    // (undocumented)
-    message?: string;
+    message: string;
 }
-
-// @public (undocumented)
-type APIErrorParams = ConstructorParameters<typeof AhaSendAPIError>[0];
 
 // @public (undocumented)
 export interface APIKey {
@@ -324,23 +357,14 @@ export interface APIKey {
 }
 
 // @public
-class APIKeysClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>;
-    // (undocumented)
-    delete(keyId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    get(keyId: UUID, options?: RequestOptions): Promise<APIKey>;
-    // (undocumented)
+export interface APIKeysClient {
+    create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedAPIKey>;
+    delete(keyId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey>;
     iterate(params?: PaginationParams, options?: RequestOptions): AsyncGenerator<APIKey, void, undefined>;
-    // (undocumented)
-    list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>;
-    // (undocumented)
-    update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): Promise<APIKey>;
+    list(params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<APIKey>>;
+    update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): AhaSendPromise<APIKey>;
 }
-
-// @public (undocumented)
-export type APIKeysClient = APIKeysClient$1;
 
 // @public
 export interface APIKeyScope {
@@ -363,9 +387,9 @@ export type APIKeyScopeName = string;
 
 // @public
 export interface Attachment {
-    base64?: boolean;
-    content_disposition?: string;
-    content_id?: string;
+    base64?: boolean | undefined;
+    content_disposition?: string | undefined;
+    content_id?: string | undefined;
     content_type: string;
     data: string;
     // (undocumented)
@@ -403,7 +427,8 @@ export interface CategoryRateLimit {
     // (undocumented)
     burst: number;
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | undefined;
+    maxQueue?: number | undefined;
     // (undocumented)
     requestsPerSecond: number;
 }
@@ -413,75 +438,72 @@ export interface ClientOptions {
     // (undocumented)
     apiKey: string;
     // (undocumented)
-    baseUrl?: string;
-    dangerouslyAllowBrowser?: boolean;
-    dangerouslyAllowInsecureBaseUrl?: boolean;
+    baseUrl?: string | undefined;
+    dangerouslyAllowBrowser?: boolean | undefined;
+    dangerouslyAllowInsecureBaseUrl?: boolean | undefined;
     // (undocumented)
-    debug?: boolean;
+    debug?: boolean | undefined;
     // (undocumented)
-    defaultHeaders?: Record<string, string>;
+    defaultHeaders?: Record<string, string> | undefined;
     // (undocumented)
-    fetch?: typeof fetch;
+    fetch?: typeof fetch | undefined;
     // (undocumented)
-    hooks?: TelemetryHooks;
+    hooks?: TelemetryHooks | undefined;
     // (undocumented)
-    idempotency?: IdempotencyConfig;
+    idempotency?: IdempotencyConfig | undefined;
     // (undocumented)
-    rateLimit?: RateLimitConfig;
+    rateLimit?: RateLimitConfig | undefined;
     // (undocumented)
-    retry?: RetryConfig;
-    timeoutMs?: number;
+    retry?: RetryConfig | undefined;
+    timeoutMs?: number | undefined;
     // (undocumented)
-    userAgent?: string;
+    userAgent?: string | undefined;
 }
-
-// @public
-export function composeHooks(...hookSets: Array<TelemetryHooks | undefined>): TelemetryHooks;
 
 // @public (undocumented)
 export interface CreateAPIKeyRequest {
     // (undocumented)
-    ip_allow_list?: string[];
+    ip_allow_list?: readonly string[] | undefined;
     // (undocumented)
     label: string;
-    scopes: [APIKeyScopeName, ...APIKeyScopeName[]];
+    scopes: readonly APIKeyScopeName[];
 }
 
 // @public (undocumented)
 export interface CreateConversationMessageRequest {
     // (undocumented)
-    amp_content?: string;
+    amp_content?: string | undefined;
     // (undocumented)
-    attachments?: readonly Attachment[];
+    attachments?: readonly Attachment[] | undefined;
     // (undocumented)
-    bcc?: NonEmptyArray<Address>;
+    bcc?: readonly Address[] | undefined;
     // (undocumented)
-    cc?: NonEmptyArray<Address>;
+    cc?: readonly Address[] | undefined;
     // (undocumented)
     from: Address;
     // (undocumented)
-    headers?: Record<string, string>;
+    headers?: Record<string, string> | undefined;
     // (undocumented)
-    html_content?: string;
+    html_content?: string | undefined;
     // (undocumented)
-    reply_to?: Address;
+    reply_to?: Address | undefined;
     // (undocumented)
-    retention?: Retention;
+    retention?: Retention | undefined;
     // (undocumented)
-    sandbox?: boolean;
+    sandbox?: boolean | undefined;
     // (undocumented)
-    sandbox_result?: SandboxResult;
+    sandbox_result?: SandboxResult | undefined;
     // (undocumented)
-    schedule?: MessageSchedule;
+    schedule?: MessageSchedule | undefined;
     // (undocumented)
     subject: string;
     // (undocumented)
-    tags?: readonly string[];
+    tags?: readonly string[] | undefined;
     // (undocumented)
-    text_content?: string;
-    to: NonEmptyArray<Address>;
+    text_content?: string | undefined;
+    to: readonly Address[];
     // (undocumented)
-    tracking?: Tracking;
+    tracking?: Tracking | undefined;
 }
 
 // @public
@@ -492,19 +514,20 @@ export interface CreatedAPIKey extends APIKey {
 // @public (undocumented)
 export interface CreateDomainRequest {
     // (undocumented)
-    dkim_private_key?: string;
+    dkim_private_key?: string | undefined;
     // (undocumented)
-    dkim_rotation_interval_days?: number;
+    dkim_rotation_interval_days?: number | undefined;
+    dkim_selector?: string | null | undefined;
     // (undocumented)
     domain: string;
     // (undocumented)
-    media_subdomain?: string;
+    media_subdomain?: string | undefined;
     // (undocumented)
-    return_path_subdomain?: string;
+    return_path_subdomain?: string | undefined;
     // (undocumented)
-    subscription_subdomain?: string;
+    subscription_subdomain?: string | undefined;
     // (undocumented)
-    tracking_subdomain?: string;
+    tracking_subdomain?: string | undefined;
 }
 
 // @public (undocumented)
@@ -527,44 +550,44 @@ export interface CreatedWebhook extends Webhook {
 
 // @public
 export interface CreateMessageRequest {
-    amp_content?: string;
+    amp_content?: string | undefined;
     // (undocumented)
-    attachments?: readonly Attachment[];
+    attachments?: readonly Attachment[] | undefined;
     from: Address;
-    headers?: Record<string, string>;
-    html_content?: string;
-    recipients: NonEmptyArray<Recipient>;
+    headers?: Record<string, string> | undefined;
+    html_content?: string | undefined;
+    recipients: readonly Recipient[];
     // (undocumented)
-    reply_to?: Address;
-    retention?: Retention;
-    sandbox?: boolean;
-    sandbox_result?: SandboxResult;
+    reply_to?: Address | undefined;
+    retention?: Retention | undefined;
+    sandbox?: boolean | undefined;
+    sandbox_result?: SandboxResult | undefined;
     // (undocumented)
-    schedule?: MessageSchedule;
+    schedule?: MessageSchedule | undefined;
     // (undocumented)
     subject: string;
-    substitutions?: Record<string, SubstitutionValue>;
-    tags?: readonly string[];
-    text_content?: string;
-    tracking?: Tracking;
+    substitutions?: Record<string, SubstitutionValue> | undefined;
+    tags?: readonly string[] | undefined;
+    text_content?: string | undefined;
+    tracking?: Tracking | undefined;
 }
 
 // @public (undocumented)
 export interface CreateRouteRequest {
     // (undocumented)
-    attachments?: boolean;
+    attachments?: boolean | undefined;
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | undefined;
     // (undocumented)
-    group_by_message_id?: boolean;
+    group_by_message_id?: boolean | undefined;
     // (undocumented)
-    headers?: boolean;
+    headers?: boolean | undefined;
     // (undocumented)
     name: string;
     // (undocumented)
     recipient: string;
     // (undocumented)
-    strip_replies?: boolean;
+    strip_replies?: boolean | undefined;
     // (undocumented)
     url: string;
 }
@@ -572,19 +595,19 @@ export interface CreateRouteRequest {
 // @public
 export type CreateSMTPCredentialRequest = {
     name: string;
-    sandbox?: boolean;
+    sandbox?: boolean | undefined;
     scope: "global";
-    domains?: readonly string[] | null;
+    domains?: readonly string[] | null | undefined;
 } | {
     name: string;
-    sandbox?: boolean;
+    sandbox?: boolean | undefined;
     scope: "scoped";
-    domains: NonEmptyArray<string>;
+    domains: readonly string[];
 };
 
 // @public (undocumented)
 export interface CreateSubAccountRequest {
-    monthly_credit?: number;
+    monthly_credit?: number | undefined;
     // (undocumented)
     name: string;
     // (undocumented)
@@ -594,13 +617,13 @@ export interface CreateSubAccountRequest {
 // @public (undocumented)
 export interface CreateSuppressionRequest {
     // (undocumented)
-    domain?: string;
+    domain?: string | undefined;
     // (undocumented)
     email: string;
     // (undocumented)
     expires_at: ISODateTime;
     // (undocumented)
-    reason?: string;
+    reason?: string | undefined;
 }
 
 // @public (undocumented)
@@ -611,62 +634,36 @@ export interface CreateSuppressionResponse {
     object: "list";
 }
 
-// @public (undocumented)
-interface CreateWebhookBase {
-    // (undocumented)
-    enabled?: boolean;
-    // (undocumented)
-    name: string;
-    // (undocumented)
-    on_bounced?: boolean;
-    // (undocumented)
-    on_clicked?: boolean;
-    // (undocumented)
-    on_delivered?: boolean;
-    // (undocumented)
-    on_dns_error?: boolean;
-    // (undocumented)
-    on_failed?: boolean;
-    // (undocumented)
-    on_opened?: boolean;
-    // (undocumented)
-    on_reception?: boolean;
-    // (undocumented)
-    on_suppressed?: boolean;
-    // (undocumented)
-    on_suppression_created?: boolean;
-    // (undocumented)
-    on_transient_error?: boolean;
-    // (undocumented)
-    url: string;
-}
-
-// Warning: (ae-forgotten-export) The symbol "CreateWebhookBase" needs to be exported by the entry point index.d.ts
-//
 // @public
-export type CreateWebhookRequest = (CreateWebhookBase & {
+export type CreateWebhookRequest = {
+    name: string;
+    url: string;
+    enabled?: boolean | undefined;
+    on_reception?: boolean | undefined;
+    on_delivered?: boolean | undefined;
+    on_transient_error?: boolean | undefined;
+    on_failed?: boolean | undefined;
+    on_bounced?: boolean | undefined;
+    on_suppressed?: boolean | undefined;
+    on_opened?: boolean | undefined;
+    on_clicked?: boolean | undefined;
+    on_suppression_created?: boolean | undefined;
+    on_dns_error?: boolean | undefined;
+} & ({
     scope: "global";
-    domains?: readonly string[] | null;
-}) | (CreateWebhookBase & {
+    domains?: readonly string[] | null | undefined;
+} | {
     scope: "scoped";
-    domains: NonEmptyArray<string>;
+    domains: readonly string[];
 });
 
-// @public (undocumented)
-export const DEFAULT_BASE_URL = "https://api.ahasend.com";
-
-// Warning: (ae-forgotten-export) The symbol "ResolvedIdempotencyConfig" needs to be exported by the entry point index.d.ts
-//
-// @public (undocumented)
-export const DEFAULT_IDEMPOTENCY_CONFIG: ResolvedIdempotencyConfig;
-
-// @public (undocumented)
-export const DEFAULT_TIMEOUT_MS = 30000;
+// @public
+export const DEFAULT_MAX_QUEUE = 1000;
 
 // @public (undocumented)
 export interface DeleteSuppressionParams {
     // (undocumented)
-    domain?: string;
+    domain?: string | undefined;
     // (undocumented)
     email: string;
 }
@@ -752,7 +749,7 @@ export interface DNSRecord {
     // (undocumented)
     host: string;
     // (undocumented)
-    label?: string | null;
+    label?: string;
     // (undocumented)
     propagated: boolean;
     // (undocumented)
@@ -768,7 +765,7 @@ export interface Domain {
     // (undocumented)
     created_at: ISODateTime;
     // (undocumented)
-    dkim_rotation_interval_days?: number | null;
+    dkim_rotation_interval_days: number | null;
     // (undocumented)
     dkim_selector: string | null;
     // (undocumented)
@@ -778,48 +775,37 @@ export interface Domain {
     // (undocumented)
     domain: string;
     // (undocumented)
-    dsn_recipient?: string | null;
+    dsn_recipient: string | null;
     // (undocumented)
     id: UUID;
     // (undocumented)
-    last_dns_check_at?: ISODateTime | null;
+    last_dns_check_at: ISODateTime | null;
     // (undocumented)
-    media_subdomain?: string | null;
+    media_subdomain: string | null;
     // (undocumented)
     object: "domain";
     // (undocumented)
-    return_path_subdomain?: string | null;
+    return_path_subdomain: string | null;
     // (undocumented)
-    rotation_ready?: boolean;
+    rotation_ready: boolean;
     // (undocumented)
-    subscription_subdomain?: string | null;
+    subscription_subdomain: string | null;
     // (undocumented)
-    tracking_subdomain?: string | null;
+    tracking_subdomain: string | null;
     // (undocumented)
     updated_at: ISODateTime;
 }
 
 // @public
-class DomainsClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    checkDns(domain: string, options?: RequestOptions): Promise<Domain>;
-    create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): Promise<Domain>;
-    // (undocumented)
-    delete(domain: string, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    get(domain: string, options?: RequestOptions): Promise<Domain>;
-    // (undocumented)
+export interface DomainsClient {
+    checkDns(domain: string, options?: RequestOptions): AhaSendPromise<Domain>;
+    create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Domain>;
+    delete(domain: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(domain: string, options?: RequestOptions): AhaSendPromise<Domain>;
     iterate(params?: ListDomainsParams, options?: RequestOptions): AsyncGenerator<Domain, void, undefined>;
-    list(params?: ListDomainsParams, options?: RequestOptions): Promise<PaginatedResponse<Domain>>;
-    // (undocumented)
-    update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): Promise<Domain>;
+    list(params?: ListDomainsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Domain>>;
+    update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): AhaSendPromise<Domain>;
 }
-
-// @public (undocumented)
-export type DomainsClient = DomainsClient$1;
-
-// @public (undocumented)
-type EndpointCategory = "standard" | "statistics";
 
 // @public (undocumented)
 export interface ErrorEvent extends RequestEvent {
@@ -827,6 +813,8 @@ export interface ErrorEvent extends RequestEvent {
     durationMs: number;
     // (undocumented)
     error: unknown;
+    // (undocumented)
+    phase: "pacing" | "attempt" | "backoff";
     requestId?: string;
     status?: number;
 }
@@ -835,34 +823,11 @@ export interface ErrorEvent extends RequestEvent {
 export function generateIdempotencyKey(prefix?: string): string;
 
 // @public (undocumented)
-class HttpClient {
-    // Warning: (ae-forgotten-export) The symbol "ResolvedConfig" needs to be exported by the entry point index.d.ts
-    constructor(config: ResolvedConfig);
-    // Warning: (ae-forgotten-export) The symbol "RateLimiter" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    readonly rateLimiter: RateLimiter;
-    // Warning: (ae-forgotten-export) The symbol "RequestOptions_2" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    request<T>(options: RequestOptions_2): AhaSendPromise<T>;
-}
-
-// @public (undocumented)
-type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-
-// @public (undocumented)
-export const IDEMPOTENCY_HEADER = "Idempotency-Key";
-
-// @internal
-type IdempotencyCompletionMode = "automatic" | "manual_secret";
-
-// @public (undocumented)
 export interface IdempotencyConfig {
     // (undocumented)
-    autoGenerate?: boolean;
+    autoGenerate?: boolean | undefined;
     // (undocumented)
-    prefix?: string;
+    prefix?: string | undefined;
 }
 
 // @public (undocumented)
@@ -874,28 +839,11 @@ export class IdempotencyKeyBuilder {
     withSuffix(suffix: string): string;
 }
 
-// @internal
-interface IdempotencyOperationPolicy {
-    // Warning: (ae-forgotten-export) The symbol "IdempotencyCompletionMode" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    readonly completion: IdempotencyCompletionMode;
-}
-
 // @public (undocumented)
 export interface IdempotencyRequestOptions extends RequestOptions {
     // (undocumented)
-    idempotencyKey?: string;
+    idempotencyKey?: string | undefined;
 }
-
-// @public (undocumented)
-export const IDEMPOTENT_REPLAYED_HEADER = "Idempotent-Replayed";
-
-// @public (undocumented)
-const INSPECT_CUSTOM: unique symbol;
-
-// @public (undocumented)
-const INSPECT_CUSTOM_2: unique symbol;
 
 // @public
 export function isAhaSendError(value: unknown): value is AhaSendError;
@@ -913,24 +861,24 @@ export interface ListAccountMembersResponse {
 
 // @public (undocumented)
 export type ListDomainsParams = PaginationParams & {
-    dns_valid?: boolean;
+    dns_valid?: boolean | undefined;
 };
 
 // @public (undocumented)
 export type ListMessagesParams = PaginationParams & {
-    status?: string;
-    sender?: string;
-    recipient?: string;
-    subject?: string;
-    message_id_header?: string;
-    tags?: string;
-    from_time?: ISODateTime;
-    to_time?: ISODateTime;
+    status?: string | undefined;
+    sender?: string | undefined;
+    recipient?: string | undefined;
+    subject?: string | undefined;
+    message_id_header?: string | undefined;
+    tags?: string | undefined;
+    from_time?: ISODateTime | undefined;
+    to_time?: ISODateTime | undefined;
 };
 
 // @public (undocumented)
 export type ListRoutesParams = PaginationParams & {
-    domain?: string;
+    domain?: string | undefined;
 };
 
 // @public (undocumented)
@@ -938,25 +886,25 @@ export type ListSubAccountsParams = PaginationParams;
 
 // @public (undocumented)
 export type ListSuppressionsParams = PaginationParams & {
-    domain?: string;
-    email?: string;
-    from_time?: ISODateTime;
-    to_time?: ISODateTime;
+    domain?: string | undefined;
+    email?: string | undefined;
+    from_time?: ISODateTime | undefined;
+    to_time?: ISODateTime | undefined;
 };
 
 // @public (undocumented)
 export type ListWebhooksParams = PaginationParams & {
-    enabled?: boolean;
-    on_reception?: boolean;
-    on_delivered?: boolean;
-    on_transient_error?: boolean;
-    on_failed?: boolean;
-    on_bounced?: boolean;
-    on_suppressed?: boolean;
-    on_opened?: boolean;
-    on_clicked?: boolean;
-    on_suppression_created?: boolean;
-    on_dns_error?: boolean;
+    enabled?: boolean | undefined;
+    on_reception?: boolean | undefined;
+    on_delivered?: boolean | undefined;
+    on_transient_error?: boolean | undefined;
+    on_failed?: boolean | undefined;
+    on_bounced?: boolean | undefined;
+    on_suppressed?: boolean | undefined;
+    on_opened?: boolean | undefined;
+    on_clicked?: boolean | undefined;
+    on_suppression_created?: boolean | undefined;
+    on_dns_error?: boolean | undefined;
 };
 
 // @public (undocumented)
@@ -999,23 +947,19 @@ export interface MessageContentPart {
 
 // @public
 export interface MessageSchedule {
-    expires?: ISODateTime;
-    first_attempt?: ISODateTime;
+    expires?: ISODateTime | undefined;
+    first_attempt?: ISODateTime | undefined;
 }
 
 // @public
-class MessagesClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    cancel(messageId: string, options?: RequestOptions): Promise<SuccessResponse>;
-    get(messageId: string, options?: RequestOptions): Promise<Message>;
+export interface MessagesClient {
+    cancel(messageId: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(messageId: string, options?: RequestOptions): AhaSendPromise<Message>;
     iterate(params?: ListMessagesParams, options?: RequestOptions): AsyncGenerator<MessageSummary, void, undefined>;
-    list(params?: ListMessagesParams, options?: RequestOptions): Promise<PaginatedResponse<MessageSummary>>;
-    send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): Promise<SendMessageResponse>;
-    sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): Promise<SendMessageResponse>;
+    list(params?: ListMessagesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<MessageSummary>>;
+    send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
+    sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
 }
-
-// @public (undocumented)
-export type MessagesClient = MessagesClient$1;
 
 // @public (undocumented)
 export interface MessageSummary {
@@ -1068,1352 +1012,7 @@ export interface MessageSummary {
 }
 
 // @public (undocumented)
-export type NonEmptyArray<T> = readonly [T, ...T[]];
-
-// @public (undocumented)
-const OPERATION_DESCRIPTORS: {
-    readonly ping: {
-        readonly method: "GET";
-        readonly path: "/v2/ping";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly []];
-        readonly resourceAuthorization: null;
-    };
-    readonly getAPIKeys: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/api-keys";
-        readonly query: readonly [{
-            readonly name: "limit";
-            readonly required: false;
-        }, {
-            readonly name: "after";
-            readonly required: false;
-        }, {
-            readonly name: "before";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "PaginatedAPIKeysResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["api-keys:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly createAPIKey: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/api-keys";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateAPIKeyRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 201;
-            readonly schema: "inline";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["api-keys:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getAPIKey: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/api-keys/{key_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "APIKey";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["api-keys:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly updateAPIKey: {
-        readonly method: "PUT";
-        readonly path: "/v2/accounts/{account_id}/api-keys/{key_id}";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "UpdateAPIKeyRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "APIKey";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["api-keys:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly deleteAPIKey: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/api-keys/{key_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["api-keys:delete"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getDomains: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/domains";
-        readonly query: readonly [{
-            readonly name: "dns_valid";
-            readonly required: false;
-        }, {
-            readonly name: "limit";
-            readonly required: false;
-        }, {
-            readonly name: "after";
-            readonly required: false;
-        }, {
-            readonly name: "before";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "PaginatedDomainsResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["domains:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly createDomain: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/domains";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateDomainRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 201;
-            readonly schema: "Domain";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["domains:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getDomain: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/domains/{domain}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Domain";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["domains:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly updateDomain: {
-        readonly method: "PUT";
-        readonly path: "/v2/accounts/{account_id}/domains/{domain}";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "UpdateDomainRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Domain";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["domains:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly deleteDomain: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/domains/{domain}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["domains:delete:{domain}"], readonly ["domains:delete:all"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly checkDomainDNS: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/domains/{domain}/check-dns";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Domain";
-        }];
-        readonly idempotency: false;
-        readonly retry: "never";
-        readonly security: readonly [readonly ["domains:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getMessages: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/messages";
-        readonly query: readonly [{
-            readonly name: "status";
-            readonly required: false;
-        }, {
-            readonly name: "sender";
-            readonly required: false;
-        }, {
-            readonly name: "recipient";
-            readonly required: false;
-        }, {
-            readonly name: "subject";
-            readonly required: false;
-        }, {
-            readonly name: "message_id_header";
-            readonly required: false;
-        }, {
-            readonly name: "tags";
-            readonly required: false;
-        }, {
-            readonly name: "from_time";
-            readonly required: false;
-        }, {
-            readonly name: "to_time";
-            readonly required: false;
-        }, {
-            readonly name: "limit";
-            readonly required: false;
-        }, {
-            readonly name: "after";
-            readonly required: false;
-        }, {
-            readonly name: "before";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "PaginatedMessagesResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["messages:read:all"], readonly ["messages:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "authorized_domain_filter";
-            readonly resource: "message";
-            readonly resourceDomainPath: "sender";
-            readonly quantifier: "one";
-            readonly roles: {
-                readonly global: "messages:read:all";
-                readonly domain: "messages:read:{domain}";
-            };
-            readonly summary: "`messages:read:all` returns every message; `messages:read:{domain}` returns only messages whose `sender` domain is authorized.";
-        };
-    };
-    readonly createMessage: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/messages";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateMessageRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 202;
-            readonly schema: "CreateMessageResponse";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["messages:send:all"], readonly ["messages:send:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "body_domain";
-            readonly bodyPath: "from.email";
-            readonly quantifier: "one";
-            readonly roles: {
-                readonly global: "messages:send:all";
-                readonly domain: "messages:send:{domain}";
-            };
-            readonly summary: "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.";
-        };
-    };
-    readonly createConversationMessage: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/messages/conversation";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateConversationMessageRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 202;
-            readonly schema: "CreateMessageResponse";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["messages:send:all"], readonly ["messages:send:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "body_domain";
-            readonly bodyPath: "from.email";
-            readonly quantifier: "one";
-            readonly roles: {
-                readonly global: "messages:send:all";
-                readonly domain: "messages:send:{domain}";
-            };
-            readonly summary: "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.";
-        };
-    };
-    readonly getMessage: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/messages/{message_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Message";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["messages:read:all"], readonly ["messages:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_resource_domains";
-            readonly resource: "message";
-            readonly resourceIdParameter: "message_id";
-            readonly resourceDomainPath: "sender";
-            readonly quantifier: "one";
-            readonly roles: {
-                readonly global: "messages:read:all";
-                readonly domain: "messages:read:{domain}";
-            };
-            readonly summary: "Authorization requires `messages:read:all` or `messages:read:{domain}` matching the message's `sender` domain.";
-        };
-    };
-    readonly cancelMessage: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/messages/{message_id}/cancel";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["messages:cancel:all"], readonly ["messages:cancel:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_resource_domains";
-            readonly resource: "message";
-            readonly resourceIdParameter: "message_id";
-            readonly resourceDomainPath: "sender";
-            readonly quantifier: "one";
-            readonly roles: {
-                readonly global: "messages:cancel:all";
-                readonly domain: "messages:cancel:{domain}";
-            };
-            readonly summary: "Authorization requires `messages:cancel:all` or `messages:cancel:{domain}` matching the message's `sender` domain.";
-        };
-    };
-    readonly getAccount: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Account";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["accounts:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly updateAccount: {
-        readonly method: "PUT";
-        readonly path: "/v2/accounts/{account_id}";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "UpdateAccountRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Account";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["accounts:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getAccountMembers: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/members";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "AccountMembersResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["accounts:members:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly addAccountMember: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/members";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "AddMemberRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 201;
-            readonly schema: "UserAccount";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["accounts:members:add"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly removeAccountMember: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/members/{user_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["accounts:members:remove"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly listSubAccounts: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts";
-        readonly query: readonly [{
-            readonly name: "limit";
-            readonly required: false;
-        }, {
-            readonly name: "after";
-            readonly required: false;
-        }, {
-            readonly name: "before";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "PaginatedSubAccountsResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["sub-accounts:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly createSubAccount: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateSubAccountRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 201;
-            readonly schema: "SubAccount";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["sub-accounts:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getSubAccountsUsage: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/usage";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SubAccountUsageResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["sub-accounts:usage"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getSubAccount: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SubAccount";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["sub-accounts:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly updateSubAccount: {
-        readonly method: "PUT";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "UpdateSubAccountRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SubAccount";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["sub-accounts:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly deleteSubAccount: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["sub-accounts:delete"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly suspendSubAccount: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/suspend";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "SuspendSubAccountRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SubAccount";
-        }];
-        readonly idempotency: false;
-        readonly retry: "never";
-        readonly security: readonly [readonly ["sub-accounts:suspend"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly unsuspendSubAccount: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/unsuspend";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SubAccount";
-        }];
-        readonly idempotency: false;
-        readonly retry: "never";
-        readonly security: readonly [readonly ["sub-accounts:suspend"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly listSubAccountAPIKeys: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys";
-        readonly query: readonly [{
-            readonly name: "limit";
-            readonly required: false;
-        }, {
-            readonly name: "after";
-            readonly required: false;
-        }, {
-            readonly name: "before";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "PaginatedAPIKeysResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["sub-account-api-keys:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly createSubAccountAPIKey: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateAPIKeyRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 201;
-            readonly schema: "inline";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["sub-account-api-keys:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getSubAccountAPIKey: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "APIKey";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["sub-account-api-keys:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly updateSubAccountAPIKey: {
-        readonly method: "PUT";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "UpdateAPIKeyRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "APIKey";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["sub-account-api-keys:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly deleteSubAccountAPIKey: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["sub-account-api-keys:delete"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getSuppressions: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/suppressions";
-        readonly query: readonly [{
-            readonly name: "domain";
-            readonly required: false;
-        }, {
-            readonly name: "email";
-            readonly required: false;
-        }, {
-            readonly name: "from_time";
-            readonly required: false;
-        }, {
-            readonly name: "to_time";
-            readonly required: false;
-        }, {
-            readonly name: "limit";
-            readonly required: false;
-        }, {
-            readonly name: "after";
-            readonly required: false;
-        }, {
-            readonly name: "before";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "PaginatedSuppressionsResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["suppressions:read"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly createSuppression: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/suppressions";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateSuppressionRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 201;
-            readonly schema: "CreateSuppressionResponse";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["suppressions:write"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly deleteSuppression: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/suppressions";
-        readonly query: readonly [{
-            readonly name: "email";
-            readonly required: true;
-        }, {
-            readonly name: "domain";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["suppressions:delete"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly deleteAllSuppressions: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/suppressions/all";
-        readonly query: readonly [{
-            readonly name: "domain";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["suppressions:wipe"]];
-        readonly resourceAuthorization: null;
-    };
-    readonly getRoutes: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/routes";
-        readonly query: readonly [{
-            readonly name: "domain";
-            readonly required: false;
-        }, {
-            readonly name: "limit";
-            readonly required: false;
-        }, {
-            readonly name: "after";
-            readonly required: false;
-        }, {
-            readonly name: "before";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "PaginatedRoutesResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["routes:read:all"], readonly ["routes:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "query_domain_required_for_scoped";
-            readonly queryParameter: "domain";
-            readonly condition: "scoped_role_requires_filter";
-            readonly roles: {
-                readonly global: "routes:read:all";
-                readonly domain: "routes:read:{domain}";
-            };
-            readonly summary: "Authorization requires `routes:read:all`, or `routes:read:{domain}` with its matching `domain` query filter.";
-        };
-    };
-    readonly createRoute: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/routes";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateRouteRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 201;
-            readonly schema: "CreatedRoute";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["routes:write:all"], readonly ["routes:write:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "body_domain";
-            readonly bodyPath: "recipient";
-            readonly quantifier: "one";
-            readonly roles: {
-                readonly global: "routes:write:all";
-                readonly domain: "routes:write:{domain}";
-            };
-            readonly summary: "Authorization requires `routes:write:all` or `routes:write:{domain}` matching the domain in `recipient`.";
-        };
-    };
-    readonly getRoute: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/routes/{route_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Route";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["routes:read:all"], readonly ["routes:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_resource_domains";
-            readonly resource: "route";
-            readonly resourceIdParameter: "route_id";
-            readonly resourceDomainPath: "recipient";
-            readonly quantifier: "one";
-            readonly roles: {
-                readonly global: "routes:read:all";
-                readonly domain: "routes:read:{domain}";
-            };
-            readonly summary: "Authorization requires `routes:read:all` or `routes:read:{domain}` matching the route's `recipient` domain.";
-        };
-    };
-    readonly updateRoute: {
-        readonly method: "PUT";
-        readonly path: "/v2/accounts/{account_id}/routes/{route_id}";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "UpdateRouteRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Route";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["routes:write:all"], readonly ["routes:write:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_and_replacement_domain";
-            readonly resource: "route";
-            readonly resourceIdParameter: "route_id";
-            readonly existingPath: "recipient";
-            readonly replacementBodyPath: "recipient";
-            readonly quantifier: "every";
-            readonly roles: {
-                readonly global: "routes:write:all";
-                readonly domain: "routes:write:{domain}";
-            };
-            readonly summary: "Authorization requires `routes:write:all`, or `routes:write:{domain}` for both the existing and replacement `recipient` domains.";
-        };
-    };
-    readonly deleteRoute: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/routes/{route_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["routes:delete:all"], readonly ["routes:delete:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_resource_domains";
-            readonly resource: "route";
-            readonly resourceIdParameter: "route_id";
-            readonly resourceDomainPath: "recipient";
-            readonly quantifier: "one";
-            readonly roles: {
-                readonly global: "routes:delete:all";
-                readonly domain: "routes:delete:{domain}";
-            };
-            readonly summary: "Authorization requires `routes:delete:all` or `routes:delete:{domain}` matching the route's `recipient` domain.";
-        };
-    };
-    readonly getWebhooks: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/webhooks";
-        readonly query: readonly [{
-            readonly name: "enabled";
-            readonly required: false;
-        }, {
-            readonly name: "on_reception";
-            readonly required: false;
-        }, {
-            readonly name: "on_delivered";
-            readonly required: false;
-        }, {
-            readonly name: "on_transient_error";
-            readonly required: false;
-        }, {
-            readonly name: "on_failed";
-            readonly required: false;
-        }, {
-            readonly name: "on_bounced";
-            readonly required: false;
-        }, {
-            readonly name: "on_suppressed";
-            readonly required: false;
-        }, {
-            readonly name: "on_opened";
-            readonly required: false;
-        }, {
-            readonly name: "on_clicked";
-            readonly required: false;
-        }, {
-            readonly name: "on_suppression_created";
-            readonly required: false;
-        }, {
-            readonly name: "on_dns_error";
-            readonly required: false;
-        }, {
-            readonly name: "limit";
-            readonly required: false;
-        }, {
-            readonly name: "after";
-            readonly required: false;
-        }, {
-            readonly name: "before";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "PaginatedWebhooksResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["webhooks:read:all"], readonly ["webhooks:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "authorized_domain_filter";
-            readonly resource: "webhook";
-            readonly resourceDomainPath: "domains";
-            readonly quantifier: "at_least_one";
-            readonly roles: {
-                readonly global: "webhooks:read:all";
-                readonly domain: "webhooks:read:{domain}";
-            };
-            readonly summary: "`webhooks:read:all` returns every webhook; `webhooks:read:{domain}` returns only webhooks with at least one authorized `domains` entry.";
-        };
-    };
-    readonly createWebhook: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/webhooks";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateWebhookRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 201;
-            readonly schema: "CreatedWebhook";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["webhooks:write:all"], readonly ["webhooks:write:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "all_body_domains";
-            readonly bodyPath: "domains";
-            readonly scopeBodyPath: "scope";
-            readonly globalValue: "global";
-            readonly quantifier: "every";
-            readonly condition: "global_scope_requires_global_role";
-            readonly roles: {
-                readonly global: "webhooks:write:all";
-                readonly domain: "webhooks:write:{domain}";
-            };
-            readonly summary: "A `scoped` webhook requires `webhooks:write:{domain}` for every `domains` entry; `scope: \"global\"` requires `webhooks:write:all`.";
-        };
-    };
-    readonly getWebhook: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/webhooks/{webhook_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Webhook";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["webhooks:read:all"], readonly ["webhooks:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_resource_domains";
-            readonly resource: "webhook";
-            readonly resourceIdParameter: "webhook_id";
-            readonly resourceDomainPath: "domains";
-            readonly quantifier: "at_least_one";
-            readonly roles: {
-                readonly global: "webhooks:read:all";
-                readonly domain: "webhooks:read:{domain}";
-            };
-            readonly summary: "Authorization requires `webhooks:read:all` or `webhooks:read:{domain}` matching at least one webhook `domains` entry.";
-        };
-    };
-    readonly updateWebhook: {
-        readonly method: "PUT";
-        readonly path: "/v2/accounts/{account_id}/webhooks/{webhook_id}";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "UpdateWebhookRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "Webhook";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["webhooks:write:all"], readonly ["webhooks:write:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_and_new_domains";
-            readonly resource: "webhook";
-            readonly resourceIdParameter: "webhook_id";
-            readonly existingPath: "domains";
-            readonly newBodyPath: "domains";
-            readonly scopeBodyPath: "scope";
-            readonly globalValue: "global";
-            readonly quantifier: "every";
-            readonly transition: "global_scope_requires_global_role";
-            readonly roles: {
-                readonly global: "webhooks:write:all";
-                readonly domain: "webhooks:write:{domain}";
-            };
-            readonly summary: "Authorization requires `webhooks:write:{domain}` for the existing webhook and every new `domains` entry; changing `scope` to `global` requires `webhooks:write:all`.";
-        };
-    };
-    readonly deleteWebhook: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/webhooks/{webhook_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["webhooks:delete:all"], readonly ["webhooks:delete:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_resource_domains";
-            readonly resource: "webhook";
-            readonly resourceIdParameter: "webhook_id";
-            readonly resourceDomainPath: "domains";
-            readonly quantifier: "at_least_one";
-            readonly roles: {
-                readonly global: "webhooks:delete:all";
-                readonly domain: "webhooks:delete:{domain}";
-            };
-            readonly summary: "Authorization requires `webhooks:delete:all` or `webhooks:delete:{domain}` matching at least one webhook `domains` entry.";
-        };
-    };
-    readonly getSMTPCredentials: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/smtp-credentials";
-        readonly query: readonly [{
-            readonly name: "limit";
-            readonly required: false;
-        }, {
-            readonly name: "after";
-            readonly required: false;
-        }, {
-            readonly name: "before";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "PaginatedSMTPCredentialsResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["smtp-credentials:read:all"], readonly ["smtp-credentials:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "authorized_domain_filter";
-            readonly resource: "smtp_credential";
-            readonly resourceDomainPath: "domains";
-            readonly quantifier: "at_least_one";
-            readonly roles: {
-                readonly global: "smtp-credentials:read:all";
-                readonly domain: "smtp-credentials:read:{domain}";
-            };
-            readonly summary: "`smtp-credentials:read:all` returns every SMTP credential; `smtp-credentials:read:{domain}` returns only credentials with at least one authorized `domains` entry.";
-        };
-    };
-    readonly createSMTPCredential: {
-        readonly method: "POST";
-        readonly path: "/v2/accounts/{account_id}/smtp-credentials";
-        readonly query: readonly [];
-        readonly body: {
-            readonly required: true;
-            readonly schema: "CreateSMTPCredentialRequest";
-        };
-        readonly success: readonly [{
-            readonly status: 201;
-            readonly schema: "CreatedSMTPCredential";
-        }];
-        readonly idempotency: true;
-        readonly retry: "idempotency_key";
-        readonly security: readonly [readonly ["smtp-credentials:write:all"], readonly ["smtp-credentials:write:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "all_body_domains";
-            readonly bodyPath: "domains";
-            readonly scopeBodyPath: "scope";
-            readonly globalValue: "global";
-            readonly quantifier: "every";
-            readonly condition: "global_scope_requires_global_role";
-            readonly roles: {
-                readonly global: "smtp-credentials:write:all";
-                readonly domain: "smtp-credentials:write:{domain}";
-            };
-            readonly summary: "A `scoped` SMTP credential requires `smtp-credentials:write:{domain}` for every `domains` entry; `scope: \"global\"` requires `smtp-credentials:write:all`.";
-        };
-    };
-    readonly getSMTPCredential: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SMTPCredential";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["smtp-credentials:read:all"], readonly ["smtp-credentials:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_resource_domains";
-            readonly resource: "smtp_credential";
-            readonly resourceIdParameter: "smtp_credential_id";
-            readonly resourceDomainPath: "domains";
-            readonly quantifier: "at_least_one";
-            readonly roles: {
-                readonly global: "smtp-credentials:read:all";
-                readonly domain: "smtp-credentials:read:{domain}";
-            };
-            readonly summary: "Authorization requires `smtp-credentials:read:all` or `smtp-credentials:read:{domain}` matching at least one credential `domains` entry.";
-        };
-    };
-    readonly deleteSMTPCredential: {
-        readonly method: "DELETE";
-        readonly path: "/v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}";
-        readonly query: readonly [];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "SuccessResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "idempotent";
-        readonly security: readonly [readonly ["smtp-credentials:delete:all"], readonly ["smtp-credentials:delete:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "existing_resource_domains";
-            readonly resource: "smtp_credential";
-            readonly resourceIdParameter: "smtp_credential_id";
-            readonly resourceDomainPath: "domains";
-            readonly quantifier: "at_least_one";
-            readonly roles: {
-                readonly global: "smtp-credentials:delete:all";
-                readonly domain: "smtp-credentials:delete:{domain}";
-            };
-            readonly summary: "Authorization requires `smtp-credentials:delete:all` or `smtp-credentials:delete:{domain}` matching at least one credential `domains` entry.";
-        };
-    };
-    readonly getDeliverabilityStatistics: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/statistics/transactional/deliverability";
-        readonly query: readonly [{
-            readonly name: "from_time";
-            readonly required: false;
-        }, {
-            readonly name: "to_time";
-            readonly required: false;
-        }, {
-            readonly name: "sender_domain";
-            readonly required: false;
-        }, {
-            readonly name: "recipient_domains";
-            readonly required: false;
-        }, {
-            readonly name: "tags";
-            readonly required: false;
-        }, {
-            readonly name: "group_by";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "DeliverabilityStatisticsResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["statistics-transactional:read:all"], readonly ["statistics-transactional:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "comma_separated_query_domains";
-            readonly queryParameter: "sender_domain";
-            readonly quantifier: "every";
-            readonly roles: {
-                readonly global: "statistics-transactional:read:all";
-                readonly domain: "statistics-transactional:read:{domain}";
-            };
-            readonly summary: "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.";
-        };
-    };
-    readonly getBounceStatistics: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/statistics/transactional/bounce";
-        readonly query: readonly [{
-            readonly name: "from_time";
-            readonly required: false;
-        }, {
-            readonly name: "to_time";
-            readonly required: false;
-        }, {
-            readonly name: "sender_domain";
-            readonly required: false;
-        }, {
-            readonly name: "recipient_domains";
-            readonly required: false;
-        }, {
-            readonly name: "tags";
-            readonly required: false;
-        }, {
-            readonly name: "group_by";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "BounceStatisticsResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["statistics-transactional:read:all"], readonly ["statistics-transactional:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "comma_separated_query_domains";
-            readonly queryParameter: "sender_domain";
-            readonly quantifier: "every";
-            readonly roles: {
-                readonly global: "statistics-transactional:read:all";
-                readonly domain: "statistics-transactional:read:{domain}";
-            };
-            readonly summary: "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.";
-        };
-    };
-    readonly getDeliveryTimeStatistics: {
-        readonly method: "GET";
-        readonly path: "/v2/accounts/{account_id}/statistics/transactional/delivery-time";
-        readonly query: readonly [{
-            readonly name: "from_time";
-            readonly required: false;
-        }, {
-            readonly name: "to_time";
-            readonly required: false;
-        }, {
-            readonly name: "sender_domain";
-            readonly required: false;
-        }, {
-            readonly name: "recipient_domains";
-            readonly required: false;
-        }, {
-            readonly name: "tags";
-            readonly required: false;
-        }, {
-            readonly name: "group_by";
-            readonly required: false;
-        }];
-        readonly body: null;
-        readonly success: readonly [{
-            readonly status: 200;
-            readonly schema: "DeliveryTimeStatisticsResponse";
-        }];
-        readonly idempotency: false;
-        readonly retry: "safe";
-        readonly security: readonly [readonly ["statistics-transactional:read:all"], readonly ["statistics-transactional:read:{domain}"]];
-        readonly resourceAuthorization: {
-            readonly kind: "comma_separated_query_domains";
-            readonly queryParameter: "sender_domain";
-            readonly quantifier: "every";
-            readonly roles: {
-                readonly global: "statistics-transactional:read:all";
-                readonly domain: "statistics-transactional:read:{domain}";
-            };
-            readonly summary: "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.";
-        };
-    };
-};
-
-// @public (undocumented)
-interface OperationExecutionRecord {
-    // Warning: (ae-forgotten-export) The symbol "IdempotencyOperationPolicy" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    readonly idempotency: IdempotencyOperationPolicy | null;
-    // Warning: (ae-forgotten-export) The symbol "OperationId" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    readonly operationId: OperationId;
-    // Warning: (ae-forgotten-export) The symbol "RetryMode" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    readonly retryMode: RetryMode;
-}
-
-// @public
-class OperationExecutor {
-    // Warning: (ae-forgotten-export) The symbol "OperationTransport" needs to be exported by the entry point index.d.ts
-    constructor(http: OperationTransport);
-    // Warning: (ae-forgotten-export) The symbol "OperationParameters" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    execute<T>(operationId: OperationId, parameters?: OperationParameters, options?: IdempotencyRequestOptions): AhaSendPromise<T>;
-}
-
-// Warning: (ae-forgotten-export) The symbol "OPERATION_DESCRIPTORS" needs to be exported by the entry point index.d.ts
-//
-// @public (undocumented)
-type OperationId = keyof typeof OPERATION_DESCRIPTORS;
-
-// @public (undocumented)
-interface OperationParameters {
-    // (undocumented)
-    readonly body?: unknown;
-    // (undocumented)
-    readonly path?: Readonly<Record<string, string | number>>;
-    // (undocumented)
-    readonly query?: Readonly<Record<string, unknown>>;
-}
-
-// Warning: (ae-forgotten-export) The symbol "HttpClient" needs to be exported by the entry point index.d.ts
-//
-// @public (undocumented)
-type OperationTransport = Pick<HttpClient, "request">;
-
-// @public (undocumented)
-export function optionsFromEnv(env?: NodeJS.ProcessEnv): ClientOptions;
+export function optionsFromEnv(env?: ProcessEnvLike): ClientOptions;
 
 // @public (undocumented)
 export interface PaginatedResponse<T> {
@@ -2430,82 +1029,82 @@ export interface PaginationMeta {
     // (undocumented)
     has_more: boolean;
     // (undocumented)
-    next_cursor?: string | null;
+    next_cursor?: string;
     // (undocumented)
-    previous_cursor?: string | null;
+    previous_cursor?: string;
 }
 
-// @public (undocumented)
+// @public
 export type PaginationParams = Readonly<{
-    limit?: number;
+    limit?: number | undefined;
 } & ({
-    after?: string;
+    after?: string | undefined;
     before?: never;
 } | {
     after?: never;
-    before?: string;
+    before?: string | undefined;
 })>;
 
-// @public (undocumented)
+// @public
 export interface PingResponse {
-    // (undocumented)
     message: string;
 }
 
-// @public (undocumented)
-interface RateLimitClock {
-    // (undocumented)
-    now(): number;
-    // (undocumented)
-    sleep(ms: number, signal?: AbortSignal): Promise<void>;
-}
+// @public
+export type ProcessEnvLike = Readonly<Record<string, string | undefined>>;
+
+// @public
+export type RateLimitCategory = "standard" | "statistics";
 
 // @public (undocumented)
 export interface RateLimitConfig {
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | undefined;
     // (undocumented)
-    standard?: Partial<CategoryRateLimit>;
+    standard?: Partial<CategoryRateLimit> | undefined;
     // (undocumented)
-    statistics?: Partial<CategoryRateLimit>;
+    statistics?: Partial<CategoryRateLimit> | undefined;
 }
 
-// @public (undocumented)
-class RateLimiter {
-    // Warning: (ae-forgotten-export) The symbol "ResolvedRateLimitConfig" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "RateLimitClock" needs to be exported by the entry point index.d.ts
-    constructor(config: ResolvedRateLimitConfig, clock?: RateLimitClock);
-    // (undocumented)
-    acquire(method: string, path: string, signal?: AbortSignal): Promise<void>;
-    // (undocumented)
-    available(category: EndpointCategory): number;
-    // Warning: (ae-forgotten-export) The symbol "EndpointCategory" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    detectCategory(method: string, path: string): EndpointCategory;
-    // (undocumented)
+// @public
+export interface RateLimiterController {
+    available(category: RateLimitCategory): number;
+    getLimit(category: RateLimitCategory): RateLimitSnapshot;
+    isCategoryEnabled(category: RateLimitCategory): boolean;
     isEnabled(): boolean;
-    // (undocumented)
-    setCategoryEnabled(category: EndpointCategory, enabled: boolean): void;
-    // (undocumented)
+    setCategoryEnabled(category: RateLimitCategory, enabled: boolean): void;
     setEnabled(enabled: boolean): void;
+    setLimit(category: RateLimitCategory, limit: RateLimitSetting): void;
+}
+
+// @public
+export interface RateLimitSetting {
     // (undocumented)
-    setLimit(category: EndpointCategory, rps: number, burst: number): void;
+    burst?: number | undefined;
+    // (undocumented)
+    maxQueue?: number | undefined;
+    // (undocumented)
+    requestsPerSecond?: number | undefined;
+}
+
+// @public
+export interface RateLimitSnapshot {
+    // (undocumented)
+    burst: number;
+    enabled: boolean;
+    // (undocumented)
+    maxQueue: number;
+    // (undocumented)
+    requestsPerSecond: number;
 }
 
 // @public
 export interface Recipient {
     // (undocumented)
     email: string;
-    name?: string;
-    substitutions?: Record<string, SubstitutionValue>;
+    name?: string | undefined;
+    substitutions?: Record<string, SubstitutionValue> | undefined;
 }
-
-// @public (undocumented)
-const REDACTED: "[REDACTED]";
-
-// @public (undocumented)
-const REDACTED_2: "[REDACTED]";
 
 // @public (undocumented)
 export interface RequestEvent {
@@ -2513,122 +1112,18 @@ export interface RequestEvent {
     attempt: number;
     // (undocumented)
     method: string;
-    operationId: OperationId | undefined;
+    operationId: string | undefined;
     routeTemplate: string;
 }
 
-// @public (undocumented)
+// @public
 export interface RequestOptions {
+    headers?: Readonly<Record<string, string>> | undefined;
+    retry?: false | Partial<RetryConfig> | undefined;
     // (undocumented)
-    headers?: Record<string, string>;
-    // (undocumented)
-    signal?: AbortSignal;
+    signal?: AbortSignal | undefined;
+    timeoutMs?: number | undefined;
 }
-
-// @public (undocumented)
-interface RequestOptions_2 {
-    autoIdempotency?: boolean;
-    // (undocumented)
-    body?: unknown;
-    // Warning: (ae-forgotten-export) The symbol "OperationExecutionRecord" needs to be exported by the entry point index.d.ts
-    execution?: OperationExecutionRecord;
-    // (undocumented)
-    headers?: Record<string, string>;
-    idempotencyKey?: string;
-    // Warning: (ae-forgotten-export) The symbol "HttpMethod" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    method: HttpMethod;
-    operationId?: OperationId;
-    // (undocumented)
-    path: string;
-    // (undocumented)
-    query?: Record<string, unknown>;
-    retryMode?: RetryMode;
-    // (undocumented)
-    signal?: AbortSignal;
-}
-
-// @public (undocumented)
-interface ResolvedCategoryRateLimit {
-    // (undocumented)
-    burst: number;
-    // (undocumented)
-    enabled: boolean;
-    // (undocumented)
-    requestsPerSecond: number;
-}
-
-// @public (undocumented)
-interface ResolvedConfig {
-    // (undocumented)
-    apiKey: string;
-    // (undocumented)
-    baseUrl: string;
-    // (undocumented)
-    debug: boolean;
-    // (undocumented)
-    defaultHeaders: Record<string, string>;
-    // (undocumented)
-    fetch: typeof fetch;
-    // Warning: (ae-forgotten-export) The symbol "ResolvedTelemetryHooks" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    hooks: ResolvedTelemetryHooks;
-    // (undocumented)
-    idempotency: ResolvedIdempotencyConfig;
-    // (undocumented)
-    rateLimit: ResolvedRateLimitConfig;
-    // Warning: (ae-forgotten-export) The symbol "ResolvedRetryConfig" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    retry: ResolvedRetryConfig;
-    // (undocumented)
-    timeoutMs: number;
-    // (undocumented)
-    userAgent: string;
-}
-
-// @public (undocumented)
-interface ResolvedIdempotencyConfig {
-    // (undocumented)
-    readonly autoGenerate: boolean;
-    // (undocumented)
-    readonly prefix: string;
-}
-
-// @public (undocumented)
-interface ResolvedRateLimitConfig {
-    // (undocumented)
-    enabled: boolean;
-    // Warning: (ae-forgotten-export) The symbol "ResolvedCategoryRateLimit" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    standard: ResolvedCategoryRateLimit;
-    // (undocumented)
-    statistics: ResolvedCategoryRateLimit;
-}
-
-// @public (undocumented)
-interface ResolvedRetryConfig {
-    // (undocumented)
-    baseDelayMs: number;
-    // (undocumented)
-    enabled: boolean;
-    // (undocumented)
-    jitter: boolean;
-    // (undocumented)
-    maxDelayMs: number;
-    // (undocumented)
-    maxRetries: number;
-    // (undocumented)
-    strategy: RetryStrategy;
-}
-
-// @public (undocumented)
-type ResolvedTelemetryHooks = Required<{
-    [K in keyof TelemetryHooks]: TelemetryHooks[K];
-}>;
 
 // @public (undocumented)
 export interface ResponseEvent extends RequestEvent {
@@ -2641,24 +1136,24 @@ export interface ResponseEvent extends RequestEvent {
 
 // @public
 export type Retention = {
-    metadata?: number | null;
-    data?: number | null;
+    metadata?: number | null | undefined;
+    data?: number | null | undefined;
 } | null;
 
 // @public (undocumented)
 export interface RetryConfig {
     // (undocumented)
-    baseDelayMs?: number;
+    baseDelayMs?: number | undefined;
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | undefined;
     // (undocumented)
-    jitter?: boolean;
+    jitter?: boolean | undefined;
     // (undocumented)
-    maxDelayMs?: number;
+    maxDelayMs?: number | undefined;
     // (undocumented)
-    maxRetries?: number;
+    maxRetries?: number | undefined;
     // (undocumented)
-    strategy?: RetryStrategy;
+    strategy?: RetryStrategy | undefined;
 }
 
 // @public (undocumented)
@@ -2674,40 +1169,38 @@ export interface RetryEvent extends RequestEvent {
 }
 
 // @public (undocumented)
-type RetryMode = "safe" | "idempotent" | "idempotency_key" | "never";
-
-// @public (undocumented)
 export type RetryStrategy = "exponential" | "linear" | "constant";
 
 // @public (undocumented)
 export interface Route {
     // (undocumented)
-    attachments?: boolean;
+    attachments: boolean;
     // (undocumented)
     created_at: ISODateTime;
     // (undocumented)
     enabled: boolean;
     // (undocumented)
-    error_count?: number;
+    error_count: number;
     // (undocumented)
-    errors_since_last_success?: number;
+    errors_since_last_success: number;
     // (undocumented)
-    group_by_message_id?: boolean;
+    group_by_message_id: boolean;
     // (undocumented)
-    headers?: boolean;
+    headers: boolean;
     // (undocumented)
     id: UUID;
     // (undocumented)
-    last_request_at?: ISODateTime | null;
+    last_request_at: ISODateTime | null;
     // (undocumented)
     name: string;
     // (undocumented)
     object: "route";
-    recipient?: string | null;
     // (undocumented)
-    strip_replies?: boolean;
+    recipient: string;
     // (undocumented)
-    success_count?: number;
+    strip_replies: boolean;
+    // (undocumented)
+    success_count: number;
     // (undocumented)
     updated_at: ISODateTime;
     // (undocumented)
@@ -2715,19 +1208,14 @@ export interface Route {
 }
 
 // @public
-class RoutesClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    create(body: CreateRouteRequest, options?: IdempotencyRequestOptions): Promise<CreatedRoute>;
-    delete(routeId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    get(routeId: UUID, options?: RequestOptions): Promise<Route>;
-    // (undocumented)
+export interface RoutesClient {
+    create(body: CreateRouteRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedRoute>;
+    delete(routeId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(routeId: UUID, options?: RequestOptions): AhaSendPromise<Route>;
     iterate(params?: ListRoutesParams, options?: RequestOptions): AsyncGenerator<Route, void, undefined>;
-    list(params?: ListRoutesParams, options?: RequestOptions): Promise<PaginatedResponse<Route>>;
-    update(routeId: UUID, body: UpdateRouteRequest, options?: RequestOptions): Promise<Route>;
+    list(params?: ListRoutesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Route>>;
+    update(routeId: UUID, body: UpdateRouteRequest, options?: RequestOptions): AhaSendPromise<Route>;
 }
-
-// @public (undocumented)
-export type RoutesClient = RoutesClient$1;
 
 // @public
 export type SandboxResult = "deliver" | "bounce" | "defer" | "fail" | "suppress";
@@ -2764,29 +1252,21 @@ export interface SendMessageResult {
 export type SendMessageStatus = "queued" | "scheduled" | "error";
 
 // @public (undocumented)
-interface SerializedAhaSendClient {
-    // (undocumented)
-    readonly accountId: UUID;
-    // Warning: (ae-forgotten-export) The symbol "REDACTED_2" needs to be exported by the entry point index.d.ts
-    //
-    // (undocumented)
-    readonly apiKey: typeof REDACTED_2;
-    // (undocumented)
-    readonly name: "AhaSendClient";
-}
-
-// @public (undocumented)
 export interface SerializedAhaSendError {
-    // Warning: (ae-forgotten-export) The symbol "REDACTED" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
-    body?: typeof REDACTED;
+    body?: "[REDACTED]";
     // (undocumented)
-    cause?: typeof REDACTED;
+    category?: string;
+    // (undocumented)
+    cause?: "[REDACTED]" | SerializedAhaSendError;
     // (undocumented)
     code: AhaSendErrorCode;
     // (undocumented)
-    headers?: typeof REDACTED;
+    headers?: "[REDACTED]";
+    // (undocumented)
+    maxBytes?: number;
+    // (undocumented)
+    maxQueue?: number;
     // (undocumented)
     message: string;
     // (undocumented)
@@ -2823,48 +1303,39 @@ export interface SMTPCredential {
 }
 
 // @public
-class SMTPCredentialsClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    create(body: CreateSMTPCredentialRequest, options?: IdempotencyRequestOptions): Promise<CreatedSMTPCredential>;
-    delete(credentialId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    get(credentialId: UUID, options?: RequestOptions): Promise<SMTPCredential>;
-    // (undocumented)
+export interface SMTPCredentialsClient {
+    create(body: CreateSMTPCredentialRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedSMTPCredential>;
+    delete(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SMTPCredential>;
     iterate(params?: PaginationParams, options?: RequestOptions): AsyncGenerator<SMTPCredential, void, undefined>;
-    list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<SMTPCredential>>;
+    list(params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SMTPCredential>>;
 }
-
-// @public (undocumented)
-export type SMTPCredentialsClient = SMTPCredentialsClient$1;
 
 // @public (undocumented)
 export type SMTPCredentialScope = "global" | "scoped";
 
 // @public
-class StatisticsClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    bounces(params?: StatisticsParams, options?: RequestOptions): Promise<BounceStatisticsResponse>;
-    deliverability(params?: StatisticsParams, options?: RequestOptions): Promise<DeliverabilityStatisticsResponse>;
-    deliveryTimes(params?: StatisticsParams, options?: RequestOptions): Promise<DeliveryTimeStatisticsResponse>;
+export interface StatisticsClient {
+    bounces(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<BounceStatisticsResponse>;
+    deliverability(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliverabilityStatisticsResponse>;
+    deliveryTimes(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliveryTimeStatisticsResponse>;
 }
-
-// @public (undocumented)
-export type StatisticsClient = StatisticsClient$1;
 
 // @public (undocumented)
 export type StatisticsGranularity = "hour" | "day" | "week" | "month";
 
 // @public (undocumented)
 export interface StatisticsParams {
-    from_time?: ISODateTime;
+    from_time?: ISODateTime | undefined;
     // (undocumented)
-    group_by?: StatisticsGranularity;
+    group_by?: StatisticsGranularity | undefined;
     // (undocumented)
-    recipient_domains?: string;
+    recipient_domains?: string | undefined;
     // (undocumented)
-    sender_domain?: string;
+    sender_domain?: string | undefined;
     // (undocumented)
-    tags?: string;
-    to_time?: ISODateTime;
+    tags?: string | undefined;
+    to_time?: ISODateTime | undefined;
 }
 
 // @public (undocumented)
@@ -2891,63 +1362,31 @@ export interface SubAccount {
 }
 
 // @public
-class SubAccountAPIKeysClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    create(subAccountId: UUID, body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>;
-    // (undocumented)
-    delete(subAccountId: UUID, keyId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    get(subAccountId: UUID, keyId: UUID, options?: RequestOptions): Promise<APIKey>;
-    // (undocumented)
+export interface SubAccountAPIKeysClient {
+    create(subAccountId: UUID, body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedAPIKey>;
+    delete(subAccountId: UUID, keyId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(subAccountId: UUID, keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey>;
     iterate(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): AsyncGenerator<APIKey, void, undefined>;
-    // (undocumented)
-    list(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>;
-    // (undocumented)
-    update(subAccountId: UUID, keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): Promise<APIKey>;
+    list(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<APIKey>>;
+    update(subAccountId: UUID, keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): AhaSendPromise<APIKey>;
 }
-
-// Warning: (ae-forgotten-export) The symbol "SubAccountAPIKeysClient$1" needs to be exported by the entry point index.d.ts
-//
-// @public (undocumented)
-export type SubAccountAPIKeysClient = SubAccountAPIKeysClient$1;
 
 // @public
-class SubAccountsClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    // (undocumented)
-    get apiKeys(): Readonly<SubAccountAPIKeysClient$1>;
-    // (undocumented)
-    create(body: CreateSubAccountRequest, options?: IdempotencyRequestOptions): Promise<SubAccount>;
-    // (undocumented)
-    delete(subAccountId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
-    get(subAccountId: UUID, options?: RequestOptions): Promise<SubAccount>;
-    // (undocumented)
+export interface SubAccountsClient {
+    readonly apiKeys: Readonly<SubAccountAPIKeysClient>;
+    create(body: CreateSubAccountRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SubAccount>;
+    delete(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>;
     iterate(params?: ListSubAccountsParams, options?: RequestOptions): AsyncGenerator<SubAccount, void, undefined>;
-    // (undocumented)
-    list(params?: ListSubAccountsParams, options?: RequestOptions): Promise<PaginatedResponse<SubAccount>>;
-    // (undocumented)
-    suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): Promise<SubAccount>;
-    // (undocumented)
-    unsuspend(subAccountId: UUID, options?: RequestOptions): Promise<SubAccount>;
-    // (undocumented)
-    update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): Promise<SubAccount>;
-    // (undocumented)
-    usage(options?: RequestOptions): Promise<SubAccountUsageResponse>;
+    list(params?: ListSubAccountsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SubAccount>>;
+    suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>;
+    unsuspend(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>;
+    update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>;
+    usage(options?: RequestOptions): AhaSendPromise<SubAccountUsageResponse>;
 }
-
-// @public (undocumented)
-export type SubAccountsClient = SubAccountsClient$1;
 
 // @public (undocumented)
 export type SubAccountStatus = "active" | "suspended" | "parent-suspended" | "deleted";
-
-// @public (undocumented)
-type SubAccountUpdateFields = {
-    name?: string | null;
-    website?: string | null;
-    monthly_credit?: number | null;
-};
 
 // @public (undocumented)
 export interface SubAccountUsageBreakdown {
@@ -3016,20 +1455,13 @@ export interface Suppression {
 }
 
 // @public
-class SuppressionsClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    // (undocumented)
-    create(body: CreateSuppressionRequest, options?: IdempotencyRequestOptions): Promise<CreateSuppressionResponse>;
-    delete(params: DeleteSuppressionParams, options?: RequestOptions): Promise<SuccessResponse>;
-    // (undocumented)
+export interface SuppressionsClient {
+    create(body: CreateSuppressionRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreateSuppressionResponse>;
+    delete(params: DeleteSuppressionParams, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
     iterate(params?: ListSuppressionsParams, options?: RequestOptions): AsyncGenerator<Suppression, void, undefined>;
-    // (undocumented)
-    list(params?: ListSuppressionsParams, options?: RequestOptions): Promise<PaginatedResponse<Suppression>>;
-    wipe(params?: WipeSuppressionsParams, options?: RequestOptions): Promise<SuccessResponse>;
+    list(params?: ListSuppressionsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Suppression>>;
+    wipe(params?: WipeSuppressionsParams, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
 }
-
-// @public (undocumented)
-export type SuppressionsClient = SuppressionsClient$1;
 
 // @public (undocumented)
 export interface SuspendSubAccountRequest {
@@ -3037,92 +1469,96 @@ export interface SuspendSubAccountRequest {
     reason: string;
 }
 
-// @public (undocumented)
+// @public
 export interface TelemetryHooks {
-    // (undocumented)
-    onError?(event: ErrorEvent): void;
-    // (undocumented)
-    onRequest?(event: RequestEvent): void;
-    // (undocumented)
-    onResponse?(event: ResponseEvent): void;
-    // (undocumented)
-    onRetry?(event: RetryEvent): void;
+    onError?: ((event: ErrorEvent) => void | Promise<void>) | undefined;
+    onRequest?: ((event: RequestEvent) => void | Promise<void>) | undefined;
+    onResponse?: ((event: ResponseEvent) => void | Promise<void>) | undefined;
+    onRetry?: ((event: RetryEvent) => void | Promise<void>) | undefined;
 }
 
 // @public
 export type Tracking = {
-    open?: boolean | null;
-    click?: boolean | null;
+    open?: boolean | null | undefined;
+    click?: boolean | null | undefined;
 } | null;
 
 // @public (undocumented)
 export interface UpdateAccountRequest {
     // (undocumented)
-    about?: string;
+    about?: string | undefined;
     // (undocumented)
-    message_data_retention?: number;
+    message_data_retention?: number | undefined;
     // (undocumented)
-    message_metadata_retention?: number;
+    message_metadata_retention?: number | undefined;
     // (undocumented)
-    name?: string;
+    name?: string | undefined;
     // (undocumented)
-    reject_bad_recipients?: boolean;
+    reject_bad_recipients?: boolean | undefined;
     // (undocumented)
-    reject_mistyped_recipients?: boolean;
+    reject_mistyped_recipients?: boolean | undefined;
     // (undocumented)
-    track_clicks?: boolean;
+    track_clicks?: boolean | undefined;
     // (undocumented)
-    track_opens?: boolean;
+    track_opens?: boolean | undefined;
     // (undocumented)
-    website?: string;
+    website?: string | undefined;
 }
 
-// @public (undocumented)
-export interface UpdateAPIKeyRequest {
-    // (undocumented)
-    ip_allow_list?: string[] | null;
-    // (undocumented)
-    label?: string | null;
-    // (undocumented)
-    scopes?: APIKeyScopeName[] | null;
-}
+// @public
+export type UpdateAPIKeyRequest = {
+    label?: string | null | undefined;
+    scopes?: readonly APIKeyScopeName[] | null | undefined;
+    ip_allow_list?: readonly string[] | null | undefined;
+} & ({
+    label: string;
+} | {
+    scopes: readonly APIKeyScopeName[];
+} | {
+    ip_allow_list: readonly string[];
+});
 
 // @public (undocumented)
 export interface UpdateDomainRequest {
     // (undocumented)
-    dkim_rotation_interval_days?: number;
+    dkim_rotation_interval_days?: number | undefined;
+    dkim_selector?: string | null | undefined;
     // (undocumented)
-    media_subdomain?: string;
+    media_subdomain?: string | undefined;
     // (undocumented)
-    return_path_subdomain?: string;
+    return_path_subdomain?: string | undefined;
     // (undocumented)
-    subscription_subdomain?: string;
+    subscription_subdomain?: string | undefined;
     // (undocumented)
-    tracking_subdomain?: string;
+    tracking_subdomain?: string | undefined;
 }
 
 // @public (undocumented)
 export interface UpdateRouteRequest {
     // (undocumented)
-    attachments?: boolean;
+    attachments?: boolean | null | undefined;
     // (undocumented)
-    enabled?: boolean;
+    enabled?: boolean | null | undefined;
     // (undocumented)
-    group_by_message_id?: boolean;
+    group_by_message_id?: boolean | null | undefined;
     // (undocumented)
-    headers?: boolean;
-    name?: string;
+    headers?: boolean | null | undefined;
     // (undocumented)
-    recipient?: string | null;
+    name?: string | null | undefined;
     // (undocumented)
-    strip_replies?: boolean;
-    url?: string;
+    recipient?: string | null | undefined;
+    // (undocumented)
+    strip_replies?: boolean | null | undefined;
+    // (undocumented)
+    url?: string | null | undefined;
 }
 
-// Warning: (ae-forgotten-export) The symbol "SubAccountUpdateFields" needs to be exported by the entry point index.d.ts
-//
 // @public
-export type UpdateSubAccountRequest = SubAccountUpdateFields & ({
+export type UpdateSubAccountRequest = {
+    name?: string | null | undefined;
+    website?: string | null | undefined;
+    monthly_credit?: number | null | undefined;
+} & ({
     name: string;
 } | {
     website: string;
@@ -3132,32 +1568,32 @@ export type UpdateSubAccountRequest = SubAccountUpdateFields & ({
 
 // @public (undocumented)
 export interface UpdateWebhookRequest {
-    domains?: readonly string[] | null;
+    domains?: readonly string[] | null | undefined;
     // (undocumented)
-    enabled?: boolean | null;
-    name?: string | null;
+    enabled?: boolean | null | undefined;
+    name?: string | null | undefined;
     // (undocumented)
-    on_bounced?: boolean | null;
+    on_bounced?: boolean | null | undefined;
     // (undocumented)
-    on_clicked?: boolean | null;
+    on_clicked?: boolean | null | undefined;
     // (undocumented)
-    on_delivered?: boolean | null;
+    on_delivered?: boolean | null | undefined;
     // (undocumented)
-    on_dns_error?: boolean | null;
+    on_dns_error?: boolean | null | undefined;
     // (undocumented)
-    on_failed?: boolean | null;
+    on_failed?: boolean | null | undefined;
     // (undocumented)
-    on_opened?: boolean | null;
+    on_opened?: boolean | null | undefined;
     // (undocumented)
-    on_reception?: boolean | null;
+    on_reception?: boolean | null | undefined;
     // (undocumented)
-    on_suppressed?: boolean | null;
+    on_suppressed?: boolean | null | undefined;
     // (undocumented)
-    on_suppression_created?: boolean | null;
+    on_suppression_created?: boolean | null | undefined;
     // (undocumented)
-    on_transient_error?: boolean | null;
-    scope?: WebhookScope | null;
-    url?: string | null;
+    on_transient_error?: boolean | null | undefined;
+    scope?: WebhookScope | null | undefined;
+    url?: string | null | undefined;
 }
 
 // @public (undocumented)
@@ -3227,19 +1663,14 @@ export interface Webhook {
 }
 
 // @public
-class WebhooksClient$1 {
-    constructor(operations: OperationExecutor, accountId: UUID);
-    create(body: CreateWebhookRequest, options?: IdempotencyRequestOptions): Promise<CreatedWebhook>;
-    delete(webhookId: UUID, options?: RequestOptions): Promise<SuccessResponse>;
-    get(webhookId: UUID, options?: RequestOptions): Promise<Webhook>;
-    // (undocumented)
+export interface WebhooksClient {
+    create(body: CreateWebhookRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedWebhook>;
+    delete(webhookId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(webhookId: UUID, options?: RequestOptions): AhaSendPromise<Webhook>;
     iterate(params?: ListWebhooksParams, options?: RequestOptions): AsyncGenerator<Webhook, void, undefined>;
-    list(params?: ListWebhooksParams, options?: RequestOptions): Promise<PaginatedResponse<Webhook>>;
-    update(webhookId: UUID, body: UpdateWebhookRequest, options?: RequestOptions): Promise<Webhook>;
+    list(params?: ListWebhooksParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Webhook>>;
+    update(webhookId: UUID, body: UpdateWebhookRequest, options?: RequestOptions): AhaSendPromise<Webhook>;
 }
-
-// @public (undocumented)
-export type WebhooksClient = WebhooksClient$1;
 
 // @public (undocumented)
 export type WebhookScope = "global" | "scoped";
@@ -3247,7 +1678,7 @@ export type WebhookScope = "global" | "scoped";
 // @public (undocumented)
 export interface WipeSuppressionsParams {
     // (undocumented)
-    domain?: string;
+    domain?: string | undefined;
 }
 
 // (No @packageDocumentation comment for this package)

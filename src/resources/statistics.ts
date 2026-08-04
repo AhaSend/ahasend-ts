@@ -1,18 +1,18 @@
 import type { OperationExecutor } from "../operations.js";
-import type { ISODateTime, RequestOptions, UUID } from "../types/common.js";
+import type { AhaSendPromise, ISODateTime, RequestOptions, UUID } from "../types/common.js";
 import { forwardOptions } from "./_helpers.js";
 
 export type StatisticsGranularity = "hour" | "day" | "week" | "month";
 
 export interface StatisticsParams {
   /** Filter, not required — omit to query the full retention window. */
-  from_time?: ISODateTime;
+  from_time?: ISODateTime | undefined;
   /** Filter, not required — omit to query the full retention window. */
-  to_time?: ISODateTime;
-  sender_domain?: string;
-  recipient_domains?: string;
-  tags?: string;
-  group_by?: StatisticsGranularity;
+  to_time?: ISODateTime | undefined;
+  sender_domain?: string | undefined;
+  recipient_domains?: string | undefined;
+  tags?: string | undefined;
+  group_by?: StatisticsGranularity | undefined;
 }
 
 export interface DeliverabilityStatistics {
@@ -68,14 +68,43 @@ export interface DeliveryTimeStatisticsResponse {
   data: DeliveryTimeStatistics[];
 }
 
-/**
- * Transactional sending analytics.
- *
- * Statistics endpoints are rate-limited far more aggressively than the
- * rest of the API (1 req/s vs 100 req/s) — the SDK's built-in limiter
- * paces these calls automatically.
- */
-export class StatisticsClient {
+/** Transactional sending analytics. */
+export interface StatisticsClient {
+  /**
+   * Return reception, delivery, bounce, open, and click counts bucketed by `group_by`.
+   * Authorization requires `statistics-transactional:read:all` or
+   * `statistics-transactional:read:{domain}` for every comma-separated
+   * `sender_domain` value.
+   */
+  deliverability(
+    params?: StatisticsParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<DeliverabilityStatisticsResponse>;
+
+  /**
+   * Return bounce counts broken down by classification for each time bucket.
+   * Authorization requires `statistics-transactional:read:all` or
+   * `statistics-transactional:read:{domain}` for every comma-separated
+   * `sender_domain` value.
+   */
+  bounces(
+    params?: StatisticsParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<BounceStatisticsResponse>;
+
+  /**
+   * Return average delivery latency and its recipient-domain breakdown per time bucket.
+   * Authorization requires `statistics-transactional:read:all` or
+   * `statistics-transactional:read:{domain}` for every comma-separated
+   * `sender_domain` value.
+   */
+  deliveryTimes(
+    params?: StatisticsParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<DeliveryTimeStatisticsResponse>;
+}
+
+class StatisticsClientImplementation implements StatisticsClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -85,7 +114,7 @@ export class StatisticsClient {
   }
 
   /**
-   * Reception/delivery/bounce/open/click counts, bucketed by `group_by`.
+   * Return reception, delivery, bounce, open, and click counts bucketed by `group_by`.
    * Authorization requires `statistics-transactional:read:all` or
    * `statistics-transactional:read:{domain}` for every comma-separated
    * `sender_domain` value.
@@ -93,19 +122,19 @@ export class StatisticsClient {
   deliverability(
     params: StatisticsParams = {},
     options: RequestOptions = {},
-  ): Promise<DeliverabilityStatisticsResponse> {
-    return this.#operations.execute<DeliverabilityStatisticsResponse>(
+  ): AhaSendPromise<DeliverabilityStatisticsResponse> {
+    return this.#operations.execute(
       "getDeliverabilityStatistics",
       {
         path: { account_id: this.#accountId },
-        query: params as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );
   }
 
   /**
-   * Bounce counts broken down by bounce classification per time bucket.
+   * Return bounce counts broken down by classification for each time bucket.
    * Authorization requires `statistics-transactional:read:all` or
    * `statistics-transactional:read:{domain}` for every comma-separated
    * `sender_domain` value.
@@ -113,19 +142,19 @@ export class StatisticsClient {
   bounces(
     params: StatisticsParams = {},
     options: RequestOptions = {},
-  ): Promise<BounceStatisticsResponse> {
-    return this.#operations.execute<BounceStatisticsResponse>(
+  ): AhaSendPromise<BounceStatisticsResponse> {
+    return this.#operations.execute(
       "getBounceStatistics",
       {
         path: { account_id: this.#accountId },
-        query: params as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );
   }
 
   /**
-   * Average delivery latency per time bucket, with per-recipient-domain breakdown.
+   * Return average delivery latency and its recipient-domain breakdown per time bucket.
    * Authorization requires `statistics-transactional:read:all` or
    * `statistics-transactional:read:{domain}` for every comma-separated
    * `sender_domain` value.
@@ -133,14 +162,22 @@ export class StatisticsClient {
   deliveryTimes(
     params: StatisticsParams = {},
     options: RequestOptions = {},
-  ): Promise<DeliveryTimeStatisticsResponse> {
-    return this.#operations.execute<DeliveryTimeStatisticsResponse>(
+  ): AhaSendPromise<DeliveryTimeStatisticsResponse> {
+    return this.#operations.execute(
       "getDeliveryTimeStatistics",
       {
         path: { account_id: this.#accountId },
-        query: params as Readonly<Record<string, unknown>>,
+        query: params,
       },
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the statistics resource implementation for the root client. */
+export function createStatisticsClient(
+  operations: OperationExecutor,
+  accountId: UUID,
+): StatisticsClient {
+  return new StatisticsClientImplementation(operations, accountId);
 }

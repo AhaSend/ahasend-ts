@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
+import { resolveConfig } from "../src/config.js";
+import { AhaSendError } from "../src/errors.js";
+import { HttpClient } from "../src/http.js";
+import { isRetryableError } from "../src/retry.js";
 import { composeHooks, debugConsoleHooks, resolveTelemetryHooks } from "../src/telemetry.js";
 import type {
   ErrorEvent,
@@ -8,6 +12,7 @@ import type {
   RetryEvent,
   TelemetryHooks,
 } from "../src/telemetry.js";
+import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
 type FetchImpl = typeof fetch;
 
@@ -30,6 +35,21 @@ function mockFetch(
 }
 
 describe("resolveTelemetryHooks", () => {
+  it("types every public callback as synchronous or asynchronous", () => {
+    expectTypeOf<
+      NonNullable<TelemetryHooks["onRequest"]>
+    >().returns.toEqualTypeOf<void | Promise<void>>();
+    expectTypeOf<
+      NonNullable<TelemetryHooks["onResponse"]>
+    >().returns.toEqualTypeOf<void | Promise<void>>();
+    expectTypeOf<
+      NonNullable<TelemetryHooks["onRetry"]>
+    >().returns.toEqualTypeOf<void | Promise<void>>();
+    expectTypeOf<
+      NonNullable<TelemetryHooks["onError"]>
+    >().returns.toEqualTypeOf<void | Promise<void>>();
+  });
+
   it("returns no-op handlers when no hooks are provided", () => {
     const hooks = resolveTelemetryHooks();
     expect(typeof hooks.onRequest).toBe("function");
@@ -39,17 +59,23 @@ describe("resolveTelemetryHooks", () => {
     // None should throw
     hooks.onRequest(REQUEST_EVENT);
     hooks.onResponse({ ...REQUEST_EVENT, status: 200, durationMs: 1 });
-    hooks.onError({ ...REQUEST_EVENT, durationMs: 1, error: ERROR });
+    hooks.onError({ ...REQUEST_EVENT, phase: "attempt", durationMs: 1, error: ERROR });
     hooks.onRetry({ ...REQUEST_EVENT, durationMs: 1, delayMs: 1, error: ERROR });
   });
 
-  it("observes provided callbacks asynchronously", async () => {
-    const onRequest = vi.fn();
+  it("executes resolved async callbacks asynchronously", async () => {
+    let completed = false;
+    const onRequest = vi.fn(async () => {
+      await Promise.resolve();
+      completed = true;
+    });
     const hooks = resolveTelemetryHooks({ onRequest });
     hooks.onRequest(REQUEST_EVENT);
     expect(onRequest).not.toHaveBeenCalled();
     await Promise.resolve();
     expect(onRequest).toHaveBeenCalledOnce();
+    await Promise.resolve();
+    expect(completed).toBe(true);
   });
 
   it("snapshots callbacks instead of re-reading a mutable hook container", async () => {
@@ -124,13 +150,17 @@ describe("HttpClient telemetry integration", () => {
   it("fires onRequest then onResponse on a successful call", async () => {
     const events: string[] = [];
     const hooks: TelemetryHooks = {
-      onRequest: (e) => events.push(`req ${e.method} ${e.routeTemplate} attempt=${e.attempt}`),
-      onResponse: (e) => events.push(`res ${e.status} attempt=${e.attempt}`),
+      onRequest: (e) => {
+        events.push(`req ${e.method} ${e.routeTemplate} attempt=${e.attempt}`);
+      },
+      onResponse: (e) => {
+        events.push(`res ${e.status} attempt=${e.attempt}`);
+      },
     };
 
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks,
       fetch: mockFetch(
@@ -151,22 +181,26 @@ describe("HttpClient telemetry integration", () => {
     const errors: ErrorEvent[] = [];
     const retries: RetryEvent[] = [];
     const hooks: TelemetryHooks = {
-      onRequest: (e) => events.push(`req attempt=${e.attempt}`),
-      onResponse: (e) => events.push(`res ${e.status}`),
+      onRequest: (e) => {
+        events.push(`req attempt=${e.attempt}`);
+      },
+      onResponse: (e) => {
+        events.push(`res ${e.status}`);
+      },
       onRetry: (e) => {
         retries.push(e);
         events.push(`retry attempt=${e.attempt} delay=${e.delayMs}`);
       },
       onError: (e) => {
         errors.push(e);
-        events.push(`err`);
+        events.push(`err attempt=${e.attempt} phase=${e.phase}`);
       },
     };
 
     let attempts = 0;
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks,
       retry: { baseDelayMs: 1, maxDelayMs: 5, jitter: false, maxRetries: 1 },
@@ -183,17 +217,19 @@ describe("HttpClient telemetry integration", () => {
     });
 
     await client.ping();
-    expect(events[0]).toBe("req attempt=1");
-    expect(events).toContain("res 503");
-    expect(events).toContain("err");
-    expect(events.some((e) => e.startsWith("retry attempt=1"))).toBe(true);
-    expect(events).toContain("req attempt=2");
-    expect(events[events.length - 1]).toBe("res 200");
+    expect(events).toEqual([
+      "req attempt=1",
+      "err attempt=1 phase=attempt",
+      "retry attempt=1 delay=1",
+      "req attempt=2",
+      "res 200",
+    ]);
     expect(errors[0]).toMatchObject({
       operationId: "ping",
       method: "GET",
       routeTemplate: "/v2/ping",
       attempt: 1,
+      phase: "attempt",
       status: 503,
       requestId: "req_retry",
     });
@@ -213,18 +249,225 @@ describe("HttpClient telemetry integration", () => {
     const events: string[] = [];
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks: {
-        onError: () => events.push("error"),
-        onRetry: () => events.push("retry"),
+        onRequest: ({ attempt }) => {
+          events.push(`request:${attempt}`);
+        },
+        onResponse: ({ attempt, status }) => {
+          events.push(`response:${attempt}:${status}`);
+        },
+        onError: ({ attempt, phase, status }) => {
+          events.push(`error:${attempt}:${phase}:${status}`);
+        },
+        onRetry: ({ attempt }) => {
+          events.push(`retry:${attempt}`);
+        },
       },
       retry: { baseDelayMs: 1, maxDelayMs: 5 },
       fetch: mockFetch(() => new Response("bad", { status: 400 })),
     });
 
     await expect(client.ping()).rejects.toThrow();
-    expect(events).toEqual(["error"]);
+    expect(events).toEqual(["request:1", "error:1:attempt:400"]);
+  });
+
+  it("attributes limiter overload to pacing without starting an attempt", async () => {
+    vi.useFakeTimers();
+    try {
+      const events: string[] = [];
+      const errors: ErrorEvent[] = [];
+      const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ message: "pong" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      const client = new HttpClient(
+        resolveConfig({
+          apiKey: "aha-sk-test",
+          baseUrl: "https://api.test",
+          retry: { enabled: false },
+          rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+          hooks: {
+            onRequest: ({ attempt }) => {
+              events.push(`request:${attempt}`);
+            },
+            onResponse: ({ attempt, status }) => {
+              events.push(`response:${attempt}:${status}`);
+            },
+            onError: (event) => {
+              errors.push(event);
+              events.push(`error:${event.attempt}:${event.phase}`);
+            },
+            onRetry: ({ attempt }) => {
+              events.push(`retry:${attempt}`);
+            },
+          },
+          fetch,
+        }),
+      );
+      const request = () =>
+        client.request({
+          method: "GET",
+          path: "/v2/ping",
+          operationId: "ping",
+          retryMode: "safe",
+        });
+
+      await request();
+      await Promise.resolve();
+      fetch.mockClear();
+      events.length = 0;
+      errors.length = 0;
+
+      const admitted = Array.from({ length: 1_000 }, request);
+      const overload = await request().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await Promise.resolve();
+
+      expect(AhaSendError.is(overload)).toBe(true);
+      expect(isRetryableError(overload)).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(events).toEqual(["error:1:pacing"]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        operationId: "ping",
+        method: "GET",
+        routeTemplate: "/v2/ping",
+        attempt: 1,
+        phase: "pacing",
+        error: overload,
+      });
+      expect(errors[0]!.durationMs).toBeGreaterThanOrEqual(0);
+
+      client.rateLimiter.setCategoryEnabled("standard", false);
+      await Promise.all(admitted);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("attributes cancellation in the pacing queue without starting an attempt", async () => {
+    vi.useFakeTimers();
+    try {
+      const events: string[] = [];
+      const errors: ErrorEvent[] = [];
+      const fetch = mockFetch(() => new Response("{}", { status: 200 }));
+      const client = new AhaSendClient({
+        apiKey: "aha-sk-test",
+        accountId: ACCOUNT_ID,
+        baseUrl: "https://api.test",
+        retry: { enabled: false },
+        rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1 } },
+        hooks: {
+          onRequest: ({ attempt }) => {
+            events.push(`request:${attempt}`);
+          },
+          onResponse: ({ attempt, status }) => {
+            events.push(`response:${attempt}:${status}`);
+          },
+          onError: (event) => {
+            errors.push(event);
+            events.push(`error:${event.attempt}:${event.phase}`);
+          },
+          onRetry: ({ attempt }) => {
+            events.push(`retry:${attempt}`);
+          },
+        },
+        fetch,
+      });
+
+      await client.ping();
+      await Promise.resolve();
+      events.length = 0;
+      errors.length = 0;
+
+      const controller = new AbortController();
+      const queued = client.ping({ signal: controller.signal });
+      await vi.advanceTimersByTimeAsync(0);
+      controller.abort("cancelled while paced");
+
+      await expect(queued).rejects.toMatchObject({ code: "abort_error" });
+      await Promise.resolve();
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(events).toEqual(["error:1:pacing"]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        operationId: "ping",
+        method: "GET",
+        routeTemplate: "/v2/ping",
+        attempt: 1,
+        phase: "pacing",
+      });
+      expect(errors[0]!.durationMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("attributes retry-delay cancellation to backoff without another attempt outcome", async () => {
+    vi.useFakeTimers();
+    try {
+      const events: string[] = [];
+      const errors: ErrorEvent[] = [];
+      const controller = new AbortController();
+      const fetch = mockFetch(
+        () =>
+          new Response("unavailable", {
+            status: 503,
+            headers: { "x-request-id": "req_backoff" },
+          }),
+      );
+      const client = new AhaSendClient({
+        apiKey: "aha-sk-test",
+        accountId: ACCOUNT_ID,
+        baseUrl: "https://api.test",
+        retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 1000, jitter: false },
+        hooks: {
+          onRequest: ({ attempt }) => {
+            events.push(`request:${attempt}`);
+          },
+          onResponse: ({ attempt, status }) => {
+            events.push(`response:${attempt}:${status}`);
+          },
+          onError: (event) => {
+            errors.push(event);
+            events.push(`error:${event.attempt}:${event.phase}`);
+          },
+          onRetry: ({ attempt, delayMs }) => {
+            events.push(`retry:${attempt}:${delayMs}`);
+          },
+        },
+        fetch,
+      });
+
+      const request = client.ping({ signal: controller.signal });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(events).toEqual(["request:1", "error:1:attempt", "retry:1:1000"]);
+
+      controller.abort("cancelled during backoff");
+      await expect(request).rejects.toMatchObject({ code: "abort_error" });
+      await Promise.resolve();
+
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(events).toEqual(["request:1", "error:1:attempt", "retry:1:1000", "error:1:backoff"]);
+      expect(errors).toHaveLength(2);
+      expect(errors[1]).toMatchObject({
+        operationId: "ping",
+        attempt: 1,
+        phase: "backoff",
+        status: 503,
+        requestId: "req_backoff",
+      });
+      expect(errors[1]!.durationMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not await pending hooks or let rejected hooks replace the API result", async () => {
@@ -238,7 +481,7 @@ describe("HttpClient telemetry integration", () => {
     });
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       retry: { baseDelayMs: 1, maxDelayMs: 1, jitter: false, maxRetries: 1 },
       hooks: {
@@ -264,7 +507,7 @@ describe("HttpClient telemetry integration", () => {
     );
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks: {
         onError: async () => Promise.reject(new Error("telemetry failed")),
@@ -292,7 +535,7 @@ describe("HttpClient telemetry integration", () => {
     );
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       hooks,
       fetch,
@@ -316,9 +559,10 @@ describe("HttpClient telemetry integration", () => {
     expect(observedError).toHaveBeenCalledOnce();
   });
 
-  it("reports generated operation facts and measures through response parsing", async () => {
+  it("reports generated operation facts with monotonic timing through response parsing", async () => {
     vi.useFakeTimers();
     try {
+      vi.setSystemTime(new Date("2030-01-01T00:00:00.000Z"));
       let resolveBody!: (body: string) => void;
       const body = new Promise<string>((resolve) => {
         resolveBody = resolve;
@@ -333,11 +577,15 @@ describe("HttpClient telemetry integration", () => {
       const responses: ResponseEvent[] = [];
       const client = new AhaSendClient({
         apiKey: "aha-sk-test",
-        accountId: "acc_1",
+        accountId: ACCOUNT_ID,
         baseUrl: "https://api.test",
         hooks: {
-          onRequest: (event) => requests.push(event),
-          onResponse: (event) => responses.push(event),
+          onRequest: (event) => {
+            requests.push(event);
+          },
+          onResponse: (event) => {
+            responses.push(event);
+          },
         },
         fetch: mockFetch((url) => {
           requestedUrl = url;
@@ -348,6 +596,7 @@ describe("HttpClient telemetry integration", () => {
       const result = client.messages.list({ limit: 1 });
       await vi.advanceTimersByTimeAsync(0);
       expect(readBody).toHaveBeenCalledOnce();
+      vi.setSystemTime(new Date("2000-01-01T00:00:00.000Z"));
       await vi.advanceTimersByTimeAsync(37);
       resolveBody("{}");
       await result;
@@ -387,7 +636,7 @@ describe("HttpClient telemetry integration", () => {
 
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
-      accountId: "acc_1",
+      accountId: ACCOUNT_ID,
       baseUrl: "https://api.test",
       debug: true,
       hooks: { onRequest: userHook },
@@ -421,6 +670,7 @@ describe("debugConsoleHooks", () => {
     });
     hooks.onError!({
       ...REQUEST_EVENT,
+      phase: "attempt",
       durationMs: 12,
       error: new Error("boom"),
     });

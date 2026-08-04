@@ -14,6 +14,7 @@ import {
 } from "../../scripts/create-candidate.mjs";
 import candidateManifestSchema from "../../scripts/candidate-manifest.schema.json";
 import { canonicalizeJson, sha256Hex } from "../../scripts/digest-artifact.mjs";
+import { validateGateReport } from "../../scripts/report-validation.mjs";
 import {
   readRepositorySourceBindings,
   REQUIRED_SOURCE_GATES,
@@ -41,13 +42,13 @@ interface SourceGateReport {
   reportSha256?: string;
 }
 
-interface RendererHandoff {
+interface FinalGateReport {
   version: number;
-  restDigest: string;
-  operations: Array<{
-    operationId: string;
-    samples: Array<{ label: string; language: string; sourceHash: string }>;
-  }>;
+  commit: string;
+  manifestSha256: string;
+  tarballSha256: string;
+  liveReportSha256: string;
+  results: GateResult[];
 }
 
 const repositoryRoot = process.cwd();
@@ -63,6 +64,54 @@ const sourceOperationDescriptors = readFileSync(
   resolve(repositoryRoot, "src/generated/operations.ts"),
 );
 const openApiSource = readFileSync(resolve(repositoryRoot, "openapi.yaml"));
+const documentationGeneratorSource = readFileSync(
+  resolve(repositoryRoot, "scripts/generate-docs.mjs"),
+  "utf8",
+);
+const sourceGateDeclaration = readFileSync(
+  resolve(repositoryRoot, "scripts/run-source-gates.d.mts"),
+  "utf8",
+);
+const releaseWorkflowSource = readFileSync(
+  resolve(repositoryRoot, ".github/workflows/release.yml"),
+  "utf8",
+);
+const authoritativeOpenApiTest = "tests/openapi-authoritative-contract.test.ts";
+const expectedSourceGates = [
+  "generation",
+  "typecheck",
+  "typed-lint",
+  "unit-tests",
+  "state-tests",
+  "webhook-tests",
+  "framework-tests",
+  "coverage",
+  "format",
+  "test-policy",
+  "repository-secret-scan",
+  "audit",
+  "documentation-workflows",
+] as const;
+const requiredFinalGates = [
+  "artifact",
+  "installed-documentation-links",
+  "documentation-workflows",
+  "live",
+] as const;
+
+function declaredSourceGates(): string[] {
+  const declaration =
+    /export const REQUIRED_SOURCE_GATES: readonly \[(?<members>[\s\S]*?)\];/u.exec(
+      sourceGateDeclaration,
+    );
+  if (declaration?.groups?.members === undefined) {
+    throw new TypeError("Missing REQUIRED_SOURCE_GATES declaration tuple");
+  }
+  return [...declaration.groups.members.matchAll(/"(?<name>[^"]+)"/gu)].map(({ groups }) => {
+    if (groups?.name === undefined) throw new TypeError("Invalid source gate declaration member");
+    return groups.name;
+  });
+}
 
 function validReport(bindings: SourceBindings): SourceGateReport {
   return {
@@ -72,7 +121,7 @@ function validReport(bindings: SourceBindings): SourceGateReport {
   };
 }
 
-function requireGate(report: SourceGateReport, name: string): GateResult {
+function requireGate(report: { results: GateResult[] }, name: string): GateResult {
   const result = report.results.find((candidate) => candidate.name === name);
   if (result === undefined) throw new TypeError(`Missing fixture gate ${name}`);
   return result;
@@ -89,7 +138,6 @@ function candidateBindings(bindings: SourceBindings): CandidateBindings {
     contractSha256: structuredClone(bindings.contractSha256),
     captureSha256: bindings.captureSha256,
     keysSha256: structuredClone(bindings.keysSha256),
-    rendererReportSha256: "2".repeat(64),
     profileSha256: bindings.profileSha256,
     tarballSha256: "3".repeat(64),
   };
@@ -98,6 +146,89 @@ function candidateBindings(bindings: SourceBindings): CandidateBindings {
 function candidateBytes(bindings: CandidateBindings): Buffer {
   return canonicalizeJson({ version: 1, ...bindings });
 }
+
+function validFinalGateReport(): FinalGateReport {
+  return {
+    version: 1,
+    commit: "a".repeat(40),
+    manifestSha256: "1".repeat(64),
+    tarballSha256: "2".repeat(64),
+    liveReportSha256: "3".repeat(64),
+    results: requiredFinalGates.map((name) => ({ name, passed: true })),
+  };
+}
+
+function validateFinalGateFixture(report: FinalGateReport) {
+  return validateGateReport({
+    report,
+    requiredGates: requiredFinalGates,
+    expectedManifestSha256: "1".repeat(64),
+    expectedTarballSha256: "2".repeat(64),
+  });
+}
+
+const gateReportMutationFixtures: readonly {
+  name: string;
+  expectedError: string;
+  mutate: (report: FinalGateReport) => void;
+}[] = [
+  {
+    name: "missing",
+    expectedError: "missing required gates: live",
+    mutate: (report) => {
+      report.results.pop();
+    },
+  },
+  {
+    name: "duplicate",
+    expectedError: "duplicate result artifact",
+    mutate: (report) => {
+      report.results.push({ name: "artifact", passed: true });
+    },
+  },
+  {
+    name: "extra",
+    expectedError: "name is not a required gate",
+    mutate: (report) => {
+      report.results.push({ name: "unexpected-gate", passed: true });
+    },
+  },
+  {
+    name: "failed",
+    expectedError: "Required gate installed-documentation-links did not pass",
+    mutate: (report) => {
+      requireGate(report, "installed-documentation-links").passed = false;
+    },
+  },
+  {
+    name: "stale",
+    expectedError: "name is not a required gate",
+    mutate: (report) => {
+      requireGate(report, "documentation-workflows").name = "documentation-workflow";
+    },
+  },
+  {
+    name: "outdated-version",
+    expectedError: "version must be 1",
+    mutate: (report) => {
+      report.version = 2;
+    },
+  },
+  {
+    name: "manifest hash-mismatched",
+    expectedError: "stale candidate manifest",
+    mutate: (report) => {
+      report.manifestSha256 = zeroHash;
+    },
+  },
+  {
+    name: "tarball hash-mismatched",
+    expectedError: "stale candidate tarball",
+    mutate: (report) => {
+      report.tarballSha256 = zeroHash;
+    },
+  },
+];
 
 function mutateFixture(
   bindings: SourceBindings,
@@ -139,6 +270,9 @@ function mutateFixture(
         passed: true,
       };
       break;
+    case "extraGate":
+      report.results.push({ name: "unexpected-gate", passed: true });
+      break;
     case "noncanonicalReport":
       source = Buffer.from(JSON.stringify(report, null, 2), "utf8");
       return { reportSource: source, reportSidecar: `${sha256Hex(source)}\n` };
@@ -154,22 +288,166 @@ function mutateFixture(
   return { reportSource: source, reportSidecar: sidecar };
 }
 
+function candidateRunnerFixture(
+  sourceBindings: SourceBindings,
+  packResult: unknown,
+  packFiles: readonly string[] = ["ahasend-sdk-0.1.0.tgz"],
+  mutateDuringBuild?: () => void,
+) {
+  const directory = mkdtempSync(join(tmpdir(), "ahasend-candidate-test-"));
+  temporaryDirectories.push(directory);
+  const outputDirectory = join(directory, "candidate");
+  const sourceReportPath = join(directory, "source-report.json");
+  const sourceSidecarPath = join(directory, "source-report.sha256");
+  const sourceReport = reportBytes(validReport(sourceBindings));
+  writeFileSync(sourceReportPath, sourceReport);
+  writeFileSync(sourceSidecarPath, `${sha256Hex(sourceReport)}\n`);
+
+  const npmCalls: string[][] = [];
+  const fakeTarball = Buffer.from("one candidate tarball", "utf8");
+  const runner: CandidateCommandRunner = (command, args) => {
+    if (command === "git" && args[0] === "rev-parse") return `${sourceBindings.commit}\n`;
+    if (command === "git" && args[0] === "status") return "?? .betterborg-task/task.md\n";
+    if (command === "git" && args[0] === "ls-files") {
+      const result = spawnSync("git", ["ls-files", "-z"], { cwd: repositoryRoot });
+      if (result.status !== 0) throw new TypeError(result.stderr.toString("utf8"));
+      return result.stdout;
+    }
+    if (args.includes("build")) {
+      npmCalls.push([...args]);
+      mutateDuringBuild?.();
+      return "";
+    }
+    if (args.includes("pack")) {
+      npmCalls.push([...args]);
+      const destination = args[args.indexOf("--pack-destination") + 1];
+      if (destination === undefined) throw new TypeError("Missing pack destination");
+      for (const filename of packFiles) {
+        writeFileSync(join(destination, filename), fakeTarball);
+      }
+      const output = JSON.stringify(packResult);
+      if (output === undefined) throw new TypeError("Pack result is not JSON serializable");
+      return output;
+    }
+    if (command === "tar" && args.at(-1)?.endsWith("operation-profile.json")) {
+      return sourceProfile;
+    }
+    if (command === "tar" && args.at(-1)?.endsWith("operation-profile.sha256")) {
+      return sourceProfileSidecar;
+    }
+    if (command === "tar" && args.at(-1)?.endsWith("dist/index.js")) {
+      return sourceOperationDescriptors;
+    }
+    throw new TypeError(`Unexpected command: ${command} ${args.join(" ")}`);
+  };
+
+  return {
+    createOptions: {
+      sourceReportPath,
+      sourceReportSidecarPath: sourceSidecarPath,
+      outputDirectory,
+      runCommand: runner,
+    },
+    fakeTarball,
+    npmCalls,
+    sourceReport,
+  };
+}
+
 afterAll(() => {
   for (const directory of temporaryDirectories) {
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
+describe("final gate report validation", () => {
+  it("accepts exactly one passed result for every required retained-candidate gate", () => {
+    const report = validFinalGateReport();
+
+    expect(report.results.map(({ name }) => name)).toEqual([
+      "artifact",
+      "installed-documentation-links",
+      "documentation-workflows",
+      "live",
+    ]);
+    expect(validateFinalGateFixture(report)).toEqual({
+      commit: report.commit,
+      manifestSha256: report.manifestSha256,
+      tarballSha256: report.tarballSha256,
+      liveReportSha256: report.liveReportSha256,
+      gates: requiredFinalGates.length,
+    });
+  });
+
+  for (const fixture of gateReportMutationFixtures) {
+    it(`rejects a ${fixture.name} gate report`, () => {
+      const report = validFinalGateReport();
+      fixture.mutate(report);
+
+      expect(() => validateFinalGateFixture(report)).toThrow(fixture.expectedError);
+    });
+  }
+});
+
 describe("source gate report validation", () => {
-  it("keeps the schema aligned with the importable validator", async () => {
+  it("retains the authoritative OpenAPI contract test in the release unit gate", () => {
+    const trackedTest = spawnSync(
+      "git",
+      ["ls-files", "--error-unmatch", authoritativeOpenApiTest],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+      },
+    );
+
+    expect(trackedTest.status, trackedTest.stderr).toBe(0);
+    expect(trackedTest.stdout.trim()).toBe(authoritativeOpenApiTest);
+    expect(releaseWorkflowSource).toContain(
+      `run: npm run test:unit -- ${authoritativeOpenApiTest}`,
+    );
+  });
+
+  it("does not produce or consume a renderer handoff after sample regeneration", () => {
+    expect(documentationGeneratorSource).not.toMatch(/renderer[-A-Za-z]*handoff/iu);
+    expect(releaseWorkflowSource).not.toMatch(/renderer[-A-Za-z]*handoff/iu);
+  });
+
+  it("keeps the runtime, declaration, schema, and fixture gate inventories exact", async () => {
     const bindings = await readRepositorySourceBindings();
     const report = validReport(bindings);
+    const resultsSchema = sourceGateReportSchema.properties.results;
+    const schemaGateDefinitions = expectedSourceGates.map(
+      (name) => sourceGateReportSchema.definitions[name],
+    );
 
     expect(validateSourceGateSchema(report), JSON.stringify(validateSourceGateSchema.errors)).toBe(
       true,
     );
     expect(report).not.toHaveProperty("reportSha256");
-    expect(REQUIRED_SOURCE_GATES).toEqual(sourceGateReports.missingGateCases);
+    expect(REQUIRED_SOURCE_GATES).toEqual(expectedSourceGates);
+    expect(declaredSourceGates()).toEqual(expectedSourceGates);
+    expect(sourceGateReports.missingGateCases).toEqual(expectedSourceGates);
+    expect(resultsSchema).toMatchObject({
+      minItems: expectedSourceGates.length,
+      maxItems: expectedSourceGates.length,
+      uniqueItems: true,
+      items: { $ref: "#/definitions/gateResult" },
+    });
+    expect(sourceGateReportSchema.definitions.gateResult.properties.name.enum).toEqual(
+      expectedSourceGates,
+    );
+    expect(sourceGateReportSchema.definitions.gateResult.properties.passed).toEqual({
+      const: true,
+    });
+    expect(resultsSchema.allOf.map(({ contains }) => contains.$ref)).toEqual(
+      expectedSourceGates.map((name) => `#/definitions/${name}`),
+    );
+    expect(schemaGateDefinitions).toEqual(
+      expectedSourceGates.map((name) => ({
+        properties: { name: { const: name } },
+        required: ["name"],
+      })),
+    );
   });
 
   for (const testCase of sourceGateReports.cases) {
@@ -218,18 +496,21 @@ describe("source gate report validation", () => {
     });
   }
 
-  it("rejects missing, duplicate, and failed results through the JSON schema", async () => {
+  it("rejects missing, duplicate, extra, and failed results through the JSON schema", async () => {
     const bindings = await readRepositorySourceBindings();
     const validateSchema = new Ajv({ allErrors: true }).compile(sourceGateReportSchema);
     const missing = validReport(bindings);
     missing.results.pop();
     const duplicate = validReport(bindings);
     duplicate.results[duplicate.results.length - 1] = structuredClone(duplicate.results[0]!);
+    const extra = validReport(bindings);
+    extra.results.push({ name: "unexpected-gate", passed: true });
     const failed = validReport(bindings);
     requireGate(failed, "audit").passed = false;
 
     expect(validateSchema(missing)).toBe(false);
     expect(validateSchema(duplicate)).toBe(false);
+    expect(validateSchema(extra)).toBe(false);
     expect(validateSchema(failed)).toBe(false);
   });
 
@@ -308,6 +589,19 @@ describe("source gate report validation", () => {
 });
 
 describe("release candidate validation", () => {
+  it("documents the simplified candidate CLI", () => {
+    const result = spawnSync(process.execPath, ["scripts/create-candidate.mjs"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "create-candidate: Usage: node scripts/create-candidate.mjs <source-report.json> <output-directory> [source-report.sha256]\n",
+    );
+  });
+
   it("binds the canonical candidate manifest to its detached sidecar", async () => {
     const sourceBindings = await readRepositorySourceBindings();
     const bindings = candidateBindings(sourceBindings);
@@ -492,78 +786,139 @@ describe("release candidate validation", () => {
         status: " M src/index.ts\n",
       }),
     ).toThrow("requires a clean commit");
+    expect(() =>
+      validateCleanCommit({
+        commit: `${bindings.commit}\n`,
+        expectedCommit: bindings.commit,
+        status: "?? unexpected-candidate-input.txt\n",
+      }),
+    ).toThrow("requires a clean commit");
   });
 
-  it("constructs a linked candidate with exactly one build and one npm pack", async () => {
+  it("rejects a governed mutation during build before npm pack", async () => {
     const sourceBindings = await readRepositorySourceBindings();
-    const directory = mkdtempSync(join(tmpdir(), "ahasend-candidate-test-"));
-    temporaryDirectories.push(directory);
-    const outputDirectory = join(directory, "candidate");
-    const sourceReportPath = join(directory, "source-report.json");
-    const sourceSidecarPath = join(directory, "source-report.sha256");
-    const rendererReportPath = join(directory, "renderer-report.json");
-    const sourceReport = reportBytes(validReport(sourceBindings));
-    const handoffSource = readFileSync(resolve(repositoryRoot, "docs/renderer-handoff.json"));
-    const handoff = JSON.parse(handoffSource.toString("utf8")) as RendererHandoff;
-    const rendererReport = canonicalizeJson({
-      version: 1,
-      handoffDigest: sha256Hex(handoffSource),
-      restDigest: handoff.restDigest,
-      operations: handoff.operations.map(({ operationId, samples }) => ({
-        operationId,
-        tabs: samples,
-      })),
-    });
-    writeFileSync(sourceReportPath, sourceReport);
-    writeFileSync(sourceSidecarPath, `${sha256Hex(sourceReport)}\n`);
-    writeFileSync(rendererReportPath, rendererReport);
+    const openApiPath = resolve(repositoryRoot, "openapi.yaml");
+    const originalOpenApi = readFileSync(openApiPath);
+    const fixture = candidateRunnerFixture(
+      sourceBindings,
+      [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+      undefined,
+      () => {
+        writeFileSync(
+          openApiPath,
+          originalOpenApi.toString("utf8").replace("title: AhaSend API v2", "title: Mutated API"),
+        );
+      },
+    );
 
-    const npmCalls: string[][] = [];
-    const fakeTarball = Buffer.from("one candidate tarball", "utf8");
-    const runner: CandidateCommandRunner = (command, args) => {
-      if (command === "git" && args[0] === "rev-parse") return `${sourceBindings.commit}\n`;
-      if (command === "git" && args[0] === "status") return "?? .betterborg-task/task.md\n";
-      if (args.includes("build")) {
-        npmCalls.push([...args]);
-        return "";
-      }
-      if (args.includes("pack")) {
-        npmCalls.push([...args]);
-        const destination = args[args.indexOf("--pack-destination") + 1];
-        if (destination === undefined) throw new TypeError("Missing pack destination");
-        writeFileSync(join(destination, "ahasend-sdk-0.1.0.tgz"), fakeTarball);
-        return JSON.stringify([{ filename: "ahasend-sdk-0.1.0.tgz" }]);
-      }
-      if (command === "tar" && args.at(-1)?.endsWith("operation-profile.json")) {
-        return sourceProfile;
-      }
-      if (command === "tar" && args.at(-1)?.endsWith("operation-profile.sha256")) {
-        return sourceProfileSidecar;
-      }
-      if (command === "tar" && args.at(-1)?.endsWith("dist/index.js")) {
-        return sourceOperationDescriptors;
-      }
-      throw new TypeError(`Unexpected command: ${command} ${args.join(" ")}`);
-    };
-
-    const result = await createCandidate({
-      sourceReportPath,
-      sourceReportSidecarPath: sourceSidecarPath,
-      rendererReportPath,
-      outputDirectory,
-      runCommand: runner,
-    });
-
-    expect(npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
-    expect(npmCalls.filter((args) => args.includes("pack"))).toHaveLength(1);
-    expect(readFileSync(result.tarballPath)).toEqual(fakeTarball);
-    const manifestSource = readFileSync(result.manifestPath);
-    const manifestSidecar = readFileSync(result.manifestSidecarPath);
-    const manifest = JSON.parse(manifestSource.toString("utf8")) as CandidateBindings;
-    expect(manifest).not.toHaveProperty("manifestSha256");
-    expect(manifest.sourceReportSha256).toBe(sha256Hex(sourceReport));
-    expect(manifest.rendererReportSha256).toBe(sha256Hex(rendererReport));
-    expect(manifest.tarballSha256).toBe(sha256Hex(fakeTarball));
-    expect(manifestSidecar.toString("utf8")).toBe(`${sha256Hex(manifestSource)}\n`);
+    try {
+      await expect(createCandidate(fixture.createOptions)).rejects.toThrow(
+        "Candidate inputs references a stale openapi.yaml",
+      );
+      expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
+      expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(0);
+    } finally {
+      writeFileSync(openApiPath, originalOpenApi);
+    }
   });
+
+  it("rejects a package-source mutation during build before npm pack", async () => {
+    const sourceBindings = await readRepositorySourceBindings();
+    const sourcePath = resolve(repositoryRoot, "src/index.ts");
+    const originalSource = readFileSync(sourcePath);
+    const fixture = candidateRunnerFixture(
+      sourceBindings,
+      [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+      undefined,
+      () => {
+        writeFileSync(sourcePath, Buffer.concat([originalSource, Buffer.from("\n// mutation\n")]));
+      },
+    );
+
+    try {
+      await expect(createCandidate(fixture.createOptions)).rejects.toThrow(
+        "Candidate package-source inputs changed during build: src/index.ts",
+      );
+      expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
+      expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(0);
+    } finally {
+      writeFileSync(sourcePath, originalSource);
+    }
+  });
+
+  for (const testCase of [
+    {
+      label: "npm 10/11 array JSON",
+      packResult: [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+    },
+    {
+      label: "npm 12 keyed-object JSON",
+      packResult: { "@ahasend/sdk": { filename: "ahasend-sdk-0.1.0.tgz" } },
+    },
+  ]) {
+    it(`constructs a linked candidate from ${testCase.label}`, async () => {
+      const sourceBindings = await readRepositorySourceBindings();
+      const fixture = candidateRunnerFixture(sourceBindings, testCase.packResult);
+      const result = await createCandidate(fixture.createOptions);
+
+      expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
+      expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(1);
+      expect(readFileSync(result.tarballPath)).toEqual(fixture.fakeTarball);
+      const manifestSource = readFileSync(result.manifestPath);
+      const manifestSidecar = readFileSync(result.manifestSidecarPath);
+      const manifest = JSON.parse(manifestSource.toString("utf8")) as CandidateBindings;
+      expect(manifest).toEqual({
+        version: 1,
+        commit: sourceBindings.commit,
+        sourceReportSha256: sha256Hex(fixture.sourceReport),
+        contractSha256: sourceBindings.contractSha256,
+        captureSha256: sourceBindings.captureSha256,
+        keysSha256: sourceBindings.keysSha256,
+        profileSha256: sourceBindings.profileSha256,
+        tarballSha256: sha256Hex(fixture.fakeTarball),
+      });
+      expect(manifestSidecar.toString("utf8")).toBe(`${sha256Hex(manifestSource)}\n`);
+    });
+  }
+
+  for (const testCase of [
+    {
+      label: "no package",
+      packResult: [],
+      packFiles: [],
+      expectedError: "exactly one package, received 0",
+    },
+    {
+      label: "multiple keyed packages",
+      packResult: {
+        "@ahasend/sdk": { filename: "ahasend-sdk-0.1.0.tgz" },
+        "other-package": { filename: "other-package-1.0.0.tgz" },
+      },
+      packFiles: ["ahasend-sdk-0.1.0.tgz", "other-package-1.0.0.tgz"],
+      expectedError: "exactly one package, received 2",
+    },
+    {
+      label: "a filename absent from the explicit pack destination",
+      packResult: [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+      packFiles: [],
+      expectedError: "existing tarball in the explicit pack destination",
+    },
+    {
+      label: "an unreported tarball in the explicit pack destination",
+      packResult: [{ filename: "ahasend-sdk-0.1.0.tgz" }],
+      packFiles: ["ahasend-sdk-0.1.0.tgz", "unreported-1.0.0.tgz"],
+      expectedError: "exactly one npm pack tarball, received 2",
+    },
+  ]) {
+    it(`rejects npm pack output with ${testCase.label}`, async () => {
+      const sourceBindings = await readRepositorySourceBindings();
+      const fixture = candidateRunnerFixture(
+        sourceBindings,
+        testCase.packResult,
+        testCase.packFiles,
+      );
+
+      await expect(createCandidate(fixture.createOptions)).rejects.toThrow(testCase.expectedError);
+    });
+  }
 });

@@ -2,6 +2,7 @@ import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type {
   APIKey,
+  AhaSendPromise,
   CreatedAPIKey,
   IdempotencyRequestOptions,
   PaginationParams,
@@ -15,7 +16,13 @@ import type {
   SubAccountUsageResponse,
   UpdateSubAccountRequest,
 } from "../src/resources/sub-accounts.js";
-import { captureFetch, makeClient } from "./helpers/resource-call.js";
+import {
+  ACCOUNT_ID,
+  API_KEY_ID,
+  captureFetch,
+  makeClient,
+  SUB_ACCOUNT_ID,
+} from "./helpers/resource-call.js";
 
 describe("SubAccountsClient declarations", () => {
   it("models lifecycle and refined usage responses from the generated contract", () => {
@@ -128,13 +135,17 @@ describe("SubAccountAPIKeysClient declarations", () => {
 
   it("returns the one-time secret only from create and accepts idempotency there", () => {
     expectTypeOf<ReturnType<SubAccountAPIKeysClient["create"]>>().toEqualTypeOf<
-      Promise<CreatedAPIKey>
+      AhaSendPromise<CreatedAPIKey>
     >();
     expectTypeOf<ReturnType<SubAccountAPIKeysClient["list"]>>().toEqualTypeOf<
-      Promise<import("../src/index.js").PaginatedResponse<APIKey>>
+      AhaSendPromise<import("../src/index.js").PaginatedResponse<APIKey>>
     >();
-    expectTypeOf<ReturnType<SubAccountAPIKeysClient["get"]>>().toEqualTypeOf<Promise<APIKey>>();
-    expectTypeOf<ReturnType<SubAccountAPIKeysClient["update"]>>().toEqualTypeOf<Promise<APIKey>>();
+    expectTypeOf<ReturnType<SubAccountAPIKeysClient["get"]>>().toEqualTypeOf<
+      AhaSendPromise<APIKey>
+    >();
+    expectTypeOf<ReturnType<SubAccountAPIKeysClient["update"]>>().toEqualTypeOf<
+      AhaSendPromise<APIKey>
+    >();
     expectTypeOf<Parameters<SubAccountAPIKeysClient["create"]>[2]>().toEqualTypeOf<
       IdempotencyRequestOptions | undefined
     >();
@@ -152,7 +163,7 @@ describe("SubAccountsClient operations", () => {
     );
 
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/sub-accounts");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/sub-accounts`);
     expect(url.searchParams.get("limit")).toBe("25");
     expect(url.searchParams.get("before")).toBe("previous");
     expect(url.searchParams.has("after")).toBe(false);
@@ -213,7 +224,7 @@ describe("SubAccountsClient operations", () => {
     );
 
     expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/sub-accounts");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts`);
     expect(JSON.parse(calls[0]!.body!)).toEqual({
       name: "Child",
       website: "child.example.com",
@@ -230,7 +241,7 @@ describe("SubAccountsClient operations", () => {
     await client.subAccounts.usage({ headers: { "x-trace-id": "sub-usage-1" } });
 
     expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/sub-accounts/usage");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts/usage`);
     expect(calls[0]!.headers["x-trace-id"]).toBe("sub-usage-1");
     expect(calls[0]!.operationId).toBe("getSubAccountsUsage");
   });
@@ -239,24 +250,24 @@ describe("SubAccountsClient operations", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.subAccounts.get("sub/42");
-    await client.subAccounts.update("sub/42", { monthly_credit: 75_000 });
-    await client.subAccounts.delete("sub/42");
+    await client.subAccounts.get(SUB_ACCOUNT_ID);
+    await client.subAccounts.update(SUB_ACCOUNT_ID, { monthly_credit: 75_000 });
+    await client.subAccounts.delete(SUB_ACCOUNT_ID);
 
     expect(calls.map(({ method, url, operationId }) => ({ method, url, operationId }))).toEqual([
       {
         method: "GET",
-        url: "https://api.test/v2/accounts/acc_1/sub-accounts/sub%2F42",
+        url: `https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}`,
         operationId: "getSubAccount",
       },
       {
         method: "PUT",
-        url: "https://api.test/v2/accounts/acc_1/sub-accounts/sub%2F42",
+        url: `https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}`,
         operationId: "updateSubAccount",
       },
       {
         method: "DELETE",
-        url: "https://api.test/v2/accounts/acc_1/sub-accounts/sub%2F42",
+        url: `https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}`,
         operationId: "deleteSubAccount",
       },
     ]);
@@ -268,20 +279,22 @@ describe("SubAccountsClient operations", () => {
     const client = makeClient(fetch);
 
     await client.subAccounts.suspend(
-      "sub/42",
+      SUB_ACCOUNT_ID,
       { reason: "Customer requested a pause" },
       { headers: { "x-trace-id": "sub-suspend-1" } },
     );
-    await client.subAccounts.unsuspend("sub/42");
+    await client.subAccounts.unsuspend(SUB_ACCOUNT_ID);
 
     expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/sub-accounts/sub%2F42/suspend");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}/suspend`,
+    );
     expect(JSON.parse(calls[0]!.body!)).toEqual({ reason: "Customer requested a pause" });
     expect(calls[0]!.headers["x-trace-id"]).toBe("sub-suspend-1");
     expect(calls[0]!.operationId).toBe("suspendSubAccount");
     expect(calls[1]!.method).toBe("POST");
     expect(calls[1]!.url).toBe(
-      "https://api.test/v2/accounts/acc_1/sub-accounts/sub%2F42/unsuspend",
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}/unsuspend`,
     );
     expect(calls[1]!.body).toBeUndefined();
     expect(calls[1]!.operationId).toBe("unsuspendSubAccount");
@@ -289,18 +302,43 @@ describe("SubAccountsClient operations", () => {
 });
 
 describe("SubAccountAPIKeysClient operations", () => {
-  it("list() substitutes the child sentinel and forwards pagination and options", async () => {
+  it("rejects empty scopes on child-key create and on a scopes-bearing update", async () => {
+    // Child API keys reuse CreateAPIKeyRequest/UpdateAPIKeyRequest, whose
+    // scopes field carries the spec's minItems: 1. That used to be a
+    // compile-time tuple; it is now a runtime guard, and this path needs the
+    // same guard as the account-level resource or an empty array reaches the
+    // API and comes back a 422.
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() =>
+      client.subAccounts.apiKeys.create(SUB_ACCOUNT_ID, { label: "CI", scopes: [] }),
+    ).toThrow(/`scopes` must contain at least one item/);
+    expect(() =>
+      client.subAccounts.apiKeys.update(SUB_ACCOUNT_ID, API_KEY_ID, { scopes: [] }),
+    ).toThrow(/`scopes` must contain at least one item/);
+
+    expect(calls).toHaveLength(0);
+
+    await client.subAccounts.apiKeys.update(SUB_ACCOUNT_ID, API_KEY_ID, {
+      label: "Rotated",
+      scopes: null,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("list() substitutes the child ID and forwards pagination and options", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
     await client.subAccounts.apiKeys.list(
-      "sub/42",
+      SUB_ACCOUNT_ID,
       { limit: 25, before: "previous" },
       { headers: { "x-trace-id": "child-key-list-1" } },
     );
 
     const url = new URL(calls[0]!.url);
-    expect(url.pathname).toBe("/v2/accounts/acc_1/sub-accounts/sub%2F42/api-keys");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys`);
     expect(url.searchParams.get("limit")).toBe("25");
     expect(url.searchParams.get("before")).toBe("previous");
     expect(url.searchParams.has("after")).toBe(false);
@@ -324,7 +362,7 @@ describe("SubAccountAPIKeysClient operations", () => {
     const client = makeClient(fetch);
 
     const items: APIKey[] = [];
-    for await (const item of client.subAccounts.apiKeys.iterate("sub/42", {
+    for await (const item of client.subAccounts.apiKeys.iterate(SUB_ACCOUNT_ID, {
       limit: 10,
       before: "page-1",
     })) {
@@ -338,7 +376,9 @@ describe("SubAccountAPIKeysClient operations", () => {
       "listSubAccountAPIKeys",
     ]);
     for (const call of calls) {
-      expect(new URL(call.url).pathname).toBe("/v2/accounts/acc_1/sub-accounts/sub%2F42/api-keys");
+      expect(new URL(call.url).pathname).toBe(
+        `/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys`,
+      );
       expect(new URL(call.url).searchParams.get("limit")).toBe("10");
     }
     expect(new URL(calls[0]!.url).searchParams.get("before")).toBe("page-1");
@@ -357,14 +397,16 @@ describe("SubAccountAPIKeysClient operations", () => {
     const client = makeClient(fetch);
 
     const created = await client.subAccounts.apiKeys.create(
-      "sub/42",
+      SUB_ACCOUNT_ID,
       { label: "Bootstrap", scopes: ["messages:send:all"] },
       { idempotencyKey: "child-key-create-1" },
     );
 
     expect(created.secret_key).toBe("aha-sk-child");
     expect(calls[0]!.method).toBe("POST");
-    expect(calls[0]!.url).toBe("https://api.test/v2/accounts/acc_1/sub-accounts/sub%2F42/api-keys");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys`,
+    );
     expect(JSON.parse(calls[0]!.body!)).toEqual({
       label: "Bootstrap",
       scopes: ["messages:send:all"],
@@ -377,17 +419,32 @@ describe("SubAccountAPIKeysClient operations", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.subAccounts.apiKeys.get("sub/42", "key/7");
-    await client.subAccounts.apiKeys.update("sub/42", "key/7", { label: "Rotated" });
-    await client.subAccounts.apiKeys.delete("sub/42", "key/7");
+    await client.subAccounts.apiKeys.get(SUB_ACCOUNT_ID, API_KEY_ID);
+    await client.subAccounts.apiKeys.update(SUB_ACCOUNT_ID, API_KEY_ID, { label: "Rotated" });
+    await client.subAccounts.apiKeys.delete(SUB_ACCOUNT_ID, API_KEY_ID);
 
-    const expectedUrl = "https://api.test/v2/accounts/acc_1/sub-accounts/sub%2F42/api-keys/key%2F7";
+    const expectedUrl = `https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys/${API_KEY_ID}`;
     expect(calls.map(({ method, url, operationId }) => ({ method, url, operationId }))).toEqual([
       { method: "GET", url: expectedUrl, operationId: "getSubAccountAPIKey" },
       { method: "PUT", url: expectedUrl, operationId: "updateSubAccountAPIKey" },
       { method: "DELETE", url: expectedUrl, operationId: "deleteSubAccountAPIKey" },
     ]);
     expect(JSON.parse(calls[1]!.body!)).toEqual({ label: "Rotated" });
+  });
+
+  it.each([
+    ["child account", "..", API_KEY_ID],
+    ["child API key", SUB_ACCOUNT_ID, ".."],
+    ["malformed child API key UUID", SUB_ACCOUNT_ID, "not-a-uuid"],
+  ])("rejects an invalid %s deletion path before dispatch", (_label, subAccountId, keyId) => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() => client.subAccounts.apiKeys.delete(subAccountId, keyId)).toThrow(
+      /Invalid path parameter/,
+    );
+    expect(calls).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("keeps child executor and transport state out of inspection and serialization", () => {

@@ -5,18 +5,16 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { format, resolveConfig } from "prettier";
 import ts from "typescript";
-import { collectOperations, parseOpenApi } from "./generate-contracts.mjs";
+import {
+  collectOperations,
+  parseOpenApi,
+  validateNodeSampleRegistry,
+} from "./generate-contracts.mjs";
 import {
   AUTHORIZATION_REGISTRY,
   validateAuthorizationRegistry,
   validateOperationProfile,
 } from "./generate-sdk.mjs";
-import { canonicalizeJson, digestYamlArtifact, sha256Hex } from "./digest-artifact.mjs";
-import {
-  NODE_CODE_SAMPLES,
-  NODE_OPERATION_KEYS,
-  NODE_SAMPLE_LANGUAGE,
-} from "./node-code-samples.mjs";
 
 const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_ITERATOR_COUNT = 9;
@@ -27,8 +25,6 @@ const GENERATED_HEADER =
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const outputPath = "docs/api-reference.md";
-const rendererHandoffPath = "docs/renderer-handoff.json";
-const rendererHandoffDigestPath = "docs/renderer-handoff.sha256";
 
 function record(value, location) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -179,7 +175,7 @@ function hasIdempotency(document, entry) {
   );
 }
 
-function createTypeScriptContext() {
+function createTypeScriptContext(clientSourceText) {
   const configPath = ts.findConfigFile(repositoryRoot, ts.sys.fileExists, "tsconfig.json");
   if (configPath === undefined) throw new TypeError("Unable to find tsconfig.json");
   const config = ts.readConfigFile(configPath, ts.sys.readFile);
@@ -193,9 +189,21 @@ function createTypeScriptContext() {
     { noEmit: true },
     configPath,
   );
-  const program = ts.createProgram(parsed.fileNames, parsed.options);
+  const clientPath = resolve(repositoryRoot, "src/client.ts");
+  let program;
+  if (clientSourceText === undefined) {
+    program = ts.createProgram(parsed.fileNames, parsed.options);
+  } else {
+    const host = ts.createCompilerHost(parsed.options);
+    const getSourceFile = host.getSourceFile.bind(host);
+    host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
+      resolve(fileName) === clientPath
+        ? ts.createSourceFile(fileName, clientSourceText, languageVersion, true, ts.ScriptKind.TS)
+        : getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+    program = ts.createProgram(parsed.fileNames, parsed.options, host);
+  }
   const checker = program.getTypeChecker();
-  const clientSource = program.getSourceFile(resolve(repositoryRoot, "src/client.ts"));
+  const clientSource = program.getSourceFile(clientPath);
   const indexSource = program.getSourceFile(resolve(repositoryRoot, "src/index.ts"));
   if (clientSource === undefined || indexSource === undefined) {
     throw new TypeError("Unable to load the public SDK TypeScript sources");
@@ -246,8 +254,13 @@ function methodSignature(context, mapping) {
   if (method === undefined) {
     throw new TypeError(`Profile method ${mapping.facade}.${mapping.method} is not public`);
   }
-  const declaration = method.declarations?.find((candidate) => ts.isMethodDeclaration(candidate));
-  if (declaration === undefined || !ts.isMethodDeclaration(declaration)) {
+  const declaration = method.declarations?.find(
+    (candidate) => ts.isMethodDeclaration(candidate) || ts.isMethodSignature(candidate),
+  );
+  if (
+    declaration === undefined ||
+    (!ts.isMethodDeclaration(declaration) && !ts.isMethodSignature(declaration))
+  ) {
     throw new TypeError(`${mapping.facade}.${mapping.method} is not a declared method`);
   }
   const methodType = context.checker.getTypeOfSymbolAtLocation(method, declaration);
@@ -259,6 +272,10 @@ function methodSignature(context, mapping) {
   }
   if (declaration.type === undefined) {
     throw new TypeError(`${mapping.facade}.${mapping.method} has no declared return type`);
+  }
+  const documentation = ts.displayPartsToString(method.getDocumentationComment(context.checker));
+  if (documentation.trim().length === 0) {
+    throw new TypeError(`${mapping.facade}.${mapping.method} must have public JSDoc`);
   }
   const parameters = declaration.parameters.map((parameter) => {
     if (parameter.type === undefined) {
@@ -321,7 +338,12 @@ function validateProfile(document, profile, operationById) {
   }
 }
 
-export async function generateApiReference({ openApiSource, profileSource } = {}) {
+function expectedFacade(mapping) {
+  const owner = mapping.facade === "client" ? "client" : `client.${mapping.facade}`;
+  return `${owner}.${mapping.method}`;
+}
+
+export async function generateApiReference({ openApiSource, profileSource, clientSource } = {}) {
   const openApi =
     openApiSource ?? (await readFile(resolve(repositoryRoot, "openapi.yaml"), "utf8"));
   const profileJson =
@@ -332,17 +354,18 @@ export async function generateApiReference({ openApiSource, profileSource } = {}
   const profile = record(JSON.parse(profileJson), "Operation profile");
   const operations = collectOperations(document);
   const operationById = new Map(operations.map((entry) => [entry.operationId, entry]));
+  const sampleById = validateNodeSampleRegistry(document);
 
   validateProfile(document, profile, operationById);
 
-  const context = createTypeScriptContext();
+  const context = createTypeScriptContext(clientSource);
   const lines = [
     GENERATED_HEADER.trimEnd(),
     "",
     "# API reference",
     "",
-    "This file is generated from the canonical operation profile, OpenAPI contract, " +
-      "resource-authorization registry, and exported TypeScript declarations.",
+    "This file is generated from the canonical operation profile, SDK sample registry, " +
+      "OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.",
     "",
     `It contains exactly ${EXPECTED_OPERATION_COUNT} API methods and ${EXPECTED_ITERATOR_COUNT} async iterators.`,
     "",
@@ -361,6 +384,16 @@ export async function generateApiReference({ openApiSource, profileSource } = {}
     const models = operationModels(document, entry.operationId, entry.operation);
     const pagination = paginationFacts(document, entry);
     const authorization = AUTHORIZATION_REGISTRY[entry.operationId];
+    const registryEntry = sampleById.get(entry.operationId);
+    if (registryEntry === undefined) {
+      throw new TypeError(`SDK sample is missing for operation ${entry.operationId}`);
+    }
+    const facade = expectedFacade(mapping);
+    if (registryEntry.facade !== facade) {
+      throw new TypeError(
+        `SDK sample facade for ${entry.operationId} must be ${facade}, received ${registryEntry.facade}`,
+      );
+    }
 
     lines.push(
       `<!-- operation: ${entry.operationId} -->`,
@@ -380,7 +413,16 @@ export async function generateApiReference({ openApiSource, profileSource } = {}
       ...renderAuthorization(authorization),
     );
     if (pagination !== null) lines.push(`- **Pagination:** ${renderPagination(pagination)}`);
-    lines.push("");
+    lines.push(
+      "",
+      `<!-- sdk-sample: ${entry.operationId} -->`,
+      `#### ${registryEntry.sample.label}`,
+      "",
+      `\`\`\`${registryEntry.sample.lang}`,
+      registryEntry.sample.source.trimEnd(),
+      "```",
+      "",
+    );
   }
 
   lines.push("## Async iterators", "");
@@ -418,63 +460,6 @@ export async function generateApiReference({ openApiSource, profileSource } = {}
   });
 }
 
-export async function generateRendererHandoff({ openApiSource } = {}) {
-  const openApi =
-    openApiSource ?? (await readFile(resolve(repositoryRoot, "openapi.yaml"), "utf8"));
-  const document = parseOpenApi(openApi);
-  const operations = collectOperations(document);
-
-  if (operations.length !== EXPECTED_OPERATION_COUNT) {
-    throw new TypeError(
-      `Renderer handoff must contain ${EXPECTED_OPERATION_COUNT} operations, received ${operations.length}`,
-    );
-  }
-
-  const operationIds = new Set(operations.map(({ operationId }) => operationId));
-  const sampleIds = Object.keys(NODE_CODE_SAMPLES);
-  const unexpectedSampleIds = sampleIds.filter((operationId) => !operationIds.has(operationId));
-  if (sampleIds.length !== operations.length || unexpectedSampleIds.length > 0) {
-    throw new TypeError(
-      `Renderer sample inventory does not match REST operations: unexpected ${JSON.stringify(unexpectedSampleIds)}`,
-    );
-  }
-
-  const handoff = {
-    version: 1,
-    restDigest: digestYamlArtifact(openApi),
-    operations: operations.map(({ operationId, method, path }) => {
-      const sample = NODE_CODE_SAMPLES[operationId];
-      if (sample === undefined) {
-        throw new TypeError(`Renderer sample is missing for operation ${operationId}`);
-      }
-      const operationKey = `${method.toUpperCase()} ${path}`;
-      if (NODE_OPERATION_KEYS[operationId] !== operationKey) {
-        throw new TypeError(`Renderer sample operation key is stale for ${operationId}`);
-      }
-      if (sample.lang !== NODE_SAMPLE_LANGUAGE) {
-        throw new TypeError(`Renderer sample language is inconsistent for ${operationId}`);
-      }
-
-      return {
-        operationId,
-        samples: [
-          {
-            label: sample.label,
-            language: sample.lang,
-            sourceHash: sha256Hex(Buffer.from(sample.source, "utf8")),
-          },
-        ],
-      };
-    }),
-  };
-  const source = canonicalizeJson(handoff);
-
-  return {
-    source: source.toString("utf8"),
-    digest: sha256Hex(source),
-  };
-}
-
 async function readOptional(path) {
   try {
     return await readFile(path, "utf8");
@@ -486,12 +471,7 @@ async function readOptional(path) {
 
 async function run(check) {
   const expectedReference = await generateApiReference();
-  const expectedHandoff = await generateRendererHandoff();
-  const outputs = [
-    [outputPath, expectedReference],
-    [rendererHandoffPath, expectedHandoff.source],
-    [rendererHandoffDigestPath, `${expectedHandoff.digest}\n`],
-  ];
+  const outputs = [[outputPath, expectedReference]];
 
   if (check) {
     for (const [path, expected] of outputs) {

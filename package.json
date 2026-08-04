@@ -22,6 +22,7 @@
   "license": "MIT",
   "author": "AhaSend",
   "type": "module",
+  "packageManager": "npm@11.12.0",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -67,6 +68,8 @@
     "test:package:preflight": "npm run build && node scripts/create-preflight-pack.mjs",
     "test:docs:tarball": "node scripts/verify-docs.mjs",
     "test:docs:preflight": "node scripts/create-docs-preflight-pack.mjs",
+    "test:docs:workflows:source": "node scripts/verify-doc-workflows.mjs --source",
+    "test:docs:workflows:artifact": "node scripts/verify-doc-workflows.mjs --artifact",
     "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.tests.json",
     "test": "npm run test:policy && vitest run --exclude 'tests/test-policy.test.ts'",
     "test:watch": "vitest",
@@ -81,7 +84,7 @@
     "sdk:generate": "node scripts/generate-sdk.mjs",
     "sdk:check": "node scripts/generate-sdk.mjs --check",
     "docs:generate": "node scripts/generate-docs.mjs",
-    "docs:check": "node scripts/generate-docs.mjs --check && node scripts/verify-docs.mjs",
+    "docs:check": "node scripts/generate-docs.mjs --check && npm run test:docs:preflight",
     "release:source-gate": "node scripts/run-source-gates.mjs",
     "release:candidate": "node scripts/create-candidate.mjs",
     "release:live": "node scripts/run-live-acceptance.mjs",
@@ -89,7 +92,7 @@
     "lint": "eslint \"src/**/*.ts\" \"examples/**/*.mjs\" --max-warnings 0",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run test && npm run test:docs:preflight"
+    "prepublishOnly": "npm run clean && npm run contracts:check && npm run sdk:check && npm run docs:check && npm run verify:audit && npm run typecheck && npm run lint && npm run test && npm run test:package:preflight"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
@@ -105,7 +108,7 @@
     "ajv": "^6.14.0",
     "eslint": "^9.0.0",
     "express": "5.2.1",
-    "js-yaml": "4.1.1",
+    "js-yaml": "4.3.0",
     "prettier": "3.8.3",
     "publint": "0.3.21",
     "rimraf": "^6.0.0",
@@ -113,6 +116,13 @@
     "typescript": "5.6.3",
     "typescript-current": "npm:typescript@7.0.2",
     "vitest": "^3.2.6"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "postman-collection": {
+      "lodash": "^4.18.1",
+      "uuid": "^11.1.1"
+    }
   },
   "publishConfig": {
     "access": "public",

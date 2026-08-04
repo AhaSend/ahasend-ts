@@ -2,7 +2,7 @@
 
 # API reference
 
-This file is generated from the canonical operation profile, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
+This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
 It contains exactly 56 API methods and 9 async iterators.
 
@@ -26,17 +26,29 @@ client.ping(options?: RequestOptions): AhaSendPromise<PingResponse>
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: ping -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const health = await client.ping();
+console.log("AhaSend API is reachable.", { message: health.message });
+```
+
 <!-- operation: getAPIKeys -->
 
 ### apiKeys.list
 
 ```ts
-client.apiKeys.list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>
+client.apiKeys.list(params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<APIKey>>
 ```
 
 - **Operation ID:** `getAPIKeys`
 - **HTTP:** `GET /v2/accounts/{account_id}/api-keys`
-- **Models:** [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `200: PaginatedAPIKeysResponse`
 - **Scopes:** `api-keys:read`
 - **Security alternatives:** `BearerAuth: api-keys:read`
@@ -45,17 +57,29 @@ client.apiKeys.list(params?: PaginationParams, options?: RequestOptions): Promis
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getAPIKeys -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.apiKeys.list({ limit: 20 });
+console.log("API keys listed.", { count: page.data.length });
+```
+
 <!-- operation: createAPIKey -->
 
 ### apiKeys.create
 
 ```ts
-client.apiKeys.create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>
+client.apiKeys.create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedAPIKey>
 ```
 
 - **Operation ID:** `createAPIKey`
 - **HTTP:** `POST /v2/accounts/{account_id}/api-keys`
-- **Models:** [CreateAPIKeyRequest](../src/resources/api-keys.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedAPIKey](../src/resources/api-keys.ts)
+- **Models:** [CreateAPIKeyRequest](../src/resources/api-keys.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedAPIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `request: CreateAPIKeyRequest`, `201: inline schema`
 - **Scopes:** `api-keys:write`
 - **Security alternatives:** `BearerAuth: api-keys:write`
@@ -63,17 +87,36 @@ client.apiKeys.create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOpt
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: createAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const apiKey = await client.apiKeys.create(
+  { label: "Production API key", scopes: ["messages:send:all"] },
+  { idempotencyKey: "sdk-sample-create-api-key" },
+);
+console.log("API key created.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: getAPIKey -->
 
 ### apiKeys.get
 
 ```ts
-client.apiKeys.get(keyId: UUID, options?: RequestOptions): Promise<APIKey>
+client.apiKeys.get(keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey>
 ```
 
 - **Operation ID:** `getAPIKey`
 - **HTTP:** `GET /v2/accounts/{account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `200: APIKey`
 - **Scopes:** `api-keys:read`
 - **Security alternatives:** `BearerAuth: api-keys:read`
@@ -81,17 +124,30 @@ client.apiKeys.get(keyId: UUID, options?: RequestOptions): Promise<APIKey>
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const keyId = "00000000-0000-4000-8000-000000000001";
+const apiKey = await client.apiKeys.get(keyId);
+console.log("API key found.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: updateAPIKey -->
 
 ### apiKeys.update
 
 ```ts
-client.apiKeys.update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): Promise<APIKey>
+client.apiKeys.update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): AhaSendPromise<APIKey>
 ```
 
 - **Operation ID:** `updateAPIKey`
 - **HTTP:** `PUT /v2/accounts/{account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateAPIKeyRequest](../src/resources/api-keys.ts), [RequestOptions](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateAPIKeyRequest](../src/resources/api-keys.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `request: UpdateAPIKeyRequest`, `200: APIKey`
 - **Scopes:** `api-keys:write`
 - **Security alternatives:** `BearerAuth: api-keys:write`
@@ -99,17 +155,34 @@ client.apiKeys.update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestO
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: updateAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const keyId = "00000000-0000-4000-8000-000000000001";
+const apiKey = await client.apiKeys.update(keyId, { label: "Renamed API key" });
+console.log("API key updated.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: deleteAPIKey -->
 
 ### apiKeys.delete
 
 ```ts
-client.apiKeys.delete(keyId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.apiKeys.delete(keyId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteAPIKey`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `api-keys:delete`
 - **Security alternatives:** `BearerAuth: api-keys:delete`
@@ -117,17 +190,34 @@ client.apiKeys.delete(keyId: UUID, options?: RequestOptions): Promise<SuccessRes
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: deleteAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const keyId = "00000000-0000-4000-8000-000000000001";
+const result = await client.apiKeys.delete(keyId);
+console.log("API key deleted.", { message: result.message });
+```
+
 <!-- operation: getDomains -->
 
 ### domains.list
 
 ```ts
-client.domains.list(params?: ListDomainsParams, options?: RequestOptions): Promise<PaginatedResponse<Domain>>
+client.domains.list(params?: ListDomainsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Domain>>
 ```
 
 - **Operation ID:** `getDomains`
 - **HTTP:** `GET /v2/accounts/{account_id}/domains`
-- **Models:** [ListDomainsParams](../src/resources/domains.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [ListDomainsParams](../src/resources/domains.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `200: PaginatedDomainsResponse`
 - **Scopes:** `domains:read`
 - **Security alternatives:** `BearerAuth: domains:read`
@@ -136,17 +226,29 @@ client.domains.list(params?: ListDomainsParams, options?: RequestOptions): Promi
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getDomains -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.domains.list({ limit: 20 });
+console.log("Domains listed.", { count: page.data.length });
+```
+
 <!-- operation: createDomain -->
 
 ### domains.create
 
 ```ts
-client.domains.create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): Promise<Domain>
+client.domains.create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Domain>
 ```
 
 - **Operation ID:** `createDomain`
 - **HTTP:** `POST /v2/accounts/{account_id}/domains`
-- **Models:** [CreateDomainRequest](../src/resources/domains.ts), [IdempotencyRequestOptions](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [CreateDomainRequest](../src/resources/domains.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `request: CreateDomainRequest`, `201: Domain`
 - **Scopes:** `domains:write`
 - **Security alternatives:** `BearerAuth: domains:write`
@@ -154,17 +256,36 @@ client.domains.create(body: CreateDomainRequest, options?: IdempotencyRequestOpt
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: createDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const domain = await client.domains.create(
+  { domain: "example.com" },
+  { idempotencyKey: "sdk-sample-create-domain" },
+);
+console.log("Domain created.", { id: domain.id, domain: domain.domain });
+```
+
 <!-- operation: getDomain -->
 
 ### domains.get
 
 ```ts
-client.domains.get(domain: string, options?: RequestOptions): Promise<Domain>
+client.domains.get(domain: string, options?: RequestOptions): AhaSendPromise<Domain>
 ```
 
 - **Operation ID:** `getDomain`
 - **HTTP:** `GET /v2/accounts/{account_id}/domains/{domain}`
-- **Models:** [RequestOptions](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `200: Domain`
 - **Scopes:** `domains:read`
 - **Security alternatives:** `BearerAuth: domains:read`
@@ -172,17 +293,30 @@ client.domains.get(domain: string, options?: RequestOptions): Promise<Domain>
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const domainName = "example.com";
+const domain = await client.domains.get(domainName);
+console.log("Domain found.", { domain: domain.domain, dnsValid: domain.dns_valid });
+```
+
 <!-- operation: updateDomain -->
 
 ### domains.update
 
 ```ts
-client.domains.update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): Promise<Domain>
+client.domains.update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): AhaSendPromise<Domain>
 ```
 
 - **Operation ID:** `updateDomain`
 - **HTTP:** `PUT /v2/accounts/{account_id}/domains/{domain}`
-- **Models:** [UpdateDomainRequest](../src/resources/domains.ts), [RequestOptions](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [UpdateDomainRequest](../src/resources/domains.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `request: UpdateDomainRequest`, `200: Domain`
 - **Scopes:** `domains:write`
 - **Security alternatives:** `BearerAuth: domains:write`
@@ -190,17 +324,34 @@ client.domains.update(domain: string, body: UpdateDomainRequest, options?: Reque
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: updateDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const domainName = "example.com";
+const domain = await client.domains.update(domainName, { tracking_subdomain: "click" });
+console.log("Domain updated.", { domain: domain.domain });
+```
+
 <!-- operation: deleteDomain -->
 
 ### domains.delete
 
 ```ts
-client.domains.delete(domain: string, options?: RequestOptions): Promise<SuccessResponse>
+client.domains.delete(domain: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteDomain`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/domains/{domain}`
-- **Models:** [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `domains:delete:{domain}`, `domains:delete:all`
 - **Security alternatives:** `BearerAuth: domains:delete:{domain}` **or** `BearerAuth: domains:delete:all`
@@ -208,17 +359,34 @@ client.domains.delete(domain: string, options?: RequestOptions): Promise<Success
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: deleteDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const domainName = "example.com";
+const result = await client.domains.delete(domainName);
+console.log("Domain deleted.", { message: result.message });
+```
+
 <!-- operation: checkDomainDNS -->
 
 ### domains.checkDns
 
 ```ts
-client.domains.checkDns(domain: string, options?: RequestOptions): Promise<Domain>
+client.domains.checkDns(domain: string, options?: RequestOptions): AhaSendPromise<Domain>
 ```
 
 - **Operation ID:** `checkDomainDNS`
 - **HTTP:** `POST /v2/accounts/{account_id}/domains/{domain}/check-dns`
-- **Models:** [RequestOptions](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
 - **OpenAPI models:** `200: Domain`
 - **Scopes:** `domains:write`
 - **Security alternatives:** `BearerAuth: domains:write`
@@ -226,17 +394,34 @@ client.domains.checkDns(domain: string, options?: RequestOptions): Promise<Domai
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: checkDomainDNS -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const domainName = "example.com";
+const domain = await client.domains.checkDns(domainName);
+console.log("DNS check completed.", { domain: domain.domain, dnsValid: domain.dns_valid });
+```
+
 <!-- operation: getMessages -->
 
 ### messages.list
 
 ```ts
-client.messages.list(params?: ListMessagesParams, options?: RequestOptions): Promise<PaginatedResponse<MessageSummary>>
+client.messages.list(params?: ListMessagesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<MessageSummary>>
 ```
 
 - **Operation ID:** `getMessages`
 - **HTTP:** `GET /v2/accounts/{account_id}/messages`
-- **Models:** [ListMessagesParams](../src/resources/messages.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [MessageSummary](../src/resources/messages.ts)
+- **Models:** [ListMessagesParams](../src/resources/messages.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [MessageSummary](../src/resources/messages.ts)
 - **OpenAPI models:** `200: PaginatedMessagesResponse`
 - **Scopes:** `messages:read:all`, `messages:read:{domain}`
 - **Security alternatives:** `BearerAuth: messages:read:all` **or** `BearerAuth: messages:read:{domain}`
@@ -245,17 +430,29 @@ client.messages.list(params?: ListMessagesParams, options?: RequestOptions): Pro
 - **Authorization rule:** `authorized_domain_filter`; global role `messages:read:all`; domain role `messages:read:{domain}`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getMessages -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.messages.list({ limit: 20 });
+console.log("Messages listed.", { count: page.data.length });
+```
+
 <!-- operation: createMessage -->
 
 ### messages.send
 
 ```ts
-client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): Promise<SendMessageResponse>
+client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>
 ```
 
 - **Operation ID:** `createMessage`
 - **HTTP:** `POST /v2/accounts/{account_id}/messages`
-- **Models:** [CreateMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
+- **Models:** [CreateMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
 - **OpenAPI models:** `request: CreateMessageRequest`, `202: CreateMessageResponse`
 - **Scopes:** `messages:send:all`, `messages:send:{domain}`
 - **Security alternatives:** `BearerAuth: messages:send:all` **or** `BearerAuth: messages:send:{domain}`
@@ -263,17 +460,42 @@ client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOpt
 - **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.
 - **Authorization rule:** `body_domain`; global role `messages:send:all`; domain role `messages:send:{domain}`
 
+<!-- sdk-sample: createMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.messages.send(
+  {
+    from: { email: "sender@example.com", name: "Example" },
+    recipients: [{ email: "recipient@example.net" }],
+    subject: "Hello from AhaSend",
+    html_content: "<p>Hello!</p>",
+    sandbox: true,
+  },
+  { idempotencyKey: "sdk-sample-send-message" },
+);
+console.log("Sandbox message accepted.", { count: result.data.length });
+```
+
 <!-- operation: createConversationMessage -->
 
 ### messages.sendConversation
 
 ```ts
-client.messages.sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): Promise<SendMessageResponse>
+client.messages.sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>
 ```
 
 - **Operation ID:** `createConversationMessage`
 - **HTTP:** `POST /v2/accounts/{account_id}/messages/conversation`
-- **Models:** [CreateConversationMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
+- **Models:** [CreateConversationMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
 - **OpenAPI models:** `request: CreateConversationMessageRequest`, `202: CreateMessageResponse`
 - **Scopes:** `messages:send:all`, `messages:send:{domain}`
 - **Security alternatives:** `BearerAuth: messages:send:all` **or** `BearerAuth: messages:send:{domain}`
@@ -281,17 +503,42 @@ client.messages.sendConversation(body: CreateConversationMessageRequest, options
 - **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.
 - **Authorization rule:** `body_domain`; global role `messages:send:all`; domain role `messages:send:{domain}`
 
+<!-- sdk-sample: createConversationMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.messages.sendConversation(
+  {
+    from: { email: "sender@example.com", name: "Example" },
+    to: [{ email: "recipient@example.net" }],
+    subject: "Hello from AhaSend",
+    html_content: "<p>Hello!</p>",
+    sandbox: true,
+  },
+  { idempotencyKey: "sdk-sample-send-conversation" },
+);
+console.log("Sandbox conversation accepted.", { count: result.data.length });
+```
+
 <!-- operation: getMessage -->
 
 ### messages.get
 
 ```ts
-client.messages.get(messageId: string, options?: RequestOptions): Promise<Message>
+client.messages.get(messageId: string, options?: RequestOptions): AhaSendPromise<Message>
 ```
 
 - **Operation ID:** `getMessage`
 - **HTTP:** `GET /v2/accounts/{account_id}/messages/{message_id}`
-- **Models:** [RequestOptions](../src/types/common.ts), [Message](../src/resources/messages.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Message](../src/resources/messages.ts)
 - **OpenAPI models:** `200: Message`
 - **Scopes:** `messages:read:all`, `messages:read:{domain}`
 - **Security alternatives:** `BearerAuth: messages:read:all` **or** `BearerAuth: messages:read:{domain}`
@@ -299,17 +546,30 @@ client.messages.get(messageId: string, options?: RequestOptions): Promise<Messag
 - **Resource authorization:** Authorization requires `messages:read:all` or `messages:read:{domain}` matching the message's `sender` domain.
 - **Authorization rule:** `existing_resource_domains`; global role `messages:read:all`; domain role `messages:read:{domain}`
 
+<!-- sdk-sample: getMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const messageId = "00000000-0000-4000-8000-000000000002";
+const message = await client.messages.get(messageId);
+console.log("Message found.", { id: message.id, status: message.status });
+```
+
 <!-- operation: cancelMessage -->
 
 ### messages.cancel
 
 ```ts
-client.messages.cancel(messageId: string, options?: RequestOptions): Promise<SuccessResponse>
+client.messages.cancel(messageId: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `cancelMessage`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/messages/{message_id}/cancel`
-- **Models:** [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `messages:cancel:all`, `messages:cancel:{domain}`
 - **Security alternatives:** `BearerAuth: messages:cancel:all` **or** `BearerAuth: messages:cancel:{domain}`
@@ -317,17 +577,34 @@ client.messages.cancel(messageId: string, options?: RequestOptions): Promise<Suc
 - **Resource authorization:** Authorization requires `messages:cancel:all` or `messages:cancel:{domain}` matching the message's `sender` domain.
 - **Authorization rule:** `existing_resource_domains`; global role `messages:cancel:all`; domain role `messages:cancel:{domain}`
 
+<!-- sdk-sample: cancelMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const messageId = "00000000-0000-4000-8000-000000000002";
+const result = await client.messages.cancel(messageId);
+console.log("Message cancellation requested.", { message: result.message });
+```
+
 <!-- operation: getAccount -->
 
 ### accounts.get
 
 ```ts
-client.accounts.get(options?: RequestOptions): Promise<Account>
+client.accounts.get(options?: RequestOptions): AhaSendPromise<Account>
 ```
 
 - **Operation ID:** `getAccount`
 - **HTTP:** `GET /v2/accounts/{account_id}`
-- **Models:** [RequestOptions](../src/types/common.ts), [Account](../src/resources/accounts.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Account](../src/resources/accounts.ts)
 - **OpenAPI models:** `200: Account`
 - **Scopes:** `accounts:read`
 - **Security alternatives:** `BearerAuth: accounts:read`
@@ -335,17 +612,29 @@ client.accounts.get(options?: RequestOptions): Promise<Account>
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const account = await client.accounts.get();
+console.log("Account found.", { id: account.id, name: account.name });
+```
+
 <!-- operation: updateAccount -->
 
 ### accounts.update
 
 ```ts
-client.accounts.update(body: UpdateAccountRequest, options?: RequestOptions): Promise<Account>
+client.accounts.update(body: UpdateAccountRequest, options?: RequestOptions): AhaSendPromise<Account>
 ```
 
 - **Operation ID:** `updateAccount`
 - **HTTP:** `PUT /v2/accounts/{account_id}`
-- **Models:** [UpdateAccountRequest](../src/resources/accounts.ts), [RequestOptions](../src/types/common.ts), [Account](../src/resources/accounts.ts)
+- **Models:** [UpdateAccountRequest](../src/resources/accounts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Account](../src/resources/accounts.ts)
 - **OpenAPI models:** `request: UpdateAccountRequest`, `200: Account`
 - **Scopes:** `accounts:write`
 - **Security alternatives:** `BearerAuth: accounts:write`
@@ -353,17 +642,33 @@ client.accounts.update(body: UpdateAccountRequest, options?: RequestOptions): Pr
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: updateAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const account = await client.accounts.update({ name: "Example, Inc." });
+console.log("Account updated.", { id: account.id, name: account.name });
+```
+
 <!-- operation: getAccountMembers -->
 
 ### accounts.listMembers
 
 ```ts
-client.accounts.listMembers(options?: RequestOptions): Promise<ListAccountMembersResponse>
+client.accounts.listMembers(options?: RequestOptions): AhaSendPromise<ListAccountMembersResponse>
 ```
 
 - **Operation ID:** `getAccountMembers`
 - **HTTP:** `GET /v2/accounts/{account_id}/members`
-- **Models:** [RequestOptions](../src/types/common.ts), [ListAccountMembersResponse](../src/resources/accounts.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [ListAccountMembersResponse](../src/resources/accounts.ts)
 - **OpenAPI models:** `200: AccountMembersResponse`
 - **Scopes:** `accounts:members:read`
 - **Security alternatives:** `BearerAuth: accounts:members:read`
@@ -371,17 +676,29 @@ client.accounts.listMembers(options?: RequestOptions): Promise<ListAccountMember
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getAccountMembers -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const members = await client.accounts.listMembers();
+console.log("Account members listed.", { count: members.data.length });
+```
+
 <!-- operation: addAccountMember -->
 
 ### accounts.addMember
 
 ```ts
-client.accounts.addMember(body: AddAccountMemberRequest, options?: IdempotencyRequestOptions): Promise<UserAccount>
+client.accounts.addMember(body: AddAccountMemberRequest, options?: IdempotencyRequestOptions): AhaSendPromise<UserAccount>
 ```
 
 - **Operation ID:** `addAccountMember`
 - **HTTP:** `POST /v2/accounts/{account_id}/members`
-- **Models:** [AddAccountMemberRequest](../src/resources/accounts.ts), [IdempotencyRequestOptions](../src/types/common.ts), [UserAccount](../src/resources/accounts.ts)
+- **Models:** [AddAccountMemberRequest](../src/resources/accounts.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [UserAccount](../src/resources/accounts.ts)
 - **OpenAPI models:** `request: AddMemberRequest`, `201: UserAccount`
 - **Scopes:** `accounts:members:add`
 - **Security alternatives:** `BearerAuth: accounts:members:add`
@@ -389,17 +706,36 @@ client.accounts.addMember(body: AddAccountMemberRequest, options?: IdempotencyRe
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: addAccountMember -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const member = await client.accounts.addMember(
+  { email: "developer@example.com", role: "Developer" },
+  { idempotencyKey: "sdk-sample-add-account-member" },
+);
+console.log("Account member added.", { userId: member.user_id, role: member.role });
+```
+
 <!-- operation: removeAccountMember -->
 
 ### accounts.removeMember
 
 ```ts
-client.accounts.removeMember(userId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.accounts.removeMember(userId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `removeAccountMember`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/members/{user_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `accounts:members:remove`
 - **Security alternatives:** `BearerAuth: accounts:members:remove`
@@ -407,17 +743,34 @@ client.accounts.removeMember(userId: UUID, options?: RequestOptions): Promise<Su
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: removeAccountMember -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const userId = "00000000-0000-4000-8000-000000000003";
+const result = await client.accounts.removeMember(userId);
+console.log("Account member removed.", { message: result.message });
+```
+
 <!-- operation: listSubAccounts -->
 
 ### subAccounts.list
 
 ```ts
-client.subAccounts.list(params?: ListSubAccountsParams, options?: RequestOptions): Promise<PaginatedResponse<SubAccount>>
+client.subAccounts.list(params?: ListSubAccountsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SubAccount>>
 ```
 
 - **Operation ID:** `listSubAccounts`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts`
-- **Models:** [ListSubAccountsParams](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [ListSubAccountsParams](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `200: PaginatedSubAccountsResponse`
 - **Scopes:** `sub-accounts:read`
 - **Security alternatives:** `BearerAuth: sub-accounts:read`
@@ -426,17 +779,29 @@ client.subAccounts.list(params?: ListSubAccountsParams, options?: RequestOptions
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: listSubAccounts -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.subAccounts.list({ limit: 20 });
+console.log("Sub-accounts listed.", { count: page.data.length });
+```
+
 <!-- operation: createSubAccount -->
 
 ### subAccounts.create
 
 ```ts
-client.subAccounts.create(body: CreateSubAccountRequest, options?: IdempotencyRequestOptions): Promise<SubAccount>
+client.subAccounts.create(body: CreateSubAccountRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `createSubAccount`
 - **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts`
-- **Models:** [CreateSubAccountRequest](../src/resources/sub-accounts.ts), [IdempotencyRequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [CreateSubAccountRequest](../src/resources/sub-accounts.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `request: CreateSubAccountRequest`, `201: SubAccount`
 - **Scopes:** `sub-accounts:write`
 - **Security alternatives:** `BearerAuth: sub-accounts:write`
@@ -444,17 +809,36 @@ client.subAccounts.create(body: CreateSubAccountRequest, options?: IdempotencyRe
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: createSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccount = await client.subAccounts.create(
+  { name: "Example subsidiary", website: "subsidiary.example.com" },
+  { idempotencyKey: "sdk-sample-create-sub-account" },
+);
+console.log("Sub-account created.", { id: subAccount.id, status: subAccount.status });
+```
+
 <!-- operation: getSubAccountsUsage -->
 
 ### subAccounts.usage
 
 ```ts
-client.subAccounts.usage(options?: RequestOptions): Promise<SubAccountUsageResponse>
+client.subAccounts.usage(options?: RequestOptions): AhaSendPromise<SubAccountUsageResponse>
 ```
 
 - **Operation ID:** `getSubAccountsUsage`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts/usage`
-- **Models:** [RequestOptions](../src/types/common.ts), [SubAccountUsageResponse](../src/resources/sub-accounts.ts)
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccountUsageResponse](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `200: SubAccountUsageResponse`
 - **Scopes:** `sub-accounts:usage`
 - **Security alternatives:** `BearerAuth: sub-accounts:usage`
@@ -462,17 +846,32 @@ client.subAccounts.usage(options?: RequestOptions): Promise<SubAccountUsageRespo
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getSubAccountsUsage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const usage = await client.subAccounts.usage();
+console.log("Sub-account usage loaded.", {
+  currency: usage.currency,
+  subAccountCount: usage.sub_accounts.length,
+});
+```
+
 <!-- operation: getSubAccount -->
 
 ### subAccounts.get
 
 ```ts
-client.subAccounts.get(subAccountId: UUID, options?: RequestOptions): Promise<SubAccount>
+client.subAccounts.get(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `getSubAccount`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts/{sub_account_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `200: SubAccount`
 - **Scopes:** `sub-accounts:read`
 - **Security alternatives:** `BearerAuth: sub-accounts:read`
@@ -480,17 +879,30 @@ client.subAccounts.get(subAccountId: UUID, options?: RequestOptions): Promise<Su
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const subAccount = await client.subAccounts.get(subAccountId);
+console.log("Sub-account found.", { id: subAccount.id, status: subAccount.status });
+```
+
 <!-- operation: updateSubAccount -->
 
 ### subAccounts.update
 
 ```ts
-client.subAccounts.update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): Promise<SubAccount>
+client.subAccounts.update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `updateSubAccount`
 - **HTTP:** `PUT /v2/accounts/{account_id}/sub-accounts/{sub_account_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateSubAccountRequest](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateSubAccountRequest](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `request: UpdateSubAccountRequest`, `200: SubAccount`
 - **Scopes:** `sub-accounts:write`
 - **Security alternatives:** `BearerAuth: sub-accounts:write`
@@ -498,17 +910,36 @@ client.subAccounts.update(subAccountId: UUID, body: UpdateSubAccountRequest, opt
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: updateSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const subAccount = await client.subAccounts.update(subAccountId, {
+  name: "Renamed subsidiary",
+});
+console.log("Sub-account updated.", { id: subAccount.id, status: subAccount.status });
+```
+
 <!-- operation: deleteSubAccount -->
 
 ### subAccounts.delete
 
 ```ts
-client.subAccounts.delete(subAccountId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.subAccounts.delete(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteSubAccount`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/sub-accounts/{sub_account_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `sub-accounts:delete`
 - **Security alternatives:** `BearerAuth: sub-accounts:delete`
@@ -516,17 +947,34 @@ client.subAccounts.delete(subAccountId: UUID, options?: RequestOptions): Promise
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: deleteSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const result = await client.subAccounts.delete(subAccountId);
+console.log("Sub-account deleted.", { message: result.message });
+```
+
 <!-- operation: suspendSubAccount -->
 
 ### subAccounts.suspend
 
 ```ts
-client.subAccounts.suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): Promise<SubAccount>
+client.subAccounts.suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `suspendSubAccount`
 - **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/suspend`
-- **Models:** [UUID](../src/types/common.ts), [SuspendSubAccountRequest](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [UUID](../src/types/common.ts), [SuspendSubAccountRequest](../src/resources/sub-accounts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `request: SuspendSubAccountRequest`, `200: SubAccount`
 - **Scopes:** `sub-accounts:suspend`
 - **Security alternatives:** `BearerAuth: sub-accounts:suspend`
@@ -534,17 +982,36 @@ client.subAccounts.suspend(subAccountId: UUID, body: SuspendSubAccountRequest, o
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: suspendSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const subAccount = await client.subAccounts.suspend(subAccountId, {
+  reason: "Requested by account administrator",
+});
+console.log("Sub-account suspended.", { id: subAccount.id, status: subAccount.status });
+```
+
 <!-- operation: unsuspendSubAccount -->
 
 ### subAccounts.unsuspend
 
 ```ts
-client.subAccounts.unsuspend(subAccountId: UUID, options?: RequestOptions): Promise<SubAccount>
+client.subAccounts.unsuspend(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>
 ```
 
 - **Operation ID:** `unsuspendSubAccount`
 - **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/unsuspend`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SubAccount](../src/resources/sub-accounts.ts)
 - **OpenAPI models:** `200: SubAccount`
 - **Scopes:** `sub-accounts:suspend`
 - **Security alternatives:** `BearerAuth: sub-accounts:suspend`
@@ -552,17 +1019,34 @@ client.subAccounts.unsuspend(subAccountId: UUID, options?: RequestOptions): Prom
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: unsuspendSubAccount -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const subAccount = await client.subAccounts.unsuspend(subAccountId);
+console.log("Sub-account unsuspended.", { id: subAccount.id, status: subAccount.status });
+```
+
 <!-- operation: listSubAccountAPIKeys -->
 
 ### subAccounts.apiKeys.list
 
 ```ts
-client.subAccounts.apiKeys.list(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>
+client.subAccounts.apiKeys.list(subAccountId: UUID, params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<APIKey>>
 ```
 
 - **Operation ID:** `listSubAccountAPIKeys`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys`
-- **Models:** [UUID](../src/types/common.ts), [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `200: PaginatedAPIKeysResponse`
 - **Scopes:** `sub-account-api-keys:read`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:read`
@@ -571,17 +1055,30 @@ client.subAccounts.apiKeys.list(subAccountId: UUID, params?: PaginationParams, o
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: listSubAccountAPIKeys -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const page = await client.subAccounts.apiKeys.list(subAccountId, { limit: 20 });
+console.log("Sub-account API keys listed.", { count: page.data.length });
+```
+
 <!-- operation: createSubAccountAPIKey -->
 
 ### subAccounts.apiKeys.create
 
 ```ts
-client.subAccounts.apiKeys.create(subAccountId: UUID, body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): Promise<CreatedAPIKey>
+client.subAccounts.apiKeys.create(subAccountId: UUID, body: CreateAPIKeyRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedAPIKey>
 ```
 
 - **Operation ID:** `createSubAccountAPIKey`
 - **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys`
-- **Models:** [UUID](../src/types/common.ts), [CreateAPIKeyRequest](../src/resources/api-keys.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedAPIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [CreateAPIKeyRequest](../src/resources/api-keys.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedAPIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `request: CreateAPIKeyRequest`, `201: inline schema`
 - **Scopes:** `sub-account-api-keys:write`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:write`
@@ -589,17 +1086,38 @@ client.subAccounts.apiKeys.create(subAccountId: UUID, body: CreateAPIKeyRequest,
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: createSubAccountAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const apiKey = await client.subAccounts.apiKeys.create(
+  subAccountId,
+  { label: "Bootstrap key", scopes: ["messages:send:all"] },
+  { idempotencyKey: "sdk-sample-create-sub-account-api-key" },
+);
+console.log("Sub-account API key created.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: getSubAccountAPIKey -->
 
 ### subAccounts.apiKeys.get
 
 ```ts
-client.subAccounts.apiKeys.get(subAccountId: UUID, keyId: UUID, options?: RequestOptions): Promise<APIKey>
+client.subAccounts.apiKeys.get(subAccountId: UUID, keyId: UUID, options?: RequestOptions): AhaSendPromise<APIKey>
 ```
 
 - **Operation ID:** `getSubAccountAPIKey`
 - **HTTP:** `GET /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `200: APIKey`
 - **Scopes:** `sub-account-api-keys:read`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:read`
@@ -607,17 +1125,31 @@ client.subAccounts.apiKeys.get(subAccountId: UUID, keyId: UUID, options?: Reques
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: getSubAccountAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const keyId = "00000000-0000-4000-8000-000000000005";
+const apiKey = await client.subAccounts.apiKeys.get(subAccountId, keyId);
+console.log("Sub-account API key found.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: updateSubAccountAPIKey -->
 
 ### subAccounts.apiKeys.update
 
 ```ts
-client.subAccounts.apiKeys.update(subAccountId: UUID, keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): Promise<APIKey>
+client.subAccounts.apiKeys.update(subAccountId: UUID, keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestOptions): AhaSendPromise<APIKey>
 ```
 
 - **Operation ID:** `updateSubAccountAPIKey`
 - **HTTP:** `PUT /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateAPIKeyRequest](../src/resources/api-keys.ts), [RequestOptions](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateAPIKeyRequest](../src/resources/api-keys.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [APIKey](../src/resources/api-keys.ts)
 - **OpenAPI models:** `request: UpdateAPIKeyRequest`, `200: APIKey`
 - **Scopes:** `sub-account-api-keys:write`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:write`
@@ -625,17 +1157,37 @@ client.subAccounts.apiKeys.update(subAccountId: UUID, keyId: UUID, body: UpdateA
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: updateSubAccountAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const keyId = "00000000-0000-4000-8000-000000000005";
+const apiKey = await client.subAccounts.apiKeys.update(subAccountId, keyId, {
+  label: "Renamed bootstrap key",
+});
+console.log("Sub-account API key updated.", { id: apiKey.id, label: apiKey.label });
+```
+
 <!-- operation: deleteSubAccountAPIKey -->
 
 ### subAccounts.apiKeys.delete
 
 ```ts
-client.subAccounts.apiKeys.delete(subAccountId: UUID, keyId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.subAccounts.apiKeys.delete(subAccountId: UUID, keyId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteSubAccountAPIKey`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys/{key_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `sub-account-api-keys:delete`
 - **Security alternatives:** `BearerAuth: sub-account-api-keys:delete`
@@ -643,17 +1195,35 @@ client.subAccounts.apiKeys.delete(subAccountId: UUID, keyId: UUID, options?: Req
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: deleteSubAccountAPIKey -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const keyId = "00000000-0000-4000-8000-000000000005";
+const result = await client.subAccounts.apiKeys.delete(subAccountId, keyId);
+console.log("Sub-account API key deleted.", { message: result.message });
+```
+
 <!-- operation: getSuppressions -->
 
 ### suppressions.list
 
 ```ts
-client.suppressions.list(params?: ListSuppressionsParams, options?: RequestOptions): Promise<PaginatedResponse<Suppression>>
+client.suppressions.list(params?: ListSuppressionsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Suppression>>
 ```
 
 - **Operation ID:** `getSuppressions`
 - **HTTP:** `GET /v2/accounts/{account_id}/suppressions`
-- **Models:** [ListSuppressionsParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Suppression](../src/resources/suppressions.ts)
+- **Models:** [ListSuppressionsParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Suppression](../src/resources/suppressions.ts)
 - **OpenAPI models:** `200: PaginatedSuppressionsResponse`
 - **Scopes:** `suppressions:read`
 - **Security alternatives:** `BearerAuth: suppressions:read`
@@ -662,17 +1232,29 @@ client.suppressions.list(params?: ListSuppressionsParams, options?: RequestOptio
 - **Authorization rule:** `none`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getSuppressions -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.suppressions.list({ limit: 20 });
+console.log("Suppressions listed.", { count: page.data.length });
+```
+
 <!-- operation: createSuppression -->
 
 ### suppressions.create
 
 ```ts
-client.suppressions.create(body: CreateSuppressionRequest, options?: IdempotencyRequestOptions): Promise<CreateSuppressionResponse>
+client.suppressions.create(body: CreateSuppressionRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreateSuppressionResponse>
 ```
 
 - **Operation ID:** `createSuppression`
 - **HTTP:** `POST /v2/accounts/{account_id}/suppressions`
-- **Models:** [CreateSuppressionRequest](../src/resources/suppressions.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreateSuppressionResponse](../src/resources/suppressions.ts)
+- **Models:** [CreateSuppressionRequest](../src/resources/suppressions.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreateSuppressionResponse](../src/resources/suppressions.ts)
 - **OpenAPI models:** `request: CreateSuppressionRequest`, `201: CreateSuppressionResponse`
 - **Scopes:** `suppressions:write`
 - **Security alternatives:** `BearerAuth: suppressions:write`
@@ -680,17 +1262,40 @@ client.suppressions.create(body: CreateSuppressionRequest, options?: Idempotency
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: createSuppression -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.suppressions.create(
+  {
+    email: "recipient@example.net",
+    reason: "User requested removal",
+    expires_at: "2030-01-01T00:00:00Z",
+  },
+  { idempotencyKey: "sdk-sample-create-suppression" },
+);
+console.log("Suppression created.", { count: result.data.length });
+```
+
 <!-- operation: deleteSuppression -->
 
 ### suppressions.delete
 
 ```ts
-client.suppressions.delete(params: DeleteSuppressionParams, options?: RequestOptions): Promise<SuccessResponse>
+client.suppressions.delete(params: DeleteSuppressionParams, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteSuppression`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/suppressions`
-- **Models:** [DeleteSuppressionParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [DeleteSuppressionParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `suppressions:delete`
 - **Security alternatives:** `BearerAuth: suppressions:delete`
@@ -698,17 +1303,33 @@ client.suppressions.delete(params: DeleteSuppressionParams, options?: RequestOpt
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: deleteSuppression -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.suppressions.delete({ email: "recipient@example.net" });
+console.log("Suppression deleted.", { message: result.message });
+```
+
 <!-- operation: deleteAllSuppressions -->
 
 ### suppressions.wipe
 
 ```ts
-client.suppressions.wipe(params?: WipeSuppressionsParams, options?: RequestOptions): Promise<SuccessResponse>
+client.suppressions.wipe(params?: WipeSuppressionsParams, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteAllSuppressions`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/suppressions/all`
-- **Models:** [WipeSuppressionsParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [WipeSuppressionsParams](../src/resources/suppressions.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `suppressions:wipe`
 - **Security alternatives:** `BearerAuth: suppressions:wipe`
@@ -716,17 +1337,33 @@ client.suppressions.wipe(params?: WipeSuppressionsParams, options?: RequestOptio
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
+<!-- sdk-sample: deleteAllSuppressions -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const result = await client.suppressions.wipe({ domain: "example.com" });
+console.log("Domain suppressions deleted.", { message: result.message });
+```
+
 <!-- operation: getRoutes -->
 
 ### routes.list
 
 ```ts
-client.routes.list(params?: ListRoutesParams, options?: RequestOptions): Promise<PaginatedResponse<Route>>
+client.routes.list(params?: ListRoutesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Route>>
 ```
 
 - **Operation ID:** `getRoutes`
 - **HTTP:** `GET /v2/accounts/{account_id}/routes`
-- **Models:** [ListRoutesParams](../src/resources/routes.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Route](../src/resources/routes.ts)
+- **Models:** [ListRoutesParams](../src/resources/routes.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Route](../src/resources/routes.ts)
 - **OpenAPI models:** `200: PaginatedRoutesResponse`
 - **Scopes:** `routes:read:all`, `routes:read:{domain}`
 - **Security alternatives:** `BearerAuth: routes:read:all` **or** `BearerAuth: routes:read:{domain}`
@@ -735,17 +1372,29 @@ client.routes.list(params?: ListRoutesParams, options?: RequestOptions): Promise
 - **Authorization rule:** `query_domain_required_for_scoped`; global role `routes:read:all`; domain role `routes:read:{domain}`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getRoutes -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.routes.list({ domain: "example.com", limit: 20 });
+console.log("Routes listed.", { count: page.data.length });
+```
+
 <!-- operation: createRoute -->
 
 ### routes.create
 
 ```ts
-client.routes.create(body: CreateRouteRequest, options?: IdempotencyRequestOptions): Promise<CreatedRoute>
+client.routes.create(body: CreateRouteRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedRoute>
 ```
 
 - **Operation ID:** `createRoute`
 - **HTTP:** `POST /v2/accounts/{account_id}/routes`
-- **Models:** [CreateRouteRequest](../src/resources/routes.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedRoute](../src/resources/routes.ts)
+- **Models:** [CreateRouteRequest](../src/resources/routes.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedRoute](../src/resources/routes.ts)
 - **OpenAPI models:** `request: CreateRouteRequest`, `201: CreatedRoute`
 - **Scopes:** `routes:write:all`, `routes:write:{domain}`
 - **Security alternatives:** `BearerAuth: routes:write:all` **or** `BearerAuth: routes:write:{domain}`
@@ -753,17 +1402,40 @@ client.routes.create(body: CreateRouteRequest, options?: IdempotencyRequestOptio
 - **Resource authorization:** Authorization requires `routes:write:all` or `routes:write:{domain}` matching the domain in `recipient`.
 - **Authorization rule:** `body_domain`; global role `routes:write:all`; domain role `routes:write:{domain}`
 
+<!-- sdk-sample: createRoute -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const route = await client.routes.create(
+  {
+    name: "Inbound messages",
+    url: "https://example.com/inbound",
+    recipient: "inbound@example.com",
+  },
+  { idempotencyKey: "sdk-sample-create-route" },
+);
+console.log("Route created.", { id: route.id, name: route.name });
+```
+
 <!-- operation: getRoute -->
 
 ### routes.get
 
 ```ts
-client.routes.get(routeId: UUID, options?: RequestOptions): Promise<Route>
+client.routes.get(routeId: UUID, options?: RequestOptions): AhaSendPromise<Route>
 ```
 
 - **Operation ID:** `getRoute`
 - **HTTP:** `GET /v2/accounts/{account_id}/routes/{route_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [Route](../src/resources/routes.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Route](../src/resources/routes.ts)
 - **OpenAPI models:** `200: Route`
 - **Scopes:** `routes:read:all`, `routes:read:{domain}`
 - **Security alternatives:** `BearerAuth: routes:read:all` **or** `BearerAuth: routes:read:{domain}`
@@ -771,17 +1443,30 @@ client.routes.get(routeId: UUID, options?: RequestOptions): Promise<Route>
 - **Resource authorization:** Authorization requires `routes:read:all` or `routes:read:{domain}` matching the route's `recipient` domain.
 - **Authorization rule:** `existing_resource_domains`; global role `routes:read:all`; domain role `routes:read:{domain}`
 
+<!-- sdk-sample: getRoute -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const routeId = "00000000-0000-4000-8000-000000000006";
+const route = await client.routes.get(routeId);
+console.log("Route found.", { id: route.id, name: route.name });
+```
+
 <!-- operation: updateRoute -->
 
 ### routes.update
 
 ```ts
-client.routes.update(routeId: UUID, body: UpdateRouteRequest, options?: RequestOptions): Promise<Route>
+client.routes.update(routeId: UUID, body: UpdateRouteRequest, options?: RequestOptions): AhaSendPromise<Route>
 ```
 
 - **Operation ID:** `updateRoute`
 - **HTTP:** `PUT /v2/accounts/{account_id}/routes/{route_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateRouteRequest](../src/resources/routes.ts), [RequestOptions](../src/types/common.ts), [Route](../src/resources/routes.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateRouteRequest](../src/resources/routes.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Route](../src/resources/routes.ts)
 - **OpenAPI models:** `request: UpdateRouteRequest`, `200: Route`
 - **Scopes:** `routes:write:all`, `routes:write:{domain}`
 - **Security alternatives:** `BearerAuth: routes:write:all` **or** `BearerAuth: routes:write:{domain}`
@@ -789,17 +1474,36 @@ client.routes.update(routeId: UUID, body: UpdateRouteRequest, options?: RequestO
 - **Resource authorization:** Authorization requires `routes:write:all`, or `routes:write:{domain}` for both the existing and replacement `recipient` domains.
 - **Authorization rule:** `existing_and_replacement_domain`; global role `routes:write:all`; domain role `routes:write:{domain}`
 
+<!-- sdk-sample: updateRoute -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const routeId = "00000000-0000-4000-8000-000000000006";
+const route = await client.routes.update(routeId, {
+  url: "https://example.com/inbound-v2",
+});
+console.log("Route updated.", { id: route.id, name: route.name });
+```
+
 <!-- operation: deleteRoute -->
 
 ### routes.delete
 
 ```ts
-client.routes.delete(routeId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.routes.delete(routeId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteRoute`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/routes/{route_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `routes:delete:all`, `routes:delete:{domain}`
 - **Security alternatives:** `BearerAuth: routes:delete:all` **or** `BearerAuth: routes:delete:{domain}`
@@ -807,17 +1511,34 @@ client.routes.delete(routeId: UUID, options?: RequestOptions): Promise<SuccessRe
 - **Resource authorization:** Authorization requires `routes:delete:all` or `routes:delete:{domain}` matching the route's `recipient` domain.
 - **Authorization rule:** `existing_resource_domains`; global role `routes:delete:all`; domain role `routes:delete:{domain}`
 
+<!-- sdk-sample: deleteRoute -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const routeId = "00000000-0000-4000-8000-000000000006";
+const result = await client.routes.delete(routeId);
+console.log("Route deleted.", { message: result.message });
+```
+
 <!-- operation: getWebhooks -->
 
 ### webhooks.list
 
 ```ts
-client.webhooks.list(params?: ListWebhooksParams, options?: RequestOptions): Promise<PaginatedResponse<Webhook>>
+client.webhooks.list(params?: ListWebhooksParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Webhook>>
 ```
 
 - **Operation ID:** `getWebhooks`
 - **HTTP:** `GET /v2/accounts/{account_id}/webhooks`
-- **Models:** [ListWebhooksParams](../src/resources/webhooks.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
+- **Models:** [ListWebhooksParams](../src/resources/webhooks.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
 - **OpenAPI models:** `200: PaginatedWebhooksResponse`
 - **Scopes:** `webhooks:read:all`, `webhooks:read:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:read:all` **or** `BearerAuth: webhooks:read:{domain}`
@@ -826,17 +1547,29 @@ client.webhooks.list(params?: ListWebhooksParams, options?: RequestOptions): Pro
 - **Authorization rule:** `authorized_domain_filter`; global role `webhooks:read:all`; domain role `webhooks:read:{domain}`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getWebhooks -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.webhooks.list({ limit: 20 });
+console.log("Webhooks listed.", { count: page.data.length });
+```
+
 <!-- operation: createWebhook -->
 
 ### webhooks.create
 
 ```ts
-client.webhooks.create(body: CreateWebhookRequest, options?: IdempotencyRequestOptions): Promise<CreatedWebhook>
+client.webhooks.create(body: CreateWebhookRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedWebhook>
 ```
 
 - **Operation ID:** `createWebhook`
 - **HTTP:** `POST /v2/accounts/{account_id}/webhooks`
-- **Models:** [CreateWebhookRequest](../src/resources/webhooks.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedWebhook](../src/resources/webhooks.ts)
+- **Models:** [CreateWebhookRequest](../src/resources/webhooks.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedWebhook](../src/resources/webhooks.ts)
 - **OpenAPI models:** `request: CreateWebhookRequest`, `201: CreatedWebhook`
 - **Scopes:** `webhooks:write:all`, `webhooks:write:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:write:all` **or** `BearerAuth: webhooks:write:{domain}`
@@ -844,17 +1577,41 @@ client.webhooks.create(body: CreateWebhookRequest, options?: IdempotencyRequestO
 - **Resource authorization:** A `scoped` webhook requires `webhooks:write:{domain}` for every `domains` entry; `scope: "global"` requires `webhooks:write:all`.
 - **Authorization rule:** `all_body_domains`; global role `webhooks:write:all`; domain role `webhooks:write:{domain}`
 
+<!-- sdk-sample: createWebhook -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const webhook = await client.webhooks.create(
+  {
+    name: "Delivery events",
+    url: "https://example.com/webhooks/ahasend",
+    scope: "global",
+    on_delivered: true,
+  },
+  { idempotencyKey: "sdk-sample-create-webhook" },
+);
+console.log("Webhook created.", { id: webhook.id, name: webhook.name });
+```
+
 <!-- operation: getWebhook -->
 
 ### webhooks.get
 
 ```ts
-client.webhooks.get(webhookId: UUID, options?: RequestOptions): Promise<Webhook>
+client.webhooks.get(webhookId: UUID, options?: RequestOptions): AhaSendPromise<Webhook>
 ```
 
 - **Operation ID:** `getWebhook`
 - **HTTP:** `GET /v2/accounts/{account_id}/webhooks/{webhook_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
 - **OpenAPI models:** `200: Webhook`
 - **Scopes:** `webhooks:read:all`, `webhooks:read:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:read:all` **or** `BearerAuth: webhooks:read:{domain}`
@@ -862,17 +1619,30 @@ client.webhooks.get(webhookId: UUID, options?: RequestOptions): Promise<Webhook>
 - **Resource authorization:** Authorization requires `webhooks:read:all` or `webhooks:read:{domain}` matching at least one webhook `domains` entry.
 - **Authorization rule:** `existing_resource_domains`; global role `webhooks:read:all`; domain role `webhooks:read:{domain}`
 
+<!-- sdk-sample: getWebhook -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const webhookId = "00000000-0000-4000-8000-000000000007";
+const webhook = await client.webhooks.get(webhookId);
+console.log("Webhook found.", { id: webhook.id, name: webhook.name });
+```
+
 <!-- operation: updateWebhook -->
 
 ### webhooks.update
 
 ```ts
-client.webhooks.update(webhookId: UUID, body: UpdateWebhookRequest, options?: RequestOptions): Promise<Webhook>
+client.webhooks.update(webhookId: UUID, body: UpdateWebhookRequest, options?: RequestOptions): AhaSendPromise<Webhook>
 ```
 
 - **Operation ID:** `updateWebhook`
 - **HTTP:** `PUT /v2/accounts/{account_id}/webhooks/{webhook_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateWebhookRequest](../src/resources/webhooks.ts), [RequestOptions](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateWebhookRequest](../src/resources/webhooks.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Webhook](../src/resources/webhooks.ts)
 - **OpenAPI models:** `request: UpdateWebhookRequest`, `200: Webhook`
 - **Scopes:** `webhooks:write:all`, `webhooks:write:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:write:all` **or** `BearerAuth: webhooks:write:{domain}`
@@ -880,17 +1650,36 @@ client.webhooks.update(webhookId: UUID, body: UpdateWebhookRequest, options?: Re
 - **Resource authorization:** Authorization requires `webhooks:write:{domain}` for the existing webhook and every new `domains` entry; changing `scope` to `global` requires `webhooks:write:all`.
 - **Authorization rule:** `existing_and_new_domains`; global role `webhooks:write:all`; domain role `webhooks:write:{domain}`
 
+<!-- sdk-sample: updateWebhook -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const webhookId = "00000000-0000-4000-8000-000000000007";
+const webhook = await client.webhooks.update(webhookId, {
+  name: "Transactional delivery events",
+});
+console.log("Webhook updated.", { id: webhook.id, name: webhook.name });
+```
+
 <!-- operation: deleteWebhook -->
 
 ### webhooks.delete
 
 ```ts
-client.webhooks.delete(webhookId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.webhooks.delete(webhookId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteWebhook`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/webhooks/{webhook_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `webhooks:delete:all`, `webhooks:delete:{domain}`
 - **Security alternatives:** `BearerAuth: webhooks:delete:all` **or** `BearerAuth: webhooks:delete:{domain}`
@@ -898,17 +1687,34 @@ client.webhooks.delete(webhookId: UUID, options?: RequestOptions): Promise<Succe
 - **Resource authorization:** Authorization requires `webhooks:delete:all` or `webhooks:delete:{domain}` matching at least one webhook `domains` entry.
 - **Authorization rule:** `existing_resource_domains`; global role `webhooks:delete:all`; domain role `webhooks:delete:{domain}`
 
+<!-- sdk-sample: deleteWebhook -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const webhookId = "00000000-0000-4000-8000-000000000007";
+const result = await client.webhooks.delete(webhookId);
+console.log("Webhook deleted.", { message: result.message });
+```
+
 <!-- operation: getSMTPCredentials -->
 
 ### smtpCredentials.list
 
 ```ts
-client.smtpCredentials.list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<SMTPCredential>>
+client.smtpCredentials.list(params?: PaginationParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SMTPCredential>>
 ```
 
 - **Operation ID:** `getSMTPCredentials`
 - **HTTP:** `GET /v2/accounts/{account_id}/smtp-credentials`
-- **Models:** [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [SMTPCredential](../src/resources/smtp-credentials.ts)
+- **Models:** [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [SMTPCredential](../src/resources/smtp-credentials.ts)
 - **OpenAPI models:** `200: PaginatedSMTPCredentialsResponse`
 - **Scopes:** `smtp-credentials:read:all`, `smtp-credentials:read:{domain}`
 - **Security alternatives:** `BearerAuth: smtp-credentials:read:all` **or** `BearerAuth: smtp-credentials:read:{domain}`
@@ -917,17 +1723,29 @@ client.smtpCredentials.list(params?: PaginationParams, options?: RequestOptions)
 - **Authorization rule:** `authorized_domain_filter`; global role `smtp-credentials:read:all`; domain role `smtp-credentials:read:{domain}`
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
+<!-- sdk-sample: getSMTPCredentials -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.smtpCredentials.list({ limit: 20 });
+console.log("SMTP credentials listed.", { count: page.data.length });
+```
+
 <!-- operation: createSMTPCredential -->
 
 ### smtpCredentials.create
 
 ```ts
-client.smtpCredentials.create(body: CreateSMTPCredentialRequest, options?: IdempotencyRequestOptions): Promise<CreatedSMTPCredential>
+client.smtpCredentials.create(body: CreateSMTPCredentialRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CreatedSMTPCredential>
 ```
 
 - **Operation ID:** `createSMTPCredential`
 - **HTTP:** `POST /v2/accounts/{account_id}/smtp-credentials`
-- **Models:** [CreateSMTPCredentialRequest](../src/resources/smtp-credentials.ts), [IdempotencyRequestOptions](../src/types/common.ts), [CreatedSMTPCredential](../src/resources/smtp-credentials.ts)
+- **Models:** [CreateSMTPCredentialRequest](../src/resources/smtp-credentials.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CreatedSMTPCredential](../src/resources/smtp-credentials.ts)
 - **OpenAPI models:** `request: CreateSMTPCredentialRequest`, `201: CreatedSMTPCredential`
 - **Scopes:** `smtp-credentials:write:all`, `smtp-credentials:write:{domain}`
 - **Security alternatives:** `BearerAuth: smtp-credentials:write:all` **or** `BearerAuth: smtp-credentials:write:{domain}`
@@ -935,17 +1753,36 @@ client.smtpCredentials.create(body: CreateSMTPCredentialRequest, options?: Idemp
 - **Resource authorization:** A `scoped` SMTP credential requires `smtp-credentials:write:{domain}` for every `domains` entry; `scope: "global"` requires `smtp-credentials:write:all`.
 - **Authorization rule:** `all_body_domains`; global role `smtp-credentials:write:all`; domain role `smtp-credentials:write:{domain}`
 
+<!-- sdk-sample: createSMTPCredential -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const credential = await client.smtpCredentials.create(
+  { name: "Production SMTP", scope: "global" },
+  { idempotencyKey: "sdk-sample-create-smtp-credential" },
+);
+console.log("SMTP credential created.", { id: credential.id, name: credential.name });
+```
+
 <!-- operation: getSMTPCredential -->
 
 ### smtpCredentials.get
 
 ```ts
-client.smtpCredentials.get(credentialId: UUID, options?: RequestOptions): Promise<SMTPCredential>
+client.smtpCredentials.get(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SMTPCredential>
 ```
 
 - **Operation ID:** `getSMTPCredential`
 - **HTTP:** `GET /v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SMTPCredential](../src/resources/smtp-credentials.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SMTPCredential](../src/resources/smtp-credentials.ts)
 - **OpenAPI models:** `200: SMTPCredential`
 - **Scopes:** `smtp-credentials:read:all`, `smtp-credentials:read:{domain}`
 - **Security alternatives:** `BearerAuth: smtp-credentials:read:all` **or** `BearerAuth: smtp-credentials:read:{domain}`
@@ -953,17 +1790,30 @@ client.smtpCredentials.get(credentialId: UUID, options?: RequestOptions): Promis
 - **Resource authorization:** Authorization requires `smtp-credentials:read:all` or `smtp-credentials:read:{domain}` matching at least one credential `domains` entry.
 - **Authorization rule:** `existing_resource_domains`; global role `smtp-credentials:read:all`; domain role `smtp-credentials:read:{domain}`
 
+<!-- sdk-sample: getSMTPCredential -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const credentialId = "00000000-0000-4000-8000-000000000008";
+const credential = await client.smtpCredentials.get(credentialId);
+console.log("SMTP credential found.", { id: credential.id, name: credential.name });
+```
+
 <!-- operation: deleteSMTPCredential -->
 
 ### smtpCredentials.delete
 
 ```ts
-client.smtpCredentials.delete(credentialId: UUID, options?: RequestOptions): Promise<SuccessResponse>
+client.smtpCredentials.delete(credentialId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
 ```
 
 - **Operation ID:** `deleteSMTPCredential`
 - **HTTP:** `DELETE /v2/accounts/{account_id}/smtp-credentials/{smtp_credential_id}`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
 - **OpenAPI models:** `200: SuccessResponse`
 - **Scopes:** `smtp-credentials:delete:all`, `smtp-credentials:delete:{domain}`
 - **Security alternatives:** `BearerAuth: smtp-credentials:delete:all` **or** `BearerAuth: smtp-credentials:delete:{domain}`
@@ -971,17 +1821,34 @@ client.smtpCredentials.delete(credentialId: UUID, options?: RequestOptions): Pro
 - **Resource authorization:** Authorization requires `smtp-credentials:delete:all` or `smtp-credentials:delete:{domain}` matching at least one credential `domains` entry.
 - **Authorization rule:** `existing_resource_domains`; global role `smtp-credentials:delete:all`; domain role `smtp-credentials:delete:{domain}`
 
+<!-- sdk-sample: deleteSMTPCredential -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
+  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
+}
+
+const credentialId = "00000000-0000-4000-8000-000000000008";
+const result = await client.smtpCredentials.delete(credentialId);
+console.log("SMTP credential deleted.", { message: result.message });
+```
+
 <!-- operation: getDeliverabilityStatistics -->
 
 ### statistics.deliverability
 
 ```ts
-client.statistics.deliverability(params?: StatisticsParams, options?: RequestOptions): Promise<DeliverabilityStatisticsResponse>
+client.statistics.deliverability(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliverabilityStatisticsResponse>
 ```
 
 - **Operation ID:** `getDeliverabilityStatistics`
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/transactional/deliverability`
-- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [DeliverabilityStatisticsResponse](../src/resources/statistics.ts)
+- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [DeliverabilityStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: DeliverabilityStatisticsResponse`
 - **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
 - **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
@@ -989,17 +1856,32 @@ client.statistics.deliverability(params?: StatisticsParams, options?: RequestOpt
 - **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
 - **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
 
+<!-- sdk-sample: getDeliverabilityStatistics -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const statistics = await client.statistics.deliverability({
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-01-02T00:00:00Z",
+});
+console.log("Deliverability statistics loaded.", { buckets: statistics.data.length });
+```
+
 <!-- operation: getBounceStatistics -->
 
 ### statistics.bounces
 
 ```ts
-client.statistics.bounces(params?: StatisticsParams, options?: RequestOptions): Promise<BounceStatisticsResponse>
+client.statistics.bounces(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<BounceStatisticsResponse>
 ```
 
 - **Operation ID:** `getBounceStatistics`
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/transactional/bounce`
-- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [BounceStatisticsResponse](../src/resources/statistics.ts)
+- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [BounceStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: BounceStatisticsResponse`
 - **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
 - **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
@@ -1007,23 +1889,53 @@ client.statistics.bounces(params?: StatisticsParams, options?: RequestOptions): 
 - **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
 - **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
 
+<!-- sdk-sample: getBounceStatistics -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const statistics = await client.statistics.bounces({
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-01-02T00:00:00Z",
+});
+console.log("Bounce statistics loaded.", { buckets: statistics.data.length });
+```
+
 <!-- operation: getDeliveryTimeStatistics -->
 
 ### statistics.deliveryTimes
 
 ```ts
-client.statistics.deliveryTimes(params?: StatisticsParams, options?: RequestOptions): Promise<DeliveryTimeStatisticsResponse>
+client.statistics.deliveryTimes(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliveryTimeStatisticsResponse>
 ```
 
 - **Operation ID:** `getDeliveryTimeStatistics`
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/transactional/delivery-time`
-- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [DeliveryTimeStatisticsResponse](../src/resources/statistics.ts)
+- **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [DeliveryTimeStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: DeliveryTimeStatisticsResponse`
 - **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
 - **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
 - **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
+
+<!-- sdk-sample: getDeliveryTimeStatistics -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const statistics = await client.statistics.deliveryTimes({
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-01-02T00:00:00Z",
+});
+console.log("Delivery-time statistics loaded.", { buckets: statistics.data.length });
+```
 
 ## Async iterators
 

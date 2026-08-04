@@ -28,7 +28,6 @@ function fixture() {
       "contracts/webhooks/captured/keys/configured-webhook.key": "7".repeat(64),
       "contracts/webhooks/captured/keys/route.key": "8".repeat(64),
     },
-    rendererReportSha256: "9".repeat(64),
     profileSha256: "a".repeat(64),
     tarballSha256: sha256Hex(tarball),
   });
@@ -119,6 +118,13 @@ function verify(value: ReturnType<typeof fixture>, registryTarballSource: Buffer
   });
 }
 
+function refreshStatementBundle(value: ReturnType<typeof fixture>) {
+  value.audit.verified[0]!.attestationBundles[0]!.bundle.dsseEnvelope.payload = Buffer.from(
+    JSON.stringify(value.statement),
+    "utf8",
+  ).toString("base64");
+}
+
 describe("registry provenance verification", () => {
   it("binds npm's wrapped Sigstore provenance to the exact registry candidate", () => {
     const value = fixture();
@@ -140,6 +146,13 @@ describe("registry provenance verification", () => {
     expect(() => verify(value)).toThrow("Registry integrity mismatch");
   });
 
+  it("rejects retained candidate bytes that do not match their manifest SHA-256", () => {
+    const value = fixture();
+    value.tarball = Buffer.from("tampered retained candidate tarball", "utf8");
+
+    expect(() => verify(value)).toThrow("Candidate tarball does not match the candidate manifest");
+  });
+
   it("rejects registry content mismatch before provenance is trusted", () => {
     const value = fixture();
 
@@ -148,14 +161,34 @@ describe("registry provenance verification", () => {
     );
   });
 
+  it("rejects provenance verified for a different installed package location", () => {
+    const value = fixture();
+    value.audit.verified[0]!.location = "node_modules/example/node_modules/@ahasend/sdk";
+
+    expect(() => verify(value)).toThrow("is not the installed candidate package");
+  });
+
+  it("rejects a provenance subject for a different package", () => {
+    const value = fixture();
+    value.statement.subject[0]!.name = `pkg:npm/example@${version}`;
+    refreshStatementBundle(value);
+
+    expect(() => verify(value)).toThrow("subject does not identify the candidate package");
+  });
+
+  it("rejects a provenance subject digest for different registry bytes", () => {
+    const value = fixture();
+    value.statement.subject[0]!.digest.sha512 = "f".repeat(128);
+    refreshStatementBundle(value);
+
+    expect(() => verify(value)).toThrow("subject digest does not match the registry tarball");
+  });
+
   it("rejects a verified provenance statement for a different source commit", () => {
     const value = fixture();
     value.statement.predicate.buildDefinition.resolvedDependencies[0]!.digest.gitCommit =
       "f".repeat(40);
-    value.audit.verified[0]!.attestationBundles[0]!.bundle.dsseEnvelope.payload = Buffer.from(
-      JSON.stringify(value.statement),
-      "utf8",
-    ).toString("base64");
+    refreshStatementBundle(value);
 
     expect(() => verify(value)).toThrow(
       "Verified npm provenance commit does not match the candidate commit",

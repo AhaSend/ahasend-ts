@@ -2,8 +2,8 @@ import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
   Address,
+  AhaSendPromise,
   ISODateTime,
-  NonEmptyArray,
   PaginatedResponse,
   PaginationParams,
   RequestOptions,
@@ -11,6 +11,7 @@ import type {
   UUID,
 } from "../types/common.js";
 import {
+  assertNonEmptyArray,
   forwardOptions,
   forwardWithIdempotency,
   type IdempotencyRequestOptions,
@@ -23,13 +24,13 @@ export type SubstitutionValue = unknown;
 export interface Recipient {
   email: string;
   /** Display name rendered alongside the address. */
-  name?: string;
+  name?: string | undefined;
   /**
    * Per-recipient template variables, rendered with Jinja2 syntax
    * (`{{ first_name }}`) in the subject and body. Overrides keys of the
    * same name in the request-level `substitutions`.
    */
-  substitutions?: Record<string, SubstitutionValue>;
+  substitutions?: Record<string, SubstitutionValue> | undefined;
 }
 
 /** File attachment on an outgoing message. */
@@ -44,30 +45,35 @@ export interface Attachment {
   content_type: string;
   file_name: string;
   /** Set `true` when `data` is base64-encoded. Defaults to `false`. */
-  base64?: boolean;
+  base64?: boolean | undefined;
   /** `attachment` (default) or `inline` (for embedded images). */
-  content_disposition?: string;
+  content_disposition?: string | undefined;
   /**
-   * Content-ID for inline images — reference it from HTML as
-   * `<img src="cid:THIS_VALUE">`.
+   * Content-ID for inline images. The value **must be wrapped in angle
+   * brackets**, matching the MIME `Content-ID` header format — for example
+   * `"<image1@example.com>"`. Reference it from `html_content` *without*
+   * the brackets: `<img src="cid:image1@example.com">`.
+   *
+   * If the angle brackets are omitted the file is delivered as a regular
+   * downloadable attachment instead of rendering inline.
    */
-  content_id?: string;
+  content_id?: string | undefined;
 }
 
 /** Per-message tracking overrides. `null` restores all account defaults. */
 export type Tracking = {
   /** `null` opts back to the account default. */
-  open?: boolean | null;
+  open?: boolean | null | undefined;
   /** `null` opts back to the account default. */
-  click?: boolean | null;
+  click?: boolean | null | undefined;
 } | null;
 
 /** Per-message retention overrides. `null` restores all account defaults. */
 export type Retention = {
   /** `null` opts back to the account default. */
-  metadata?: number | null;
+  metadata?: number | null | undefined;
   /** `null` opts back to the account default. */
-  data?: number | null;
+  data?: number | null | undefined;
 } | null;
 
 /** Delivery scheduling for a message. */
@@ -76,12 +82,12 @@ export interface MessageSchedule {
    * RFC 3339 timestamp of the earliest delivery attempt. Must be in the
    * future and within 7 days of the request.
    */
-  first_attempt?: ISODateTime;
+  first_attempt?: ISODateTime | undefined;
   /**
    * RFC 3339 timestamp after which delivery is abandoned. Must be in
    * the future and within 8 days of the request.
    */
-  expires?: ISODateTime;
+  expires?: ISODateTime | undefined;
 }
 
 /**
@@ -94,61 +100,61 @@ export type SandboxResult = "deliver" | "bounce" | "defer" | "fail" | "suppress"
  * Body for {@link MessagesClient.send}. Each recipient receives a
  * **separate** message (with their own substitutions applied); use
  * {@link MessagesClient.sendConversation} for a single message with
- * multiple visible To/Cc/Bcc recipients.
+ * multiple To/Cc/Bcc recipients, with Bcc recipients hidden.
  */
 export interface CreateMessageRequest {
   /** Sender — must be on a verified sending domain of your account. */
   from: Address;
   /** 1–100 recipients (the API rejects an empty array). */
-  recipients: NonEmptyArray<Recipient>;
+  recipients: readonly Recipient[];
   subject: string;
-  reply_to?: Address;
+  reply_to?: Address | undefined;
   /** Plain-text body. Required if `html_content` is empty. */
-  text_content?: string;
+  text_content?: string | undefined;
   /** HTML body. Required if `text_content` is empty. */
-  html_content?: string;
+  html_content?: string | undefined;
   /** AMP HTML variant. */
-  amp_content?: string;
-  attachments?: readonly Attachment[];
+  amp_content?: string | undefined;
+  attachments?: readonly Attachment[] | undefined;
   /** Custom SMTP headers. `Reply-To` and `Message-ID` are managed by the API. */
-  headers?: Record<string, string>;
+  headers?: Record<string, string> | undefined;
   /** Request-level template variables; per-recipient substitutions win. */
-  substitutions?: Record<string, SubstitutionValue>;
+  substitutions?: Record<string, SubstitutionValue> | undefined;
   /** Free-form tags for filtering in lists, statistics, and webhooks. */
-  tags?: readonly string[];
+  tags?: readonly string[] | undefined;
   /**
    * Sandbox mode: the API validates and accepts the request but no
    * email leaves the platform. The `from` domain must still be verified.
    */
-  sandbox?: boolean;
+  sandbox?: boolean | undefined;
   /** Simulated outcome when `sandbox: true`. Defaults to `deliver`. */
-  sandbox_result?: SandboxResult;
+  sandbox_result?: SandboxResult | undefined;
   /** Open/click tracking overrides; `null` fields fall back to account defaults. */
-  tracking?: Tracking;
+  tracking?: Tracking | undefined;
   /** Data-retention overrides; `null` fields fall back to account defaults. */
-  retention?: Retention;
-  schedule?: MessageSchedule;
+  retention?: Retention | undefined;
+  schedule?: MessageSchedule | undefined;
 }
 
 export interface CreateConversationMessageRequest {
   from: Address;
   /** 1–50 To recipients (combined To+Cc+Bcc must be ≤50). */
-  to: NonEmptyArray<Address>;
+  to: readonly Address[];
   subject: string;
-  cc?: NonEmptyArray<Address>;
-  bcc?: NonEmptyArray<Address>;
-  reply_to?: Address;
-  text_content?: string;
-  html_content?: string;
-  amp_content?: string;
-  attachments?: readonly Attachment[];
-  headers?: Record<string, string>;
-  tags?: readonly string[];
-  sandbox?: boolean;
-  sandbox_result?: SandboxResult;
-  tracking?: Tracking;
-  retention?: Retention;
-  schedule?: MessageSchedule;
+  cc?: readonly Address[] | undefined;
+  bcc?: readonly Address[] | undefined;
+  reply_to?: Address | undefined;
+  text_content?: string | undefined;
+  html_content?: string | undefined;
+  amp_content?: string | undefined;
+  attachments?: readonly Attachment[] | undefined;
+  headers?: Record<string, string> | undefined;
+  tags?: readonly string[] | undefined;
+  sandbox?: boolean | undefined;
+  sandbox_result?: SandboxResult | undefined;
+  tracking?: Tracking | undefined;
+  retention?: Retention | undefined;
+  schedule?: MessageSchedule | undefined;
 }
 
 export type SendMessageStatus = "queued" | "scheduled" | "error";
@@ -230,18 +236,118 @@ export interface Message extends MessageSummary {
 }
 
 export type ListMessagesParams = PaginationParams & {
-  status?: string;
-  sender?: string;
-  recipient?: string;
-  subject?: string;
-  message_id_header?: string;
-  tags?: string;
-  from_time?: ISODateTime;
-  to_time?: ISODateTime;
+  status?: string | undefined;
+  sender?: string | undefined;
+  recipient?: string | undefined;
+  subject?: string | undefined;
+  message_id_header?: string | undefined;
+  tags?: string | undefined;
+  from_time?: ISODateTime | undefined;
+  to_time?: ISODateTime | undefined;
 };
 
 /** Send, list, fetch, and cancel transactional messages. */
-export class MessagesClient {
+export interface MessagesClient {
+  /**
+   * Send a message to 1–100 recipients. Each recipient gets a separate
+   * email with their own substitutions applied.
+   *
+   * **This is a multi-status operation.** A 202 does not mean every recipient
+   * was accepted: the promise resolves with one {@link SendMessageResult} per
+   * recipient, and an individual entry can carry `status: "error"` with a
+   * non-null `error` and a null `id` (for example a suppressed address).
+   * Inspect every entry — treating a resolved promise as full success silently
+   * reports dropped mail as delivered:
+   *
+   * ```ts
+   * const res = await client.messages.send({ ... });
+   * const failed = res.data.filter((r) => r.status === "error");
+   * if (failed.length > 0) {
+   *   log.warn("some recipients were not queued", failed);
+   * }
+   * ```
+   *
+   * When automatic idempotency is enabled (the default), the SDK generates an
+   * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
+   * key for your own retries; stored non-server-error results can be replayed
+   * for 24 hours, while server errors release the key for re-execution.
+   *
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain in `from.email`.
+   */
+  send(
+    body: CreateMessageRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<SendMessageResponse>;
+
+  /**
+   * Send a single message to multiple To/Cc/Bcc recipients (combined ≤ 50).
+   * To and Cc recipients can see one another; Bcc recipients remain hidden.
+   * Use {@link send} for individualized fan-out.
+   *
+   * **This is a multi-status operation.** A 202 does not mean every recipient
+   * was accepted: the promise resolves with one {@link SendMessageResult} per
+   * recipient, and an individual entry can carry `status: "error"` with a
+   * non-null `error` and a null `id` (for example a suppressed address).
+   * Inspect every entry — treating a resolved promise as full success silently
+   * reports dropped mail as delivered:
+   *
+   * ```ts
+   * const res = await client.messages.send({ ... });
+   * const failed = res.data.filter((r) => r.status === "error");
+   * if (failed.length > 0) {
+   *   log.warn("some recipients were not queued", failed);
+   * }
+   * ```
+   *
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain in `from.email`.
+   */
+  sendConversation(
+    body: CreateConversationMessageRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<SendMessageResponse>;
+
+  /**
+   * Fetch one page of messages using cursor pagination. Filters combine with AND semantics.
+   *
+   * `messages:read:all` returns every message; `messages:read:{domain}` returns
+   * only messages whose `sender` domain is authorized.
+   */
+  list(
+    params?: ListMessagesParams,
+    options?: RequestOptions,
+  ): AhaSendPromise<PaginatedResponse<MessageSummary>>;
+
+  /** Iterate through every matching message, fetching cursor pages lazily. */
+  iterate(
+    params?: ListMessagesParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<MessageSummary, void, undefined>;
+
+  /**
+   * Fetch a single message by its opaque message ID. Accepts the generated
+   * Message-ID returned by {@link send} when non-null, or its bare UUID portion.
+   * The ID is encoded as one path segment.
+   *
+   * Authorization requires `messages:read:all` or `messages:read:{domain}`
+   * matching the message's `sender` domain.
+   */
+  get(messageId: string, options?: RequestOptions): AhaSendPromise<Message>;
+
+  /**
+   * Cancel a queued or scheduled message. Only possible before the
+   * first delivery attempt; already-sent messages cannot be recalled.
+   * Accepts the generated Message-ID returned by {@link send} when non-null,
+   * or its bare UUID portion.
+   *
+   * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
+   * matching the message's `sender` domain.
+   */
+  cancel(messageId: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+}
+
+class MessagesClientImplementation implements MessagesClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
 
@@ -254,9 +360,10 @@ export class MessagesClient {
    * Send a message to 1–100 recipients. Each recipient gets a separate
    * email with their own substitutions applied.
    *
-   * An `Idempotency-Key` is auto-generated unless you pass
-   * `options.idempotencyKey`; retries (the SDK's and yours, if you reuse
-   * the key) can never double-send.
+   * When automatic idempotency is enabled (the default), the SDK generates an
+   * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
+   * key for your own retries; stored non-server-error results can be replayed
+   * for 24 hours, while server errors release the key for re-execution.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.
@@ -264,18 +371,20 @@ export class MessagesClient {
   send(
     body: CreateMessageRequest,
     options: IdempotencyRequestOptions = {},
-  ): Promise<SendMessageResponse> {
-    return this.#operations.execute<SendMessageResponse>(
+  ): AhaSendPromise<SendMessageResponse> {
+    const forwarded = forwardWithIdempotency(options);
+    assertNonEmptyArray(body?.recipients, "recipients");
+    return this.#operations.execute(
       "createMessage",
       { path: { account_id: this.#accountId }, body },
-      forwardWithIdempotency(options),
+      forwarded,
     );
   }
 
   /**
-   * Send a single message with multiple visible To/Cc/Bcc recipients
-   * (combined ≤ 50) — like a normal mail client, everyone sees the
-   * recipient list. Use {@link send} for individualized fan-out.
+   * Send a single message to multiple To/Cc/Bcc recipients (combined ≤ 50).
+   * To and Cc recipients can see one another; Bcc recipients remain hidden.
+   * Use {@link send} for individualized fan-out.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.
@@ -283,16 +392,21 @@ export class MessagesClient {
   sendConversation(
     body: CreateConversationMessageRequest,
     options: IdempotencyRequestOptions = {},
-  ): Promise<SendMessageResponse> {
-    return this.#operations.execute<SendMessageResponse>(
+  ): AhaSendPromise<SendMessageResponse> {
+    const forwarded = forwardWithIdempotency(options);
+    assertNonEmptyArray(body?.to, "to");
+    for (const field of ["cc", "bcc"] as const) {
+      if (body?.[field] !== undefined) assertNonEmptyArray(body[field], field);
+    }
+    return this.#operations.execute(
       "createConversationMessage",
       { path: { account_id: this.#accountId }, body },
-      forwardWithIdempotency(options),
+      forwarded,
     );
   }
 
   /**
-   * Fetch one page of messages. Filters combine with AND semantics.
+   * Fetch one page of messages using cursor pagination. Filters combine with AND semantics.
    *
    * `messages:read:all` returns every message; `messages:read:{domain}` returns
    * only messages whose `sender` domain is authorized.
@@ -300,8 +414,8 @@ export class MessagesClient {
   list(
     params: ListMessagesParams = {},
     options: RequestOptions = {},
-  ): Promise<PaginatedResponse<MessageSummary>> {
-    return this.#operations.execute<PaginatedResponse<MessageSummary>>(
+  ): AhaSendPromise<PaginatedResponse<MessageSummary>> {
+    return this.#operations.execute(
       "getMessages",
       {
         path: { account_id: this.#accountId },
@@ -311,10 +425,7 @@ export class MessagesClient {
     );
   }
 
-  /**
-   * Iterate every message matching the filters, fetching pages lazily:
-   * `for await (const msg of client.messages.iterate({ status: "Delivered" }))`.
-   */
+  /** Iterate through every matching message, fetching cursor pages lazily. */
   iterate(
     params: ListMessagesParams = {},
     options: RequestOptions = {},
@@ -330,8 +441,8 @@ export class MessagesClient {
    * Authorization requires `messages:read:all` or `messages:read:{domain}`
    * matching the message's `sender` domain.
    */
-  get(messageId: string, options: RequestOptions = {}): Promise<Message> {
-    return this.#operations.execute<Message>(
+  get(messageId: string, options: RequestOptions = {}): AhaSendPromise<Message> {
+    return this.#operations.execute(
       "getMessage",
       { path: { account_id: this.#accountId, message_id: messageId } },
       forwardOptions(options),
@@ -347,11 +458,19 @@ export class MessagesClient {
    * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
    * matching the message's `sender` domain.
    */
-  cancel(messageId: string, options: RequestOptions = {}): Promise<SuccessResponse> {
-    return this.#operations.execute<SuccessResponse>(
+  cancel(messageId: string, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
+    return this.#operations.execute(
       "cancelMessage",
       { path: { account_id: this.#accountId, message_id: messageId } },
       forwardOptions(options),
     );
   }
+}
+
+/** @internal Construct the message resource implementation for the root client. */
+export function createMessagesClient(
+  operations: OperationExecutor,
+  accountId: UUID,
+): MessagesClient {
+  return new MessagesClientImplementation(operations, accountId);
 }

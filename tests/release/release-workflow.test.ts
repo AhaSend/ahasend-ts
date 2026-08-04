@@ -7,12 +7,23 @@ const workflowSource = readFileSync(
   resolve(process.cwd(), ".github/workflows/release.yml"),
   "utf8",
 );
+const packageJson = JSON.parse(
+  readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
+) as Readonly<Record<string, unknown>>;
 const liveRunnerSource = readFileSync(
   resolve(process.cwd(), "scripts/run-live-acceptance.mjs"),
   "utf8",
 );
 const restoreLatestSource = readFileSync(
   resolve(process.cwd(), "scripts/restore-latest.mjs"),
+  "utf8",
+);
+const artifactWorkflowSource = readFileSync(
+  resolve(process.cwd(), "scripts/verify-doc-workflows.mjs"),
+  "utf8",
+);
+const integrationSource = readFileSync(
+  resolve(process.cwd(), "tests/integration/sdk.integration.test.ts"),
   "utf8",
 );
 const workflow = yaml.load(workflowSource, { schema: yaml.JSON_SCHEMA }) as unknown;
@@ -22,6 +33,10 @@ function record(value: unknown, label: string): Readonly<Record<string, unknown>
     throw new TypeError(`${label} must be an object`);
   }
   return value as Readonly<Record<string, unknown>>;
+}
+
+function mutableRecord(value: unknown, label: string): Record<string, unknown> {
+  return record(value, label) as Record<string, unknown>;
 }
 
 function array(value: unknown, label: string): readonly unknown[] {
@@ -42,7 +57,329 @@ function commands(job: unknown, label: string): string {
     .join("\n");
 }
 
+function namedStep(
+  job: unknown,
+  jobLabel: string,
+  stepName: string,
+): Readonly<Record<string, unknown>> {
+  const step = jobSteps(job, jobLabel).find((candidate) => candidate["name"] === stepName);
+  if (step === undefined) throw new TypeError(`${jobLabel} is missing ${stepName}.`);
+  return step;
+}
+
+function expectAssertedNpmToolchain(job: unknown, label: string): void {
+  const steps = jobSteps(job, label);
+  const setupIndex = steps.findIndex((step) =>
+    String(step["uses"] ?? "").startsWith("actions/setup-node@"),
+  );
+  const install = steps[setupIndex + 1];
+  const verification = steps[setupIndex + 2];
+
+  expect(setupIndex, `${label} setup-node step`).toBeGreaterThanOrEqual(0);
+  expect(install, `${label} npm install step`).toMatchObject({
+    name: "Install asserted npm version",
+    run: "npm install --global npm@11.12.0",
+  });
+  expect(verification, `${label} npm version step`).toMatchObject({
+    name: "Verify asserted npm version",
+    run: 'test "$(npm --version)" = "11.12.0"',
+  });
+}
+
+const publicationPrerequisites = [
+  "source-gate",
+  "candidate",
+  "artifact-gates",
+  "live-gates",
+] as const;
+const latestPromotionPrerequisites = ["live-gates", "registry-smoke"] as const;
+const latestPromotionCondition =
+  "${{ needs.live-gates.result == 'success' && needs.registry-smoke.result == 'success' }}";
+
+function validatePublicationPolicy(workflowValue: unknown): void {
+  const jobs = record(record(workflowValue, "workflow")["jobs"], "jobs");
+  if (Object.hasOwn(jobs, "external-gates")) {
+    throw new TypeError("The release graph must not restore external-gates.");
+  }
+
+  const needs = array(
+    record(jobs["next-publish"], "next publish")["needs"],
+    "next publish prerequisites",
+  );
+  if (
+    needs.length !== publicationPrerequisites.length ||
+    publicationPrerequisites.some((name, index) => needs[index] !== name)
+  ) {
+    throw new TypeError("Publication must retain every required prerequisite.");
+  }
+  if (record(jobs["candidate"], "candidate")["needs"] !== "source-gate") {
+    throw new TypeError("Candidate construction must depend on source gates.");
+  }
+  if (record(jobs["artifact-gates"], "artifact gates")["needs"] !== "candidate") {
+    throw new TypeError("Artifact gates must depend on candidate construction.");
+  }
+  if (record(jobs["live-gates"], "live gates")["needs"] !== "artifact-gates") {
+    throw new TypeError("Live gates must depend directly on artifact gates.");
+  }
+
+  const publishSteps = jobSteps(jobs["next-publish"], "next publish");
+  const publishIndex = publishSteps.findIndex((step) =>
+    String(step["run"] ?? "").includes("npm publish"),
+  );
+  const validator = publishSteps[publishIndex - 1];
+  if (
+    publishIndex < 1 ||
+    validator?.["name"] !== "Validate exact publication evidence" ||
+    !String(validator["run"] ?? "").includes("validateGateReport")
+  ) {
+    throw new TypeError("Exact gate-report validation must immediately precede publication.");
+  }
+}
+
+function validateRegistrySmokePolicy(workflowValue: unknown): void {
+  const jobs = record(record(workflowValue, "workflow")["jobs"], "jobs");
+  const smoke = record(jobs["registry-smoke"], "registry smoke");
+  const steps = jobSteps(smoke, "registry smoke");
+  if (smoke["needs"] !== "next-publish") {
+    throw new TypeError("Registry smoke must consume the published next version.");
+  }
+  if (smoke["continue-on-error"] !== undefined) {
+    throw new TypeError("Registry smoke failures must block promotion.");
+  }
+
+  const versionIndex = steps.findIndex((step) => step["name"] === "Verify asserted npm version");
+  const downloadIndex = steps.findIndex(
+    (step) => step["name"] === "Download the published registry bytes",
+  );
+  const installIndex = steps.findIndex(
+    (step) => step["name"] === "Install the exact registry version in a clean directory",
+  );
+  const provenanceIndex = steps.findIndex(
+    (step) => step["name"] === "Verify registry bytes and npm provenance",
+  );
+  const esmIndex = steps.findIndex((step) => step["name"] === "Run ESM first-use smoke");
+  const cjsIndex = steps.findIndex((step) => step["name"] === "Run CommonJS first-use smoke");
+  if (
+    versionIndex < 0 ||
+    downloadIndex <= versionIndex ||
+    installIndex <= downloadIndex ||
+    provenanceIndex <= installIndex ||
+    esmIndex <= provenanceIndex ||
+    cjsIndex <= esmIndex
+  ) {
+    throw new TypeError(
+      "Registry install, provenance, and both first-use checks must run in blocking order.",
+    );
+  }
+
+  for (const index of [downloadIndex, installIndex, provenanceIndex, esmIndex, cjsIndex]) {
+    if (steps[index]?.["continue-on-error"] !== undefined) {
+      throw new TypeError("Registry smoke steps must fail normally.");
+    }
+  }
+
+  const download = String(steps[downloadIndex]?.["run"] ?? "");
+  const install = String(steps[installIndex]?.["run"] ?? "");
+  const provenance = String(steps[provenanceIndex]?.["run"] ?? "");
+  const esm = record(steps[esmIndex], "ESM first-use smoke");
+  const cjs = record(steps[cjsIndex], "CommonJS first-use smoke");
+  for (const [source, label] of [
+    [download, "registry metadata download"],
+    [install, "registry installation"],
+  ] as const) {
+    for (const fragment of [
+      'PACKAGE_NAME="$(node -e',
+      'PACKAGE_VERSION="$(node -e',
+      'test "$PACKAGE_NAME" = "@ahasend/sdk"',
+      'PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"',
+      "for ATTEMPT in 1 2 3 4 5",
+      'test "$ATTEMPT" -lt 5',
+      "sleep 5",
+    ]) {
+      if (!source.includes(fragment)) {
+        throw new TypeError(`${label} must bind the exact package and use a bounded retry.`);
+      }
+    }
+  }
+  if (!download.includes('npm view "$PACKAGE" --json')) {
+    throw new TypeError("Registry metadata must be read for the exact next version.");
+  }
+  if (
+    !install.includes("mkdir /tmp/registry-smoke") ||
+    !install.includes(
+      'npm install --ignore-scripts --save-exact "$PACKAGE" --prefix /tmp/registry-smoke',
+    ) ||
+    !install.includes("node_modules/@ahasend/sdk/package.json').version") ||
+    /npm install[^\n]*(?:\.tgz|TARBALL|\/tmp\/candidate)/u.test(install)
+  ) {
+    throw new TypeError("Registry smoke must install the exact npm version in a clean directory.");
+  }
+  if (
+    !provenance.includes("npm audit signatures") ||
+    !provenance.includes("--prefix /tmp/registry-smoke") ||
+    !provenance.includes("verify-provenance.mjs")
+  ) {
+    throw new TypeError("Registry bytes and npm provenance must be verified before first use.");
+  }
+
+  const firstUseRequirements = [
+    {
+      label: "ESM",
+      step: esm,
+      fragments: [
+        "node --input-type=module <<'NODE'",
+        'import { AhaSendClient } from "@ahasend/sdk";',
+        "const client = new AhaSendClient({",
+        "fetch: stubFetch",
+        "await client.ping()",
+        "client.domains.list({ limit: 1 }).withResponse()",
+        'assert.equal(domains.requestId, "req_registry_esm")',
+      ],
+    },
+    {
+      label: "CommonJS",
+      step: cjs,
+      fragments: [
+        "node <<'NODE'",
+        'const { AhaSendClient } = require("@ahasend/sdk");',
+        "const client = new AhaSendClient({",
+        "fetch: stubFetch",
+        "await client.ping()",
+        "client.domains.list({ limit: 1 }).withResponse()",
+        'assert.equal(domains.requestId, "req_registry_cjs")',
+      ],
+    },
+  ] as const;
+  for (const requirement of firstUseRequirements) {
+    if (requirement.step["working-directory"] !== "/tmp/registry-smoke") {
+      throw new TypeError(`${requirement.label} first use must resolve the registry installation.`);
+    }
+    const source = String(requirement.step["run"] ?? "");
+    if (requirement.fragments.some((fragment) => !source.includes(fragment))) {
+      throw new TypeError(
+        `${requirement.label} first use must construct a client, ping, and inspect a resource response.`,
+      );
+    }
+  }
+}
+
+function validateLatestPromotionPolicy(workflowValue: unknown): void {
+  const jobs = record(record(workflowValue, "workflow")["jobs"], "jobs");
+  const live = record(jobs["live-gates"], "live gates");
+  const smoke = record(jobs["registry-smoke"], "registry smoke");
+  const promotion = record(jobs["latest-promotion"], "latest promotion");
+  const promotionNeeds = array(promotion["needs"], "latest promotion prerequisites");
+  if (
+    promotionNeeds.length !== latestPromotionPrerequisites.length ||
+    latestPromotionPrerequisites.some((name, index) => promotionNeeds[index] !== name) ||
+    promotion["if"] !== latestPromotionCondition
+  ) {
+    throw new TypeError("Latest promotion must require successful live and registry jobs.");
+  }
+  if (promotion["continue-on-error"] !== undefined) {
+    throw new TypeError("Latest promotion must fail normally.");
+  }
+
+  const liveSteps = jobSteps(live, "live gates");
+  const liveAcceptance = namedStep(live, "live gates", "Run live candidate acceptance");
+  const liveEvidence = record(
+    liveSteps.find(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/upload-artifact@") &&
+        record(step["with"], "live evidence upload inputs")["name"] === "live-report-evidence",
+    ),
+    "live evidence upload",
+  );
+  const liveEvidenceInputs = record(liveEvidence["with"], "live evidence upload inputs");
+  if (
+    live["continue-on-error"] !== undefined ||
+    liveAcceptance["continue-on-error"] !== undefined ||
+    liveEvidence["continue-on-error"] !== undefined ||
+    liveEvidence["if"] !== "${{ always() }}" ||
+    liveEvidenceInputs["if-no-files-found"] !== "error"
+  ) {
+    throw new TypeError("Live reporting and evidence upload failures must block promotion.");
+  }
+
+  const blockingRegistrySteps = [
+    "Install the exact registry version in a clean directory",
+    "Verify registry bytes and npm provenance",
+    "Run ESM first-use smoke",
+    "Run CommonJS first-use smoke",
+  ] as const;
+  if (
+    smoke["continue-on-error"] !== undefined ||
+    blockingRegistrySteps.some(
+      (name) => namedStep(smoke, "registry smoke", name)["continue-on-error"] !== undefined,
+    )
+  ) {
+    throw new TypeError("Registry installation, provenance, and first use must block promotion.");
+  }
+
+  const promotionSteps = jobSteps(promotion, "latest promotion");
+  const promoteIndex = promotionSteps.findIndex(
+    (step) => step["name"] === "Promote only the verified version",
+  );
+  const validator = promotionSteps[promoteIndex - 1];
+  const promote = promotionSteps[promoteIndex];
+  const validation = String(validator?.["run"] ?? "");
+  if (
+    promoteIndex < 1 ||
+    validator?.["name"] !== "Validate exact promotion evidence" ||
+    validator["continue-on-error"] !== undefined ||
+    validator["if"] !== undefined ||
+    promote?.["continue-on-error"] !== undefined ||
+    promote?.["if"] !== undefined ||
+    !validation.includes("validateGateReport({") ||
+    !validation.includes("expectedManifestSha256: sha256Hex(manifestSource)") ||
+    !validation.includes("expectedTarballSha256: sha256Hex(tarballSource)") ||
+    !validation.includes('"installed-documentation-links"') ||
+    !validation.includes('"documentation-workflows"') ||
+    !validation.includes('"live"')
+  ) {
+    throw new TypeError("Strict gate-report validation must immediately precede latest promotion.");
+  }
+}
+
 describe("single-run release workflow", () => {
+  it("provisions the declared npm executable before every release job uses it", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+
+    expect(packageJson["packageManager"]).toBe("npm@11.12.0");
+    for (const jobName of [
+      "source-gate",
+      "candidate",
+      "artifact-gates",
+      "live-gates",
+      "next-publish",
+      "registry-smoke",
+      "latest-promotion",
+      "github-release",
+      "release-compensation",
+    ]) {
+      expectAssertedNpmToolchain(jobs[jobName], jobName);
+    }
+  });
+
+  it("runs retained installed consumers as a blocking Node 22, 24, and 26 matrix", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const artifact = record(jobs["artifact-gates"], "artifact gates");
+    const strategy = record(artifact["strategy"], "artifact strategy");
+    const matrix = record(strategy["matrix"], "artifact matrix");
+    const setupNode = jobSteps(artifact, "artifact gates").find((step) =>
+      String(step["uses"] ?? "").startsWith("actions/setup-node@"),
+    );
+
+    expect(artifact["name"]).toBe("Artifact gates (Node ${{ matrix.node }})");
+    expect(artifact["continue-on-error"]).toBeUndefined();
+    expect(strategy["fail-fast"]).toBe(false);
+    expect(matrix["node"]).toEqual([22, 24, 26]);
+    expect(record(setupNode, "artifact setup-node")["with"]).toMatchObject({
+      "node-version": "${{ matrix.node }}",
+    });
+    expectAssertedNpmToolchain(artifact, "artifact-gates");
+  });
+
   it("starts from one final tag and advances through promotion before release", () => {
     const root = record(workflow, "workflow");
     const trigger = record(root["on"], "release trigger");
@@ -59,7 +396,6 @@ describe("single-run release workflow", () => {
       "source-gate",
       "candidate",
       "artifact-gates",
-      "external-gates",
       "live-gates",
       "next-publish",
       "registry-smoke",
@@ -69,11 +405,12 @@ describe("single-run release workflow", () => {
     ]);
     expect(record(jobs["candidate"], "candidate")["needs"]).toBe("source-gate");
     expect(record(jobs["artifact-gates"], "artifact")["needs"]).toBe("candidate");
-    expect(record(jobs["external-gates"], "external")["needs"]).toBe("artifact-gates");
-    expect(record(jobs["live-gates"], "live")["needs"]).toBe("external-gates");
-    expect(record(jobs["next-publish"], "next")["needs"]).toBe("live-gates");
+    expect(record(jobs["live-gates"], "live")["needs"]).toBe("artifact-gates");
+    expect(record(jobs["next-publish"], "next")["needs"]).toEqual(publicationPrerequisites);
     expect(record(jobs["registry-smoke"], "smoke")["needs"]).toBe("next-publish");
-    expect(record(jobs["latest-promotion"], "promotion")["needs"]).toBe("registry-smoke");
+    expect(record(jobs["latest-promotion"], "promotion")["needs"]).toEqual(
+      latestPromotionPrerequisites,
+    );
     expect(record(jobs["github-release"], "GitHub release")["needs"]).toBe("latest-promotion");
     expect(record(jobs["release-compensation"], "compensation")["needs"]).toEqual([
       "latest-promotion",
@@ -81,8 +418,52 @@ describe("single-run release workflow", () => {
     ]);
   });
 
+  it("does not read or retain external reports", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const sourceReportCreation = String(
+      namedStep(jobs["source-gate"], "source gate", "Create detached source report")["run"],
+    );
+    const gateReportCreation = String(
+      namedStep(jobs["live-gates"], "live gates", "Create detached gate report")["run"],
+    );
+    const sourceReportUpload = jobSteps(jobs["source-gate"], "source gate").find(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/upload-artifact@") &&
+        record(step["with"], "source report upload inputs")["name"] === "source-report",
+    );
+
+    expect(jobs).not.toHaveProperty("external-gates");
+    expect(workflowSource).not.toContain("RENDERER_REPORT_JSON");
+    expect(workflowSource).not.toContain("GO_WEBHOOK_ATTESTATION_JSON");
+    expect(workflowSource).not.toContain("renderer-report.json");
+    expect(workflowSource).not.toContain("go-webhook-attestation.json");
+    expect(workflowSource).not.toContain("verify-external-attestations.mjs");
+    expect(sourceReportCreation).toMatch(
+      /^mkdir -p \/tmp\/source-report\nnode --input-type=module/u,
+    );
+    expect(gateReportCreation).toContain('{ name: "artifact", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "installed-documentation-links", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "documentation-workflows", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "live", passed: true }');
+    expect(gateReportCreation).not.toContain('{ name: "external", passed: true }');
+    expect(
+      record(
+        record(sourceReportUpload, "source report upload")["with"],
+        "source report upload inputs",
+      )["path"],
+    ).toBe(
+      "/tmp/source-report/source-report.json\n" +
+        "/tmp/source-report/source-report.sha256\n" +
+        "/tmp/source-report/documentation-workflows.json\n" +
+        "/tmp/source-report/documentation-workflows.sha256\n",
+    );
+  });
+
   it("builds and packs only in candidate creation and never regenerates the artifact", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const candidateCreation = String(
+      namedStep(jobs["candidate"], "candidate", "Build and pack the retained candidate")["run"],
+    );
     const allCommands = Object.entries(jobs)
       .map(([name, job]) => commands(job, name))
       .join("\n");
@@ -92,16 +473,139 @@ describe("single-run release workflow", () => {
       .join("\n");
 
     expect(allCommands.match(/create-candidate\.mjs/gu)).toHaveLength(1);
+    expect(candidateCreation).toContain(
+      "node scripts/create-candidate.mjs \\\n" +
+        "  /tmp/source-report/source-report.json \\\n" +
+        "  /tmp/candidate \\\n" +
+        "  /tmp/source-report/source-report.sha256",
+    );
     expect(allCommands).not.toMatch(/\bnpm run build\b/u);
     expect(allCommands).not.toMatch(/\bnpm pack\b/u);
-    expect(
-      commands(jobs["source-gate"], "source gate").match(/exclude tests\/package\.test\.ts/gu),
-    ).toHaveLength(2);
     expect(afterCandidate).not.toMatch(/create-candidate\.mjs/u);
     expect(afterCandidate).not.toMatch(/from ["'][./]*src\//u);
     expect(commands(jobs["registry-smoke"], "registry smoke")).toContain("verify-provenance.mjs");
     expect(commands(jobs["latest-promotion"], "latest promotion")).toContain("promote-latest.mjs");
     expect(commands(jobs["github-release"], "GitHub release")).toContain("gh release create");
+  });
+
+  it("downloads and rechecks one retained checksum before every artifact matrix run", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const artifact = jobs["artifact-gates"];
+    const steps = jobSteps(artifact, "artifact gates");
+    const downloads = steps
+      .filter((step) => String(step["uses"] ?? "").startsWith("actions/download-artifact@"))
+      .map((step) => record(step["with"], "artifact download inputs"));
+    const verification = String(
+      namedStep(artifact, "artifact gates", "Verify retained package artifact")["run"],
+    );
+
+    expect(downloads).toEqual([
+      { name: "candidate-tarball", path: "/tmp/candidate" },
+      { name: "candidate-manifest", path: "/tmp/candidate" },
+      { name: "source-report", path: "/tmp/source-report" },
+    ]);
+    expect(verification).toContain('SHA256="$(tr -d \'\\n\' < "$TARBALL.sha256")"');
+    expect(verification).toContain("createHash('sha256')");
+    expect(verification).toContain(
+      'readFileSync(process.argv[1])).digest(\'hex\'))" "$TARBALL")" = "$SHA256"',
+    );
+    expect(verification).toContain("candidate-manifest.sha256");
+    expect(verification).toContain(
+      "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256",
+    );
+  });
+
+  it("runs every retained artifact behavior without rebuilding or repacking", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const artifactCommands = commands(jobs["artifact-gates"], "artifact gates");
+
+    expect(artifactCommands).toContain("node scripts/verify-doc-workflows.mjs --artifact \\");
+    expect(artifactCommands).toContain('  "$TARBALL" \\\n  "$SHA256" \\');
+    expect(artifactWorkflowSource).toContain(
+      'run(process.execPath, [resolve(root, "scripts/verify-package.mjs"), tarball, checksum], root);',
+    );
+    expect(artifactWorkflowSource).toContain(
+      'run(process.execPath, [resolve(root, "scripts/verify-docs.mjs"), tarball, checksum], root);',
+    );
+    expect(artifactWorkflowSource).toContain('runNpm(["run", "test:integration:tarball"], root, {');
+    expect(integrationSource).toContain("const PACKED_EXAMPLE_MATRIX:");
+    expect(integrationSource).toContain("expect(PACKED_EXAMPLE_MATRIX).toHaveLength(17)");
+    expect(integrationSource).toContain('"--errors",');
+    expect(integrationSource).toContain(
+      'it("requires --errors to reject the deliberately invalid canary response"',
+    );
+    expect(integrationSource).toContain("expect(response.status).toBe(500)");
+    expect(artifactCommands).not.toMatch(/\bnpm run build\b|\bnpm pack\b|create-candidate\.mjs/u);
+  });
+
+  it("runs the real package tests in both release test gates", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const sourceGate = jobs["source-gate"];
+
+    expect(namedStep(sourceGate, "source gate", "Unit test gate")["run"]).toBe(
+      "npm run test:unit -- tests/openapi-authoritative-contract.test.ts",
+    );
+    expect(namedStep(sourceGate, "source gate", "Coverage gate")["run"]).toBe(
+      "npm run test:coverage",
+    );
+  });
+
+  it("validates exact gate evidence in the step immediately before npm publication", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const publishSteps = jobSteps(jobs["next-publish"], "next publish");
+    const publishIndex = publishSteps.findIndex((step) =>
+      String(step["run"] ?? "").includes("npm publish"),
+    );
+    const validator = record(publishSteps[publishIndex - 1], "publication validator");
+    const validation = String(validator["run"]);
+
+    expect(validator["name"]).toBe("Validate exact publication evidence");
+    expect(validation).toContain("validateGateReport({");
+    expect(validation).toContain("expectedManifestSha256: sha256Hex(manifestSource)");
+    expect(validation).toContain("expectedTarballSha256: sha256Hex(tarballSource)");
+    expect(validation).toContain('"installed-documentation-links"');
+    expect(validation).toContain('"documentation-workflows"');
+    expect(publishSteps[publishIndex]?.["name"]).toBe("Publish the retained bytes with provenance");
+    expect(String(publishSteps[publishIndex]?.["run"]).match(/npm publish/gu)).toHaveLength(1);
+    expect(() => validatePublicationPolicy(workflow)).not.toThrow();
+  });
+
+  it("rejects removal of every explicit publication prerequisite", () => {
+    for (const prerequisite of publicationPrerequisites) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const publication = mutableRecord(jobs["next-publish"], "next publish");
+      publication["needs"] = publicationPrerequisites.filter((name) => name !== prerequisite);
+
+      expect(() => validatePublicationPolicy(mutated), prerequisite).toThrow(
+        "Publication must retain every required prerequisite",
+      );
+    }
+  });
+
+  it("rejects external gates and every bypass of the candidate-to-live chain", () => {
+    const external = structuredClone(workflow);
+    const externalJobs = mutableRecord(mutableRecord(external, "workflow")["jobs"], "jobs");
+    externalJobs["external-gates"] = { needs: "artifact-gates", steps: [] };
+    mutableRecord(externalJobs["live-gates"], "live gates")["needs"] = [
+      "artifact-gates",
+      "external-gates",
+    ];
+    expect(() => validatePublicationPolicy(external)).toThrow(
+      "The release graph must not restore external-gates",
+    );
+
+    for (const [jobName, bypass] of [
+      ["candidate", "live-gates"],
+      ["artifact-gates", "source-gate"],
+      ["live-gates", "candidate"],
+    ] as const) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      mutableRecord(jobs[jobName], jobName)["needs"] = bypass;
+
+      expect(() => validatePublicationPolicy(mutated), jobName).toThrow();
+    }
   });
 
   it("retains and downloads every governed handoff with detached sidecars", () => {
@@ -122,6 +626,7 @@ describe("single-run release workflow", () => {
       "release-tools",
       "candidate-tarball",
       "candidate-manifest",
+      "live-report-evidence",
       "gate-report",
       "promotion-state",
     ]);
@@ -138,6 +643,44 @@ describe("single-run release workflow", () => {
     expect(workflowSource).toContain("candidate-manifest.sha256");
     expect(workflowSource).toContain("gate-report.sha256");
     expect(workflowSource).toContain("live-report.sha256");
+  });
+
+  it("retains failed live evidence without masking failure or authorizing publication", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const liveJob = record(jobs["live-gates"], "live gates");
+    const steps = jobSteps(liveJob, "live gates");
+    const liveIndex = steps.findIndex((step) => step["name"] === "Run live candidate acceptance");
+    const evidenceIndex = steps.findIndex(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/upload-artifact@") &&
+        record(step["with"], "live evidence upload inputs")["name"] === "live-report-evidence",
+    );
+    const gateCreationIndex = steps.findIndex(
+      (step) => step["name"] === "Create detached gate report",
+    );
+    const gateUploadIndex = steps.findIndex(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/upload-artifact@") &&
+        record(step["with"], "gate report upload inputs")["name"] === "gate-report",
+    );
+    const live = record(steps[liveIndex], "live acceptance");
+    const evidence = record(steps[evidenceIndex], "live evidence upload");
+    const gateCreation = record(steps[gateCreationIndex], "gate report creation");
+    const gateUpload = record(steps[gateUploadIndex], "gate report upload");
+
+    expect(liveJob["continue-on-error"]).toBeUndefined();
+    expect(live["continue-on-error"]).toBeUndefined();
+    expect(evidence["if"]).toBe("${{ always() }}");
+    expect(record(evidence["with"], "live evidence upload inputs")).toMatchObject({
+      name: "live-report-evidence",
+      path: "/tmp/gate-report/live-report.json\n" + "/tmp/gate-report/live-report.sha256\n",
+      "if-no-files-found": "error",
+    });
+    expect(gateCreation["if"]).toBe("${{ success() }}");
+    expect(gateUpload["if"]).toBe("${{ success() }}");
+    expect(liveIndex).toBeLessThan(evidenceIndex);
+    expect(evidenceIndex).toBeLessThan(gateCreationIndex);
+    expect(gateCreationIndex).toBeLessThan(gateUploadIndex);
   });
 
   it("executes and validates the complete installed-candidate live report", () => {
@@ -157,6 +700,181 @@ describe("single-run release workflow", () => {
     );
     expect(liveRunnerSource).not.toContain("const resourceAuthorization");
     expect(liveRunnerSource).not.toMatch(/from ["'][./]*src\//u);
+  });
+
+  it("installs and exercises the exact registry version before promotion", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const smoke = record(jobs["registry-smoke"], "registry smoke");
+    const steps = jobSteps(smoke, "registry smoke");
+    const install = namedStep(
+      smoke,
+      "registry smoke",
+      "Install the exact registry version in a clean directory",
+    );
+    const provenanceIndex = steps.findIndex(
+      (step) => step["name"] === "Verify registry bytes and npm provenance",
+    );
+    const esmIndex = steps.findIndex((step) => step["name"] === "Run ESM first-use smoke");
+    const cjsIndex = steps.findIndex((step) => step["name"] === "Run CommonJS first-use smoke");
+
+    expectAssertedNpmToolchain(smoke, "registry-smoke");
+    expect(String(install["run"])).toContain(
+      'npm install --ignore-scripts --save-exact "$PACKAGE" --prefix /tmp/registry-smoke',
+    );
+    expect(String(install["run"])).not.toMatch(/npm install[^\n]*(?:\.tgz|TARBALL)/u);
+    expect(provenanceIndex).toBeLessThan(esmIndex);
+    expect(esmIndex).toBeLessThan(cjsIndex);
+    expect(record(steps[esmIndex], "ESM smoke")["working-directory"]).toBe("/tmp/registry-smoke");
+    expect(record(steps[cjsIndex], "CommonJS smoke")["working-directory"]).toBe(
+      "/tmp/registry-smoke",
+    );
+    expect(record(jobs["latest-promotion"], "latest promotion")["needs"]).toEqual(
+      latestPromotionPrerequisites,
+    );
+    expect(() => validateRegistrySmokePolicy(workflow)).not.toThrow();
+  });
+
+  it("blocks latest promotion on every failed live or registry prerequisite", () => {
+    expect(() => validateLatestPromotionPolicy(workflow)).not.toThrow();
+
+    for (const [jobName, stepName] of [
+      ["live-gates", "Run live candidate acceptance"],
+      ["live-gates", "Retain live report evidence"],
+      ["registry-smoke", "Install the exact registry version in a clean directory"],
+      ["registry-smoke", "Verify registry bytes and npm provenance"],
+      ["registry-smoke", "Run ESM first-use smoke"],
+      ["registry-smoke", "Run CommonJS first-use smoke"],
+      ["latest-promotion", "Validate exact promotion evidence"],
+    ] as const) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const step = mutableRecord(namedStep(jobs[jobName], jobName, stepName), stepName);
+      step["continue-on-error"] = true;
+
+      expect(() => validateLatestPromotionPolicy(mutated), `${jobName}: ${stepName}`).toThrow();
+    }
+  });
+
+  it("rejects every latest-promotion dependency or evidence-validation bypass", () => {
+    for (const prerequisite of latestPromotionPrerequisites) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const promotion = mutableRecord(jobs["latest-promotion"], "latest promotion");
+      promotion["needs"] = latestPromotionPrerequisites.filter((name) => name !== prerequisite);
+
+      expect(() => validateLatestPromotionPolicy(mutated), prerequisite).toThrow(
+        /successful live and registry jobs/i,
+      );
+    }
+
+    const conditionBypass = structuredClone(workflow);
+    const conditionJobs = mutableRecord(mutableRecord(conditionBypass, "workflow")["jobs"], "jobs");
+    mutableRecord(conditionJobs["latest-promotion"], "latest promotion")["if"] = "${{ always() }}";
+    expect(() => validateLatestPromotionPolicy(conditionBypass)).toThrow(
+      /successful live and registry jobs/i,
+    );
+
+    const validationBypass = structuredClone(workflow);
+    const validationJobs = mutableRecord(
+      mutableRecord(validationBypass, "workflow")["jobs"],
+      "jobs",
+    );
+    const validationStep = mutableRecord(
+      namedStep(
+        validationJobs["latest-promotion"],
+        "latest promotion",
+        "Validate exact promotion evidence",
+      ),
+      "promotion validator",
+    );
+    validationStep["run"] = String(validationStep["run"]).replace(
+      "validateGateReport({",
+      "bypassedGateReportValidation({",
+    );
+    expect(() => validateLatestPromotionPolicy(validationBypass)).toThrow(
+      /strict gate-report validation/i,
+    );
+
+    const failedValidationBypass = structuredClone(workflow);
+    const failedValidationJobs = mutableRecord(
+      mutableRecord(failedValidationBypass, "workflow")["jobs"],
+      "jobs",
+    );
+    mutableRecord(
+      namedStep(
+        failedValidationJobs["latest-promotion"],
+        "latest promotion",
+        "Promote only the verified version",
+      ),
+      "latest promotion step",
+    )["if"] = "${{ always() }}";
+    expect(() => validateLatestPromotionPolicy(failedValidationBypass)).toThrow(
+      /strict gate-report validation/i,
+    );
+  });
+
+  it("rejects a local, unbounded, or non-exact registry installation", () => {
+    for (const [label, mutation] of [
+      [
+        "local tarball",
+        (source: string) =>
+          source.replace(
+            'npm install --ignore-scripts --save-exact "$PACKAGE"',
+            'npm install --ignore-scripts --save-exact "$TARBALL"',
+          ),
+      ],
+      [
+        "floating tag",
+        (source: string) =>
+          source.replace(
+            'PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"',
+            'PACKAGE="$PACKAGE_NAME@next"',
+          ),
+      ],
+      [
+        "unbounded propagation",
+        (source: string) => source.replace('test "$ATTEMPT" -lt 5', "true"),
+      ],
+    ] as const) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const step = mutableRecord(
+        namedStep(
+          jobs["registry-smoke"],
+          "registry smoke",
+          "Install the exact registry version in a clean directory",
+        ),
+        "registry install",
+      );
+      step["run"] = mutation(String(step["run"]));
+
+      expect(() => validateRegistrySmokePolicy(mutated), label).toThrow(/registry|bounded/i);
+    }
+  });
+
+  it("rejects broken ESM and CommonJS first-use coverage", () => {
+    for (const [stepName, fragment] of [
+      ["Run ESM first-use smoke", 'import { AhaSendClient } from "@ahasend/sdk";'],
+      ["Run ESM first-use smoke", "const client = new AhaSendClient({"],
+      ["Run ESM first-use smoke", "await client.ping()"],
+      ["Run ESM first-use smoke", "client.domains.list({ limit: 1 }).withResponse()"],
+      ["Run CommonJS first-use smoke", 'const { AhaSendClient } = require("@ahasend/sdk");'],
+      ["Run CommonJS first-use smoke", "const client = new AhaSendClient({"],
+      ["Run CommonJS first-use smoke", "await client.ping()"],
+      ["Run CommonJS first-use smoke", "client.domains.list({ limit: 1 }).withResponse()"],
+    ] as const) {
+      const mutated = structuredClone(workflow);
+      const jobs = mutableRecord(mutableRecord(mutated, "workflow")["jobs"], "jobs");
+      const step = mutableRecord(
+        namedStep(jobs["registry-smoke"], "registry smoke", stepName),
+        stepName,
+      );
+      step["run"] = String(step["run"]).replace(fragment, "broken-first-use");
+
+      expect(() => validateRegistrySmokePolicy(mutated), `${stepName}: ${fragment}`).toThrow(
+        /first use/i,
+      );
+    }
   });
 
   it("stages releases as drafts and compensates promotion and release failures", () => {
@@ -237,6 +955,54 @@ describe("single-run release workflow", () => {
     expect(reuseIndex).toBeLessThan(captureIndex);
     expect(captureIndex).toBeLessThan(uploadIndex);
     expect(uploadIndex).toBeLessThan(promoteIndex);
+
+    // The capture is one registry read standing before the promotion-state
+    // upload. Unretried, a transient npm failure here killed the job with no
+    // state artifact, which then broke compensation's download. It must use
+    // the same five-attempt pattern as every other registry read here — all
+    // three fragments, matching the assertions on registry-smoke's loops: a
+    // loop that never sleeps, or never fails on exhaustion, is not a retry.
+    const captureScript = String(capture["run"] ?? "");
+    expect(captureScript).toContain("for ATTEMPT in 1 2 3 4 5");
+    expect(captureScript).toContain('if PREVIOUS_LATEST="$(npm view');
+    expect(captureScript).toContain('test "$ATTEMPT" -lt 5');
+    expect(captureScript).toContain("sleep 5");
+  });
+
+  it("compensates through unavailable or unusable promotion state without losing cleanup", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const steps = jobSteps(jobs["release-compensation"], "compensation");
+    const stateDownload = steps.find(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/download-artifact@") &&
+        record(step["with"] ?? {}, "download inputs")["name"] === "promotion-state",
+    );
+    const restore = steps.find(
+      (step) => step["name"] === "Restore latest and remove an incomplete release",
+    );
+
+    // A failed download must not kill the job before the GitHub-release
+    // removal it can still perform.
+    expect(record(stateDownload, "promotion-state download")["continue-on-error"]).toBe(true);
+
+    const restoreScript = String(record(restore, "restore step")["run"] ?? "");
+    // The download cannot distinguish "never uploaded" from "exists but the
+    // download failed", so a missing file is UNKNOWN state: the job must
+    // fail after cleanup — never exit 0 as if latest were proven untouched.
+    // Same for a file that is present but unparseable or names another
+    // package.
+    expect(restoreScript).toContain("if ! test -f /tmp/promotion-state/promotion-state.json");
+    const unknownBranches = restoreScript.match(
+      /verify npm dist-tags manually" >&2\n\s+FAILED=1/gu,
+    );
+    expect(unknownBranches).toHaveLength(2);
+    // Cleanup must not sit inside the state-dependent branch.
+    const guardIndex = restoreScript.indexOf("if ! test -f /tmp/promotion-state");
+    const cleanupIndex = restoreScript.indexOf("gh release view");
+    expect(cleanupIndex).toBeGreaterThan(guardIndex);
+    expect(restoreScript.slice(guardIndex, cleanupIndex)).toContain("fi");
+    // And the job's exit code must be the accumulated FAILED, not a constant.
+    expect(restoreScript.trimEnd().endsWith('exit "$FAILED"')).toBe(true);
   });
 
   it("pins actions and limits publish authority to terminal mutations and compensation", () => {

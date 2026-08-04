@@ -1,20 +1,38 @@
 #!/usr/bin/env node
 
 import { createHmac } from "node:crypto";
+import { execFile } from "node:child_process";
 import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { promisify } from "node:util";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import Ajv from "ajv";
 import yaml from "js-yaml";
+import ts from "typescript";
 import {
   canonicalizeJson,
   digestJsonArtifact,
   digestYamlArtifact,
   sha256Hex,
 } from "./digest-artifact.mjs";
-import { NODE_CODE_SAMPLES, NODE_OPERATION_KEYS } from "./node-code-samples.mjs";
+import {
+  NODE_CODE_SAMPLES,
+  NODE_OPERATION_KEYS,
+  NODE_SAMPLE_REGISTRY,
+} from "./node-code-samples.mjs";
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"];
+const require = createRequire(import.meta.url);
+const operationProfile = require("../src/generated/operation-profile.json");
+const PUBLIC_OPERATION_FACADES = Object.freeze(
+  Object.fromEntries(
+    operationProfile.operations.map(({ operationId, facade, method }) => [
+      operationId,
+      facade === "client" ? `client.${method}` : `client.${facade}.${method}`,
+    ]),
+  ),
+);
 const INVENTORY_KEYS = [
   "operationIds",
   "schemaNames",
@@ -32,11 +50,15 @@ const NODE_LANGUAGES = new Set([
   "nodejs",
   "node.js",
 ]);
+const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
+const SANDBOX_OPERATION_IDS = new Set(["createMessage", "createConversationMessage"]);
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const GIT_COMMIT_PATTERN = /^[a-f0-9]{40}$/;
 const SIGNATURE_PATTERN = /^v1,[A-Za-z0-9+/]{43}=$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EVIDENCE_PATH = "contracts/webhooks/captured";
+const TYPESCRIPT_RESULTS_PATH = `${EVIDENCE_PATH}/typescript-results.json`;
+const TYPESCRIPT_RESULTS_SIDECAR_PATH = `${EVIDENCE_PATH}/typescript-results.sha256`;
 const SYNTHETIC_PATH = "contracts/webhooks/synthetic";
 const HEADER_RECORD_FORMAT =
   "webhook-id:{webhookId}\nwebhook-timestamp:{webhookTimestamp}\nwebhook-signature:{signature}\n";
@@ -49,10 +71,11 @@ const SCAN_EXCLUDED_DIRECTORIES = new Set([
   "node_modules",
 ]);
 const SECRET_CLASSIFICATIONS = new Map([
-  [`${EVIDENCE_PATH}/keys/configured-webhook.key`, "captured-webhook-signing-key"],
-  [`${EVIDENCE_PATH}/keys/route.key`, "captured-route-signing-key"],
+  [`${EVIDENCE_PATH}/keys/configured-webhook.key`, "fixture-webhook-signing-key"],
+  [`${EVIDENCE_PATH}/keys/route.key`, "fixture-route-signing-key"],
   [`${SYNTHETIC_PATH}/keys/configured-webhook.key`, "synthetic-test-signing-key"],
 ]);
+const execFileAsync = promisify(execFile);
 
 function assertRecord(value, location) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -295,19 +318,60 @@ export function validateCapturedManifest(manifest, schema) {
       throw new TypeError(`${location}.signingResource.keyPath does not match its resource type`);
     }
 
+    // Two kinds of evidence, and the distinction is load-bearing rather than
+    // cosmetic. `captured` means the body bytes were observed on the wire from
+    // a running server, so agreement with the SDK schema is independent
+    // evidence. `derived` means they were produced by serialising the server's
+    // own payload structs: that catches producer drift the moment the fixtures
+    // are regenerated, but it agrees with the producer by construction and so
+    // proves nothing about what a live server sent. Recording which is which
+    // is the whole point — evidence that overstates itself is worse than no
+    // evidence, because nobody re-checks it.
     const provenance = assertRecord(capture.provenance, `${location}.provenance`);
-    assertExactKeys(
-      provenance,
-      ["kind", "environment", "capturedAt", "source"],
-      `${location}.provenance`,
-    );
-    if (provenance.kind !== "captured") throw new TypeError(`${location} is not captured evidence`);
+    if (provenance.kind === "captured") {
+      assertExactKeys(
+        provenance,
+        ["kind", "environment", "capturedAt", "source"],
+        `${location}.provenance`,
+      );
+      const capturedAt = assertString(provenance.capturedAt, `${location}.provenance.capturedAt`);
+      if (Number.isNaN(Date.parse(capturedAt))) {
+        throw new TypeError(`${location}.provenance.capturedAt must be an ISO date-time`);
+      }
+    } else if (provenance.kind === "derived") {
+      assertExactKeys(
+        provenance,
+        [
+          "kind",
+          "environment",
+          "derivedAt",
+          "source",
+          "generator",
+          "producerStructs",
+          "producerTreeClean",
+        ],
+        `${location}.provenance`,
+      );
+      const derivedAt = assertString(provenance.derivedAt, `${location}.provenance.derivedAt`);
+      if (Number.isNaN(Date.parse(derivedAt))) {
+        throw new TypeError(`${location}.provenance.derivedAt must be an ISO date-time`);
+      }
+      assertString(provenance.generator, `${location}.provenance.generator`);
+      const structs = provenance.producerStructs;
+      if (!Array.isArray(structs) || structs.length === 0) {
+        throw new TypeError(`${location}.provenance.producerStructs must be a non-empty array`);
+      }
+      structs.forEach((entry, structIndex) =>
+        assertString(entry, `${location}.provenance.producerStructs[${String(structIndex)}]`),
+      );
+      if (typeof provenance.producerTreeClean !== "boolean") {
+        throw new TypeError(`${location}.provenance.producerTreeClean must be a boolean`);
+      }
+    } else {
+      throw new TypeError(`${location}.provenance.kind must be captured or derived`);
+    }
     assertString(provenance.environment, `${location}.provenance.environment`);
     assertString(provenance.source, `${location}.provenance.source`);
-    const capturedAt = assertString(provenance.capturedAt, `${location}.provenance.capturedAt`);
-    if (Number.isNaN(Date.parse(capturedAt))) {
-      throw new TypeError(`${location}.provenance.capturedAt must be an ISO date-time`);
-    }
   }
   if (!resourceTypes.has("configured-webhook") || !resourceTypes.has("route")) {
     throw new TypeError("Captured evidence must include configured-webhook and route resources");
@@ -347,9 +411,16 @@ export function validateSignedFixture(
     `${capture.fixtureId} body`,
   );
 
-  // Captures are immutable transport evidence and may predate the currently pinned payload
-  // schema. Current payload semantics are enforced on the separately generated synthetic fixture.
-  if (!captured && payload.type !== "message.routing") {
+  // Every non-routing payload carries webhook_id: the producers declare it
+  // `uuid.UUID` with no omitempty, so it is on the wire unconditionally.
+  //
+  // This was previously skipped for manifest evidence, on the reasoning that
+  // captures are immutable transport bytes that may predate the pinned schema.
+  // That reasoning is what let the original fixture omit webhook_id and go
+  // unnoticed — and then the spec was loosened to match it. The evidence is
+  // regenerated from the current producer on demand, so there is nothing to
+  // grandfather.
+  if (payload.type !== "message.routing") {
     assertString(payload.webhook_id, `${capture.fixtureId} body.webhook_id`, UUID_PATTERN);
   }
 
@@ -374,9 +445,10 @@ export function validateSignedFixture(
     if (
       (resource.type === "route" &&
         (payload.type !== "message.routing" || payload.route_id !== resource.id)) ||
+      // No `!== undefined` escape: absence would satisfy the binding
+      // vacuously, which is the same hole as the exemption above.
       (resource.type === "configured-webhook" &&
-        (payload.type === "message.routing" ||
-          (payload.webhook_id !== undefined && payload.webhook_id !== resource.id)))
+        (payload.type === "message.routing" || payload.webhook_id !== resource.id))
     ) {
       throw new TypeError(`${capture.fixtureId} body does not match its signing resource`);
     }
@@ -738,12 +810,540 @@ function normalizeLanguage(value) {
   return typeof value === "string" ? value.toLowerCase().replaceAll(/[^a-z.]/g, "") : "";
 }
 
+function propertyPath(node) {
+  if (ts.isIdentifier(node)) return node.text;
+  if (ts.isPropertyAccessExpression(node)) {
+    const parent = propertyPath(node.expression);
+    return parent === undefined ? undefined : `${parent}.${node.name.text}`;
+  }
+  if (
+    ts.isElementAccessExpression(node) &&
+    node.argumentExpression !== undefined &&
+    ts.isStringLiteral(node.argumentExpression)
+  ) {
+    const parent = propertyPath(node.expression);
+    return parent === undefined ? undefined : `${parent}.${node.argumentExpression.text}`;
+  }
+  return undefined;
+}
+
+function expressionAliases(sourceFile) {
+  return new Map(
+    collectNodes(
+      sourceFile,
+      (node) =>
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer !== undefined,
+    ).map((declaration) => [declaration.name.text, declaration.initializer]),
+  );
+}
+
+function staticString(node, aliases, resolving = new Set()) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isIdentifier(node)) {
+    if (resolving.has(node.text)) return undefined;
+    const initializer = aliases.get(node.text);
+    if (initializer === undefined) return undefined;
+    const nextResolving = new Set(resolving).add(node.text);
+    return staticString(initializer, aliases, nextResolving);
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = staticString(node.left, aliases, resolving);
+    const right = staticString(node.right, aliases, resolving);
+    return left === undefined || right === undefined ? undefined : `${left}${right}`;
+  }
+  return undefined;
+}
+
+function resolvedPropertyPath(node, aliases, resolving = new Set()) {
+  if (ts.isIdentifier(node)) {
+    if (!resolving.has(node.text)) {
+      const initializer = aliases.get(node.text);
+      if (initializer !== undefined) {
+        const nextResolving = new Set(resolving).add(node.text);
+        const resolved = resolvedPropertyPath(initializer, aliases, nextResolving);
+        if (resolved !== undefined) return resolved;
+      }
+    }
+    return node.text;
+  }
+  if (ts.isPropertyAccessExpression(node)) {
+    const parent = resolvedPropertyPath(node.expression, aliases, resolving);
+    return parent === undefined ? undefined : `${parent}.${node.name.text}`;
+  }
+  if (ts.isElementAccessExpression(node) && node.argumentExpression !== undefined) {
+    const parent = resolvedPropertyPath(node.expression, aliases, resolving);
+    const property = staticString(node.argumentExpression, aliases, resolving);
+    return parent === undefined || property === undefined ? undefined : `${parent}.${property}`;
+  }
+  return undefined;
+}
+
+function sourceFileForSample(operationId, source) {
+  const sourceFile = ts.createSourceFile(
+    `${operationId}.mjs`,
+    source,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.JS,
+  );
+  if (sourceFile.parseDiagnostics.length > 0) {
+    const diagnostics = sourceFile.parseDiagnostics.map((diagnostic) =>
+      ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+    );
+    throw new TypeError(
+      `${operationId} sample is not valid ESM JavaScript: ${diagnostics.join("; ")}`,
+    );
+  }
+  return sourceFile;
+}
+
+function collectNodes(sourceFile, predicate) {
+  const nodes = [];
+  function visit(node) {
+    if (predicate(node)) nodes.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return nodes;
+}
+
+function statementTerminates(statement) {
+  if (ts.isThrowStatement(statement) || ts.isReturnStatement(statement)) return true;
+  if (ts.isBlock(statement)) {
+    const last = statement.statements.at(-1);
+    return last !== undefined && statementTerminates(last);
+  }
+  return false;
+}
+
+function isMutationGuard(statement) {
+  if (!ts.isIfStatement(statement) || !statementTerminates(statement.thenStatement)) return false;
+  const condition = statement.expression;
+  if (
+    !ts.isBinaryExpression(condition) ||
+    (condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken &&
+      condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsToken)
+  ) {
+    return false;
+  }
+  return (
+    (propertyPath(condition.left) === "process.env.AHASEND_ALLOW_MUTATIONS" &&
+      ts.isStringLiteral(condition.right) &&
+      condition.right.text === "1") ||
+    (propertyPath(condition.right) === "process.env.AHASEND_ALLOW_MUTATIONS" &&
+      ts.isStringLiteral(condition.left) &&
+      condition.left.text === "1")
+  );
+}
+
+function objectProperty(object, name) {
+  if (!ts.isObjectLiteralExpression(object)) return undefined;
+  return object.properties.find(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      ((ts.isIdentifier(property.name) && property.name.text === name) ||
+        (ts.isStringLiteral(property.name) && property.name.text === name)),
+  );
+}
+
+function argumentProperty(call, argumentIndex, name) {
+  const argument = call.arguments.at(argumentIndex);
+  const property = argument === undefined ? undefined : objectProperty(argument, name);
+  return property !== undefined && ts.isPropertyAssignment(property)
+    ? property.initializer
+    : undefined;
+}
+
+function requestBodyArgumentIndex(contractOperation) {
+  return [...contractOperation.path.matchAll(/\{([^}]+)\}/gu)].filter(
+    (match) => match[1] !== "account_id",
+  ).length;
+}
+
+function requestOptionsArgumentIndex(contractOperation) {
+  return (
+    requestBodyArgumentIndex(contractOperation) +
+    (contractOperation.operation.requestBody === undefined ? 0 : 1)
+  );
+}
+
+function validatePublicImport(operationId, sourceFile) {
+  const dynamicImports = collectNodes(
+    sourceFile,
+    (node) => ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword,
+  );
+  if (dynamicImports.length > 0) {
+    throw new TypeError(`${operationId} sample must not use dynamic imports`);
+  }
+
+  const imports = sourceFile.statements.filter(ts.isImportDeclaration);
+  if (imports.length !== 1) {
+    throw new TypeError(`${operationId} sample must have exactly one public SDK import`);
+  }
+  const declaration = imports[0];
+  if (
+    !ts.isStringLiteral(declaration.moduleSpecifier) ||
+    declaration.moduleSpecifier.text !== "@ahasend/sdk"
+  ) {
+    throw new TypeError(`${operationId} sample imports a non-public SDK module`);
+  }
+  const bindings = declaration.importClause?.namedBindings;
+  const binding =
+    bindings !== undefined && ts.isNamedImports(bindings) ? bindings.elements[0] : undefined;
+  if (
+    bindings === undefined ||
+    !ts.isNamedImports(bindings) ||
+    bindings.elements.length !== 1 ||
+    binding === undefined ||
+    (binding.propertyName?.text ?? binding.name.text) !== "AhaSendClient" ||
+    binding.name.text !== "AhaSendClient"
+  ) {
+    throw new TypeError(`${operationId} sample must import only AhaSendClient from @ahasend/sdk`);
+  }
+}
+
+function containsFetchReference(sourceFile, aliases) {
+  return (
+    collectNodes(sourceFile, (node) => {
+      if (
+        !ts.isIdentifier(node) &&
+        !ts.isPropertyAccessExpression(node) &&
+        !ts.isElementAccessExpression(node)
+      ) {
+        return false;
+      }
+      const path = resolvedPropertyPath(node, aliases);
+      return path === "fetch" || path?.startsWith("fetch.") || path === "globalThis.fetch";
+    }).length > 0
+  );
+}
+
+function validateSelfContained(operationId, sourceFile) {
+  const declared = new Set(["console", "Error", "fetch", "globalThis", "process", "URL"]);
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      for (const binding of statement.importClause?.namedBindings?.elements ?? []) {
+        declared.add(binding.name.text);
+      }
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) declared.add(declaration.name.text);
+      }
+    }
+  }
+
+  const references = collectNodes(sourceFile, (node) => {
+    if (!ts.isIdentifier(node)) return false;
+    const parent = node.parent;
+    if (
+      (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+      (ts.isPropertyAssignment(parent) && parent.name === node) ||
+      (ts.isVariableDeclaration(parent) && parent.name === node) ||
+      ts.isImportSpecifier(parent) ||
+      ts.isImportClause(parent)
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const unbound = [...new Set(references.map(({ text }) => text))].filter(
+    (identifier) => !declared.has(identifier),
+  );
+  if (unbound.length > 0) {
+    throw new TypeError(
+      `${operationId} sample is not self-contained; undeclared values: ${unbound.join(", ")}`,
+    );
+  }
+}
+
+function validateSafeOutput(operationId, sourceFile, aliases) {
+  const consoleCalls = collectNodes(
+    sourceFile,
+    (node) =>
+      ts.isCallExpression(node) &&
+      /^(?:console|log|logger)\.(?:log|debug|info|warn|error)$/u.test(
+        resolvedPropertyPath(node.expression, aliases) ?? "",
+      ),
+  );
+  if (consoleCalls.length === 0) {
+    throw new TypeError(`${operationId} sample must log safe response metadata`);
+  }
+  for (const call of consoleCalls) {
+    const sensitive = collectNodes(call, (node) => {
+      const path = propertyPath(node) ?? "";
+      return /(?:^|\.)(?:secret|secret_key|password|idempotencyKey)$/u.test(path);
+    });
+    if (sensitive.length > 0) {
+      throw new TypeError(`${operationId} sample prints a credential or one-time secret`);
+    }
+    const [message, ...metadata] = call.arguments;
+    if (
+      message === undefined ||
+      (!ts.isStringLiteral(message) && !ts.isNoSubstitutionTemplateLiteral(message)) ||
+      metadata.length === 0 ||
+      metadata.some(
+        (argument) =>
+          !ts.isObjectLiteralExpression(argument) ||
+          argument.properties.some(
+            (property) =>
+              !ts.isPropertyAssignment(property) ||
+              propertyPath(property.initializer)?.includes(".") !== true,
+          ),
+      )
+    ) {
+      throw new TypeError(`${operationId} sample must log metadata instead of response bodies`);
+    }
+  }
+}
+
+function sampleLiteralValue(operationId, node, location) {
+  if (ts.isObjectLiteralExpression(node)) {
+    const value = {};
+    for (const property of node.properties) {
+      if (!ts.isPropertyAssignment(property)) {
+        throw new TypeError(`${operationId} sample ${location} must use literal values`);
+      }
+      const name =
+        ts.isIdentifier(property.name) ||
+        ts.isStringLiteral(property.name) ||
+        ts.isNumericLiteral(property.name)
+          ? property.name.text
+          : undefined;
+      if (name === undefined) {
+        throw new TypeError(`${operationId} sample ${location} must use literal property names`);
+      }
+      value[name] = sampleLiteralValue(operationId, property.initializer, `${location}.${name}`);
+    }
+    return value;
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.map((element, index) =>
+      sampleLiteralValue(operationId, element, `${location}[${index}]`),
+    );
+  }
+  if (
+    ts.isStringLiteral(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node) ||
+    ts.isNumericLiteral(node)
+  ) {
+    return ts.isNumericLiteral(node) ? Number(node.text) : node.text;
+  }
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+  if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+  if (
+    ts.isPrefixUnaryExpression(node) &&
+    ts.isNumericLiteral(node.operand) &&
+    (node.operator === ts.SyntaxKind.PlusToken || node.operator === ts.SyntaxKind.MinusToken)
+  ) {
+    const value = Number(node.operand.text);
+    return node.operator === ts.SyntaxKind.MinusToken ? -value : value;
+  }
+  throw new TypeError(`${operationId} sample ${location} must use literal values`);
+}
+
+function validateRequestBody(operationId, facadeCall, contractOperation, components) {
+  const requestBody = contractOperation.operation.requestBody;
+  if (requestBody === undefined) return;
+
+  const body = facadeCall.arguments.at(requestBodyArgumentIndex(contractOperation));
+  if (body === undefined) {
+    throw new TypeError(`${operationId} sample must pass the operation request body`);
+  }
+  const content = assertRecord(assertRecord(requestBody, `${operationId} request body`).content);
+  const mediaType = assertRecord(content["application/json"], `${operationId} JSON request body`);
+  const requestSchema = assertRecord(mediaType.schema, `${operationId} request body schema`);
+  const validate = new Ajv({
+    allErrors: true,
+    jsonPointers: true,
+    logger: false,
+    nullable: true,
+    unknownFormats: "ignore",
+  }).compile({ ...requestSchema, components });
+  const value = sampleLiteralValue(operationId, body, "request body");
+  if (!validate(value)) {
+    const details = (validate.errors ?? [])
+      .map(({ dataPath, message }) => `${dataPath || "/"} ${message ?? "is invalid"}`)
+      .join("; ");
+    throw new TypeError(`${operationId} sample request body does not match its schema: ${details}`);
+  }
+}
+
+function operationHasIdempotency(operation) {
+  return (
+    Array.isArray(operation.parameters) &&
+    operation.parameters.some(
+      (parameter) =>
+        parameter !== null &&
+        typeof parameter === "object" &&
+        parameter.$ref === IDEMPOTENCY_PARAMETER,
+    )
+  );
+}
+
+function validateRegistrySample(entry, contractOperation, components) {
+  const { operationId, facade, sample } = entry;
+  const sourceFile = sourceFileForSample(operationId, sample.source);
+  const aliases = expressionAliases(sourceFile);
+  validatePublicImport(operationId, sourceFile);
+  validateSelfContained(operationId, sourceFile);
+
+  if (
+    containsFetchReference(sourceFile, aliases) ||
+    /\bnew\s+URL\s*\(|api\.ahasend\.com|\bAuthorization\b|\bBearer\b/iu.test(sample.source)
+  ) {
+    throw new TypeError(`${operationId} sample must not construct raw API requests`);
+  }
+
+  const clientDeclarations = collectNodes(
+    sourceFile,
+    (node) =>
+      ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "client",
+  );
+  const clientDeclaration = clientDeclarations[0];
+  const clientInitializer = clientDeclaration?.initializer;
+  if (
+    clientDeclarations.length !== 1 ||
+    clientDeclaration === undefined ||
+    !ts.isVariableDeclarationList(clientDeclaration.parent) ||
+    (clientDeclaration.parent.flags & ts.NodeFlags.Const) === 0 ||
+    clientInitializer === undefined ||
+    !ts.isCallExpression(clientInitializer) ||
+    propertyPath(clientInitializer.expression) !== "AhaSendClient.fromEnv" ||
+    clientInitializer.arguments.length !== 0
+  ) {
+    throw new TypeError(`${operationId} sample must assign client from AhaSendClient.fromEnv()`);
+  }
+  const calls = collectNodes(sourceFile, ts.isCallExpression);
+  const clientCalls = calls.filter((call) =>
+    (resolvedPropertyPath(call.expression, aliases) ?? "").startsWith("client."),
+  );
+  if (
+    clientCalls.length !== 1 ||
+    resolvedPropertyPath(clientCalls[0].expression, aliases) !== facade
+  ) {
+    const received =
+      clientCalls.map((call) => resolvedPropertyPath(call.expression, aliases)).join(", ") ||
+      "none";
+    throw new TypeError(
+      `${operationId} sample calls the wrong facade: expected ${facade}, received ${received}`,
+    );
+  }
+
+  const facadeCall = clientCalls[0];
+  if (SANDBOX_OPERATION_IDS.has(operationId)) {
+    const sandbox = argumentProperty(facadeCall, 0, "sandbox");
+    if (sandbox?.kind !== ts.SyntaxKind.TrueKeyword) {
+      throw new TypeError(`${operationId} sample must send with sandbox: true`);
+    }
+  }
+  if (contractOperation.method !== "get") {
+    const guarded = sourceFile.statements.some(
+      (statement) =>
+        statement.getEnd() <= facadeCall.getStart(sourceFile) && isMutationGuard(statement),
+    );
+    if (!guarded) {
+      throw new TypeError(`${operationId} sample must guard the mutation before calling the SDK`);
+    }
+  }
+
+  if (operationHasIdempotency(contractOperation.operation)) {
+    const key = argumentProperty(
+      facadeCall,
+      requestOptionsArgumentIndex(contractOperation),
+      "idempotencyKey",
+    );
+    if (key === undefined || !ts.isStringLiteral(key) || key.text.length < 8) {
+      throw new TypeError(`${operationId} sample must use a stable caller idempotency key`);
+    }
+  }
+
+  validateRequestBody(operationId, facadeCall, contractOperation, components);
+  validateSafeOutput(operationId, sourceFile, aliases);
+}
+
+export function validateNodeSampleRegistry(document, registry = NODE_SAMPLE_REGISTRY) {
+  if (!Array.isArray(registry)) throw new TypeError("Node sample registry must be an array");
+  const components = assertRecord(
+    assertRecord(document, "OpenAPI document").components,
+    "OpenAPI components",
+  );
+  const operations = collectOperations(document);
+  const operationsById = new Map(operations.map((operation) => [operation.operationId, operation]));
+  const entriesById = new Map();
+
+  for (const [index, value] of registry.entries()) {
+    const entry = assertRecord(value, `Node sample registry[${index}]`);
+    assertExactKeys(
+      entry,
+      ["operationId", "operationKey", "facade", "sample"],
+      `Node sample registry[${index}]`,
+    );
+    const operationId = assertString(
+      entry.operationId,
+      `Node sample registry[${index}].operationId`,
+    );
+    assertString(entry.operationKey, `Node sample registry[${index}].operationKey`);
+    assertString(
+      entry.facade,
+      `Node sample registry[${index}].facade`,
+      /^client(?:\.[A-Za-z_$][\w$]*)+$/u,
+    );
+    const sample = assertRecord(entry.sample, `Node sample registry[${index}].sample`);
+    assertExactKeys(sample, ["lang", "label", "source"], `Node sample registry[${index}].sample`);
+    if (sample.lang !== "javascript") {
+      throw new TypeError(`${operationId} registry sample must use the javascript language tag`);
+    }
+    assertString(sample.label, `${operationId} sample label`);
+    assertString(sample.source, `${operationId} sample source`);
+    if (entriesById.has(operationId)) {
+      throw new TypeError(`Duplicate Node sample registry mappings: ${operationId}`);
+    }
+    entriesById.set(operationId, entry);
+  }
+
+  const missing = operations.filter(({ operationId }) => !entriesById.has(operationId));
+  const orphaned = [...entriesById.keys()].filter(
+    (operationId) => !operationsById.has(operationId),
+  );
+  if (missing.length > 0) {
+    throw new TypeError(
+      `Missing Node sample registry mappings: ${missing.map(({ operationId }) => operationId).join(", ")}`,
+    );
+  }
+  if (orphaned.length > 0) {
+    throw new TypeError(`Orphan Node sample registry mappings: ${orphaned.join(", ")}`);
+  }
+
+  for (const operation of operations) {
+    const registryEntry = entriesById.get(operation.operationId);
+    const actualKey = `${operation.method.toUpperCase()} ${operation.path}`;
+    if (registryEntry.operationKey !== actualKey) {
+      throw new TypeError(
+        `Node sample operation drift for ${operation.operationId}: expected ${JSON.stringify(registryEntry.operationKey)}, received ${JSON.stringify(actualKey)}`,
+      );
+    }
+    if (registryEntry.facade !== PUBLIC_OPERATION_FACADES[operation.operationId]) {
+      throw new TypeError(
+        `Wrong facade mapping for ${operation.operationId}: expected ${PUBLIC_OPERATION_FACADES[operation.operationId]}, received ${registryEntry.facade}`,
+      );
+    }
+    validateRegistrySample(registryEntry, operation, components);
+  }
+
+  return entriesById;
+}
+
 export function validateCodeSamples(
   document,
   nodeSamples = NODE_CODE_SAMPLES,
   { allowMissingNodeSamples = false, allowNodeSampleDrift = false } = {},
 ) {
   const operations = collectOperations(document);
+  validateNodeSampleRegistry(document);
   const operationIds = new Set(operations.map(({ operationId }) => operationId));
   const sampleOperationIds = Object.keys(assertRecord(nodeSamples, "Node code samples"));
   const missingDefinitions = [...operationIds].filter(
@@ -916,9 +1516,64 @@ function lockWithHashes(lock, openApiBytes, webhookBytes, evidence) {
       "webhooks.yaml": digestYamlArtifact(webhookBytes),
       [`${EVIDENCE_PATH}/manifest.json`]: evidence.manifestDigest,
       [`${EVIDENCE_PATH}/manifest.schema.json`]: evidence.schemaDigest,
+      [TYPESCRIPT_RESULTS_PATH]: evidence.typescriptResultsDigest,
+      [TYPESCRIPT_RESULTS_SIDECAR_PATH]: evidence.typescriptResultsSidecarDigest,
       [`${SYNTHETIC_PATH}/manifest.json`]: evidence.syntheticDigest,
       "security/secret-scan-allowlist.json": evidence.policyDigest,
     },
+  };
+}
+
+async function buildAndRunWebhookFixtures(root) {
+  await execFileAsync(process.execPath, [resolve(root, "scripts/build.mjs")], {
+    cwd: root,
+    env: {
+      ...process.env,
+      AHASEND_EXPECT_BUILD_ROOT: root,
+    },
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [resolve(root, "scripts/run-webhook-fixture-results.mjs")],
+    {
+      cwd: root,
+      encoding: "buffer",
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  const resultsBytes = Buffer.from(stdout);
+  const results = assertRecord(
+    parseJson(resultsBytes.toString("utf8"), TYPESCRIPT_RESULTS_PATH),
+    "TypeScript webhook results",
+  );
+  const captures = assertArray(results.results, "TypeScript webhook result rows");
+  const manifest = assertRecord(
+    parseJson(
+      await readFile(resolve(root, EVIDENCE_PATH, "manifest.json"), "utf8"),
+      `${EVIDENCE_PATH}/manifest.json`,
+    ),
+    "Captured evidence manifest",
+  );
+  const expectedCaptures = assertArray(manifest.captures, "Captured evidence captures");
+  if (captures.length !== expectedCaptures.length) {
+    throw new TypeError("TypeScript webhook result count does not match captured evidence");
+  }
+  for (const [index, capture] of expectedCaptures.entries()) {
+    const row = assertRecord(captures[index], `TypeScript webhook results[${index}]`);
+    if (row.fixture !== capture.fixtureId || row.result !== capture.expectedResult) {
+      throw new TypeError(
+        `${capture.fixtureId} public verifier result ${JSON.stringify(row.result)} does not match ${JSON.stringify(capture.expectedResult)}`,
+      );
+    }
+  }
+  const resultsDigest = sha256Hex(resultsBytes);
+  const sidecarBytes = Buffer.from(`${resultsDigest}\n`, "utf8");
+  return {
+    resultsBytes,
+    sidecarBytes,
+    resultsDigest,
+    sidecarDigest: sha256Hex(sidecarBytes),
   };
 }
 
@@ -950,6 +1605,9 @@ async function run({ check }) {
   const inventory = collectContractInventory(document);
   assertInventoryMatches(inventory, lock.inventories);
   const evidence = await validateWebhookEvidence(root, { checkDigest: check });
+  const observed = await buildAndRunWebhookFixtures(root);
+  evidence.typescriptResultsDigest = observed.resultsDigest;
+  evidence.typescriptResultsSidecarDigest = observed.sidecarDigest;
 
   if (check) {
     validateCodeSamples(document);
@@ -959,8 +1617,20 @@ async function run({ check }) {
     assertLockedHash(lock, "webhooks.yaml", actualWebhookHash);
     assertLockedHash(lock, `${EVIDENCE_PATH}/manifest.json`, evidence.manifestDigest);
     assertLockedHash(lock, `${EVIDENCE_PATH}/manifest.schema.json`, evidence.schemaDigest);
+    assertLockedHash(lock, TYPESCRIPT_RESULTS_PATH, observed.resultsDigest);
+    assertLockedHash(lock, TYPESCRIPT_RESULTS_SIDECAR_PATH, observed.sidecarDigest);
     assertLockedHash(lock, `${SYNTHETIC_PATH}/manifest.json`, evidence.syntheticDigest);
     assertLockedHash(lock, "security/secret-scan-allowlist.json", evidence.policyDigest);
+    const [committedResults, committedSidecar] = await Promise.all([
+      readFile(resolve(root, TYPESCRIPT_RESULTS_PATH)),
+      readFile(resolve(root, TYPESCRIPT_RESULTS_SIDECAR_PATH)),
+    ]);
+    if (!committedResults.equals(observed.resultsBytes)) {
+      throw new TypeError("Built public verifier results drift from the committed artifact");
+    }
+    if (!committedSidecar.equals(observed.sidecarBytes)) {
+      throw new TypeError("Built public verifier result sidecar drift from the committed artifact");
+    }
     const normalized = injectNodeSamples(source, document);
     if (normalized !== source)
       throw new TypeError("openapi.yaml generated samples are not normalized");
@@ -987,6 +1657,8 @@ async function run({ check }) {
     writeFile(openApiPath, generatedBytes),
     writeFile(lockPath, canonicalizeJson(updatedLock)),
     writeFile(resolve(root, EVIDENCE_PATH, "manifest.sha256"), `${evidence.manifestDigest}\n`),
+    writeFile(resolve(root, TYPESCRIPT_RESULTS_PATH), observed.resultsBytes),
+    writeFile(resolve(root, TYPESCRIPT_RESULTS_SIDECAR_PATH), observed.sidecarBytes),
   ]);
   process.stdout.write(`Generated Node samples for ${inventory.operationIds.length} operations\n`);
 }

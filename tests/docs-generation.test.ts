@@ -4,16 +4,38 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { collectOperations, parseOpenApi } from "../scripts/generate-contracts.mjs";
 import { generateApiReference } from "../scripts/generate-docs.mjs";
+import { NODE_SAMPLE_REGISTRY } from "../scripts/node-code-samples.mjs";
 import { RESOURCE_AUTHORIZATION } from "../src/generated/operations.js";
 import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
 
 const repositoryRoot = process.cwd();
 const referencePath = resolve(repositoryRoot, "docs/api-reference.md");
 const openApiSource = readFileSync(resolve(repositoryRoot, "openapi.yaml"), "utf8");
+const clientSource = readFileSync(resolve(repositoryRoot, "src/client.ts"), "utf8");
 const document = parseOpenApi(openApiSource);
 const operations = collectOperations(document);
 
-function section(reference: string, kind: "operation" | "iterator", operationId: string): string {
+function withAPIKeysInterface(declaration: string): string {
+  return clientSource
+    .replace(
+      'const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");',
+      [
+        'import type { APIKey } from "./resources/api-keys.js";',
+        'import type { PaginatedResponse, PaginationParams } from "./types/common.js";',
+        "",
+        declaration,
+        "",
+        'const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");',
+      ].join("\n"),
+    )
+    .replace("get apiKeys(): Readonly<APIKeysClient> {", "get apiKeys(): FixtureAPIKeysClient {");
+}
+
+function section(
+  reference: string,
+  kind: "operation" | "sdk-sample" | "iterator",
+  operationId: string,
+): string {
   const marker = `<!-- ${kind}: ${operationId} -->`;
   const start = reference.indexOf(marker);
   if (start < 0) throw new TypeError(`Missing ${marker}`);
@@ -69,6 +91,43 @@ describe("generated API reference", () => {
       );
       expect(contents).toMatch(/\*\*Models:\*\* \[[A-Za-z]/);
     }
+  });
+
+  it("renders one registry SDK sample on its matching public facade", async () => {
+    const reference = await generateApiReference();
+    const sampleMarkers = [...reference.matchAll(/<!-- sdk-sample: ([A-Za-z0-9]+) -->/g)].map(
+      ([, operationId]) => operationId,
+    );
+
+    expect(sampleMarkers).toEqual(
+      OPERATION_PROFILE.operations.map(({ operationId }) => operationId),
+    );
+    expect(sampleMarkers).toEqual(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId));
+
+    for (const [index, mapping] of OPERATION_PROFILE.operations.entries()) {
+      const registryEntry = NODE_SAMPLE_REGISTRY[index]!;
+      const facade = `client.${mapping.facade === "client" ? "" : `${mapping.facade}.`}${mapping.method}`;
+      const contents = section(reference, "sdk-sample", mapping.operationId);
+
+      expect(registryEntry.facade, mapping.operationId).toBe(facade);
+      expect(registryEntry.sample.source, mapping.operationId).toContain(`${facade}(`);
+      expect(contents, mapping.operationId).toContain(`#### ${registryEntry.sample.label}`);
+      expect(contents, mapping.operationId).toContain(
+        `\`\`\`${registryEntry.sample.lang}\n${registryEntry.sample.source.trimEnd()}\n\`\`\``,
+      );
+    }
+  });
+
+  it("uses the canonical registry validator for generated SDK samples", async () => {
+    const incompatibleOpenApi = openApiSource.replace(
+      "    CreateDomainRequest:\n      type: object\n      required:\n        - domain",
+      "    CreateDomainRequest:\n      type: object\n      required:\n        - domain\n        - dkim_private_key",
+    );
+    expect(incompatibleOpenApi).not.toBe(openApiSource);
+
+    await expect(generateApiReference({ openApiSource: incompatibleOpenApi })).rejects.toThrow(
+      /createDomain sample request body does not match its schema/,
+    );
   });
 
   it("retains OpenAPI scopes, security alternatives, idempotency, and authorization", async () => {
@@ -145,6 +204,68 @@ describe("generated API reference", () => {
     for (const link of links) {
       expect(existsSync(resolve(repositoryRoot, "docs", link)), link).toBe(true);
     }
+  });
+
+  it("renders typed interface method signatures from facade property types", async () => {
+    const fixture = withAPIKeysInterface(`interface FixtureAPIKeysClient
+  extends Omit<Readonly<APIKeysClient>, "list"> {
+  /** Fetch one documented page from a structural facade. */
+  list(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): Promise<PaginatedResponse<APIKey>>;
+}`);
+
+    const reference = await generateApiReference({ clientSource: fixture });
+
+    expect(section(reference, "operation", "getAPIKeys")).toContain(
+      "client.apiKeys.list(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<APIKey>>",
+    );
+  });
+
+  it("rejects missing and overloaded interface method declarations", async () => {
+    const missing = withAPIKeysInterface(
+      'interface FixtureAPIKeysClient extends Omit<Readonly<APIKeysClient>, "list"> {}',
+    );
+    await expect(generateApiReference({ clientSource: missing })).rejects.toThrow(
+      "Profile method apiKeys.list is not public",
+    );
+
+    const overloaded = withAPIKeysInterface(`interface FixtureAPIKeysClient
+  extends Omit<Readonly<APIKeysClient>, "list"> {
+  list(params?: PaginationParams): Promise<PaginatedResponse<APIKey>>;
+  list(
+    params: PaginationParams,
+    options?: RequestOptions,
+  ): Promise<PaginatedResponse<APIKey>>;
+}`);
+    await expect(generateApiReference({ clientSource: overloaded })).rejects.toThrow(
+      "apiKeys.list must have exactly one public call signature",
+    );
+  });
+
+  it("requires public JSDoc on every structural method and iterator", async () => {
+    const undocumentedMethod = withAPIKeysInterface(`interface FixtureAPIKeysClient
+  extends Omit<Readonly<APIKeysClient>, "list"> {
+  list(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): Promise<PaginatedResponse<APIKey>>;
+}`);
+    await expect(generateApiReference({ clientSource: undocumentedMethod })).rejects.toThrow(
+      "apiKeys.list must have public JSDoc",
+    );
+
+    const undocumentedIterator = withAPIKeysInterface(`interface FixtureAPIKeysClient
+  extends Omit<Readonly<APIKeysClient>, "iterate"> {
+  iterate(
+    params?: PaginationParams,
+    options?: RequestOptions,
+  ): AsyncGenerator<APIKey, void, undefined>;
+}`);
+    await expect(generateApiReference({ clientSource: undocumentedIterator })).rejects.toThrow(
+      "apiKeys.iterate must have public JSDoc",
+    );
   });
 
   it("rejects operation and iterator inventory drift", async () => {

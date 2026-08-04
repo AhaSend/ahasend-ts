@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { digestJsonArtifact } from "../scripts/digest-artifact.mjs";
@@ -17,9 +17,20 @@ interface PackResult {
   readonly files: PackFile[];
 }
 
+type PackOutput = PackResult[] | Readonly<Record<string, PackResult>>;
+
 const repositoryRoot = process.cwd();
 const distDirectory = resolve(repositoryRoot, "dist");
 const require = createRequire(import.meta.url);
+const apiExtractorManifestPath = require.resolve("@microsoft/api-extractor/package.json");
+const apiExtractorManifest = JSON.parse(readFileSync(apiExtractorManifestPath, "utf8")) as {
+  readonly bin: Readonly<Record<string, string>>;
+};
+const apiExtractorBin = apiExtractorManifest.bin["api-extractor"];
+if (apiExtractorBin === undefined) {
+  throw new TypeError("@microsoft/api-extractor does not declare its api-extractor executable.");
+}
+const apiExtractorExecutable = resolve(dirname(apiExtractorManifestPath), apiExtractorBin);
 let esmRoot: RootModule;
 let esmWebhooks: WebhooksModule;
 let cjsRoot: RootModule;
@@ -38,6 +49,11 @@ function runtimeFiles(directory: string, prefix = ""): string[] {
   return files.sort();
 }
 
+function parsePackOutput(output: string): readonly PackResult[] {
+  const parsed = JSON.parse(output) as PackOutput;
+  return Array.isArray(parsed) ? parsed : Object.values(parsed);
+}
+
 beforeAll(async () => {
   const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
     cwd: repositoryRoot,
@@ -51,6 +67,20 @@ beforeAll(async () => {
   )) as WebhooksModule;
   cjsRoot = require(resolve(distDirectory, "index.cjs")) as RootModule;
   cjsWebhooks = require(resolve(distDirectory, "webhooks/index.cjs")) as WebhooksModule;
+});
+
+describe("npm pack output compatibility", () => {
+  it.each([
+    ["npm 10/11 array output", [{ files: [{ path: "array-package.tgz" }] }], "array-package.tgz"],
+    [
+      "npm 12 keyed-object output",
+      { "@ahasend/sdk": { files: [{ path: "keyed-package.tgz" }] } },
+      "keyed-package.tgz",
+    ],
+  ])("accepts %s", (_label, output, expectedPath) => {
+    const [manifest] = parsePackOutput(JSON.stringify(output));
+    expect(manifest?.files[0]?.path).toBe(expectedPath);
+  });
 });
 
 describe("built package topology", () => {
@@ -88,6 +118,54 @@ describe("built package topology", () => {
     }
   });
 
+  it("extracts a warning-free curated root declaration report", () => {
+    const config = JSON.parse(
+      readFileSync(resolve(repositoryRoot, "config/api-extractor.json"), "utf8"),
+    ) as {
+      readonly apiReport: { readonly includeForgottenExports: boolean };
+      readonly messages: {
+        readonly extractorMessageReporting: Readonly<
+          Record<string, { readonly logLevel: string; readonly addToApiReportFile?: boolean }>
+        >;
+      };
+    };
+    expect(config.apiReport.includeForgottenExports).toBe(false);
+    expect(config.messages.extractorMessageReporting["ae-forgotten-export"]).toEqual({
+      logLevel: "error",
+      addToApiReportFile: false,
+    });
+
+    const extraction = spawnSync(
+      process.execPath,
+      [apiExtractorExecutable, "run", "--config", "config/api-extractor.json"],
+      { cwd: repositoryRoot, encoding: "utf8" },
+    );
+    const output = `${extraction.stdout}${extraction.stderr}`;
+    expect(extraction.status, output).toBe(0);
+    expect(output).not.toContain("ae-forgotten-export");
+
+    const report = readFileSync(resolve(repositoryRoot, "etc/ahasend-sdk.api.md"), "utf8");
+    expect(report).toContain("export class AhaSendClient");
+    expect(report).toContain("export interface MessagesClient");
+    expect(report).not.toContain("Warning:");
+    for (const internal of [
+      "APIErrorParams",
+      "ClientImplementation",
+      "HttpClient",
+      "IdempotencyOperationPolicy",
+      "OperationExecutor",
+      "OperationId",
+      "OPERATION_DESCRIPTORS",
+      "ResolvedClientConfig",
+      "RetryMode",
+      "SerializedAhaSendClient",
+      "typeof REDACTED",
+    ]) {
+      expect(report).not.toContain(internal);
+    }
+    expect(report).not.toMatch(/\b(?:declare )?const REDACTED\b/u);
+  });
+
   it("shares constructors within each format and brands errors across mixed graphs", () => {
     const esmWebhookError = new esmWebhooks.AhaSendWebhookVerificationError("signature_mismatch");
     const cjsWebhookError = new cjsWebhooks.AhaSendWebhookVerificationError("signature_mismatch");
@@ -100,6 +178,13 @@ describe("built package topology", () => {
     expect(esmRoot.AhaSendError).not.toBe(cjsRoot.AhaSendError);
     expect(cjsRoot.isAhaSendError(esmWebhookError)).toBe(true);
     expect(esmRoot.isAhaSendError(cjsWebhookError)).toBe(true);
+  });
+
+  it("keeps webhook signing and test-clock facilities out of both public module formats", () => {
+    for (const webhooks of [esmWebhooks, cjsWebhooks]) {
+      expect(webhooks).not.toHaveProperty("createWebhookVerifierWithClock");
+      expect(webhooks).not.toHaveProperty("sign");
+    }
   });
 
   it("copies the operation profile and detached digest byte-for-byte", () => {
@@ -131,7 +216,9 @@ describe("built package topology", () => {
     });
     expect(packed.status, `${packed.stdout}${packed.stderr}`).toBe(0);
 
-    const [manifest] = JSON.parse(packed.stdout) as PackResult[];
+    const manifests = parsePackOutput(packed.stdout);
+    expect(manifests).toHaveLength(1);
+    const [manifest] = manifests;
     expect(manifest).toBeDefined();
     const paths = manifest!.files.map(({ path }) => path);
     expect(paths).toContain("dist/_internal/errors.js");
