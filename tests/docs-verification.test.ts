@@ -198,8 +198,14 @@ describe("operational documentation verification", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("accepts the exact registered absolute versioned repository target", async () => {
-    const target = "https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/LICENSE";
+  it("accepts the exact registered absolute repository target", async () => {
+    // Repository links point at `main`, not a release tag: a tag link is dead
+    // on the repository's landing page for the whole merge-to-tag window, no
+    // offline gate can see that, and nothing binds a hand-typed tag to the
+    // package version — a forgotten bump would ship working links to the
+    // wrong release's docs. The unregistered case below is exactly such a
+    // stray tag pin.
+    const target = "https://github.com/AhaSend/ahasend-ts/blob/main/LICENSE";
     await withLinkServer(
       (_url, method) => ({ status: method === "GET" ? 200 : 405 }),
       async (request) =>
@@ -217,10 +223,10 @@ describe("operational documentation verification", () => {
 
     await expect(
       verifyInstalledLinks(
-        installedDocuments(["https://github.com/AhaSend/ahasend-ts/blob/main/LICENSE"]),
+        installedDocuments(["https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/LICENSE"]),
         new Set(["README.md", "CHANGELOG.md"]),
       ),
-    ).rejects.toThrow(/unregistered external URL.*blob\/main\/LICENSE/u);
+    ).rejects.toThrow(/unregistered external URL.*blob\/v0\.1\.0\/LICENSE/u);
   });
 
   it("allows two same-allowlist redirects before a final 2xx response", async () => {

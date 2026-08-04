@@ -4,7 +4,7 @@ The official Node.js TypeScript SDK for the [AhaSend](https://ahasend.com) trans
 
 > **v0.x** — the public API may change before 1.0. Pin an exact version in
 > production and read the
-> [CHANGELOG](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/CHANGELOG.md) before upgrading.
+> [CHANGELOG](https://github.com/AhaSend/ahasend-ts/blob/main/CHANGELOG.md) before upgrading.
 
 > ⚠️ **This is a server-side SDK for Node.js.** The AhaSend API key must
 > not be embedded in a browser bundle — anyone with the key can send mail
@@ -175,7 +175,7 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 Every method carries JSDoc — hover in your editor for parameter
 constraints, required scopes, and behavioural notes.
 The generated
-[API reference](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/api-reference.md) lists every
+[API reference](https://github.com/AhaSend/ahasend-ts/blob/main/docs/api-reference.md) lists every
 signature, scope, pagination contract, and resource-aware authorization rule.
 
 ## Request options
@@ -212,7 +212,7 @@ deterministic 4xx — are replayed for 24 hours, so a retry cannot duplicate the
 Server errors (5xx), handler failures, and panics are **not** stored: the API
 releases the key and a retry re-executes the request, so a 5xx retry can still
 result in a second send. See the
-[retries and idempotency guide](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/retries-and-idempotency.md)
+[retries and idempotency guide](https://github.com/AhaSend/ahasend-ts/blob/main/docs/retries-and-idempotency.md)
 for the recovery guidance. Pass `options.idempotencyKey` to drive the key from your own
 stable identifier — see `examples/idempotency.mjs`.
 
@@ -220,7 +220,7 @@ stable identifier — see `examples/idempotency.mjs`.
 management. `generateIdempotencyKey()` prepends its prefix literally, so include your own separator
 (`"myapp-"`, not `"myapp"`). `IdempotencyKeyBuilder` instead inserts a hyphen between its base key
 and each generated remainder or explicit suffix. See
-[Retries and idempotency](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/retries-and-idempotency.md)
+[Retries and idempotency](https://github.com/AhaSend/ahasend-ts/blob/main/docs/retries-and-idempotency.md)
 for retention windows, replay classification, and recovery after an uncertain result.
 
 ### Retries
@@ -239,7 +239,7 @@ limits. It cannot enable client-disabled retries, increase a numeric setting, or
 configured strategy or jitter. Generated operation safety remains the final retry gate.
 
 Caller aborts are terminal. Read
-[Cancellation and timeouts](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/cancellation.md)
+[Cancellation and timeouts](https://github.com/AhaSend/ahasend-ts/blob/main/docs/cancellation.md)
 before combining local pacing, retries, and end-to-end deadlines.
 
 ### Rate limiting
@@ -251,7 +251,7 @@ cancellable but happens before the per-network-attempt `timeoutMs` budget;
 use a caller signal to impose an end-to-end deadline. Each configured burst
 must be at least one token. Local bucket state does not rely on undocumented
 remaining headers returned by the server. See
-[Local rate pacing](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/rate-pacing.md).
+[Local rate pacing](https://github.com/AhaSend/ahasend-ts/blob/main/docs/rate-pacing.md).
 
 ### Telemetry
 
@@ -294,7 +294,7 @@ subjects, recipients or other addresses, attachments, secrets, any whole objects
 (including client, request, response, event, and error objects), or `err.message`.
 Telemetry does not include expanded URLs, headers, or request bodies, but error
 objects can contain server bodies and headers. Follow
-[Safe logging and diagnostics](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/safe-logging.md)
+[Safe logging and diagnostics](https://github.com/AhaSend/ahasend-ts/blob/main/docs/safe-logging.md)
 instead of serializing errors wholesale.
 
 ### Pagination
@@ -388,18 +388,18 @@ Timestamp checking does not deduplicate a valid delivery replayed inside the
 accepted window. Your application must atomically commit each `webhook-id`
 with durable processing work, then perform side effects idempotently from that
 work. The
-[security and webhooks guide](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/security-and-webhooks.md)
+[security and webhooks guide](https://github.com/AhaSend/ahasend-ts/blob/main/docs/security-and-webhooks.md)
 includes an Express 5.x integration pattern, body limits, adapter failure behavior, and safe replay
 handling.
 
 ## Operational guides
 
-- [Retries and idempotency](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/retries-and-idempotency.md)
-- [Cancellation and timeouts](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/cancellation.md)
-- [Local rate pacing](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/rate-pacing.md)
-- [Safe logging and diagnostics](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/safe-logging.md)
-- [Security and webhooks](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/security-and-webhooks.md)
-- [Subaccounts and child API keys](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/docs/subaccounts.md)
+- [Retries and idempotency](https://github.com/AhaSend/ahasend-ts/blob/main/docs/retries-and-idempotency.md)
+- [Cancellation and timeouts](https://github.com/AhaSend/ahasend-ts/blob/main/docs/cancellation.md)
+- [Local rate pacing](https://github.com/AhaSend/ahasend-ts/blob/main/docs/rate-pacing.md)
+- [Safe logging and diagnostics](https://github.com/AhaSend/ahasend-ts/blob/main/docs/safe-logging.md)
+- [Security and webhooks](https://github.com/AhaSend/ahasend-ts/blob/main/docs/security-and-webhooks.md)
+- [Subaccounts and child API keys](https://github.com/AhaSend/ahasend-ts/blob/main/docs/subaccounts.md)
 
 ## Error handling
 
@@ -474,8 +474,8 @@ those failures. Other errors throw immediately.
 ## Examples
 
 Example scripts and framework modules live in the
-[`examples/` directory](https://github.com/AhaSend/ahasend-ts/tree/v0.1.0/examples) — see its
-[README](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/examples/README.md) for setup and the
+[`examples/` directory](https://github.com/AhaSend/ahasend-ts/tree/main/examples) — see its
+[README](https://github.com/AhaSend/ahasend-ts/blob/main/examples/README.md) for setup and the
 complete packed-verification inventory. Highlights: `send-sandbox.mjs` (send without delivering),
 `iterate.mjs` (async pagination), `idempotency.mjs` (explicit keys),
 `telemetry.mjs` (hooks), `error-handling.mjs` (typed errors),
@@ -540,9 +540,9 @@ supported.
 Use [GitHub issues](https://github.com/AhaSend/ahasend-ts/issues) for reproducible
 SDK bugs and questions that do not contain secrets. Report vulnerabilities
 privately according to the
-[security policy](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/SECURITY.md); do not include
+[security policy](https://github.com/AhaSend/ahasend-ts/blob/main/SECURITY.md); do not include
 credentials, message content, or webhook payloads in a public issue.
 
 ## License
 
-[MIT](https://github.com/AhaSend/ahasend-ts/blob/v0.1.0/LICENSE)
+[MIT](https://github.com/AhaSend/ahasend-ts/blob/main/LICENSE)
