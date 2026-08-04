@@ -683,6 +683,29 @@ try {
     dirname(packageJsonPath("@types/node")),
     dirname(packageJsonPath("undici-types")),
   ]);
+
+  // The same declarations, type-checked by a consumer that has no @types/node
+  // at all. The package declares no dependency on it, so the published
+  // declarations must not name `Buffer`, `NodeJS.*`, or import a `node:`
+  // module — none of which the fixture above can catch, since it installs
+  // @types/node itself.
+  //
+  // Two fixtures, because the export map serves different declaration files to
+  // each module system and a leak in one is invisible to the other. The ESM
+  // fixture loads the `.d.ts` trio; the CommonJS one omits `"type": "module"`
+  // so Node16/NodeNext take the `require` condition and load the `.d.cts`
+  // trio, which nothing else in this pipeline reads — api-extractor is pointed
+  // at the `.d.ts` pair and the cjs runtime fixture is plain JavaScript.
+  // `bundler` resolution always takes the `import` condition, so it is not
+  // repeated for the CommonJS fixture.
+  const typesNoNodeDirectory = resolve(temporaryRoot, "types-no-node");
+  cpSync(resolve(fixtureRoot, "types-no-node"), typesNoNodeDirectory, { recursive: true });
+  installTarball(typesNoNodeDirectory);
+
+  const typesNoNodeCjsDirectory = resolve(temporaryRoot, "types-no-node-cjs");
+  cpSync(resolve(fixtureRoot, "types-no-node-cjs"), typesNoNodeCjsDirectory, { recursive: true });
+  installTarball(typesNoNodeCjsDirectory);
+
   for (const [compilerName, compiler] of compilers) {
     for (const resolution of ["node16", "nodenext", "bundler"]) {
       run(
@@ -690,6 +713,19 @@ try {
         process.execPath,
         [compiler, "--project", `tsconfig.${resolution}.json`, "--pretty", "false"],
         typesDirectory,
+      );
+      run(
+        `${compilerName} / ${resolution} / no @types/node (esm, .d.ts)`,
+        process.execPath,
+        [compiler, "--project", `tsconfig.${resolution}.json`, "--pretty", "false"],
+        typesNoNodeDirectory,
+      );
+      if (resolution === "bundler") continue;
+      run(
+        `${compilerName} / ${resolution} / no @types/node (cjs, .d.cts)`,
+        process.execPath,
+        [compiler, "--project", `tsconfig.${resolution}.json`, "--pretty", "false"],
+        typesNoNodeCjsDirectory,
       );
     }
   }

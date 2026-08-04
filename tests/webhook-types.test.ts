@@ -10,6 +10,7 @@ import {
   type MessageDeliveredEvent,
   type MessageOpenedEvent,
   type MessageRoutingEvent,
+  type RouteAttachment,
   type SuppressionCreatedEvent,
   type WebhookEvent,
   type WebhookVerifierOptions,
@@ -62,8 +63,13 @@ describe("webhook public types", () => {
         if (event.type === "message.routing") {
           expectTypeOf(event).toEqualTypeOf<MessageRoutingEvent>();
           expectTypeOf(event.data.attachments).toEqualTypeOf<
-            | Array<{ filename: string; content_type: string; content_id?: string; data: string }>
-            | undefined
+            Array<{
+              filename: string;
+              content_type: string;
+              content_id: string;
+              disposition: string;
+              data: string;
+            }>
           >();
         }
       }
@@ -71,18 +77,33 @@ describe("webhook public types", () => {
     expectTypeOf(assertNarrowing).parameter(0).toEqualTypeOf<AnyWebhookEvent>();
   });
 
-  it("declares body webhook IDs optional and route IDs required", () => {
-    expectTypeOf<IsOptional<MessageDeliveredEvent, "webhook_id">>().toEqualTypeOf<true>();
-    expectTypeOf<IsOptional<MessageClickedEvent, "webhook_id">>().toEqualTypeOf<true>();
-    expectTypeOf<IsOptional<SuppressionCreatedEvent, "webhook_id">>().toEqualTypeOf<true>();
-    expectTypeOf<IsOptional<DomainDNSErrorEvent, "webhook_id">>().toEqualTypeOf<true>();
-    expectTypeOf<MessageDeliveredEvent["webhook_id"]>().toEqualTypeOf<string | undefined>();
-    expectTypeOf<MessageClickedEvent["webhook_id"]>().toEqualTypeOf<string | undefined>();
-    expectTypeOf<SuppressionCreatedEvent["webhook_id"]>().toEqualTypeOf<string | undefined>();
-    expectTypeOf<DomainDNSErrorEvent["webhook_id"]>().toEqualTypeOf<string | undefined>();
+  it("declares body webhook IDs and route IDs required", () => {
+    // Every producer declares `WebhookID uuid.UUID` with no omitempty, so the
+    // key is on the wire for all four envelopes. These were optional only
+    // because the fixture they were aligned against omitted it, and that
+    // fixture turned out to be generated rather than captured.
+    expectTypeOf<IsOptional<MessageDeliveredEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<IsOptional<MessageClickedEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<IsOptional<SuppressionCreatedEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<IsOptional<DomainDNSErrorEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<MessageDeliveredEvent["webhook_id"]>().toEqualTypeOf<string>();
+    expectTypeOf<MessageClickedEvent["webhook_id"]>().toEqualTypeOf<string>();
+    expectTypeOf<SuppressionCreatedEvent["webhook_id"]>().toEqualTypeOf<string>();
+    expectTypeOf<DomainDNSErrorEvent["webhook_id"]>().toEqualTypeOf<string>();
 
     expectTypeOf<IsOptional<MessageRoutingEvent, "route_id">>().toEqualTypeOf<false>();
     expectTypeOf<MessageRoutingEvent["route_id"]>().toEqualTypeOf<string>();
+  });
+
+  it("declares route attachment disposition as a required open string", () => {
+    // Required because the producer emits it unconditionally, but NOT
+    // `"attachment" | "inline" | ""` as the upstream spec declares. The value
+    // is parsed from an inbound message's Content-Disposition header, and an
+    // application/octet-stream part carries any RFC 2183 extension token
+    // through verbatim, so a literal union would tell consumers a `switch` is
+    // exhaustive when it is not.
+    expectTypeOf<IsOptional<RouteAttachment, "disposition">>().toEqualTypeOf<false>();
+    expectTypeOf<RouteAttachment["disposition"]>().toEqualTypeOf<string>();
   });
 
   it("declares opened and clicked is_bot fields as optional booleans", () => {

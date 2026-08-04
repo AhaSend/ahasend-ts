@@ -31,7 +31,23 @@ export interface WebhookAdapterOptions {
  */
 export interface NodeStyleRequest {
   headers: Record<string, string | string[] | undefined>;
-  rawBody?: string | Buffer;
+  /**
+   * `Uint8Array` rather than `Buffer`, so the published declarations name
+   * nothing that only `@types/node` supplies. Supplying a `Buffer` still
+   * satisfies it.
+   *
+   * This is the one widening that is also visible in an output position: a
+   * handler receives its request typed as this interface, so `req.rawBody`
+   * arrives as `Uint8Array` and no longer goes straight into a parameter
+   * declared `Buffer`. Narrow with `Buffer.isBuffer(req.rawBody)`, or wrap the
+   * bytes without copying them:
+   * `Buffer.from(b.buffer, b.byteOffset, b.byteLength)`.
+   *
+   * Explicitly `| undefined` so that under `exactOptionalPropertyTypes` a
+   * consumer can forward a `Buffer | undefined` — the ordinary shape when a
+   * raw-body parser may or may not have run.
+   */
+  rawBody?: string | Uint8Array | undefined;
   body?: unknown;
   readableEnded?: boolean;
   on?(event: string, listener: (...args: unknown[]) => void): unknown;
@@ -45,7 +61,7 @@ export interface NodeStyleRequest {
 export interface NodeStyleResponse {
   statusCode?: number;
   writableEnded?: boolean;
-  end(payload?: string | Buffer): unknown;
+  end(payload?: string | Uint8Array): unknown;
 }
 
 /** Minimal Fastify reply shape. */
@@ -91,7 +107,7 @@ export function expressWebhookHandler(
   const adapterOptions = normalizeOptions(options);
 
   return async (req, res, next) => {
-    let rawBody: Buffer;
+    let rawBody: Uint8Array;
     try {
       const availableBody = pickNodeRawBody(req, adapterOptions.maxBodyBytes);
       rawBody = availableBody ?? (await readNodeRawBody(req, adapterOptions.maxBodyBytes));
@@ -146,7 +162,7 @@ export function fastifyWebhookHandler(
   const adapterOptions = normalizeOptions(options);
 
   return async (request, reply) => {
-    let rawBody: string | Buffer;
+    let rawBody: string | Uint8Array;
     try {
       rawBody = pickFastifyRawBody(request, adapterOptions.maxBodyBytes);
     } catch (error) {
@@ -255,11 +271,11 @@ function normalizeOptions(options: WebhookAdapterOptions): NormalizedAdapterOpti
   return { maxBodyBytes, onError: options.onError };
 }
 
-function pickNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Buffer | undefined {
-  if (req.rawBody !== undefined) return toBoundedBuffer(req.rawBody, maxBodyBytes);
+function pickNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Uint8Array | undefined {
+  if (req.rawBody !== undefined) return toBoundedBytes(req.rawBody, maxBodyBytes);
   if (req.body !== undefined) {
-    if (Buffer.isBuffer(req.body) || typeof req.body === "string") {
-      return toBoundedBuffer(req.body, maxBodyBytes);
+    if (isBytes(req.body) || typeof req.body === "string") {
+      return toBoundedBytes(req.body, maxBodyBytes);
     }
     throw new Error("Raw webhook body unavailable: configure a route-specific raw-body parser.");
   }
@@ -328,12 +344,12 @@ function readNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Promise<B
   });
 }
 
-function pickFastifyRawBody(request: NodeStyleRequest, maxBodyBytes: number): string | Buffer {
+function pickFastifyRawBody(request: NodeStyleRequest, maxBodyBytes: number): string | Uint8Array {
   if (request.rawBody !== undefined) {
     assertBodyWithinLimit(request.rawBody, maxBodyBytes);
     return request.rawBody;
   }
-  if (typeof request.body === "string" || Buffer.isBuffer(request.body)) {
+  if (typeof request.body === "string" || isBytes(request.body)) {
     assertBodyWithinLimit(request.body, maxBodyBytes);
     return request.body;
   }
@@ -367,13 +383,39 @@ async function readWebRawBody(request: Request, maxBodyBytes: number): Promise<B
   }
 }
 
-function toBoundedBuffer(body: string | Buffer, maxBodyBytes: number): Buffer {
-  assertBodyWithinLimit(body, maxBodyBytes);
-  return Buffer.isBuffer(body) ? body : Buffer.from(body, "utf-8");
+/**
+ * Byte-array test, replacing the `Buffer.isBuffer` gate that `rawBody`'s
+ * widening to `Uint8Array` outgrew.
+ *
+ * `instanceof Uint8Array` is the broader of the two and subsumes it: every
+ * `Buffer` this can reach is a `Uint8Array` in this realm. It is also the only
+ * one that accepts a `Buffer` delivered by `postMessage`, which arrives
+ * structured-cloned and reports `Buffer.isBuffer` false but `instanceof` true.
+ *
+ * A typed array built inside a `vm` context has neither this realm's `Buffer`
+ * nor its `Uint8Array` in its prototype chain, so it is refused here along with
+ * a `DataView` or an `Int8Array`, and the caller gets the "configure a
+ * route-specific raw-body parser" error. That is a conservative reading of an
+ * unrecognised `req.body`, not a safety property: the signature path itself
+ * handles all of those shapes correctly, and the same bytes arriving one field
+ * over in `req.rawBody` bypass this test and verify normally. Widening it is a
+ * behaviour change, not a bug fix — decide it on its own merits.
+ */
+function isBytes(value: unknown): value is Uint8Array {
+  return value instanceof Uint8Array;
 }
 
-function assertBodyWithinLimit(body: string | Buffer, maxBodyBytes: number): void {
-  const byteLength = typeof body === "string" ? Buffer.byteLength(body, "utf-8") : body.length;
+function toBoundedBytes(body: string | Uint8Array, maxBodyBytes: number): Uint8Array {
+  assertBodyWithinLimit(body, maxBodyBytes);
+  // A caller-supplied Uint8Array is handed on untouched: it is only read, so
+  // the copy the old code made bought nothing. Measured on a 30 MB body that
+  // copy costs about +29 MB and 10 ms — roughly half again the ~52 MB the
+  // decode and JSON.parse already cost, not a doubling of the whole request.
+  return typeof body === "string" ? Buffer.from(body, "utf-8") : body;
+}
+
+function assertBodyWithinLimit(body: string | Uint8Array, maxBodyBytes: number): void {
+  const byteLength = typeof body === "string" ? Buffer.byteLength(body, "utf-8") : body.byteLength;
   if (byteLength > maxBodyBytes) throw new BodyTooLargeError();
 }
 

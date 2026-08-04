@@ -2,13 +2,28 @@ import type { IdempotencyConfig, ResolvedIdempotencyConfig } from "./idempotency
 import { assertValidIdempotencyKey, resolveIdempotencyConfig } from "./idempotency.js";
 import { AhaSendConfigurationError } from "./errors.js";
 import type { RateLimitConfig, ResolvedRateLimitConfig } from "./rate-limit.js";
-import { MIN_REQUESTS_PER_SECOND, resolveRateLimitConfig } from "./rate-limit.js";
+import {
+  assertBurst,
+  assertMaxQueue,
+  assertRequestsPerSecond,
+  resolveRateLimitConfig,
+} from "./rate-limit.js";
 import type { ResolvedRetryConfig, RetryConfig } from "./retry.js";
 import { MAX_RETRIES, resolveRetryConfig } from "./retry.js";
 import type { ResolvedTelemetryHooks, TelemetryHooks } from "./telemetry.js";
 import { composeHooks, debugConsoleHooks, resolveTelemetryHooks } from "./telemetry.js";
 import type { IdempotencyRequestOptions, RequestOptions } from "./types/common.js";
 import { DEFAULT_USER_AGENT } from "./version.js";
+
+/**
+ * A `process.env`-shaped read-only lookup.
+ *
+ * Declared structurally rather than as `NodeJS.ProcessEnv` so the published
+ * declarations never name a type that only `@types/node` supplies. `process.env`
+ * satisfies this, as does any plain object of string values — which is also what
+ * makes {@link optionsFromEnv} testable without mutating the real environment.
+ */
+export type ProcessEnvLike = Readonly<Record<string, string | undefined>>;
 
 export const DEFAULT_BASE_URL = "https://api.ahasend.com";
 export const DEFAULT_TIMEOUT_MS = 30_000;
@@ -149,9 +164,9 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
     );
   }
 
-  assertHeaders(options.defaultHeaders, "defaultHeaders");
+  const defaultHeaders = assertHeaders(options.defaultHeaders, "defaultHeaders") ?? {};
   assertRetryConfig(options.retry);
-  assertRateLimitConfig(options.rateLimit);
+  const rateLimit = assertRateLimitConfig(options.rateLimit);
   assertTelemetryHooks(options.hooks);
 
   return {
@@ -161,17 +176,17 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
     userAgent,
     debug: options.debug ?? false,
     fetch: fetchImpl,
-    defaultHeaders: { ...(options.defaultHeaders ?? {}) },
+    defaultHeaders,
     idempotency: resolveIdempotencyConfig(options.idempotency),
     retry: resolveRetryConfig(options.retry),
-    rateLimit: resolveRateLimitConfig(options.rateLimit),
+    rateLimit: resolveRateLimitConfig(rateLimit),
     hooks: resolveTelemetryHooks(
       options.debug ? composeHooks(debugConsoleHooks(), options.hooks) : options.hooks,
     ),
   };
 }
 
-export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env): ClientOptions {
+export function optionsFromEnv(env: ProcessEnvLike = process.env): ClientOptions {
   const apiKey = env.AHASEND_API_KEY || env.AHASEND_TOKEN;
   if (!apiKey) {
     throw new AhaSendConfigurationError(
@@ -295,12 +310,21 @@ export function assertRequestRetryOverride(
 }
 
 /** @internal Validate caller headers and reject names owned by the SDK transport. */
+/**
+ * Validate a header record and return a plain snapshot of it.
+ *
+ * The snapshot is what callers must store. `assertPlainRecord` permits
+ * accessors, so validating the caller's object and then reading it again to
+ * copy it lets a getter return one value to the check and another to the
+ * store — which is how an unvalidated CRLF could reach the transport.
+ */
 export function assertHeaders(
   headers: unknown,
   name: string,
-): asserts headers is Readonly<Record<string, string>> {
-  if (headers === undefined) return;
+): Readonly<Record<string, string>> | undefined {
+  if (headers === undefined) return undefined;
   assertPlainRecord(headers, name);
+  const snapshot: Record<string, string> = {};
   for (const [headerName, value] of Object.entries(headers)) {
     if (!HEADER_NAME_PATTERN.test(headerName)) {
       throw new AhaSendConfigurationError(
@@ -316,7 +340,9 @@ export function assertHeaders(
         `AhaSend: \`${name}.${headerName}\` is controlled by the SDK transport or Fetch and cannot be overridden.`,
       );
     }
+    snapshot[headerName] = value;
   }
+  return snapshot;
 }
 
 function isControlledRequestHeader(name: string, value: string): boolean {
@@ -446,11 +472,23 @@ function assertRetryConfig(config: unknown, name = "retry", checkResolvedDelays 
   }
 }
 
-function assertRateLimitConfig(config: unknown): void {
-  if (config === undefined) return;
+/**
+ * Validate the rate-limit options and return a plain snapshot of them.
+ *
+ * The snapshot is what gets resolved. `assertPlainRecord` permits accessors, so
+ * reading a field again after validating it could install a value that never
+ * passed — returning the values read during validation closes that gap instead
+ * of trusting the caller's object to be stable.
+ */
+function assertRateLimitConfig(config: unknown): RateLimitConfig | undefined {
+  if (config === undefined) return undefined;
   assertPlainRecord(config, "rateLimit");
   assertKnownKeys(config, new Set(["enabled", "standard", "statistics"]), "rateLimit");
-  assertOptionalBoolean(config.enabled, "rateLimit.enabled");
+  const masterEnabled = config.enabled;
+  assertOptionalBoolean(masterEnabled, "rateLimit.enabled");
+  const snapshot: RateLimitConfig = {
+    ...(masterEnabled !== undefined ? { enabled: masterEnabled } : {}),
+  };
 
   for (const category of ["standard", "statistics"] as const) {
     const value = config[category];
@@ -458,30 +496,27 @@ function assertRateLimitConfig(config: unknown): void {
     assertPlainRecord(value, `rateLimit.${category}`);
     assertKnownKeys(
       value,
-      new Set(["enabled", "requestsPerSecond", "burst"]),
+      new Set(["enabled", "requestsPerSecond", "burst", "maxQueue"]),
       `rateLimit.${category}`,
     );
-    assertOptionalBoolean(value.enabled, `rateLimit.${category}.enabled`);
-    if (value.requestsPerSecond !== undefined) {
-      assertPositiveFiniteNumber(
-        value.requestsPerSecond,
-        `rateLimit.${category}.requestsPerSecond`,
-      );
-      if (value.requestsPerSecond < MIN_REQUESTS_PER_SECOND) {
-        throw new AhaSendConfigurationError(
-          `AhaSend: \`rateLimit.${category}.requestsPerSecond\` must be greater than or equal to ${MIN_REQUESTS_PER_SECOND}.`,
-        );
-      }
+    // Read each value once and validate the snapshot, not the source object.
+    const { enabled, requestsPerSecond, burst, maxQueue } = value;
+    assertOptionalBoolean(enabled, `rateLimit.${category}.enabled`);
+    if (requestsPerSecond !== undefined) {
+      assertRequestsPerSecond(requestsPerSecond, `rateLimit.${category}.requestsPerSecond`);
     }
-    if (value.burst !== undefined) {
-      assertPositiveFiniteNumber(value.burst, `rateLimit.${category}.burst`);
-      if (value.burst < 1) {
-        throw new AhaSendConfigurationError(
-          `AhaSend: \`rateLimit.${category}.burst\` must be greater than or equal to 1.`,
-        );
-      }
-    }
+    if (burst !== undefined) assertBurst(burst, `rateLimit.${category}.burst`);
+    if (maxQueue !== undefined) assertMaxQueue(maxQueue, `rateLimit.${category}.maxQueue`);
+
+    snapshot[category] = {
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(requestsPerSecond !== undefined ? { requestsPerSecond } : {}),
+      ...(burst !== undefined ? { burst } : {}),
+      ...(maxQueue !== undefined ? { maxQueue } : {}),
+    };
   }
+
+  return snapshot;
 }
 
 function assertTelemetryHooks(hooks: unknown): void {
@@ -542,7 +577,7 @@ function assertHeaderValue(value: string, name: string): void {
   }
 }
 
-function assertOptionalBoolean(value: unknown, name: string): void {
+function assertOptionalBoolean(value: unknown, name: string): asserts value is boolean | undefined {
   if (value !== undefined && typeof value !== "boolean") {
     throw new AhaSendConfigurationError(`AhaSend: \`${name}\` must be a boolean.`);
   }

@@ -8,7 +8,7 @@ import {
   optionsFromEnv,
   resolveConfig,
 } from "../src/config.js";
-import { MIN_REQUESTS_PER_SECOND } from "../src/rate-limit.js";
+import { DEFAULT_MAX_QUEUE, MIN_REQUESTS_PER_SECOND } from "../src/rate-limit.js";
 import { MAX_RETRIES } from "../src/retry.js";
 
 function renderErrorDiagnostics(error: unknown): string[] {
@@ -69,8 +69,13 @@ describe("resolveConfig", () => {
 
     expect(resolved.rateLimit).toEqual({
       enabled: true,
-      standard: { requestsPerSecond: 50, burst: 200, enabled: true },
-      statistics: { requestsPerSecond: 1, burst: 1, enabled: false },
+      standard: { requestsPerSecond: 50, burst: 200, enabled: true, maxQueue: DEFAULT_MAX_QUEUE },
+      statistics: {
+        requestsPerSecond: 1,
+        burst: 1,
+        enabled: false,
+        maxQueue: DEFAULT_MAX_QUEUE,
+      },
     });
   });
 
@@ -78,6 +83,55 @@ describe("resolveConfig", () => {
     expect(() =>
       resolveConfig({ apiKey: "aha-sk-test", rateLimit: { [key]: {} } } as never),
     ).toThrow(/unknown .* option/i);
+  });
+
+  // Every rule below was deletable with a green suite: the option had only
+  // positive-path coverage, so nothing pinned what it refuses.
+  it.each([
+    ["zero", 0],
+    ["negative", -1],
+    ["fractional", 0.5],
+    ["not a number", "5"],
+    ["NaN", Number.NaN],
+    ["infinite", Number.POSITIVE_INFINITY],
+    // Number.isInteger(Number.MAX_VALUE) is true, so an integer check alone
+    // lets a value through that stops behaving like a count and silently
+    // removes the bound this option exists to provide.
+    ["beyond safe-integer range", Number.MAX_VALUE],
+    ["exactly 2^53", 2 ** 53],
+  ])("rejects a %s maxQueue", (_label, maxQueue) => {
+    expect(() =>
+      resolveConfig({
+        apiKey: "aha-sk-test",
+        rateLimit: { standard: { maxQueue } as never },
+      }),
+    ).toThrow(/maxQueue.*safe integer greater than or equal to 1/i);
+  });
+
+  it.each(["standard", "statistics"] as const)("accepts a usable %s maxQueue", (category) => {
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      rateLimit: { [category]: { maxQueue: 25 } },
+    });
+    expect(resolved.rateLimit[category].maxQueue).toBe(25);
+  });
+
+  it("validates the value it installs, not one a getter showed it", () => {
+    // assertPlainRecord permits accessors, so reading the field more than once
+    // would let a changing getter install a value that never passed.
+    let reads = 0;
+    const category = {
+      get maxQueue() {
+        reads += 1;
+        return reads > 1 ? Number.NaN : 25;
+      },
+    };
+
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      rateLimit: { standard: category as never },
+    });
+    expect(resolved.rateLimit.standard.maxQueue).toBe(25);
   });
 
   it.each(["standard", "statistics"] as const)(
@@ -825,5 +879,37 @@ describe("optionsFromEnv", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("header snapshot integrity", () => {
+  it("stores the value it validated, not one a getter showed it", () => {
+    // assertPlainRecord permits accessors, so validating the caller's object
+    // and then re-reading it to copy let a getter return one value to the
+    // check and another to the store — putting an unvalidated CRLF into a
+    // request header. Only the pre-flight Request caught it, and that is now
+    // skipped where the runtime has no Request constructor.
+    let reads = 0;
+    const resolved = resolveConfig({
+      apiKey: "aha-sk-test",
+      defaultHeaders: {
+        get "x-trace"() {
+          reads += 1;
+          return reads > 1 ? "injected\r\nx-evil: 1" : "safe";
+        },
+      },
+    });
+
+    expect(resolved.defaultHeaders["x-trace"]).toBe("safe");
+    expect(reads).toBe(1);
+  });
+
+  it("still rejects a header value that cannot appear in a request", () => {
+    expect(() =>
+      resolveConfig({
+        apiKey: "aha-sk-test",
+        defaultHeaders: { "x-trace": "bad\r\nx-evil: 1" },
+      }),
+    ).toThrow(/invalid in an HTTP header/i);
   });
 });

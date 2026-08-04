@@ -125,9 +125,10 @@ export class AhaSendClient {
     get accounts(): Readonly<AccountsClient>;
     get apiKeys(): Readonly<APIKeysClient>;
     get domains(): Readonly<DomainsClient>;
-    static fromEnv(env?: NodeJS.ProcessEnv): AhaSendClient;
+    static fromEnv(env?: ProcessEnvLike): AhaSendClient;
     get messages(): Readonly<MessagesClient>;
     ping(options?: RequestOptions): AhaSendPromise<PingResponse>;
+    get rateLimiter(): Readonly<RateLimiterController>;
     get routes(): Readonly<RoutesClient>;
     get smtpCredentials(): Readonly<SMTPCredentialsClient>;
     get statistics(): Readonly<StatisticsClient>;
@@ -175,11 +176,11 @@ export class AhaSendError extends Error {
     readonly code: AhaSendErrorCode;
     static is(value: unknown): value is AhaSendError;
     // (undocumented)
-    toJSON(): SerializedAhaSendError;
+    toJSON(depth?: number): SerializedAhaSendError;
 }
 
 // @public (undocumented)
-export type AhaSendErrorCode = "ahasend_error" | "configuration_error" | "connection_error" | "abort_error" | "timeout_error" | "response_parse_error" | "api_error" | "authentication_error" | "permission_error" | "not_found_error" | "bad_request_error" | "conflict_error" | "idempotency_conflict_error" | "unprocessable_entity_error" | "idempotency_mismatch_error" | "rate_limit_error" | "server_error" | "webhook_verification_error";
+export type AhaSendErrorCode = "ahasend_error" | "configuration_error" | "connection_error" | "abort_error" | "timeout_error" | "response_parse_error" | "api_error" | "authentication_error" | "permission_error" | "not_found_error" | "bad_request_error" | "conflict_error" | "idempotency_conflict_error" | "unprocessable_entity_error" | "idempotency_mismatch_error" | "rate_limit_error" | "rate_limit_queue_full_error" | "response_too_large_error" | "server_error" | "webhook_verification_error";
 
 // @public
 export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
@@ -255,6 +256,13 @@ export class AhaSendRateLimitError extends AhaSendAPIError {
     readonly retryAfterSeconds: number | undefined;
 }
 
+// @public
+export class AhaSendRateLimitQueueFullError extends AhaSendError {
+    constructor(category: RateLimitCategory, maxQueue: number, cause?: unknown);
+    readonly category: RateLimitCategory;
+    readonly maxQueue: number;
+}
+
 // @public (undocumented)
 export interface AhaSendResponse<T> {
     // (undocumented)
@@ -281,6 +289,12 @@ export class AhaSendResponseParseError extends AhaSendError {
     readonly requestId: string | undefined;
     // (undocumented)
     readonly status: number;
+}
+
+// @public
+export class AhaSendResponseTooLargeError extends AhaSendError {
+    constructor(maxBytes: number, method: string, path: string);
+    readonly maxBytes: number;
 }
 
 // @public
@@ -414,6 +428,7 @@ export interface CategoryRateLimit {
     burst: number;
     // (undocumented)
     enabled?: boolean | undefined;
+    maxQueue?: number | undefined;
     // (undocumented)
     requestsPerSecond: number;
 }
@@ -641,6 +656,9 @@ export type CreateWebhookRequest = {
     scope: "scoped";
     domains: readonly string[];
 });
+
+// @public
+export const DEFAULT_MAX_QUEUE = 1000;
 
 // @public (undocumented)
 export interface DeleteSuppressionParams {
@@ -994,7 +1012,7 @@ export interface MessageSummary {
 }
 
 // @public (undocumented)
-export function optionsFromEnv(env?: NodeJS.ProcessEnv): ClientOptions;
+export function optionsFromEnv(env?: ProcessEnvLike): ClientOptions;
 
 // @public (undocumented)
 export interface PaginatedResponse<T> {
@@ -1032,6 +1050,12 @@ export interface PingResponse {
     message: string;
 }
 
+// @public
+export type ProcessEnvLike = Readonly<Record<string, string | undefined>>;
+
+// @public
+export type RateLimitCategory = "standard" | "statistics";
+
 // @public (undocumented)
 export interface RateLimitConfig {
     // (undocumented)
@@ -1040,6 +1064,38 @@ export interface RateLimitConfig {
     standard?: Partial<CategoryRateLimit> | undefined;
     // (undocumented)
     statistics?: Partial<CategoryRateLimit> | undefined;
+}
+
+// @public
+export interface RateLimiterController {
+    available(category: RateLimitCategory): number;
+    getLimit(category: RateLimitCategory): RateLimitSnapshot;
+    isCategoryEnabled(category: RateLimitCategory): boolean;
+    isEnabled(): boolean;
+    setCategoryEnabled(category: RateLimitCategory, enabled: boolean): void;
+    setEnabled(enabled: boolean): void;
+    setLimit(category: RateLimitCategory, limit: RateLimitSetting): void;
+}
+
+// @public
+export interface RateLimitSetting {
+    // (undocumented)
+    burst?: number | undefined;
+    // (undocumented)
+    maxQueue?: number | undefined;
+    // (undocumented)
+    requestsPerSecond?: number | undefined;
+}
+
+// @public
+export interface RateLimitSnapshot {
+    // (undocumented)
+    burst: number;
+    enabled: boolean;
+    // (undocumented)
+    maxQueue: number;
+    // (undocumented)
+    requestsPerSecond: number;
 }
 
 // @public
@@ -1200,11 +1256,17 @@ export interface SerializedAhaSendError {
     // (undocumented)
     body?: "[REDACTED]";
     // (undocumented)
-    cause?: "[REDACTED]";
+    category?: string;
+    // (undocumented)
+    cause?: "[REDACTED]" | SerializedAhaSendError;
     // (undocumented)
     code: AhaSendErrorCode;
     // (undocumented)
     headers?: "[REDACTED]";
+    // (undocumented)
+    maxBytes?: number;
+    // (undocumented)
+    maxQueue?: number;
     // (undocumented)
     message: string;
     // (undocumented)

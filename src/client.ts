@@ -1,7 +1,9 @@
-import type { ClientOptions } from "./config.js";
+import type { ClientOptions, ProcessEnvLike } from "./config.js";
 import { assertPlainRecord, optionsFromEnv, resolveConfig } from "./config.js";
 import { AhaSendConfigurationError } from "./errors.js";
 import { HttpClient } from "./http.js";
+import { createRateLimiterController } from "./rate-limit.js";
+import type { RateLimiterController } from "./rate-limit.js";
 import { OperationExecutor } from "./operations.js";
 import { createAccountsClient } from "./resources/accounts.js";
 import type { AccountsClient } from "./resources/accounts.js";
@@ -80,6 +82,7 @@ export class AhaSendClient {
   readonly #accounts: Readonly<AccountsClient>;
   readonly #smtpCredentials: Readonly<SMTPCredentialsClient>;
   readonly #subAccounts: Readonly<SubAccountsClient>;
+  readonly #rateLimiter: Readonly<RateLimiterController>;
 
   /** Create a server-side client bound to `options.accountId`. */
   constructor(options: AhaSendClientOptions) {
@@ -124,6 +127,7 @@ export class AhaSendClient {
       createSMTPCredentialsClient(this.#operations, accountId),
     );
     this.#subAccounts = createFrozenFacade(createSubAccountsClient(this.#operations, accountId));
+    this.#rateLimiter = createRateLimiterController(this.#http.rateLimiter);
   }
 
   /** Account ID used by every account-scoped resource facade. */
@@ -182,12 +186,23 @@ export class AhaSendClient {
   }
 
   /**
+   * Runtime control over local rate pacing.
+   *
+   * Pacing is off unless `rateLimit.enabled` was set at construction; this
+   * controller can turn it on later, adjust either bucket, and read remaining
+   * tokens. It is process-local — see `docs/rate-pacing.md`.
+   */
+  get rateLimiter(): Readonly<RateLimiterController> {
+    return this.#rateLimiter;
+  }
+
+  /**
    * Construct a client from `AHASEND_*` environment variables.
    * Requires `AHASEND_API_KEY` (or `AHASEND_TOKEN`) and
    * `AHASEND_ACCOUNT_ID`; honours every other documented variable
    * (base URL, timeout, retries, rate limit, idempotency, debug).
    */
-  static fromEnv(env: NodeJS.ProcessEnv = process.env): AhaSendClient {
+  static fromEnv(env: ProcessEnvLike = process.env): AhaSendClient {
     const base = optionsFromEnv(env);
     const accountId = env.AHASEND_ACCOUNT_ID;
     if (!accountId) {

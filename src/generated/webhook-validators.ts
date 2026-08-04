@@ -44,7 +44,7 @@ const EVENT_SCHEMAS = {
 const SCHEMAS = {
   MessageWebhookPayload: {
     type: "object",
-    required: ["type", "timestamp", "data"],
+    required: ["type", "webhook_id", "timestamp", "data"],
     properties: {
       type: {
         type: "string",
@@ -179,7 +179,7 @@ const SCHEMAS = {
   },
   MessageClickedWebhookPayload: {
     type: "object",
-    required: ["type", "timestamp", "data"],
+    required: ["type", "webhook_id", "timestamp", "data"],
     properties: {
       type: {
         type: "string",
@@ -298,7 +298,7 @@ const SCHEMAS = {
   },
   SuppressionWebhookPayload: {
     type: "object",
-    required: ["type", "timestamp", "data"],
+    required: ["type", "webhook_id", "timestamp", "data"],
     properties: {
       type: {
         type: "string",
@@ -346,7 +346,7 @@ const SCHEMAS = {
   },
   DomainWebhookPayload: {
     type: "object",
-    required: ["type", "timestamp", "data"],
+    required: ["type", "webhook_id", "timestamp", "data"],
     properties: {
       type: {
         type: "string",
@@ -424,13 +424,22 @@ const SCHEMAS = {
     required: [
       "id",
       "from",
+      "reply_to",
       "to",
       "subject",
       "message_id",
       "size",
+      "spam_score",
       "bounce",
+      "cc",
+      "date",
+      "in_reply_to",
+      "references",
+      "auto_submitted",
       "html_body",
       "plain_body",
+      "reply_from_plain_body",
+      "attachments",
     ],
     properties: {
       id: {
@@ -501,7 +510,7 @@ const SCHEMAS = {
   },
   RouteAttachment: {
     type: "object",
-    required: ["filename", "content_type", "data"],
+    required: ["filename", "content_type", "content_id", "disposition", "data"],
     properties: {
       filename: {
         type: "string",
@@ -510,6 +519,9 @@ const SCHEMAS = {
         type: "string",
       },
       content_id: {
+        type: "string",
+      },
+      disposition: {
         type: "string",
       },
       data: {

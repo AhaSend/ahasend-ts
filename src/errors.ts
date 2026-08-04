@@ -1,7 +1,13 @@
 import type { IdempotencyExecutionRecord } from "./idempotency.js";
+// Type-only: erased at build time, so this does not create a runtime cycle with
+// rate-limit.ts, which imports this module's error classes.
+import type { RateLimitCategory } from "./rate-limit.js";
 
 const AHASEND_ERROR_BRAND = Symbol.for("@ahasend/sdk.error");
 const INSPECT_CUSTOM = Symbol.for("nodejs.util.inspect.custom");
+/** Depth past which a `cause` chain is redacted rather than followed. */
+const MAX_CAUSE_DEPTH = 4;
+
 const REDACTED = "[REDACTED]" as const;
 const HTTP_MONTHS: readonly string[] = [
   "Jan",
@@ -45,6 +51,8 @@ export type AhaSendErrorCode =
   | "unprocessable_entity_error"
   | "idempotency_mismatch_error"
   | "rate_limit_error"
+  | "rate_limit_queue_full_error"
+  | "response_too_large_error"
   | "server_error"
   | "webhook_verification_error";
 
@@ -74,9 +82,12 @@ export interface SerializedAhaSendError {
   requestId?: string;
   retryAfterSeconds?: number;
   reason?: string;
+  category?: string;
+  maxQueue?: number;
+  maxBytes?: number;
   body?: "[REDACTED]";
   headers?: "[REDACTED]";
-  cause?: "[REDACTED]";
+  cause?: "[REDACTED]" | SerializedAhaSendError;
 }
 
 export type WebhookVerificationReason =
@@ -109,7 +120,7 @@ export class AhaSendError extends Error {
     if (cause !== undefined) defineHidden(this, "cause", cause);
   }
 
-  toJSON(): SerializedAhaSendError {
+  toJSON(depth = 0): SerializedAhaSendError {
     const serialized: SerializedAhaSendError = {
       name: this.name,
       code: this.code,
@@ -119,9 +130,21 @@ export class AhaSendError extends Error {
     copySafeString(this, serialized, "requestId");
     copySafeNumber(this, serialized, "retryAfterSeconds");
     copySafeString(this, serialized, "reason");
+    copySafeString(this, serialized, "category");
+    copySafeNumber(this, serialized, "maxQueue");
+    copySafeNumber(this, serialized, "maxBytes");
     if ("body" in this) serialized.body = REDACTED;
     if ("headers" in this) serialized.headers = REDACTED;
-    if ("cause" in this) serialized.cause = REDACTED;
+    if ("cause" in this) {
+      // A cause is redacted because it usually holds a transport object whose
+      // contents are unreviewed. Another SDK error is not that: its own
+      // toJSON() is already redaction-safe, and hiding it loses the only
+      // record of what happened first — a retry-time pacing refusal, for
+      // instance, would otherwise report nothing about the API error that
+      // caused the retry.
+      const cause: unknown = (this as { cause?: unknown }).cause;
+      serialized.cause = serializeCause(cause, depth);
+    }
     return serialized;
   }
 }
@@ -164,10 +187,33 @@ export class AhaSendAbortError extends AhaSendError {
   }
 }
 
-/** @internal The local pacing queue cannot retain another acquisition. */
+/**
+ * Local pacing refused a call because its bucket already has `maxQueue` calls
+ * waiting. Raised only when `rateLimit.enabled` is set — it is a client-side
+ * backpressure signal, not a server 429 (that is {@link AhaSendRateLimitError}).
+ *
+ * The cap bounds memory for a client that is offered work faster than its
+ * configured rate drains it. Reaching it means the offered load exceeds the
+ * configured rate by more than the queue can absorb, so the fixes are to raise
+ * `rateLimit.<category>.maxQueue`, raise the rate, or apply backpressure
+ * upstream — retrying immediately will not help.
+ */
 export class AhaSendRateLimitQueueFullError extends AhaSendError {
-  constructor() {
-    super("Rate limiter queue is full");
+  /** Bucket that refused the call. Survives `toJSON()` for log aggregation. */
+  public readonly category!: RateLimitCategory;
+  /** Value of `maxQueue` for that bucket at the time of the refusal. */
+  public readonly maxQueue!: number;
+
+  constructor(category: RateLimitCategory, maxQueue: number, cause?: unknown) {
+    super(
+      `AhaSend: local rate pacing refused the call — the ${category} queue is full ` +
+        `(${String(maxQueue)} waiting). Raise \`rateLimit.${category}.maxQueue\`, raise the ` +
+        `rate, or slow the caller.`,
+      cause,
+    );
+    defineHidden(this, "code", "rate_limit_queue_full_error");
+    defineHidden(this, "category", category);
+    defineHidden(this, "maxQueue", maxQueue);
   }
 }
 
@@ -176,6 +222,30 @@ export class AhaSendTimeoutError extends AhaSendConnectionError {
   constructor(message = "Request timed out", cause?: unknown) {
     super(message, cause);
     defineHidden(this, "code", "timeout_error");
+  }
+}
+
+/**
+ * A response body exceeded the transport's byte ceiling and was abandoned
+ * mid-read.
+ *
+ * Deliberately not retryable: the response was received, so re-requesting can
+ * only reproduce it. A compressed body is counted after decompression, so this
+ * also bounds a decompression bomb — a few hundred kilobytes on the wire can
+ * otherwise inflate to hundreds of megabytes, and without a ceiling the retry
+ * policy would repeat that several times over.
+ */
+export class AhaSendResponseTooLargeError extends AhaSendError {
+  /** Ceiling that was exceeded, in bytes. */
+  public readonly maxBytes!: number;
+
+  constructor(maxBytes: number, method: string, path: string) {
+    super(
+      `AhaSend: the response body for ${method} ${path} exceeded the ${String(maxBytes)}-byte ` +
+        `limit and was discarded.`,
+    );
+    defineHidden(this, "code", "response_too_large_error");
+    defineHidden(this, "maxBytes", maxBytes);
   }
 }
 
@@ -454,10 +524,66 @@ export function createApiError(params: {
   return new AhaSendAPIError(base);
 }
 
+/**
+ * Longest error message derived from a response body.
+ *
+ * A non-JSON error body is whatever sat in front of the API — a proxy's HTML
+ * page, a load balancer's plaintext. Using it verbatim made `error.message`
+ * grow to the size of that page, and the message is repeated per retry attempt
+ * and printed by every default logger, so one 502 could emit hundreds of
+ * kilobytes. The full body remains on `error.body`.
+ */
+const MAX_DERIVED_MESSAGE_LENGTH = 200;
+
 function extractMessage(body: ApiErrorBody | string | null): string | undefined {
-  if (typeof body === "string") return body.length > 0 ? body : undefined;
-  if (body && typeof body === "object" && typeof body.message === "string") return body.message;
+  if (typeof body === "string") return truncateMessage(body);
+  if (body && typeof body === "object" && typeof body.message === "string") {
+    return truncateMessage(body.message);
+  }
   return undefined;
+}
+
+/**
+ * Reduce a server-supplied string to something safe to put in `error.message`.
+ *
+ * Returns `undefined` when nothing survives, so the caller's status fallback
+ * still applies — a body of a bare newline or a lone BOM is common from
+ * misconfigured intermediaries, and an empty message would otherwise replace
+ * `AhaSend API error (HTTP 502)` with nothing at all.
+ */
+function truncateMessage(value: string): string | undefined {
+  // Control and formatting characters go first, and cannot be left to the
+  // whitespace pass: JavaScript's `\s` covers only the whitespace C0 controls
+  // (TAB, LF, VT, FF, CR) — not ESC, BEL or NUL, and not NEL or the bidi
+  // overrides, none of which it matches. Left in, a proxy's error
+  // page could carry terminal escape sequences into `console.error` through
+  // the debug logger — clearing the screen, or reversing the rest of the line.
+  // Scan only a bounded prefix. Collapsing the whole body allocated a
+  // near-full-size copy, and the sliced result then PINNED it — V8 keeps a
+  // slice as a view over its parent — so a 229-character message retained the
+  // entire page a second time, on top of `error.body`. Measured on a 371 KB
+  // 502: 6.1 MB retained across 20 errors and 3.9 ms each, against ~0 and
+  // 0.22 ms once bounded. The budget here is 32x the output, so even a heavily
+  // indented page still yields a full-length message.
+  const source =
+    value.length > MAX_DERIVED_MESSAGE_LENGTH * 32
+      ? value.slice(0, MAX_DERIVED_MESSAGE_LENGTH * 32)
+      : value;
+  const collapsed = source
+    .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+    // Then collapse: an HTML page is mostly newlines and indentation, so a raw
+    // slice would spend the budget on whitespace and span many log lines.
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (collapsed.length === 0) return undefined;
+  if (collapsed.length <= MAX_DERIVED_MESSAGE_LENGTH) return collapsed;
+
+  let cut = collapsed.slice(0, MAX_DERIVED_MESSAGE_LENGTH);
+  // Never end on half a surrogate pair. A lone surrogate is lossy through
+  // UTF-8 — it becomes U+FFFD on the wire — and strict JSON readers reject the
+  // unpaired escape outright, so a log line can be dropped rather than shortened.
+  if (/[\uD800-\uDBFF]$/u.test(cut)) cut = cut.slice(0, -1);
+  return `${cut}… (truncated; full text on the caught error\u2019s \`body\`, not in logs)`;
 }
 
 /** @internal Parse a Retry-After value for retry timing policy. */
@@ -607,10 +733,31 @@ function defineHidden(target: object, key: PropertyKey, value: unknown): void {
   });
 }
 
+/**
+ * Serialise an error's `cause`, or redact it.
+ *
+ * Everything here is defensive because this runs inside a consumer's `catch`
+ * and inside their logger: a serializer that throws turns a handled failure
+ * into an unhandled crash in the handler meant to contain it. The brand is a
+ * global-registry symbol that any code can set, so a branded value is not
+ * guaranteed to have `toJSON`, and a `cause` chain is not guaranteed acyclic.
+ */
+function serializeCause(cause: unknown, depth: number): SerializedAhaSendError | "[REDACTED]" {
+  if (depth >= MAX_CAUSE_DEPTH) return REDACTED;
+  if (!isAhaSendError(cause)) return REDACTED;
+  const serialize = (cause as { toJSON?: unknown }).toJSON;
+  if (typeof serialize !== "function") return REDACTED;
+  try {
+    return (cause as { toJSON: (depth: number) => SerializedAhaSendError }).toJSON(depth + 1);
+  } catch {
+    return REDACTED;
+  }
+}
+
 function copySafeString(
   source: object,
   target: SerializedAhaSendError,
-  key: "requestId" | "reason",
+  key: "requestId" | "reason" | "category",
 ): void {
   const value = (source as Record<typeof key, unknown>)[key];
   if (typeof value === "string") target[key] = value;
@@ -619,7 +766,7 @@ function copySafeString(
 function copySafeNumber(
   source: object,
   target: SerializedAhaSendError,
-  key: "status" | "retryAfterSeconds",
+  key: "status" | "retryAfterSeconds" | "maxQueue" | "maxBytes",
 ): void {
   const value = (source as Record<typeof key, unknown>)[key];
   if (typeof value === "number") target[key] = value;

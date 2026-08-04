@@ -18,7 +18,15 @@ import {
   AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
 } from "@ahasend/sdk";
-import type { ExpressHandler, FastifyHandler, NextHandler } from "@ahasend/sdk/webhooks";
+import { optionsFromEnv } from "@ahasend/sdk";
+import type {
+  ExpressHandler,
+  FastifyHandler,
+  NextHandler,
+  NodeStyleRequest,
+  NodeStyleResponse,
+  WebhookRawBody,
+} from "@ahasend/sdk/webhooks";
 import { AhaSendWebhookVerificationError, WebhookVerifier } from "@ahasend/sdk/webhooks";
 
 declare const client: SDK.AhaSendClient;
@@ -489,6 +497,27 @@ const nextHandler: NextHandler = (event, request) => {
 };
 
 void [expressHandler, fastifyHandler, nextHandler, new WebhookVerifier("whsec_dGVzdA==")];
+
+// The declarations no longer name `Buffer` or `NodeJS.ProcessEnv` (see the
+// types-no-node fixture, which compiles them with no @types/node installed).
+// Widening them is only correct if what a Node consumer actually holds still
+// flows through: a real Buffer for raw bodies, and the real process.env.
+const bufferRawBody: WebhookRawBody = Buffer.from("{}", "utf-8");
+const bufferRequest: NodeStyleRequest = { headers: {}, rawBody: Buffer.from("{}", "utf-8") };
+const bufferResponse: NodeStyleResponse = { end: (payload?: string | Buffer) => payload };
+const envOptions: SDK.ClientOptions = optionsFromEnv(process.env);
+void [bufferRawBody, bufferRequest, bufferResponse, envOptions];
+
+// `rawBody` is the one widening a handler also RECEIVES, so inside a handler it
+// arrives as `Uint8Array` and no longer passes straight into a `Buffer`
+// parameter. Both documented recoveries are pinned here.
+declare function acceptsBuffer(value: Buffer): void;
+const rawBodyRecovery: ExpressHandler = (_event, req) => {
+  if (req.rawBody === undefined || typeof req.rawBody === "string") return;
+  if (Buffer.isBuffer(req.rawBody)) acceptsBuffer(req.rawBody);
+  acceptsBuffer(Buffer.from(req.rawBody.buffer, req.rawBody.byteOffset, req.rawBody.byteLength));
+};
+void rawBodyRecovery;
 
 const apiErrorParams = { status: 400, message: "failed", body: null };
 void new AhaSendError("failed");

@@ -21,6 +21,7 @@ import {
   AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
   AhaSendWebhookVerificationError,
+  AhaSendRateLimitQueueFullError,
   createApiError,
   isAhaSendError,
 } from "../src/errors.js";
@@ -525,5 +526,201 @@ describe("AhaSend error contract", () => {
 
   it("shares the webhook error constructor between the core source and webhook entry", () => {
     expect(WebhookEntryError).toBe(AhaSendWebhookVerificationError);
+  });
+});
+
+describe("error messages derived from a response body", () => {
+  // A non-JSON error body is whatever sat in front of the API. Using it
+  // verbatim made `error.message` as large as that page — repeated per retry
+  // attempt and printed by every default logger.
+  it("bounds a large non-JSON body without discarding it", () => {
+    const page = `<!DOCTYPE html>\n<html>\n  <head>\n    <title>502 Bad Gateway</title>\n  </head>\n  <body>${"x".repeat(300_000)}</body>\n</html>`;
+    const error = createApiError({ status: 502, body: page, headers: {} });
+
+    expect(page.length).toBeGreaterThan(200_000);
+    // Exact, not "under 300": 200 characters plus the marker.
+    expect(error.message).toHaveLength(266);
+    expect(error.message.endsWith("not in logs)")).toBe(true);
+    // The identifying part of the page survives the truncation.
+    expect(error.message).toContain("502 Bad Gateway");
+    expect(error.message).toContain("truncated");
+    // Nothing is lost: the full body is still on the error.
+    expect(error.body).toBe(page);
+  });
+
+  it("collapses whitespace so a message cannot span log lines", () => {
+    const error = createApiError({
+      status: 502,
+      body: "upstream\n\n  failed\ton\r\n  gateway",
+      headers: {},
+    });
+
+    expect(error.message).toBe("upstream failed on gateway");
+    expect(error.message).not.toMatch(/[\n\r\t]/u);
+  });
+
+  it("passes a short body through unchanged", () => {
+    expect(createApiError({ status: 502, body: "Bad Gateway", headers: {} }).message).toBe(
+      "Bad Gateway",
+    );
+  });
+
+  it("bounds a structured API message too", () => {
+    // The JSON `message` field is the API's own contract, but a broken or
+    // hostile upstream can still make it enormous.
+    const error = createApiError({
+      status: 422,
+      body: { message: "z".repeat(10_000) },
+      headers: {},
+    });
+
+    expect(error.message).toHaveLength(266);
+  });
+
+  it.each([
+    ["a bare newline", "\n"],
+    ["spaces and tabs", "   \n\t "],
+    ["a lone byte-order mark", "\uFEFF"],
+    ["a blank structured message", { message: "   " }],
+    ["an empty structured message", { message: "" }],
+  ])("falls back to the status message when the body is %s", (_label, body) => {
+    // These arrive from misconfigured intermediaries all the time. Collapsing
+    // them to "" and returning it would satisfy the `??` fallback's nullish
+    // check without satisfying its purpose, leaving an error whose message is
+    // the empty string.
+    expect(createApiError({ status: 502, body: body as string, headers: {} }).message).toBe(
+      "AhaSend API error (HTTP 502)",
+    );
+  });
+
+  it("strips control and formatting characters a whitespace pass would miss", () => {
+    // `\s` matches neither the C0 controls nor NEL nor the bidi overrides, so
+    // an intermediary's error page could otherwise carry terminal escape
+    // sequences into console.error through the debug logger.
+    const hostile = "\u001b[2J\u001b[1;1Hlooks official\u0007\u0000 \u0085 next \u202e reversed";
+    const message = createApiError({ status: 502, body: hostile, headers: {} }).message;
+
+    for (const control of ["\u001b", "\u0007", "\u0000", "\u0085", "\u202e"]) {
+      expect(message, control).not.toContain(control);
+    }
+    expect(message).toContain("looks official");
+  });
+
+  it("never truncates onto half a surrogate pair", () => {
+    // A cut mid-pair is lossy through UTF-8 (the half becomes U+FFFD) and
+    // strict JSON readers reject the unpaired escape, so the log line is
+    // dropped rather than shortened.
+    const message = createApiError({
+      status: 502,
+      body: `Blocked: ${"\u{1F4A5}".repeat(400)}`,
+      headers: {},
+    }).message;
+
+    // No unpaired surrogate: a high surrogate not followed by a low one, or a
+    // low surrogate not preceded by a high one.
+    expect(message).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u);
+    expect(message).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u);
+    // The practical consequence: a lone surrogate does not survive UTF-8.
+    expect(Buffer.from(message, "utf8").toString("utf8")).toBe(message);
+  });
+
+  it.each([
+    [199, false],
+    [200, false],
+    [201, true],
+  ])("truncates a %i-character body: %s", (length, truncated) => {
+    const message = createApiError({
+      status: 502,
+      body: "a".repeat(length),
+      headers: {},
+    }).message;
+
+    expect(message.includes("truncated")).toBe(truncated);
+    expect(message).toHaveLength(truncated ? 266 : length);
+  });
+
+  it("scans only a bounded prefix of the body", () => {
+    // Collapsing the whole body allocated a near-full-size copy, and the
+    // sliced result PINNED it — V8 keeps a slice as a view over its parent —
+    // so a 229-character message retained the page a second time on top of
+    // `error.body`. Measured on a 371 KB 502: 6.5 MB retained across 20 errors
+    // and 2.5 ms each, against 0.5 MB and 0.09 ms once bounded.
+    //
+    // The trade-off, pinned here so it is a decision rather than a surprise:
+    // content sitting past the scan budget is not found. Only a body that is
+    // almost entirely leading whitespace can hit this.
+    const beyondBudget = `${" ".repeat(200 * 32 + 10)}the real error text`;
+    expect(createApiError({ status: 502, body: beyondBudget, headers: {} }).message).toBe(
+      "AhaSend API error (HTTP 502)",
+    );
+
+    // Just inside the budget, the text is still found.
+    const withinBudget = `${" ".repeat(100)}the real error text`;
+    expect(createApiError({ status: 502, body: withinBudget, headers: {} }).message).toBe(
+      "the real error text",
+    );
+  });
+
+  it("still falls back to a status message for an empty body", () => {
+    expect(createApiError({ status: 500, body: "", headers: {} }).message).toBe(
+      "AhaSend API error (HTTP 500)",
+    );
+  });
+});
+
+describe("cause serialization", () => {
+  const apiError = () =>
+    createApiError({
+      status: 503,
+      body: { message: "upstream exploded" },
+      requestId: "req-123",
+      headers: { "x-secret": "nope" },
+    });
+
+  // The one in-SDK path that nests a cause had no test at all.
+  it("serialises a nested SDK cause while keeping its body and headers redacted", () => {
+    const wrapped = new AhaSendRateLimitQueueFullError("standard", 1_000, apiError());
+    const json = wrapped.toJSON();
+
+    expect(json.cause).toMatchObject({
+      name: "AhaSendServerError",
+      code: "server_error",
+      message: "upstream exploded",
+      status: 503,
+      requestId: "req-123",
+      body: "[REDACTED]",
+      headers: "[REDACTED]",
+    });
+  });
+
+  it("still redacts a non-SDK cause", () => {
+    const wrapped = new AhaSendRateLimitQueueFullError(
+      "standard",
+      1_000,
+      new TypeError("fetch failed: secret-host"),
+    );
+
+    expect(wrapped.toJSON().cause).toBe("[REDACTED]");
+  });
+
+  // toJSON runs inside the consumer's catch block and inside their logger, so
+  // a serializer that throws turns a handled failure into an unhandled crash
+  // in the handler meant to contain it.
+  it("does not throw on a branded value that is not an SDK error", () => {
+    // The brand is a global-registry symbol, so any code in the process can
+    // set it; being branded does not imply having toJSON.
+    const impostor = { [Symbol.for("@ahasend/sdk.error")]: true, name: "X" };
+    const wrapped = new AhaSendRateLimitQueueFullError("standard", 1, impostor);
+
+    expect(() => JSON.stringify(wrapped)).not.toThrow();
+    expect(wrapped.toJSON().cause).toBe("[REDACTED]");
+  });
+
+  it("does not recurse forever on a cyclic cause chain", () => {
+    const cyclic = apiError();
+    Object.defineProperty(cyclic, "cause", { value: cyclic, configurable: true });
+
+    expect(() => JSON.stringify(cyclic)).not.toThrow();
+    expect(() => inspect(cyclic)).not.toThrow();
   });
 });

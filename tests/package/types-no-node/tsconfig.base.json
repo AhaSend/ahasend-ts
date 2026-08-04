@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // DOM supplies the four WHATWG globals the SDK's public surface names --
+    // fetch, Request, Response, AbortSignal -- plus Headers, which the surface
+    // does NOT name but index.ts constructs to exercise WebhookHeadersLike.
+    // Those globals are the documented floor for a fetch-based client;
+    // @types/node is not, which is what this fixture exists to hold.
+    "lib": ["ES2023", "DOM"],
+    // The point of this fixture: no automatic @types inclusion, and no
+    // @types/node on disk either (see verify-package.mjs, which installs the
+    // tarball here with no companion packages).
+    "types": [],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": false,
+    "noEmit": true
+  },
+  "include": ["index.ts"]
+}

@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createHmac } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { runInNewContext } from "node:vm";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   expressWebhookHandler,
@@ -9,6 +10,7 @@ import {
   type ExpressHandler,
   type FastifyHandler,
   type NextHandler,
+  type NodeStyleRequest,
   type WebhookAdapterErrorContext,
   type WebhookAdapterOptions,
 } from "../src/webhooks/adapters.js";
@@ -175,6 +177,68 @@ describe("expressWebhookHandler", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it("accepts a preloaded rawBody that is a plain Uint8Array, not a Buffer", async () => {
+    // `NodeStyleRequest.rawBody` is declared `string | Uint8Array` so the
+    // published types need no @types/node, so a raw-body parser handing back a
+    // plain Uint8Array must verify end to end. What this pins is the DECODE:
+    // `rawBody` never went through the `Buffer.isBuffer` gate, so the pre-change
+    // body handling passes it unchanged too — but `Uint8Array#toString("utf-8")`
+    // returns comma-joined byte values, so the event never parses. The sibling
+    // test below is the one that covers the gate.
+    const received: AnyWebhookEvent[] = [];
+    const middleware = expressWebhookHandler(new WebhookVerifier(SECRET), async (event) => {
+      received.push(event);
+    });
+    const res = new MockExpressRes();
+    const next = vi.fn();
+    const bytes = Uint8Array.from(Buffer.from(eventBody, "utf-8"));
+    expect(Buffer.isBuffer(bytes)).toBe(false);
+
+    await middleware({ headers: signEnvelope(eventBody), rawBody: bytes }, res, next);
+
+    expect(received).toHaveLength(1);
+    expect(res.statusCode).toBe(200);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("accepts a body property that is a plain Uint8Array, not a Buffer", async () => {
+    const received: AnyWebhookEvent[] = [];
+    const middleware = expressWebhookHandler(new WebhookVerifier(SECRET), async (event) => {
+      received.push(event);
+    });
+    const res = new MockExpressRes();
+    const next = vi.fn();
+
+    await middleware(
+      { headers: signEnvelope(eventBody), body: Uint8Array.from(Buffer.from(eventBody, "utf-8")) },
+      res,
+      next,
+    );
+
+    expect(received).toHaveLength(1);
+    expect(res.statusCode).toBe(200);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("refuses a body that is not this realm's bytes", async () => {
+    // `isBytes` is `instanceof Uint8Array`, so a typed array built in a vm
+    // context is refused along with a DataView or an Int8Array. That is the
+    // intended trade: an unrecognised body reaches the caller as the
+    // "configure a raw-body parser" setup error rather than being fed to the
+    // signature check as bytes it may not represent.
+    const foreign = runInNewContext("new Uint8Array([123, 125])") as unknown;
+    expect(foreign instanceof Uint8Array).toBe(false);
+
+    for (const body of [foreign, new DataView(new ArrayBuffer(2)), new Int8Array(2)]) {
+      const next = vi.fn();
+      const middleware = expressWebhookHandler(new WebhookVerifier(SECRET), vi.fn());
+      await middleware({ headers: signEnvelope(eventBody), body }, new MockExpressRes(), next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(String(next.mock.calls[0]![0])).toContain("Raw webhook body unavailable");
+    }
+  });
+
   it("returns opaque 400 responses for invalid signatures and known-event schemas", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const handler = vi.fn();
@@ -227,6 +291,71 @@ describe("expressWebhookHandler", () => {
     expect(stream.listenerCount("data")).toBe(0);
     expect(stream.listenerCount("end")).toBe(0);
     expect(stream.listenerCount("error")).toBe(0);
+  });
+
+  // Each raw-body precondition exists to fail fast. Without one, the
+  // middleware falls through to readNodeRawBody, attaches listeners, and waits
+  // on a stream whose `end` will never arrive — the request hangs until the
+  // client or a proxy gives up, with no error, no response, and a socket held
+  // open.
+  //
+  // The pin is that `next` is called and the stream is never touched
+  // *synchronously*, before the first await. pickNodeRawBody runs to
+  // completion synchronously and readNodeRawBody subscribes synchronously in
+  // its executor, so a dropped precondition fails these two assertions
+  // immediately, with no timing budget and no dependence on the error prose.
+  describe.each([
+    [
+      "a parsed object has replaced the body",
+      // A request that accepts listeners and never emits — what a consumed or
+      // already-parsed express request really is. Anything that subscribes to
+      // it waits forever.
+      (on: NodeStyleRequest["on"]) => ({
+        headers: {},
+        body: { type: "message.delivered" },
+        on,
+        off: vi.fn(),
+      }),
+      /configure a route-specific raw-body parser/,
+    ],
+    [
+      "the stream was already consumed",
+      (on: NodeStyleRequest["on"]) => ({ headers: {}, readableEnded: true, on, off: vi.fn() }),
+      /the request stream was already consumed/,
+    ],
+    [
+      // No `on` at all: the guard's absence is what this row detects, so the
+      // request must genuinely lack a stream.
+      "the request exposes no readable stream",
+      () => ({ headers: {} }),
+      /no readable stream/,
+    ],
+  ])("rejects express delivery when %s", (_name, buildRequest, expectedMessage) => {
+    it("fails fast to next without reading the stream or answering the request", async () => {
+      const observed: unknown[] = [];
+      const middleware = expressWebhookHandler(new WebhookVerifier(SECRET), vi.fn(), {
+        onError: (error) => void observed.push(error),
+      });
+      const on = vi.fn();
+      const res = new MockExpressRes();
+      const initialStatus = res.statusCode;
+      const next = vi.fn();
+
+      const pending = middleware(buildRequest(on), res, next);
+
+      expect(on, "must not subscribe to a stream it cannot read").not.toHaveBeenCalled();
+      expect(next, "must reject before yielding to the event loop").toHaveBeenCalledOnce();
+      await pending;
+
+      const error = next.mock.calls[0]![0] as Error;
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toMatch(expectedMessage);
+      // The express error handler owns the response from here; the adapter
+      // must not have half-answered it.
+      expect(res.writableEnded).toBe(false);
+      expect(res.statusCode).toBe(initialStatus);
+      expect(observed).toEqual([error]);
+    });
   });
 
   it("passes setup errors to next once and observes only stable non-sensitive context", async () => {
@@ -382,6 +511,33 @@ describe("fastifyWebhookHandler", () => {
     expect(reply.status).toBe(400);
     expect(reply.sent).toBe(true);
     expect(reply.payload).toBeUndefined();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  // The same class of hole the express preconditions had. Fastify has no hang
+  // analogue — it never reads a Node stream — but the two raw-body guards pick
+  // *different severities* for the same misconfiguration, and
+  // docs/security-and-webhooks.md documents the 400 explicitly. Without a test,
+  // collapsing the two branches is a silent severity flip on a documented
+  // behaviour.
+  it("separates a parsed body from a wholly missing one by severity", async () => {
+    const handler = vi.fn();
+    const route = fastifyWebhookHandler(new WebhookVerifier(SECRET), handler);
+
+    // A parsed body means a body parser ran: answerable, so answer 400.
+    const parsed = new MockFastifyReply();
+    await route({ headers: signEnvelope(eventBody), body: JSON.parse(eventBody) }, parsed);
+    expect(parsed.status).toBe(400);
+    expect(parsed.sent).toBe(true);
+
+    // No body at all means the route is misconfigured: not answerable, so it
+    // throws and Fastify's error handler owns the response.
+    const missing = new MockFastifyReply();
+    await expect(route({ headers: signEnvelope(eventBody) }, missing)).rejects.toThrow(
+      /enable Fastify raw-body capture/,
+    );
+    expect(missing.sent).toBe(false);
+
     expect(handler).not.toHaveBeenCalled();
   });
 

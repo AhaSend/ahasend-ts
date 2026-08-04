@@ -71,8 +71,8 @@ const SCAN_EXCLUDED_DIRECTORIES = new Set([
   "node_modules",
 ]);
 const SECRET_CLASSIFICATIONS = new Map([
-  [`${EVIDENCE_PATH}/keys/configured-webhook.key`, "captured-webhook-signing-key"],
-  [`${EVIDENCE_PATH}/keys/route.key`, "captured-route-signing-key"],
+  [`${EVIDENCE_PATH}/keys/configured-webhook.key`, "fixture-webhook-signing-key"],
+  [`${EVIDENCE_PATH}/keys/route.key`, "fixture-route-signing-key"],
   [`${SYNTHETIC_PATH}/keys/configured-webhook.key`, "synthetic-test-signing-key"],
 ]);
 const execFileAsync = promisify(execFile);
@@ -318,19 +318,60 @@ export function validateCapturedManifest(manifest, schema) {
       throw new TypeError(`${location}.signingResource.keyPath does not match its resource type`);
     }
 
+    // Two kinds of evidence, and the distinction is load-bearing rather than
+    // cosmetic. `captured` means the body bytes were observed on the wire from
+    // a running server, so agreement with the SDK schema is independent
+    // evidence. `derived` means they were produced by serialising the server's
+    // own payload structs: that catches producer drift the moment the fixtures
+    // are regenerated, but it agrees with the producer by construction and so
+    // proves nothing about what a live server sent. Recording which is which
+    // is the whole point — evidence that overstates itself is worse than no
+    // evidence, because nobody re-checks it.
     const provenance = assertRecord(capture.provenance, `${location}.provenance`);
-    assertExactKeys(
-      provenance,
-      ["kind", "environment", "capturedAt", "source"],
-      `${location}.provenance`,
-    );
-    if (provenance.kind !== "captured") throw new TypeError(`${location} is not captured evidence`);
+    if (provenance.kind === "captured") {
+      assertExactKeys(
+        provenance,
+        ["kind", "environment", "capturedAt", "source"],
+        `${location}.provenance`,
+      );
+      const capturedAt = assertString(provenance.capturedAt, `${location}.provenance.capturedAt`);
+      if (Number.isNaN(Date.parse(capturedAt))) {
+        throw new TypeError(`${location}.provenance.capturedAt must be an ISO date-time`);
+      }
+    } else if (provenance.kind === "derived") {
+      assertExactKeys(
+        provenance,
+        [
+          "kind",
+          "environment",
+          "derivedAt",
+          "source",
+          "generator",
+          "producerStructs",
+          "producerTreeClean",
+        ],
+        `${location}.provenance`,
+      );
+      const derivedAt = assertString(provenance.derivedAt, `${location}.provenance.derivedAt`);
+      if (Number.isNaN(Date.parse(derivedAt))) {
+        throw new TypeError(`${location}.provenance.derivedAt must be an ISO date-time`);
+      }
+      assertString(provenance.generator, `${location}.provenance.generator`);
+      const structs = provenance.producerStructs;
+      if (!Array.isArray(structs) || structs.length === 0) {
+        throw new TypeError(`${location}.provenance.producerStructs must be a non-empty array`);
+      }
+      structs.forEach((entry, structIndex) =>
+        assertString(entry, `${location}.provenance.producerStructs[${String(structIndex)}]`),
+      );
+      if (typeof provenance.producerTreeClean !== "boolean") {
+        throw new TypeError(`${location}.provenance.producerTreeClean must be a boolean`);
+      }
+    } else {
+      throw new TypeError(`${location}.provenance.kind must be captured or derived`);
+    }
     assertString(provenance.environment, `${location}.provenance.environment`);
     assertString(provenance.source, `${location}.provenance.source`);
-    const capturedAt = assertString(provenance.capturedAt, `${location}.provenance.capturedAt`);
-    if (Number.isNaN(Date.parse(capturedAt))) {
-      throw new TypeError(`${location}.provenance.capturedAt must be an ISO date-time`);
-    }
   }
   if (!resourceTypes.has("configured-webhook") || !resourceTypes.has("route")) {
     throw new TypeError("Captured evidence must include configured-webhook and route resources");
@@ -370,9 +411,16 @@ export function validateSignedFixture(
     `${capture.fixtureId} body`,
   );
 
-  // Captures are immutable transport evidence and may predate the currently pinned payload
-  // schema. Current payload semantics are enforced on the separately generated synthetic fixture.
-  if (!captured && payload.type !== "message.routing") {
+  // Every non-routing payload carries webhook_id: the producers declare it
+  // `uuid.UUID` with no omitempty, so it is on the wire unconditionally.
+  //
+  // This was previously skipped for manifest evidence, on the reasoning that
+  // captures are immutable transport bytes that may predate the pinned schema.
+  // That reasoning is what let the original fixture omit webhook_id and go
+  // unnoticed — and then the spec was loosened to match it. The evidence is
+  // regenerated from the current producer on demand, so there is nothing to
+  // grandfather.
+  if (payload.type !== "message.routing") {
     assertString(payload.webhook_id, `${capture.fixtureId} body.webhook_id`, UUID_PATTERN);
   }
 
@@ -397,9 +445,10 @@ export function validateSignedFixture(
     if (
       (resource.type === "route" &&
         (payload.type !== "message.routing" || payload.route_id !== resource.id)) ||
+      // No `!== undefined` escape: absence would satisfy the binding
+      // vacuously, which is the same hole as the exemption above.
       (resource.type === "configured-webhook" &&
-        (payload.type === "message.routing" ||
-          (payload.webhook_id !== undefined && payload.webhook_id !== resource.id)))
+        (payload.type === "message.routing" || payload.webhook_id !== resource.id))
     ) {
       throw new TypeError(`${capture.fixtureId} body does not match its signing resource`);
     }

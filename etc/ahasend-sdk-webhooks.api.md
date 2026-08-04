@@ -4,8 +4,6 @@
 
 ```ts
 
-import { Buffer as Buffer_2 } from 'node:buffer';
-
 // @public
 class AhaSendError extends Error {
     constructor(message: string, cause?: unknown);
@@ -17,11 +15,11 @@ class AhaSendError extends Error {
     // Warning: (ae-forgotten-export) The symbol "SerializedAhaSendError" needs to be exported by the entry point index.d.ts
     //
     // (undocumented)
-    toJSON(): SerializedAhaSendError;
+    toJSON(depth?: number): SerializedAhaSendError;
 }
 
 // @public (undocumented)
-type AhaSendErrorCode = "ahasend_error" | "configuration_error" | "connection_error" | "abort_error" | "timeout_error" | "response_parse_error" | "api_error" | "authentication_error" | "permission_error" | "not_found_error" | "bad_request_error" | "conflict_error" | "idempotency_conflict_error" | "unprocessable_entity_error" | "idempotency_mismatch_error" | "rate_limit_error" | "server_error" | "webhook_verification_error";
+type AhaSendErrorCode = "ahasend_error" | "configuration_error" | "connection_error" | "abort_error" | "timeout_error" | "response_parse_error" | "api_error" | "authentication_error" | "permission_error" | "not_found_error" | "bad_request_error" | "conflict_error" | "idempotency_conflict_error" | "unprocessable_entity_error" | "idempotency_mismatch_error" | "rate_limit_error" | "rate_limit_queue_full_error" | "response_too_large_error" | "server_error" | "webhook_verification_error";
 
 // Warning: (ae-forgotten-export) The symbol "AhaSendError" needs to be exported by the entry point index.d.ts
 //
@@ -54,7 +52,7 @@ interface components {
     schemas: {
         MessageWebhookPayload: {
             type: "message.reception" | "message.delivered" | "message.transient_error" | "message.failed" | "message.bounced" | "message.suppressed" | "message.opened" | "message.clicked";
-            webhook_id?: string;
+            webhook_id: string;
             timestamp: string;
             data: components["schemas"]["MessageWebhookData"];
         };
@@ -81,7 +79,7 @@ interface components {
         };
         MessageClickedWebhookPayload: {
             type: "message.clicked";
-            webhook_id?: string;
+            webhook_id: string;
             timestamp: string;
             data: components["schemas"]["MessageClickedWebhookData"];
         };
@@ -112,7 +110,7 @@ interface components {
         };
         SuppressionWebhookPayload: {
             type: "suppression.created";
-            webhook_id?: string;
+            webhook_id: string;
             timestamp: string;
             data: components["schemas"]["SuppressionWebhookData"];
         };
@@ -126,7 +124,7 @@ interface components {
         };
         DomainWebhookPayload: {
             type: "domain.dns_error";
-            webhook_id?: string;
+            webhook_id: string;
             timestamp: string;
             data: components["schemas"]["DomainWebhookData"];
         };
@@ -147,22 +145,22 @@ interface components {
         RouteWebhookData: {
             id: string;
             from: string;
-            reply_to?: string;
+            reply_to: string;
             to: string;
             subject: string;
             message_id: string;
             size: number;
-            spam_score?: number;
+            spam_score: number;
             bounce: boolean;
-            cc?: string;
-            date?: string;
-            in_reply_to?: string;
-            references?: string;
-            auto_submitted?: string;
+            cc: string;
+            date: string;
+            in_reply_to: string;
+            references: string;
+            auto_submitted: string;
             html_body: string;
             plain_body: string;
-            reply_from_plain_body?: string;
-            attachments?: Array<components["schemas"]["RouteAttachment"]>;
+            reply_from_plain_body: string;
+            attachments: Array<components["schemas"]["RouteAttachment"]>;
             headers?: {
                 [key: string]: string;
             };
@@ -170,7 +168,8 @@ interface components {
         RouteAttachment: {
             filename: string;
             content_type: string;
-            content_id?: string;
+            content_id: string;
+            disposition: string;
             data: string;
         };
     };
@@ -218,9 +217,6 @@ export interface FastifyStyleReply {
 
 // @public
 export function fastifyWebhookHandler(verifier: WebhookVerifier, handler: FastifyHandler, options?: WebhookAdapterOptions): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void>;
-
-// @public (undocumented)
-type HeadersInput = Record<string, string | string[] | undefined> | Headers;
 
 // Warning: (ae-forgotten-export) The symbol "AnyWebhookEvent$1" needs to be exported by the entry point index.d.ts
 //
@@ -290,8 +286,7 @@ export interface NodeStyleRequest {
     off?(event: string, listener: (...args: unknown[]) => void): unknown;
     // (undocumented)
     on?(event: string, listener: (...args: unknown[]) => void): unknown;
-    // (undocumented)
-    rawBody?: string | Buffer_2;
+    rawBody?: string | Uint8Array | undefined;
     // (undocumented)
     readableEnded?: boolean;
 }
@@ -299,17 +294,14 @@ export interface NodeStyleRequest {
 // @public
 export interface NodeStyleResponse {
     // (undocumented)
-    end(payload?: string | Buffer_2): unknown;
+    end(payload?: string | Uint8Array): unknown;
     // (undocumented)
     statusCode?: number;
     // (undocumented)
     writableEnded?: boolean;
 }
 
-// @public (undocumented)
-type RawBody = string | Buffer;
-
-// @public (undocumented)
+// @public
 export type RouteAttachment = components["schemas"]["RouteAttachment"];
 
 // @public (undocumented)
@@ -323,11 +315,17 @@ interface SerializedAhaSendError {
     // (undocumented)
     body?: "[REDACTED]";
     // (undocumented)
-    cause?: "[REDACTED]";
+    category?: string;
+    // (undocumented)
+    cause?: "[REDACTED]" | SerializedAhaSendError;
     // (undocumented)
     code: AhaSendErrorCode;
     // (undocumented)
     headers?: "[REDACTED]";
+    // (undocumented)
+    maxBytes?: number;
+    // (undocumented)
+    maxQueue?: number;
     // (undocumented)
     message: string;
     // (undocumented)
@@ -392,8 +390,8 @@ export interface WebhookAdapterOptions {
     onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
 }
 
-// @public (undocumented)
-export interface WebhookEnvelope<TType extends WebhookEventType, TData> {
+// @public
+export interface WebhookEnvelope<TType extends Exclude<WebhookEventType, "message.routing" | "route.message">, TData> {
     // (undocumented)
     data: TData;
     // (undocumented)
@@ -401,7 +399,7 @@ export interface WebhookEnvelope<TType extends WebhookEventType, TData> {
     // (undocumented)
     type: TType;
     // (undocumented)
-    webhook_id?: string;
+    webhook_id: string;
 }
 
 // @public
@@ -438,18 +436,26 @@ interface webhookEvents {
 // @public (undocumented)
 export type WebhookEventType = (typeof KNOWN_WEBHOOK_EVENT_TYPES)[number];
 
+// @public
+export type WebhookHeadersInput = Record<string, string | string[] | undefined> | WebhookHeadersLike;
+
+// @public
+export interface WebhookHeadersLike {
+    get(name: string): string | null | undefined;
+}
+
+// @public
+export type WebhookRawBody = string | Uint8Array;
+
 // @public (undocumented)
 export type WebhookVerificationReason = "missing_webhook_id" | "missing_webhook_timestamp" | "missing_webhook_signature" | "invalid_timestamp" | "timestamp_outside_tolerance" | "signature_mismatch" | "invalid_json" | "invalid_payload" | "invalid_event" | "body_too_large";
 
 // @public (undocumented)
 export class WebhookVerifier {
     constructor(secret: string, options?: WebhookVerifierOptions);
-    parse(headers: HeadersInput, rawBody: RawBody): AnyWebhookEvent;
-    // Warning: (ae-forgotten-export) The symbol "HeadersInput" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "RawBody" needs to be exported by the entry point index.d.ts
-    //
+    parse(headers: WebhookHeadersInput, rawBody: WebhookRawBody): AnyWebhookEvent;
     // (undocumented)
-    verify(headers: HeadersInput, rawBody: RawBody): void;
+    verify(headers: WebhookHeadersInput, rawBody: WebhookRawBody): void;
 }
 
 // @public (undocumented)

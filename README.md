@@ -46,6 +46,25 @@ for both the package root and `@ahasend/sdk/webhooks`. Use these public entry po
 deep-importing `dist` files. Legacy `moduleResolution: "node"` and runtimes that ignore package
 export maps are not supported.
 
+### What the declarations need from your tsconfig
+
+The published declarations do **not** require `@types/node`, and the package declares no dependency
+on it. They name no `Buffer`, no `NodeJS.*` namespace, and import no `node:` module, so they compile
+under `"types": []` and with `skipLibCheck: false`.
+
+They do name four WHATWG globals a fetch client cannot avoid exposing — `fetch`, `Request`,
+`Response`, and `AbortSignal` — which reach your project through either `"lib": ["DOM"]` or
+`@types/node`. One of those two is the requirement. (`Headers` is not among them: webhook headers
+are accepted structurally as `WebhookHeadersLike`, so a `Headers` from any realm works without the
+type being named.)
+
+Raw webhook bodies are typed `Uint8Array` rather than `Buffer` for the same reason. A `Buffer` is a
+`Uint8Array`, so supplying one still works everywhere. The one place this is visible in the other
+direction is inside an adapter handler, where `req.rawBody` now arrives as `Uint8Array` and no
+longer passes straight into a parameter declared `Buffer` — narrow it with
+`Buffer.isBuffer(req.rawBody)`, or wrap it without copying:
+`Buffer.from(b.buffer, b.byteOffset, b.byteLength)`.
+
 ## Quick start
 
 ```ts
@@ -98,8 +117,8 @@ const client = new AhaSendClient({
   },
   rateLimit: {
     enabled: false, // opt in to local request pacing
-    standard: { requestsPerSecond: 100, burst: 200 },
-    statistics: { requestsPerSecond: 1, burst: 1 },
+    standard: { requestsPerSecond: 100, burst: 200, maxQueue: 1000 },
+    statistics: { requestsPerSecond: 1, burst: 1, maxQueue: 1000 },
   },
   hooks: {}, // telemetry — see below
 });
@@ -355,6 +374,11 @@ const event = verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);
 // throws AhaSendWebhookVerificationError on bad signature / stale timestamp / malformed payload
 ```
 
+Headers may be a plain record (`req.headers`) or anything with a case-insensitive
+`Headers`-style `get`, matched structurally rather than by class — so a `Headers`
+from a separately installed `undici`/`node-fetch`, an edge runtime, or another
+realm works, as do express's `req` and Koa's `ctx.request`.
+
 `parse()` returns `AnyWebhookEvent`: the strict `WebhookEvent` union for
 known types, plus an `UnknownWebhookEvent` branch so a new event type
 added by the server doesn't crash your exhaustive `switch`. Narrow with
@@ -425,8 +449,22 @@ AhaSendError
 │   └── AhaSendTimeoutError              configured timeout elapsed
 ├── AhaSendAbortError                    caller aborted the operation
 ├── AhaSendConfigurationError            invalid options, environment, or body
+├── AhaSendRateLimitQueueFullError       local pacing refused it (.category .maxQueue)
 └── AhaSendResponseParseError            2xx with a non-JSON body
 ```
+
+`AhaSendRateLimitQueueFullError` is local backpressure, not a server 429 — it is
+raised only when `rateLimit.enabled` is set and the bucket already holds
+`maxQueue` waiters. It is deliberately not retryable; see `docs/rate-pacing.md`.
+
+`error.message` is derived, not verbatim. When it comes from a response body it
+is whitespace-collapsed and capped at 200 characters, because a non-JSON body is
+whatever sat in front of the API — an HTML error page would otherwise become the
+whole message, repeated on every retry. The untruncated text stays on
+`error.body`; match on `error.code` or `error.status` rather than on message
+text. A response body larger than 30,000,000 bytes is abandoned mid-read with
+`AhaSendResponseTooLargeError`, which is also not retryable — the bytes are
+counted after decompression, so this bounds a compressed body that inflates.
 
 `408/429/5xx/network/timeout` are retryable failures only when the operation's
 generated profile permits retries. Operations classified as never retryable,

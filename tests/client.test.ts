@@ -1,6 +1,12 @@
 import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
-import { AhaSendClient, AhaSendConfigurationError, isAhaSendError } from "../src/index.js";
+import {
+  AhaSendClient,
+  AhaSendConfigurationError,
+  DEFAULT_MAX_QUEUE,
+  AhaSendRateLimitQueueFullError,
+  isAhaSendError,
+} from "../src/index.js";
 import type {
   APIKeysClient,
   AccountsClient,
@@ -587,10 +593,13 @@ describe("root public exports", () => {
         "AhaSendNotFoundError",
         "AhaSendPermissionError",
         "AhaSendRateLimitError",
+        "AhaSendRateLimitQueueFullError",
         "AhaSendResponseParseError",
+        "AhaSendResponseTooLargeError",
         "AhaSendServerError",
         "AhaSendTimeoutError",
         "AhaSendUnprocessableEntityError",
+        "DEFAULT_MAX_QUEUE",
         "IdempotencyKeyBuilder",
         "SDK_VERSION",
         "generateIdempotencyKey",
@@ -743,5 +752,177 @@ describe("resource option forwarding", () => {
       ),
     ).rejects.toMatchObject({ status: 500 });
     expect(transport).toHaveBeenCalledOnce();
+  });
+});
+
+describe("AhaSendClient rate limiter", () => {
+  const options = {
+    apiKey: "aha-sk-test",
+    accountId: "11111111-1111-4111-8111-111111111111",
+  } as const;
+
+  // The limiter's mutation API hung off HttpClient, which the client never
+  // exposed, so none of it was reachable by a consumer — 13 of the rate-limit
+  // suite's assertions exercised code no user could call.
+  it("reaches the limiter's runtime controls from the public client", () => {
+    const client = new AhaSendClient(options);
+
+    expect(client.rateLimiter.isEnabled()).toBe(false);
+    client.rateLimiter.setEnabled(true);
+    expect(client.rateLimiter.isEnabled()).toBe(true);
+
+    client.rateLimiter.setLimit("standard", { requestsPerSecond: 5, burst: 3 });
+    expect(client.rateLimiter.available("standard")).toBeLessThanOrEqual(3);
+
+    client.rateLimiter.setCategoryEnabled("statistics", false);
+    // A disabled bucket still reports its tokens; only admission changes.
+    expect(client.rateLimiter.available("statistics")).toBeTypeOf("number");
+    expect(client.rateLimiter.isCategoryEnabled("statistics")).toBe(false);
+  });
+
+  it("re-enabling a category restores a full burst rather than stale tokens", async () => {
+    const client = new AhaSendClient({
+      ...options,
+      rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 4 } },
+      fetch: () => new Promise<Response>(() => {}),
+    });
+
+    // Spend two tokens through the real request path.
+    void client.messages.list().catch(() => undefined);
+    void client.messages.list().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(client.rateLimiter.available("standard")).toBeLessThan(4);
+
+    // Off, then on: calls made while the bucket was off bypassed it, so
+    // carrying the old token count forward would under-admit afterwards.
+    client.rateLimiter.setCategoryEnabled("standard", false);
+    expect(client.rateLimiter.isCategoryEnabled("standard")).toBe(false);
+    client.rateLimiter.setCategoryEnabled("standard", true);
+
+    expect(client.rateLimiter.isCategoryEnabled("standard")).toBe(true);
+    expect(client.rateLimiter.available("standard")).toBe(4);
+  });
+
+  it("rejects an unusable rate through the public controller", () => {
+    const client = new AhaSendClient(options);
+
+    expect(() =>
+      client.rateLimiter.setLimit("standard", { requestsPerSecond: 0, burst: 1 }),
+    ).toThrow(AhaSendConfigurationError);
+  });
+
+  // Construction and the runtime controller are two doors to the same settings.
+  // The controller was published by this change; before it, its missing
+  // validation was inert. `maxQueue: 0` refuses every call before it can queue
+  // and `burst: 0` never admits one, so both silently brick a client that looks
+  // healthy.
+  it.each([
+    ["maxQueue: 0", { requestsPerSecond: 100, burst: 200, maxQueue: 0 }],
+    ["maxQueue: -1", { requestsPerSecond: 100, burst: 200, maxQueue: -1 }],
+    ["maxQueue: 1.5", { requestsPerSecond: 100, burst: 200, maxQueue: 1.5 }],
+    ["maxQueue: MAX_VALUE", { requestsPerSecond: 100, burst: 200, maxQueue: Number.MAX_VALUE }],
+    ["burst: 0", { requestsPerSecond: 100, burst: 0 }],
+    ["burst: NaN", { requestsPerSecond: 100, burst: Number.NaN }],
+    ["requestsPerSecond: NaN", { requestsPerSecond: Number.NaN, burst: 200 }],
+    ["requestsPerSecond: Infinity", { requestsPerSecond: Number.POSITIVE_INFINITY, burst: 200 }],
+  ])("refuses %s through the controller, exactly as construction does", (_label, limit) => {
+    const viaConstruction = () =>
+      new AhaSendClient({ ...options, rateLimit: { enabled: true, standard: limit } });
+    const viaController = () => new AhaSendClient(options).rateLimiter.setLimit("standard", limit);
+
+    expect(viaConstruction).toThrow(AhaSendConfigurationError);
+    expect(viaController).toThrow(AhaSendConfigurationError);
+
+    // Same mistake, same words, whichever door it came through.
+    let constructionMessage = "";
+    let controllerMessage = "";
+    try {
+      viaConstruction();
+    } catch (error) {
+      constructionMessage = (error as Error).message;
+    }
+    try {
+      viaController();
+    } catch (error) {
+      controllerMessage = (error as Error).message;
+    }
+    expect(controllerMessage).toBe(constructionMessage);
+  });
+
+  it("reads limits back and applies a maxQueue-only change", () => {
+    const client = new AhaSendClient({
+      ...options,
+      rateLimit: { enabled: true, standard: { requestsPerSecond: 20, burst: 20 } },
+    });
+
+    expect(client.rateLimiter.getLimit("standard")).toEqual({
+      requestsPerSecond: 20,
+      burst: 20,
+      enabled: true,
+      maxQueue: DEFAULT_MAX_QUEUE,
+    });
+
+    // The remedy a queue-full error prescribes, expressed on its own. Restating
+    // a rate you cannot read back is how a backpressure fix becomes an
+    // accidental rate change.
+    client.rateLimiter.setLimit("standard", { maxQueue: 4_000 });
+
+    expect(client.rateLimiter.getLimit("standard")).toEqual({
+      requestsPerSecond: 20,
+      burst: 20,
+      enabled: true,
+      maxQueue: 4_000,
+    });
+  });
+
+  it("reports per-bucket enablement, not just the master switch", () => {
+    const client = new AhaSendClient(options);
+
+    expect(client.rateLimiter.isCategoryEnabled("standard")).toBe(true);
+    client.rateLimiter.setCategoryEnabled("standard", false);
+    expect(client.rateLimiter.isCategoryEnabled("standard")).toBe(false);
+    // Independent of the master switch and of the other bucket.
+    expect(client.rateLimiter.isEnabled()).toBe(false);
+    expect(client.rateLimiter.isCategoryEnabled("statistics")).toBe(true);
+  });
+
+  it("freezes the controller like every other client facade", () => {
+    const client = new AhaSendClient(options);
+
+    expect(Object.isFrozen(client.rateLimiter)).toBe(true);
+    expect(() => {
+      (client.rateLimiter as { isEnabled: unknown }).isEnabled = () => true;
+    }).toThrow(TypeError);
+  });
+
+  it("carries a configured maxQueue through to the limiter", async () => {
+    const client = new AhaSendClient({
+      ...options,
+      rateLimit: { enabled: true, standard: { requestsPerSecond: 1, burst: 1, maxQueue: 1 } },
+      fetch: () => new Promise<Response>(() => {}),
+    });
+
+    // burst 1 admits the first call; maxQueue 1 admits one waiter; the third is
+    // refused. `acquire` rejects before awaiting anything, so the refusal is
+    // available on the first microtask — race it against a resolved sentinel so
+    // a regression that queues instead fails here rather than by timing out.
+    void client.messages.list().catch(() => undefined);
+    void client.messages.list().catch(() => undefined);
+
+    const third = client.messages.list().then(
+      () => "resolved" as const,
+      (reason: unknown) => reason,
+    );
+    // One macrotask turn: enough for the request plumbing to reach the
+    // limiter, far short of a token becoming available at 1/s.
+    const outcome = await Promise.race([
+      third,
+      new Promise<"queued">((resolve) => setTimeout(() => resolve("queued"), 0)),
+    ]);
+
+    expect(outcome, "the over-capacity call must be refused, not queued").toBeInstanceOf(
+      AhaSendRateLimitQueueFullError,
+    );
+    expect((outcome as AhaSendRateLimitQueueFullError).maxQueue).toBe(1);
   });
 });

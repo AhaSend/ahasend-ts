@@ -1,7 +1,7 @@
 export { AhaSendClient } from "./client.js";
 export type { AhaSendClientOptions, PingResponse } from "./client.js";
 
-export type { ClientOptions } from "./config.js";
+export type { ClientOptions, ProcessEnvLike } from "./config.js";
 export { optionsFromEnv } from "./config.js";
 
 export {
@@ -18,7 +18,9 @@ export {
   AhaSendNotFoundError,
   AhaSendPermissionError,
   AhaSendRateLimitError,
+  AhaSendRateLimitQueueFullError,
   AhaSendResponseParseError,
+  AhaSendResponseTooLargeError,
   AhaSendServerError,
   AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
@@ -31,7 +33,15 @@ export type { IdempotencyConfig } from "./idempotency.js";
 
 export type { RetryConfig, RetryStrategy } from "./retry.js";
 
-export type { CategoryRateLimit, RateLimitConfig } from "./rate-limit.js";
+export { DEFAULT_MAX_QUEUE } from "./rate-limit.js";
+export type {
+  CategoryRateLimit,
+  RateLimitCategory,
+  RateLimitConfig,
+  RateLimiterController,
+  RateLimitSetting,
+  RateLimitSnapshot,
+} from "./rate-limit.js";
 
 export type {
   ErrorEvent,

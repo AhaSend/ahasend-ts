@@ -13,6 +13,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import yaml from "js-yaml";
+import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { digestJsonArtifact, digestYamlArtifact } from "../scripts/digest-artifact.mjs";
 import {
@@ -777,22 +778,135 @@ describe("webhook delivery contract rejection checks", () => {
   });
 });
 
+/**
+ * Compile the published manifest schema exactly as `generate-contracts.mjs`
+ * does, so the two verdicts are comparable rather than merely similar.
+ */
+function ajvAcceptsManifest(manifest: unknown): boolean {
+  const validationSchema = structuredClone(capturedSchema) as Record<string, unknown>;
+  validationSchema["$schema"] = "http://json-schema.org/draft-07/schema#";
+  const validate = new Ajv({ allErrors: true, jsonPointers: true }).compile(validationSchema);
+  return validate(manifest) === true;
+}
+
 describe("captured webhook evidence", () => {
-  it("pins the configured-webhook capture to its received body and headers", () => {
+  // Literal pins on BOTH captures. Everything else about a fixture is checked
+  // for self-consistency — body, signature, manifest, sidecars and lock are all
+  // regenerated together — so without an out-of-band constant, editing a body
+  // and re-running the generators passes silently. The route capture had no
+  // such pin, which made exactly that edit invisible.
+  it.each([
+    [
+      "configured-webhook-message-delivered",
+      "6e30f9ad44700297e558a8eeb89fa6961d05afca57ebb34707efe94df3b55807",
+      "v1,ZZ1D/PQGd6lITtMPo476ENQayRteG40BkkjTOaY/ZPE=",
+      "a1a94d3aed86bbd9ecf196d2c9ec81d776febddc2e61a2b3cfd1bde89acc138f",
+    ],
+    [
+      "route-message-routing",
+      "7018938444c1b7659dca80c8a1baa3f43fa72ee84fb8dd4233bf47660d95938a",
+      "v1,BrWwZEpT8u3aNWRMT7b4eqF9eFGtBHbnhPPCVY+e2MY=",
+      "e222158197441e03b7ddc67370de33ff39624c079e71757f0a7170c618ef33da",
+    ],
+  ])("pins the %s capture to its body and header digests", (fixtureId, rawBody, sig, headers) => {
     const capture = (capturedManifest.captures as JsonRecord[]).find(
-      ({ fixtureId }) => fixtureId === "configured-webhook-message-delivered",
+      (entry) => entry.fixtureId === fixtureId,
     );
 
     expect(capture).toMatchObject({
-      rawBodySha256: "9b244efbd6d8b46ed32eeead74c9e2980e2623a60162d1b9350711f6ea5fa137",
-      signature: "v1,AN/zm8EakS5sDN7boC5iGVLtQiVlayI5MOi3Qpyxtb0=",
-      headersSha256: "fc3fb212caba5a50220c5055825da659eb929b0f95184468e39ea4acb6c400b8",
+      rawBodySha256: rawBody,
+      signature: sig,
+      headersSha256: headers,
     });
   });
 
-  it("pins the server revision that produced the captured deliveries", () => {
-    expect(capturedManifest.serverCommit).toBe("7565fcb337a9f6fda0e8c3a22917dfcda3d76544");
+  it("pins the server revision the evidence corresponds to", () => {
+    expect(capturedManifest.serverCommit).toBe("22b3f98d224473789e9f32b57c7c969b9701c344");
   });
+
+  it("records how each fixture's bytes were obtained, and does not overstate it", () => {
+    // Pinned to "derived", not merely "one of the two allowed labels".
+    // Derived evidence agrees with the producer by construction, so calling it
+    // "captured" claims an independence it does not have — and asserting only
+    // that the label is well-formed is what would let the claim drift back to
+    // the false one this directory started with. Promoting a fixture to
+    // "captured" must be a deliberate edit here, justified by a real capture.
+    for (const capture of capturedManifest.captures as JsonRecord[]) {
+      const provenance = record(capture.provenance);
+      expect(provenance.kind, capture.fixtureId as string).toBe("derived");
+      expect(provenance.producerStructs, capture.fixtureId as string).toEqual(
+        expect.arrayContaining([expect.stringMatching(/^cmd\/job-runner\/jobs\/.+\.go$/u)]),
+      );
+      expect(provenance.generator, capture.fixtureId as string).toMatch(
+        /^contracts\/webhooks\/tools\/.+$/u,
+      );
+      expect(provenance.producerTreeClean, capture.fixtureId as string).toBe(true);
+    }
+  });
+
+  // The published JSON Schema and the hand-written validator are two contracts
+  // for one artifact. `contracts:check` runs the hand validator, which runs Ajv
+  // first — so a cross-SDK consumer trusting the schema alone must reach the
+  // same verdict, and a rule present in one but missing from the other is a
+  // silent split. That is the class this table catches: it found
+  // `producerTreeClean` required by the hand validator and optional in the
+  // schema.
+  //
+  // What it deliberately does NOT claim: because Ajv runs first, deleting a
+  // hand-side check that Ajv also covers changes no verdict and fails nothing
+  // here. The hand checks are defence in depth behind the schema, not
+  // independently pinned. Rules the schema cannot express are the ones that
+  // need their own tests.
+  it.each([
+    ["accepts the real manifest unchanged", (p: JsonRecord) => p, true],
+    ["rejects an unknown kind", (p: JsonRecord) => ({ ...p, kind: "synthetic" }), false],
+    [
+      "rejects a captured payload wearing derived keys",
+      (p: JsonRecord) => ({ ...p, kind: "captured" }),
+      false,
+    ],
+    [
+      "rejects a dropped producerTreeClean",
+      ({ producerTreeClean: _drop, ...rest }: JsonRecord) => rest,
+      false,
+    ],
+    [
+      "rejects a non-boolean producerTreeClean",
+      (p: JsonRecord) => ({ ...p, producerTreeClean: "yes" }),
+      false,
+    ],
+    ["rejects empty producerStructs", (p: JsonRecord) => ({ ...p, producerStructs: [] }), false],
+    [
+      "rejects a non-string entry in producerStructs",
+      (p: JsonRecord) => ({ ...p, producerStructs: [1] }),
+      false,
+    ],
+    ["rejects a dropped generator", ({ generator: _drop, ...rest }: JsonRecord) => rest, false],
+    [
+      "rejects a non-ISO derivedAt",
+      (p: JsonRecord) => ({ ...p, derivedAt: "Tue Aug 4 2026" }),
+      false,
+    ],
+    ["rejects an unknown extra key", (p: JsonRecord) => ({ ...p, note: "hi" }), false],
+  ])(
+    "schema and hand validator agree: %s",
+    (_name, mutate: (p: JsonRecord) => JsonRecord, expected: boolean) => {
+      const manifest = structuredClone(capturedManifest) as JsonRecord;
+      const captures = manifest.captures as JsonRecord[];
+      captures[0]!.provenance = mutate(record(captures[0]!.provenance) as JsonRecord);
+
+      const bySchema = ajvAcceptsManifest(manifest);
+      let byHand = true;
+      try {
+        validateCapturedManifest(manifest, capturedSchema);
+      } catch {
+        byHand = false;
+      }
+
+      expect(bySchema, "published JSON Schema").toBe(expected);
+      expect(byHand, "hand validator").toBe(expected);
+    },
+  );
 
   it("validates the manifest schema, detached digest, locked artifacts, and all evidence", async () => {
     expect(() => validateCapturedManifestSchema(capturedSchema)).not.toThrow();
@@ -887,7 +1001,7 @@ describe("captured webhook evidence", () => {
       const routeKey = routeKeyFile.subarray(0, routeKeyFile.length - 1);
 
       const observeChangedRoute = (body: JsonRecord) => {
-        const bodyBytes = Buffer.from(`${JSON.stringify(body)}\n`, "utf8");
+        const bodyBytes = Buffer.from(JSON.stringify(body), "utf8");
         routeCapture.rawBodySha256 = createHash("sha256").update(bodyBytes).digest("hex");
         routeCapture.signature = `v1,${createHmac("sha256", routeKey)
           .update(routeCapture.webhookId as string)
@@ -975,7 +1089,7 @@ describe("captured webhook evidence", () => {
       ).toBe(capture.headersSha256);
       expect(capture.webhookId).toBeTypeOf("string");
       expect(capture.webhookTimestamp).toMatch(/^\d+$/);
-      expect(record(capture.provenance).kind).toBe("captured");
+      expect(record(capture.provenance).kind).toBe("derived");
       expect(capture.expectedResult).toBe("valid");
     }
   });
@@ -1180,7 +1294,7 @@ describe("synthetic webhook fixtures", () => {
     const key = keyFile.subarray(0, keyFile.length - 1);
     const payload = JSON.parse(body.toString("utf8")) as JsonRecord;
     delete payload.webhook_id;
-    const changedBody = Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+    const changedBody = Buffer.from(JSON.stringify(payload), "utf8");
     fixture.rawBodySha256 = createHash("sha256").update(changedBody).digest("hex");
     fixture.signature = `v1,${createHmac("sha256", key)
       .update(fixture.webhookId as string)

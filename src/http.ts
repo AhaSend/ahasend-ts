@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+import type { ReadableStreamReadResult } from "node:stream/web";
 import type { ResolvedConfig } from "./config.js";
 import { assertHeaders, assertRequestRetryOverride, assertTimeoutMs } from "./config.js";
 import {
@@ -6,7 +8,9 @@ import {
   AhaSendConnectionError,
   AhaSendError,
   AhaSendIdempotencyConflictError,
+  AhaSendRateLimitQueueFullError,
   AhaSendResponseParseError,
+  AhaSendResponseTooLargeError,
   AhaSendTimeoutError,
   createApiError,
 } from "./errors.js";
@@ -68,6 +72,21 @@ export type QueryValue =
 
 const REQUEST_ID_HEADER = "x-request-id";
 
+/**
+ * Ceiling on a buffered API response body, counted AFTER decompression.
+ *
+ * Deliberately the same number as the inbound webhook ceiling
+ * (`MAX_WEBHOOK_BODY_BYTES`): the SDK should not cap attacker-adjacent inbound
+ * data at 30 MB while accepting unbounded data on the path that carries the
+ * bearer token. The largest legitimate response is a `limit=100` page, orders
+ * of magnitude below this.
+ *
+ * A `content-length` precheck would not do: under `content-encoding: gzip` the
+ * header reports the compressed size, and under chunked encoding there is no
+ * header at all.
+ */
+export const MAX_RESPONSE_BYTES = 30_000_000;
+
 export class HttpClient {
   public readonly rateLimiter: RateLimiter;
 
@@ -118,14 +137,29 @@ export class HttpClient {
       try {
         await this.rateLimiter.acquire(options.method, options.path, options.signal);
       } catch (err) {
+        // A pacing refusal on a retry means the API error that caused the retry
+        // is also worth reporting. Carry it as the refusal's `cause` rather than
+        // reporting it instead: queue-full is deliberately non-retryable, while
+        // the API error that preceded it usually is, and handing the caller the
+        // retryable one tells them to re-queue into the queue that just refused
+        // them.
+        //
+        // Only queue-full is wrapped. `acquire` also rejects with
+        // AhaSendAbortError, and a caller's cancellation must keep its own
+        // identity — relabelling it would both contradict the cancellation
+        // contract and make an aborted call look retryable.
+        const reported =
+          err instanceof AhaSendRateLimitQueueFullError && lastError !== undefined
+            ? new AhaSendRateLimitQueueFullError(err.category, err.maxQueue, lastError)
+            : err;
         const errorEvent: import("./telemetry.js").ErrorEvent = {
           ...attemptEvent,
           phase: "pacing",
           durationMs: elapsedSince(pacingStartedAt),
-          error: err,
+          error: reported,
         };
         void hooks.onError(Object.freeze(errorEvent));
-        throw err;
+        throw reported;
       }
 
       const controller = this.linkAbortSignal(
@@ -231,7 +265,7 @@ export class HttpClient {
 
       let data: T;
       try {
-        data = await this.parseResponse<T>(response, execution.idempotency, requestId);
+        data = await this.parseResponse<T>(response, execution.idempotency, options, requestId);
       } catch (err) {
         if (controller.signal.aborted) {
           throw this.createAttemptAbortError(controller, options, "during body read", err);
@@ -323,7 +357,36 @@ export class HttpClient {
       // as rejected TypeErrors. Validate the stable request inputs before the
       // retry loop so deterministic construction failures cannot be mistaken
       // for retryable connection failures.
-      void new Request(url, init);
+      //
+      // The body is dropped deliberately: nothing being checked here depends
+      // on it, and passing it makes `Request` encode a second copy of the
+      // payload on every call — measured at 8ms and 5MB of garbage for a 5MB
+      // attachment send, against 0.01ms without.
+      //
+      // `Request` is also not required. A caller who supplies `options.fetch`
+      // may be doing so precisely because the global fetch stack is absent or
+      // unusable (a fetch-only polyfill, or `--no-experimental-fetch` — which
+      // Node 22 still accepts and 24 rejects outright, so the flag reaches only
+      // the minimum supported leg), and
+      // hard-requiring the constructor would break the escape hatch in exactly
+      // the environments it exists for.
+      //
+      // Skipping it there costs nothing that is reachable: every input this
+      // would examine is already validated earlier — the URL by `new URL` in
+      // buildUrl, `apiKey` and `userAgent` by resolveConfig, `defaultHeaders`
+      // by resolveConfig storing the *snapshot* assertHeaders returns rather
+      // than re-reading the caller's object, and per-call headers and
+      // idempotency keys at the top of `request`. This check is a backstop
+      // against a future input that skips those, not the primary guard.
+      //
+      // A sentinel body rather than none: `Request` rejects a body on a
+      // bodyless method, and that is the one check here that needs a body
+      // present. An empty string preserves it for 0.03ms instead of the 8ms
+      // the real payload costs.
+      const { body, ...bodylessInit } = init;
+      if (typeof Request === "function") {
+        void new Request(url, body === undefined ? bodylessInit : { ...bodylessInit, body: "" });
+      }
     } catch (err) {
       throw new AhaSendConfigurationError(
         `AhaSend: failed to construct request for ${options.method} ${options.path}.`,
@@ -376,9 +439,47 @@ export class HttpClient {
     return execution.idempotency.key !== undefined;
   }
 
+  /**
+   * Buffer a response body, refusing to grow past {@link MAX_RESPONSE_BYTES}.
+   *
+   * `response.text()` reads to completion with no ceiling, so a compressed body
+   * could inflate a few hundred kilobytes on the wire into hundreds of
+   * megabytes resident — and because that surfaced as a generic failure the
+   * retry policy repeated it. The stream yields decompressed bytes, so counting
+   * here is what bounds the amplification.
+   */
+  private async readBoundedText(response: Response, options: RequestOptions): Promise<string> {
+    const body = response.body;
+    // A null-body response (204/205/304) or an injected fetch returning a
+    // Response built without a stream: nothing to bound.
+    if (!body) return response.text();
+
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = (await reader.read()) as ReadableStreamReadResult<Uint8Array>;
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_RESPONSE_BYTES) {
+          // Stop pulling immediately rather than reading to the end and then
+          // rejecting — that is the whole point of the ceiling.
+          void reader.cancel().catch(() => undefined);
+          throw new AhaSendResponseTooLargeError(MAX_RESPONSE_BYTES, options.method, options.path);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return new TextDecoder("utf-8").decode(Buffer.concat(chunks));
+  }
+
   private async parseResponse<T>(
     response: Response,
     idempotency: IdempotencyExecutionRecord,
+    options: RequestOptions,
     requestIdFromHeader?: string,
   ): Promise<T> {
     const requestId = requestIdFromHeader ?? response.headers.get(REQUEST_ID_HEADER) ?? undefined;
@@ -387,7 +488,7 @@ export class HttpClient {
       if (response.ok) return undefined as T;
     }
 
-    const rawText = await response.text();
+    const rawText = await this.readBoundedText(response, options);
     const parsed = rawText.length > 0 ? safeJsonParse(rawText) : undefined;
 
     if (!response.ok) {

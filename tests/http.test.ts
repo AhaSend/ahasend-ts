@@ -18,10 +18,11 @@ import {
   AhaSendNotFoundError,
   AhaSendRateLimitError,
   AhaSendResponseParseError,
+  AhaSendResponseTooLargeError,
   AhaSendTimeoutError,
   AhaSendUnprocessableEntityError,
 } from "../src/errors.js";
-import { HttpClient } from "../src/http.js";
+import { HttpClient, MAX_RESPONSE_BYTES } from "../src/http.js";
 import { OperationExecutor } from "../src/operations.js";
 import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
@@ -669,16 +670,21 @@ describe("HttpClient cancellation and attempt timeouts", () => {
     vi.useFakeTimers();
     try {
       const fetchImpl = mockFetch((_url, init) => {
-        const response = new Response("{}", { status: 200 });
-        vi.spyOn(response, "text").mockImplementation(
-          () =>
-            new Promise<string>((_, reject) => {
-              init.signal?.addEventListener("abort", () => reject(makeAbortError()), {
-                once: true,
-              });
-            }),
+        // Headers arrive, then the body stalls forever — the shape a slow
+        // upstream produces, and the reason the per-attempt budget has to
+        // cover body reading rather than stopping at the response.
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(streamController) {
+              init.signal?.addEventListener(
+                "abort",
+                () => streamController.error(makeAbortError()),
+                { once: true },
+              );
+            },
+          }),
+          { status: 200 },
         );
-        return response;
       });
       const client = makeClient(fetchImpl, {
         timeoutMs: 5_000,
@@ -700,21 +706,21 @@ describe("HttpClient cancellation and attempt timeouts", () => {
     try {
       const controller = new AbortController();
       const fetchImpl = mockFetch((_url, init) => {
-        const response = new Response("{}", { status: 200 });
-        vi.spyOn(response, "text").mockImplementation(
-          () =>
-            new Promise<string>((_, reject) => {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(streamController) {
               init.signal?.addEventListener(
                 "abort",
                 () => {
-                  const reason = init.signal?.reason;
-                  setTimeout(() => reject(reason), 150);
+                  const reason: unknown = init.signal?.reason;
+                  setTimeout(() => streamController.error(reason), 150);
                 },
                 { once: true },
               );
-            }),
+            },
+          }),
+          { status: 200 },
         );
-        return response;
       });
       const client = makeClient(fetchImpl, {
         timeoutMs: 100,
@@ -1590,5 +1596,190 @@ describe("HttpClient retry behaviour", () => {
       ),
     ).rejects.toMatchObject({ status: 400 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("deterministic failures stay non-retryable without a Request constructor", () => {
+  // The pre-flight exists so a construction failure is reported as a
+  // configuration error rather than mistaken for a retryable network one.
+  // Skipping it where `Request` is absent only holds because every reachable
+  // input is validated earlier — including headers behind accessors, which
+  // resolveConfig now snapshots. Pin the property, not just the plumbing:
+  // one refusal, and zero requests, rather than four retried attempts.
+  it("rejects an accessor-backed header before any request is made", () => {
+    const RealRequest = globalThis.Request;
+    delete (globalThis as { Request?: unknown }).Request;
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("{}", { status: 200 })));
+    try {
+      expect(() =>
+        resolveConfig({
+          apiKey: "aha-sk-test",
+          fetch: fetchImpl as unknown as typeof fetch,
+          defaultHeaders: {
+            get "x-probe"() {
+              return "line1\nline2";
+            },
+          },
+        }),
+      ).toThrow(AhaSendConfigurationError);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      globalThis.Request = RealRequest;
+    }
+  });
+});
+
+describe("response body ceiling", () => {
+  const bodyOf = (bytes: number, chunk = 1024 * 1024) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        let sent = 0;
+        while (sent < bytes) {
+          const size = Math.min(chunk, bytes - sent);
+          controller.enqueue(new Uint8Array(size).fill(65));
+          sent += size;
+        }
+        controller.close();
+      },
+    });
+
+  it("abandons a body past the ceiling instead of buffering it", async () => {
+    // `response.text()` read to completion with no ceiling. Because the stream
+    // yields DECOMPRESSED bytes, a few hundred kilobytes of gzip could inflate
+    // to hundreds of megabytes resident — measured at 1028:1 — and the failure
+    // surfaced generically enough that the retry policy repeated it.
+    const client = makeClient(
+      mockFetch(() => new Response(bodyOf(MAX_RESPONSE_BYTES + 1024), { status: 200 })),
+      { retry: { enabled: false } },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
+      AhaSendResponseTooLargeError,
+    );
+  });
+
+  it("does not retry a body that exceeded the ceiling", async () => {
+    // The response was received; re-requesting can only reproduce it, and
+    // retrying is what turned one oversized body into four.
+    const fetchImpl = mockFetch(
+      () => new Response(bodyOf(MAX_RESPONSE_BYTES + 1024), { status: 200 }),
+    );
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 0, maxDelayMs: 0 },
+    });
+
+    const error = await client.request({ method: "GET", path: "/x" }).then(
+      () => null,
+      (reason: unknown) => reason as { code?: string },
+    );
+
+    expect(error?.code).toBe("response_too_large_error");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reads a body up to the ceiling", async () => {
+    const payload = JSON.stringify({ value: "a".repeat(2 * 1024 * 1024) });
+    const client = makeClient(
+      mockFetch(() => new Response(payload, { status: 200 })),
+      { retry: { enabled: false } },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).resolves.toEqual(
+      JSON.parse(payload),
+    );
+  });
+
+  it("decodes a multi-byte character split across stream chunks", async () => {
+    // Concatenating chunks before decoding is what makes this work; decoding
+    // per chunk would corrupt any character straddling a boundary.
+    const encoded = new TextEncoder().encode(JSON.stringify({ text: "héllo — wörld 💥" }));
+    const client = makeClient(
+      mockFetch(
+        () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                for (const byte of encoded) controller.enqueue(new Uint8Array([byte]));
+                controller.close();
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+      { retry: { enabled: false } },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).resolves.toEqual({
+      text: "héllo — wörld 💥",
+    });
+  });
+});
+
+describe("request pre-flight validation", () => {
+  const baseOptions = { apiKey: "aha-sk-test" } as const;
+
+  it("does not encode the body while validating", async () => {
+    // The pre-flight exists to separate deterministic construction failures
+    // from retryable network ones, and nothing it checks depends on the body.
+    // Passing it made `Request` encode a second copy of the payload on every
+    // call — 8ms and 5MB of garbage for a 5MB attachment send.
+    const seen: RequestInit[] = [];
+    const client = new HttpClient(
+      resolveConfig({
+        ...baseOptions,
+        fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
+          seen.push(init!);
+          return Promise.resolve(new Response("{}", { status: 200 }));
+        },
+      }),
+    );
+
+    const payload = { attachments: [{ data: "A".repeat(2 * 1024 * 1024) }] };
+    const constructed: RequestInit[] = [];
+    const RealRequest = globalThis.Request;
+    class ObservingRequest extends RealRequest {
+      constructor(input: RequestInfo | URL, init?: RequestInit) {
+        super(input, init);
+        constructed.push(init ?? {});
+      }
+    }
+    globalThis.Request = ObservingRequest as unknown as typeof Request;
+    try {
+      await client.request({ method: "POST", path: "/v2/ping", body: payload });
+    } finally {
+      globalThis.Request = RealRequest;
+    }
+
+    // The validation Request saw a sentinel, not the payload — enough to keep
+    // the "no body on a bodyless method" check, none of the encoding cost.
+    expect(constructed).toHaveLength(1);
+    expect(constructed[0]!.body).toBe("");
+    // ...while the real request still carries it.
+    expect(seen[0]!.body).toBe(JSON.stringify(payload));
+  });
+
+  it("works when the runtime has no Request constructor", async () => {
+    // A caller supplies `options.fetch` precisely when the global fetch stack
+    // is absent or unusable, so requiring `Request` broke the escape hatch in
+    // the environments it exists for.
+    const RealRequest = globalThis.Request;
+    // Delete rather than assign undefined: a runtime without fetch has no
+    // `Request` binding at all, and only `typeof` survives that. An identity
+    // comparison would throw ReferenceError and this test would not notice.
+    delete (globalThis as { Request?: unknown }).Request;
+    try {
+      const client = new HttpClient(
+        resolveConfig({
+          ...baseOptions,
+          fetch: () => Promise.resolve(new Response('{"ok":true}', { status: 200 })),
+        }),
+      );
+
+      await expect(client.request({ method: "GET", path: "/v2/ping" })).resolves.toEqual({
+        ok: true,
+      });
+    } finally {
+      globalThis.Request = RealRequest;
+    }
   });
 });

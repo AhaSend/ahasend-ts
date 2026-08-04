@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "../src/config.js";
-import { AhaSendAbortError, AhaSendError } from "../src/errors.js";
+import {
+  AhaSendAbortError,
+  AhaSendError,
+  AhaSendRateLimitError,
+  AhaSendRateLimitQueueFullError,
+  AhaSendServerError,
+} from "../src/errors.js";
 import { HttpClient } from "../src/http.js";
 import {
+  DEFAULT_MAX_QUEUE,
   DEFAULT_RATE_LIMIT_CONFIG,
   MIN_REQUESTS_PER_SECOND,
   RateLimiter,
@@ -77,15 +84,20 @@ describe("resolveRateLimitConfig", () => {
     expect(resolveRateLimitConfig()).toEqual(DEFAULT_RATE_LIMIT_CONFIG);
     expect(DEFAULT_RATE_LIMIT_CONFIG).toEqual({
       enabled: false,
-      standard: { requestsPerSecond: 100, burst: 200, enabled: true },
-      statistics: { requestsPerSecond: 1, burst: 1, enabled: true },
+      standard: { requestsPerSecond: 100, burst: 200, enabled: true, maxQueue: DEFAULT_MAX_QUEUE },
+      statistics: { requestsPerSecond: 1, burst: 1, enabled: true, maxQueue: DEFAULT_MAX_QUEUE },
     });
   });
 
   it("merges category overrides without enabling pacing", () => {
     const resolved = resolveRateLimitConfig({ statistics: { requestsPerSecond: 0.5 } });
     expect(resolved.enabled).toBe(false);
-    expect(resolved.statistics).toEqual({ requestsPerSecond: 0.5, burst: 1, enabled: true });
+    expect(resolved.statistics).toEqual({
+      requestsPerSecond: 0.5,
+      burst: 1,
+      enabled: true,
+      maxQueue: DEFAULT_MAX_QUEUE,
+    });
     expect(resolved.standard).toEqual(DEFAULT_RATE_LIMIT_CONFIG.standard);
   });
 });
@@ -530,5 +542,336 @@ describe("RateLimiter", () => {
 
     const queued = [limiter.acquire("GET", "/v2/ping"), limiter.acquire("GET", "/v2/ping")];
     await expect(Promise.all(queued)).rejects.toThrow("clock failed");
+  });
+});
+
+describe("pacing queue capacity", () => {
+  // The cap bounds memory when work is offered faster than the configured rate
+  // drains it. It had no test at all, so neither the refusal nor its
+  // configurability was pinned — and the default silently rejected the tail of
+  // any fan-out wider than burst + 1,000.
+  it("refuses past maxQueue with an identifiable, actionable error", async () => {
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1, maxQueue: 2 },
+      }),
+      { now: () => 0, sleep: vi.fn(() => new Promise<void>(() => {})) },
+    );
+
+    await limiter.acquire("POST", "/v2/accounts/a/messages");
+    const queued = [
+      limiter.acquire("POST", "/v2/accounts/a/messages"),
+      limiter.acquire("POST", "/v2/accounts/a/messages"),
+    ];
+    queued.forEach((promise) => void promise.catch(() => undefined));
+
+    const refused = limiter.acquire("POST", "/v2/accounts/a/messages");
+    await expect(refused).rejects.toBeInstanceOf(AhaSendRateLimitQueueFullError);
+
+    const error = await refused.then(
+      () => {
+        throw new Error("expected the acquisition to be refused");
+      },
+      (reason: unknown) => reason as AhaSendRateLimitQueueFullError,
+    );
+    // Distinguishable from a server 429 by class AND by code, and it names the
+    // knob that fixes it rather than only reporting that something is full.
+    expect(error.code).toBe("rate_limit_queue_full_error");
+    expect(error).not.toBeInstanceOf(AhaSendRateLimitError);
+    expect(error.category).toBe("standard");
+    expect(error.maxQueue).toBe(2);
+    expect(error.message).toContain("rateLimit.standard.maxQueue");
+  });
+
+  it("admits a fan-out wider than the default once maxQueue is raised", async () => {
+    // The reported case: Promise.all over 1,300 sends against burst 200 leaves
+    // 1,100 waiting, so the 1,000 default rejects 100 of them.
+    const fanOut = 1_300;
+    const burst = 200;
+    const paced = (maxQueue: number) => {
+      const limiter = new RateLimiter(
+        resolveRateLimitConfig({
+          enabled: true,
+          standard: { requestsPerSecond: 100, burst, maxQueue },
+        }),
+        { now: () => 0, sleep: vi.fn(() => new Promise<void>(() => {})) },
+      );
+      return Array.from({ length: fanOut }, () =>
+        limiter.acquire("POST", "/v2/accounts/a/messages"),
+      );
+    };
+
+    // Calls that are admitted or refused settle immediately; the rest stay
+    // queued for a token that this frozen clock never grants, so each is raced
+    // against an already-resolved sentinel rather than awaited.
+    const settle = async (promises: Promise<void>[]) =>
+      Promise.all(
+        promises.map((promise) =>
+          Promise.race([
+            promise.then(
+              () => "admitted" as const,
+              (reason: unknown) =>
+                reason instanceof AhaSendRateLimitQueueFullError
+                  ? ("refused" as const)
+                  : ("errored" as const),
+            ),
+            Promise.resolve().then(() => "queued" as const),
+          ]),
+        ),
+      );
+
+    const atDefault = await settle(paced(DEFAULT_MAX_QUEUE));
+    expect(atDefault.filter((outcome) => outcome === "refused")).toHaveLength(
+      fanOut - burst - DEFAULT_MAX_QUEUE,
+    );
+
+    const raised = await settle(paced(fanOut));
+    expect(raised.filter((outcome) => outcome === "refused")).toHaveLength(0);
+    expect(raised.filter((outcome) => outcome === "errored")).toHaveLength(0);
+    // Assert the positive half too: without this the test passes on a bucket
+    // that admits nothing and queues everything.
+    expect(raised.filter((outcome) => outcome === "admitted")).toHaveLength(burst);
+  });
+
+  it("keeps the two buckets' capacity independent", async () => {
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1, maxQueue: 1 },
+        statistics: { requestsPerSecond: 1, burst: 1, maxQueue: 5 },
+      }),
+      { now: () => 0, sleep: vi.fn(() => new Promise<void>(() => {})) },
+    );
+
+    await limiter.acquire("POST", "/v2/accounts/a/messages");
+    await limiter.acquire("GET", "/v2/accounts/a/statistics/deliverability");
+
+    const standardQueued = limiter.acquire("POST", "/v2/accounts/a/messages");
+    void standardQueued.catch(() => undefined);
+    await expect(limiter.acquire("POST", "/v2/accounts/a/messages")).rejects.toBeInstanceOf(
+      AhaSendRateLimitQueueFullError,
+    );
+
+    // The statistics bucket still has room, and reports its own limit.
+    const statisticsQueued = Array.from({ length: 5 }, () =>
+      limiter.acquire("GET", "/v2/accounts/a/statistics/deliverability"),
+    );
+    statisticsQueued.forEach((promise) => void promise.catch(() => undefined));
+    const refused = limiter.acquire("GET", "/v2/accounts/a/statistics/deliverability").then(
+      () => {
+        throw new Error("expected the acquisition to be refused");
+      },
+      (reason: unknown) => reason as AhaSendRateLimitQueueFullError,
+    );
+    expect((await refused).category).toBe("statistics");
+    expect((await refused).maxQueue).toBe(5);
+  });
+});
+
+describe("pacing failure during a retry", () => {
+  const slowPacing = {
+    enabled: true,
+    standard: { requestsPerSecond: MIN_REQUESTS_PER_SECOND, burst: 1, maxQueue: 1 },
+  } as const;
+
+  const respond503 = () =>
+    Promise.resolve(
+      new Response(JSON.stringify({ message: "upstream exploded" }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+  it("reports the refusal and carries the API error that caused the retry", async () => {
+    let attempts = 0;
+    let client: HttpClient | undefined;
+    const config = resolveConfig({
+      apiKey: "aha-sk-test",
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+      rateLimit: slowPacing,
+      fetch: () => {
+        attempts += 1;
+        // Saturate the bucket while attempt 1 is in flight, so the retry's
+        // re-acquisition finds the queue full.
+        if (attempts === 1) {
+          void client?.rateLimiter.acquire("GET", "/v2/ping").catch(() => undefined);
+        }
+        return respond503();
+      },
+    });
+    client = new HttpClient(config);
+
+    const failure = await client.request({ method: "GET", path: "/v2/ping" }).then(
+      () => {
+        throw new Error("expected the request to fail");
+      },
+      (reason: unknown) => reason as Error,
+    );
+
+    expect(attempts).toBe(1);
+    // The refusal is what actually ended the call, and unlike the 503 it is
+    // NOT retryable — reporting the 503 would tell an outer retry layer to
+    // re-queue into the queue that just refused it.
+    expect(failure).toBeInstanceOf(AhaSendRateLimitQueueFullError);
+    expect(isRetryableError(failure)).toBe(false);
+    // The API error survives for diagnosis rather than being discarded.
+    expect((failure as { cause?: unknown }).cause).toBeInstanceOf(AhaSendServerError);
+  });
+
+  it("leaves a caller's cancellation with its own identity", async () => {
+    // `acquire` rejects with AhaSendAbortError as well as queue-full. Wrapping
+    // by attempt number rather than by error type relabelled a cancellation as
+    // the previous attempt's 503 — which is both wrong and retryable, so an
+    // outer retry layer would re-issue a request the caller had cancelled.
+    const controller = new AbortController();
+    let attempts = 0;
+    const config = resolveConfig({
+      apiKey: "aha-sk-test",
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+      rateLimit: { ...slowPacing, standard: { ...slowPacing.standard, maxQueue: 10 } },
+      fetch: () => {
+        attempts += 1;
+        // Late enough to clear the 0ms backoff and land inside the pacing wait.
+        if (attempts === 1) setTimeout(() => controller.abort("caller gave up"), 40);
+        return respond503();
+      },
+    });
+    const client = new HttpClient(config);
+
+    const failure = await client
+      .request({ method: "GET", path: "/v2/ping", signal: controller.signal })
+      .then(
+        () => {
+          throw new Error("expected the request to fail");
+        },
+        (reason: unknown) => reason as Error,
+      );
+
+    expect(failure).toBeInstanceOf(AhaSendAbortError);
+    expect(isRetryableError(failure)).toBe(false);
+  });
+
+  it("still surfaces a pacing refusal on the very first attempt", async () => {
+    const config = resolveConfig({
+      apiKey: "aha-sk-test",
+      rateLimit: slowPacing,
+      fetch: () => new Promise<Response>(() => {}),
+    });
+    const client = new HttpClient(config);
+
+    void client.rateLimiter.acquire("GET", "/v2/ping").catch(() => undefined);
+    void client.rateLimiter.acquire("GET", "/v2/ping").catch(() => undefined);
+
+    // Nothing earlier went wrong, so there is no cause to attach.
+    const failure = await client.request({ method: "GET", path: "/v2/ping" }).then(
+      () => {
+        throw new Error("expected the request to fail");
+      },
+      (reason: unknown) => reason as Error,
+    );
+    expect(failure).toBeInstanceOf(AhaSendRateLimitQueueFullError);
+    expect("cause" in failure).toBe(false);
+  });
+});
+
+describe("queue cancellation at scale", () => {
+  const frozen = () => ({ now: () => 0, sleep: vi.fn(() => new Promise<void>(() => undefined)) });
+
+  it("aborts a whole fan-out without a quadratic stall", () => {
+    // Cancelling used to indexOf + splice per waiter, and one shared signal
+    // across a fan-out made that O(n²) *synchronously*. At 20,000 waiters it
+    // blocked the event loop for over a second — and the guide now tells
+    // people to size maxQueue to their widest fan-out, so this is the
+    // documented path, not an exotic one.
+    //
+    // Asserted as a shape rather than a wall-clock budget: doubling the queue
+    // must not quadruple the cost. A quadratic implementation gives a ratio
+    // near 4; a linear one stays near 2.
+    const timeAbort = (waiters: number): number => {
+      const limiter = new RateLimiter(
+        resolveRateLimitConfig({
+          enabled: true,
+          standard: { requestsPerSecond: 1, burst: 1, maxQueue: waiters + 10 },
+        }),
+        frozen(),
+      );
+      const controller = new AbortController();
+      for (let index = 0; index < waiters; index += 1) {
+        void limiter.acquire("GET", "/v2/ping", controller.signal).catch(() => undefined);
+      }
+      const startedAt = performance.now();
+      controller.abort();
+      return performance.now() - startedAt;
+    };
+
+    timeAbort(2_000); // warm up, so JIT state is not attributed to the ratio
+    const small = timeAbort(4_000);
+    const large = timeAbort(16_000);
+
+    // 4x the waiters. Linear predicts ~4x; quadratic predicts ~16x.
+    expect(large / Math.max(small, 0.5)).toBeLessThan(9);
+  });
+
+  it("reuses a cancelled waiter's slot without disturbing the rest of the queue", async () => {
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1, maxQueue: 3 },
+      }),
+      frozen(),
+    );
+    await limiter.acquire("GET", "/v2/ping");
+
+    const controllers = [0, 1, 2].map(() => new AbortController());
+    const queued = controllers.map((controller) => {
+      const pending = limiter.acquire("GET", "/v2/ping", controller.signal);
+      void pending.catch(() => undefined);
+      return pending;
+    });
+
+    await expect(limiter.acquire("GET", "/v2/ping")).rejects.toBeInstanceOf(
+      AhaSendRateLimitQueueFullError,
+    );
+
+    // Cancelling the middle waiter frees exactly one slot — the tombstone it
+    // leaves behind must not count against capacity.
+    controllers[1]!.abort();
+    await expect(queued[1]).rejects.toBeInstanceOf(AhaSendAbortError);
+
+    const readmitted = limiter.acquire("GET", "/v2/ping");
+    void readmitted.catch(() => undefined);
+    await expect(limiter.acquire("GET", "/v2/ping")).rejects.toBeInstanceOf(
+      AhaSendRateLimitQueueFullError,
+    );
+  });
+
+  it("serves survivors in order and does not resurrect a cancelled waiter", async () => {
+    const clock = createRateLimitClock();
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1, maxQueue: 10 },
+      }),
+      clock.clock,
+    );
+    await limiter.acquire("GET", "/v2/ping");
+
+    const served: number[] = [];
+    const controller = new AbortController();
+    const outcomes = [1, 2, 3, 4].map((id) => {
+      const signal = id === 2 ? controller.signal : undefined;
+      const pending = limiter.acquire("GET", "/v2/ping", signal).then(
+        () => served.push(id),
+        () => undefined,
+      );
+      return pending;
+    });
+
+    controller.abort();
+    for (let tick = 0; tick < 4; tick += 1) await clock.advanceBy(1000);
+    await Promise.all(outcomes);
+
+    expect(served).toEqual([1, 3, 4]);
   });
 });
