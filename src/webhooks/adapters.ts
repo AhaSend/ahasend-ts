@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { ReadableStreamReadResult } from "node:stream/web";
-import { AhaSendWebhookVerificationError } from "../errors.js";
+import { isAhaSendError } from "../errors.js";
+import type { AhaSendWebhookVerificationError } from "../errors.js";
 import { MAX_WEBHOOK_BODY_BYTES, WebhookVerifier } from "./verifier.js";
 import type { AnyWebhookEvent } from "./events.js";
 
@@ -22,7 +23,15 @@ export interface WebhookAdapterOptions {
    * verifier ceiling and may only narrow that ceiling.
    */
   maxBodyBytes?: number | undefined;
-  onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
+  /**
+   * Explicitly `| undefined` so that under `exactOptionalPropertyTypes` a
+   * consumer can forward an observer of type `Observer | undefined` — the
+   * ordinary shape when observability is conditionally configured. The
+   * runtime always supported the explicit `undefined`.
+   */
+  onError?:
+    | ((error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>)
+    | undefined;
 }
 
 /**
@@ -124,7 +133,7 @@ export function expressWebhookHandler(
     try {
       event = verifier.parse(req.headers, rawBody);
     } catch (error) {
-      if (error instanceof AhaSendWebhookVerificationError) {
+      if (isWebhookVerificationError(error)) {
         completeExpress(
           res,
           error.reason === "body_too_large" ? 413 : 400,
@@ -182,7 +191,7 @@ export function fastifyWebhookHandler(
     try {
       event = verifier.parse(request.headers, rawBody);
     } catch (error) {
-      if (error instanceof AhaSendWebhookVerificationError) {
+      if (isWebhookVerificationError(error)) {
         completeFastify(
           reply,
           error.reason === "body_too_large" ? 413 : 400,
@@ -226,7 +235,7 @@ export function nextRouteHandler(
     try {
       event = verifier.parse(request.headers, rawBody);
     } catch (error) {
-      if (error instanceof AhaSendWebhookVerificationError) {
+      if (isWebhookVerificationError(error)) {
         return opaqueResponse(error.reason === "body_too_large" ? 413 : 400);
       }
       observeError(adapterOptions.onError, error, "next", "setup");
@@ -403,6 +412,25 @@ async function readWebRawBody(request: Request, maxBodyBytes: number): Promise<B
  */
 function isBytes(value: unknown): value is Uint8Array {
   return value instanceof Uint8Array;
+}
+
+/**
+ * Brand-based replacement for `instanceof AhaSendWebhookVerificationError`.
+ *
+ * The adapter and the verifier it is handed can come from different module
+ * instances of this package — the ESM and CJS halves of one application, or
+ * two copies in a dependency tree. Each instance has its own class object, so
+ * `instanceof` against this module's class let a verification failure raised
+ * by the other instance fall through to the framework error path: a forged
+ * signature became a 500 that reveals which check failed instead of the
+ * opaque 400. The `Symbol.for` brand and the `code` field survive
+ * duplication — the same dispatch `http.ts` already uses via
+ * `AhaSendError.is()`. A cross-instance error also carries `reason`; if a
+ * branded impostor omits it, the comparison below reads `undefined` and the
+ * response is the plain 400.
+ */
+function isWebhookVerificationError(error: unknown): error is AhaSendWebhookVerificationError {
+  return isAhaSendError(error) && error.code === "webhook_verification_error";
 }
 
 function toBoundedBytes(body: string | Uint8Array, maxBodyBytes: number): Uint8Array {

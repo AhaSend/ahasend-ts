@@ -240,6 +240,8 @@ class TokenBucket {
   private readonly queue: (PendingAcquisition | undefined)[] = [];
   private head = 0;
   private pendingCount = 0;
+  /** Cancelled entries still occupying queue slots at or past `head`. */
+  private tombstones = 0;
   private waitController: AbortController | undefined;
 
   constructor(
@@ -296,6 +298,7 @@ class TokenBucket {
     this.queue.length = 0;
     this.head = 0;
     this.pendingCount = 0;
+    this.tombstones = 0;
     return waiting;
   }
 
@@ -310,6 +313,7 @@ class TokenBucket {
         this.pendingCount -= 1;
         return pending;
       }
+      if (pending?.cancelled) this.tombstones -= 1;
     }
     return undefined;
   }
@@ -384,8 +388,32 @@ class TokenBucket {
     pending.cancelled = true;
     delete pending.onAbort;
     this.pendingCount -= 1;
+    this.tombstones += 1;
     pending.reject(new AhaSendAbortError("Request aborted", pending.signal?.reason));
     if (this.pendingCount === 0) this.cancelWait();
+    this.sweep();
+  }
+
+  /**
+   * Rebuild the queue without cancelled entries once they outnumber the live
+   * ones. `dequeue` reclaims a tombstone only when a token grant walks past
+   * it, so a token-starved bucket whose queued callers keep aborting — a
+   * fan-out whose per-request timeouts are shorter than the pacing wait —
+   * would otherwise retain every aborted waiter, its signal, and its closures
+   * indefinitely, unbounded by `maxQueue`, which counts live waiters only.
+   * The thresholds mirror `compact`: amortised O(1) per cancellation.
+   */
+  private sweep(): void {
+    if (this.tombstones < 32 || this.tombstones * 2 < this.queue.length - this.head) return;
+    const live: PendingAcquisition[] = [];
+    for (let index = this.head; index < this.queue.length; index++) {
+      const pending = this.queue[index];
+      if (pending && !pending.cancelled) live.push(pending);
+    }
+    this.queue.length = 0;
+    for (const pending of live) this.queue.push(pending);
+    this.head = 0;
+    this.tombstones = 0;
   }
 
   private processQueue(): void {
@@ -586,7 +614,9 @@ export interface RateLimiterController {
    * Validates the category, the object, and each field exactly as construction
    * does, and throws {@link AhaSendConfigurationError} on an unusable value —
    * including an unrecognised key, which was previously dropped in silence and
-   * left the caller believing a ceiling had been raised. Note that raising
+   * left the caller believing a ceiling had been raised, and a `null` field,
+   * which the keep-current merge would otherwise silently treat as omitted.
+   * Only `undefined` means keep-current. Note that raising
    * `burst` raises the ceiling but does not mint tokens: they accrue at
    * `requestsPerSecond` and are capped at the new `burst`.
    */
@@ -633,12 +663,38 @@ export function createRateLimiterController(limiter: RateLimiter): Readonly<Rate
     setLimit: (category, limit) => {
       assertRateLimitCategory(category, "category");
       assertRateLimitSetting(limit, "limit");
+      // Read each field exactly once, then validate the values that will be
+      // applied. Validating through the object would leave two holes: an
+      // accessor could answer differently on the second read, and `??` — which
+      // implements "an omitted field keeps its current value" — also coalesces
+      // `null`, so a `null` field would silently mean keep-current instead of
+      // being refused like every other unusable value.
+      const requested = {
+        requestsPerSecond: limit.requestsPerSecond,
+        burst: limit.burst,
+        maxQueue: limit.maxQueue,
+      };
+      // Field names match construction's (`rateLimit.<category>.<field>`):
+      // the same mistake produces the same words whichever door it came
+      // through — a property tests/client.test.ts pins.
+      if (requested.requestsPerSecond !== undefined) {
+        assertRequestsPerSecond(
+          requested.requestsPerSecond,
+          `rateLimit.${category}.requestsPerSecond`,
+        );
+      }
+      if (requested.burst !== undefined) {
+        assertBurst(requested.burst, `rateLimit.${category}.burst`);
+      }
+      if (requested.maxQueue !== undefined) {
+        assertMaxQueue(requested.maxQueue, `rateLimit.${category}.maxQueue`);
+      }
       const current = limiter.settings(category);
       limiter.setLimit(
         category,
-        limit.requestsPerSecond ?? current.requestsPerSecond,
-        limit.burst ?? current.burst,
-        limit.maxQueue ?? current.maxQueue,
+        requested.requestsPerSecond ?? current.requestsPerSecond,
+        requested.burst ?? current.burst,
+        requested.maxQueue ?? current.maxQueue,
       );
     },
     available: (category) => {

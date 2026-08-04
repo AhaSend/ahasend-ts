@@ -9,6 +9,7 @@ import type {
 import { MAX_TIMER_DELAY_MS, resolveConfig } from "../src/config.js";
 import {
   AhaSendAbortError,
+  AhaSendAPIError,
   AhaSendAuthenticationError,
   AhaSendConflictError,
   AhaSendConfigurationError,
@@ -429,24 +430,48 @@ describe("HttpClient", () => {
   });
 
   it("configures fetch to block redirects before owned headers can reach another origin", async () => {
+    // "manual" refuses to follow exactly as "error" did — the security
+    // property — but returns the 3xx itself instead of a TypeError that was
+    // indistinguishable from a network failure.
     let seenInit: RequestInit | undefined;
     const fetchImpl = mockFetch((_url, init) => {
       seenInit = init;
-      throw new TypeError("redirect mode prevented following the response");
+      return Response.redirect("https://evil.example/capture", 302);
     });
     const client = makeClient(fetchImpl, { retry: { enabled: false } });
 
-    await expect(
-      client.request({
+    const error: unknown = await client
+      .request({
         method: "POST",
         path: "/redirect",
         body: { secret: true },
         idempotencyKey: "redirect-key",
-      }),
-    ).rejects.toBeInstanceOf(AhaSendConnectionError);
+      })
+      .catch((cause: unknown) => cause);
 
+    expect(error).toBeInstanceOf(AhaSendAPIError);
+    expect(error).toMatchObject({ status: 302 });
+    expect((error as AhaSendAPIError).headers["location"]).toBe("https://evil.example/capture");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(seenInit?.redirect).toBe("error");
+    expect(seenInit?.redirect).toBe("manual");
+  });
+
+  it("does not retry a redirect response — it is deterministic, not a network failure", async () => {
+    // With redirect "error" a proxy or captive-portal 3xx was wrapped as a
+    // retryable AhaSendConnectionError and retried to exhaustion.
+    const fetchImpl = mockFetch(() => Response.redirect("https://portal.example/login", 307));
+    const client = makeClient(fetchImpl, {
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+    });
+
+    const error: unknown = await client
+      .request({ method: "GET", path: "/v2/ping" })
+      .catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(AhaSendAPIError);
+    expect(error).not.toBeInstanceOf(AhaSendConnectionError);
+    expect(error).toMatchObject({ status: 307 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("does NOT auto-inject when idempotency.autoGenerate is disabled", async () => {

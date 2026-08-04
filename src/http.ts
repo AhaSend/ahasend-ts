@@ -327,7 +327,16 @@ export class HttpClient {
     const init: RequestInit = {
       method: options.method,
       headers,
-      redirect: "error",
+      // "manual" rather than "error". Both refuse to follow, so the owned
+      // Authorization header can never be replayed to wherever a proxy
+      // points — but "error" surfaced the refusal as a fetch TypeError,
+      // indistinguishable from a network failure, so a *deterministic* 3xx (a
+      // corporate proxy, a captive portal) was classified as a retryable
+      // connection error and retried to exhaustion. "manual" hands back the
+      // 3xx response itself, which the non-2xx path turns into a
+      // non-retryable `AhaSendAPIError` carrying the status and, in
+      // `error.headers`, the `location` the API never sends.
+      redirect: "manual",
     };
 
     if (options.body !== undefined && options.method !== "GET") {

@@ -712,3 +712,80 @@ describe("nextRouteHandler", () => {
     expect(JSON.stringify(context)).not.toContain("secret");
   });
 });
+
+describe("cross-instance verification errors", () => {
+  // A dependency tree can hold two module instances of this package — the ESM
+  // and CJS halves of one application, or two installed copies. A verifier
+  // from the other instance throws *its* AhaSendWebhookVerificationError,
+  // which fails `instanceof` against this instance's class. The adapters must
+  // classify it by brand, or a forged signature becomes a framework 500 that
+  // reveals which check failed instead of the opaque 400.
+  const foreignVerificationError = (reason: string): Error => {
+    const error = new Error(`Webhook verification failed (${reason})`);
+    Object.defineProperty(error, "name", { value: "AhaSendWebhookVerificationError" });
+    Object.defineProperty(error, "code", { value: "webhook_verification_error" });
+    Object.defineProperty(error, "reason", { value: reason });
+    Object.defineProperty(error, Symbol.for("@ahasend/sdk.error"), { value: true });
+    return error;
+  };
+
+  const foreignVerifier = (reason: string): WebhookVerifier =>
+    ({
+      parse: () => {
+        throw foreignVerificationError(reason);
+      },
+    }) as unknown as WebhookVerifier;
+
+  it("is a faithful stand-in: branded but not an instance of this module's class", async () => {
+    const { AhaSendWebhookVerificationError } = await import("../src/errors.js");
+    const error = foreignVerificationError("signature_mismatch");
+
+    expect(error).not.toBeInstanceOf(AhaSendWebhookVerificationError);
+    expect((error as { code?: string }).code).toBe("webhook_verification_error");
+  });
+
+  it("express answers a foreign verification error with the opaque 400", async () => {
+    const next = vi.fn();
+    const middleware = expressWebhookHandler(foreignVerifier("signature_mismatch"), vi.fn());
+    const res = new MockExpressRes();
+
+    await middleware({ headers: signEnvelope(eventBody), rawBody: eventBody }, res, next);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toBeUndefined();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("express keeps the 413 mapping for a foreign body_too_large", async () => {
+    const middleware = expressWebhookHandler(foreignVerifier("body_too_large"), vi.fn());
+    const res = new MockExpressRes();
+
+    await middleware({ headers: signEnvelope(eventBody), rawBody: eventBody }, res, vi.fn());
+
+    expect(res.statusCode).toBe(413);
+  });
+
+  it("fastify answers a foreign verification error with the opaque 400", async () => {
+    const route = fastifyWebhookHandler(foreignVerifier("signature_mismatch"), vi.fn());
+    const reply = new MockFastifyReply();
+
+    await route({ headers: signEnvelope(eventBody), rawBody: eventBody }, reply);
+
+    expect(reply.status).toBe(400);
+    expect(reply.payload).toBeUndefined();
+  });
+
+  it("next answers a foreign verification error with the opaque 400", async () => {
+    const route = nextRouteHandler(foreignVerifier("signature_mismatch"), vi.fn());
+    const request = new Request("https://example.test/webhook", {
+      method: "POST",
+      headers: signEnvelope(eventBody),
+      body: eventBody,
+    });
+
+    const response = await route(request);
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("");
+  });
+});

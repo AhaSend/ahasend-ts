@@ -1471,10 +1471,10 @@ export interface SuspendSubAccountRequest {
 
 // @public
 export interface TelemetryHooks {
-    onError?(event: ErrorEvent): void | Promise<void>;
-    onRequest?(event: RequestEvent): void | Promise<void>;
-    onResponse?(event: ResponseEvent): void | Promise<void>;
-    onRetry?(event: RetryEvent): void | Promise<void>;
+    onError?: ((event: ErrorEvent) => void | Promise<void>) | undefined;
+    onRequest?: ((event: RequestEvent) => void | Promise<void>) | undefined;
+    onResponse?: ((event: ResponseEvent) => void | Promise<void>) | undefined;
+    onRetry?: ((event: RetryEvent) => void | Promise<void>) | undefined;
 }
 
 // @public

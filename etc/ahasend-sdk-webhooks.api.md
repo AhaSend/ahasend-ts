@@ -386,8 +386,7 @@ export type WebhookAdapterErrorStage = "setup" | "stream" | "application";
 // @public
 export interface WebhookAdapterOptions {
     maxBodyBytes?: number | undefined;
-    // (undocumented)
-    onError?: (error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>;
+    onError?: ((error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>) | undefined;
 }
 
 // @public

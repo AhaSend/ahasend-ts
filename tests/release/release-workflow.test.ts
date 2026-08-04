@@ -955,6 +955,39 @@ describe("single-run release workflow", () => {
     expect(reuseIndex).toBeLessThan(captureIndex);
     expect(captureIndex).toBeLessThan(uploadIndex);
     expect(uploadIndex).toBeLessThan(promoteIndex);
+
+    // The capture is one registry read standing before the promotion-state
+    // upload. Unretried, a transient npm failure here killed the job with no
+    // state artifact, which then broke compensation's download. It must use
+    // the same five-attempt pattern as every other registry read here.
+    const captureScript = String(capture["run"] ?? "");
+    expect(captureScript).toContain("for ATTEMPT in 1 2 3 4 5");
+    expect(captureScript).toContain('PREVIOUS_LATEST="$(npm view');
+  });
+
+  it("compensates without promotion state by skipping restore but still cleaning up", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const steps = jobSteps(jobs["release-compensation"], "compensation");
+    const stateDownload = steps.find(
+      (step) =>
+        String(step["uses"] ?? "").startsWith("actions/download-artifact@") &&
+        record(step["with"] ?? {}, "download inputs")["name"] === "promotion-state",
+    );
+    const restore = steps.find(
+      (step) => step["name"] === "Restore latest and remove an incomplete release",
+    );
+
+    // The promotion-state artifact is uploaded before `latest` can move, so a
+    // missing artifact proves promotion never ran: compensation must not die
+    // on the download — the GitHub-release removal below it still applies.
+    expect(record(stateDownload, "promotion-state download")["continue-on-error"]).toBe(true);
+    const restoreScript = String(record(restore, "restore step")["run"] ?? "");
+    expect(restoreScript).toContain("if test -f /tmp/promotion-state/promotion-state.json");
+    expect(restoreScript).toContain("latest was never moved, nothing to restore");
+    // Cleanup must not sit inside the state-dependent branch.
+    const guardIndex = restoreScript.indexOf("if test -f /tmp/promotion-state");
+    const cleanupIndex = restoreScript.indexOf("gh release view");
+    expect(restoreScript.slice(guardIndex, cleanupIndex)).toContain("fi");
   });
 
   it("pins actions and limits publish authority to terminal mutations and compensation", () => {

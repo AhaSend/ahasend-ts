@@ -121,6 +121,14 @@ export class AhaSendError extends Error {
   }
 
   toJSON(depth = 0): SerializedAhaSendError {
+    // `JSON.stringify` invokes `toJSON` with the holder's *property key* — ""
+    // at the root, "error" under a logger's envelope — which shadows the
+    // default. Propagated through `depth + 1` that key concatenated instead of
+    // counting, so the `MAX_CAUSE_DEPTH` comparison in `serializeCause` was
+    // string arithmetic that fired early at the root and never fired under a
+    // key. Anything that is not a usable number restarts the count at 0; the
+    // recursion below always passes real numbers.
+    const level = typeof depth === "number" && Number.isFinite(depth) ? depth : 0;
     const serialized: SerializedAhaSendError = {
       name: this.name,
       code: this.code,
@@ -143,7 +151,7 @@ export class AhaSendError extends Error {
       // instance, would otherwise report nothing about the API error that
       // caused the retry.
       const cause: unknown = (this as { cause?: unknown }).cause;
-      serialized.cause = serializeCause(cause, depth);
+      serialized.cause = serializeCause(cause, level);
     }
     return serialized;
   }

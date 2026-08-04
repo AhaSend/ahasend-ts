@@ -29,6 +29,7 @@ export async function* paginate<T, P extends PaginationParams>(
 
   while (true) {
     const page = await fetchPage(params);
+    assertPageEnvelope(page);
     for (const item of page.data) yield item;
 
     if (page.pagination.has_more === false) return;
@@ -46,6 +47,28 @@ export async function* paginate<T, P extends PaginationParams>(
       const { before: _before, ...remainingParams } = params;
       params = { ...remainingParams, after: cursor } as P;
     }
+  }
+}
+
+/**
+ * A 2xx page whose envelope is missing would otherwise surface as a bare
+ * `TypeError` from the property walk in `paginate` — an error
+ * `AhaSendError.is()` does not match, unlike every other malformed-response
+ * path (a non-JSON 2xx is already `AhaSendResponseParseError`). The transport
+ * cannot make this check: it does not know which responses are pages.
+ */
+function assertPageEnvelope(page: PaginatedResponse<unknown>): void {
+  const envelope = page as { data?: unknown; pagination?: unknown } | null | undefined;
+  if (
+    envelope === null ||
+    typeof envelope !== "object" ||
+    !Array.isArray(envelope.data) ||
+    typeof envelope.pagination !== "object" ||
+    envelope.pagination === null
+  ) {
+    throw new AhaSendError(
+      "Pagination page is malformed: expected a `data` array and a `pagination` object",
+    );
   }
 }
 

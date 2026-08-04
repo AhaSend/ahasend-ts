@@ -125,7 +125,13 @@ describe("v0.1.0 release source alignment", () => {
     // `prepublishOnly` is the last gate before the registry. It previously
     // omitted lint and the packed-package preflight, so a publish could skip
     // the fixtures that compile the shipped declarations without @types/node.
+    //
+    // Split on the chain operator rather than substring-matched: `toContain`
+    // on the raw string let "npm run test" be satisfied by
+    // "npm run test:package:preflight", so removing the unit-test step was
+    // invisible to this test — the exact step it most exists to guard.
     const prepublish = packageManifest.scripts["prepublishOnly"] ?? "";
+    const steps = prepublish.split(" && ");
     for (const step of [
       "clean",
       "contracts:check",
@@ -137,7 +143,7 @@ describe("v0.1.0 release source alignment", () => {
       "test",
       "test:package:preflight",
     ]) {
-      expect(prepublish, `prepublishOnly omits ${step}`).toContain(`npm run ${step}`);
+      expect(steps, `prepublishOnly omits ${step}`).toContain(`npm run ${step}`);
     }
   });
 });

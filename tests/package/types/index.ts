@@ -25,6 +25,7 @@ import type {
   NextHandler,
   NodeStyleRequest,
   NodeStyleResponse,
+  WebhookAdapterOptions,
   WebhookRawBody,
 } from "@ahasend/sdk/webhooks";
 import { AhaSendWebhookVerificationError, WebhookVerifier } from "@ahasend/sdk/webhooks";
@@ -518,6 +519,28 @@ const rawBodyRecovery: ExpressHandler = (_event, req) => {
   acceptsBuffer(Buffer.from(req.rawBody.buffer, req.rawBody.byteOffset, req.rawBody.byteLength));
 };
 void rawBodyRecovery;
+
+// Under `exactOptionalPropertyTypes` (on in this fixture's tsconfig) an
+// optional member accepts a conditionally-present value only if its type says
+// `| undefined`. Telemetry hooks and the adapter error observer are the
+// ordinary places consumers wire optional observability, so both must accept
+// the `Fn | undefined` shape.
+declare const maybeRequestHook: ((event: SDK.RequestEvent) => void) | undefined;
+declare const maybeResponseHook: ((event: SDK.ResponseEvent) => void) | undefined;
+declare const maybeRetryHook: ((event: SDK.RetryEvent) => Promise<void>) | undefined;
+declare const maybeErrorHook: ((event: SDK.ErrorEvent) => void) | undefined;
+const conditionalHooks: SDK.TelemetryHooks = {
+  onRequest: maybeRequestHook,
+  onResponse: maybeResponseHook,
+  onRetry: maybeRetryHook,
+  onError: maybeErrorHook,
+};
+declare const maybeObserver: ((error: unknown) => void) | undefined;
+const conditionalAdapterOptions: WebhookAdapterOptions = {
+  maxBodyBytes: undefined,
+  onError: maybeObserver,
+};
+void [conditionalHooks, conditionalAdapterOptions];
 
 const apiErrorParams = { status: 400, message: "failed", body: null };
 void new AhaSendError("failed");

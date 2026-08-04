@@ -36,7 +36,8 @@ account. It does **not** deliver mail: every send sets `sandbox: true`, and
 `scripts/live-acceptance.mjs:964` refuses to run a request without it. Routes and
 webhooks are created `enabled: false`. What it _does_ do to the real account: creates and deletes
 domains, routes, webhooks, SMTP credentials, API keys, suppressions and
-sub-accounts; updates the account settings (including its `website`); wipes all
+sub-accounts; updates the account settings (only the `about` text, which is
+restored afterwards — `scripts/run-live-acceptance.mjs:515`); wipes all
 suppressions for `suppressionDomain` (`methods.wipe({ domain })`); and adds then
 removes a real account member. Treat it as destructive to the account, not as a
 mail event.
@@ -106,7 +107,9 @@ Account preconditions:
 - `neverRegisteredDomain` must not exist on the account at all.
 - `lifecycleDomain` must **not** exist on the account either — the run creates
   it (`scripts/run-live-acceptance.mjs:351`), drives it through the full
-  create/update/delete lifecycle, and uses it in the account-settings update.
+  create/update/delete lifecycle, and uses `https://<lifecycleDomain>` as the
+  `website` of the disposable sub-account the sub-account scenarios create and
+  delete (`scripts/run-live-acceptance.mjs:557`).
   Like `dnslessDomain`, a copy left behind by a cancelled run must be removed
   before re-tagging.
 - `suppressionDomain` has **every suppression deleted** for it

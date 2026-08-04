@@ -34,7 +34,9 @@ Initial release.
   `client.rateLimiter` reads and adjusts rates, per-bucket enablement, and
   queue size at runtime. Every method validates its arguments and throws
   `AhaSendConfigurationError` on an unrecognized category, a non-boolean
-  flag, a limit that is not an object, or an unknown key on one — this is a
+  flag, a limit that is not an object, an unknown key on one, or a field
+  value construction would refuse — including `null`, which only `undefined`
+  may stand in for as keep-current — because this is a
   runtime boundary reachable from JavaScript, where these values often come
   from environment variables or parsed JSON and the declared types are not
   enforced. A queue
@@ -84,7 +86,11 @@ Initial release.
   `AhaSendConfigurationError` instead of a bare `TypeError` on the
   first account-scoped call. The message does not echo the value.
 - Security guards: HTTPS-only base URL (localhost exempt) and a
-  browser-environment check, both with explicit opt-outs.
+  browser-environment check, both with explicit opt-outs. Redirects are
+  never followed — the Authorization header cannot be replayed to wherever
+  a proxy points — and a 3xx response surfaces as a non-retryable
+  `AhaSendAPIError` with the status and `location` header preserved,
+  rather than being mistaken for a retryable network failure.
 - Spec-conformance test suite validating every SDK method's verb +
   path against the repository's `openapi.yaml`.
 - Dual ESM + CJS build with full type declarations; zero runtime

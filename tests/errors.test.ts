@@ -723,4 +723,54 @@ describe("cause serialization", () => {
     expect(() => JSON.stringify(cyclic)).not.toThrow();
     expect(() => inspect(cyclic)).not.toThrow();
   });
+
+  // `JSON.stringify` calls `toJSON` with the holder's property key, which
+  // shadows the `depth` default. Before the key was coerced away, the cap
+  // compared strings: at the root it fired after 2 levels instead of 4, and
+  // under a property key — how every structured logger nests an error — it
+  // never fired at all.
+  const chain = (length: number): AhaSendError => {
+    let error: AhaSendError = apiError();
+    for (let index = 1; index < length; index++) {
+      error = new AhaSendRateLimitQueueFullError("standard", 1_000, error);
+    }
+    return error;
+  };
+
+  const causeDepth = (serialized: unknown): number => {
+    let depth = 0;
+    let cursor = (serialized as { cause?: unknown }).cause;
+    while (typeof cursor === "object" && cursor !== null) {
+      depth += 1;
+      cursor = (cursor as { cause?: unknown }).cause;
+    }
+    return depth;
+  };
+
+  it("caps the cause chain at the same depth from JSON.stringify as from toJSON()", () => {
+    const direct = chain(8).toJSON();
+    const atRoot = JSON.parse(JSON.stringify(chain(8))) as unknown;
+
+    expect(causeDepth(direct)).toBe(4);
+    expect(causeDepth(atRoot)).toBe(4);
+  });
+
+  it("caps the cause chain when the error is serialized under a property key", () => {
+    const nested = JSON.parse(JSON.stringify({ error: chain(8) })) as { error: unknown };
+
+    expect(causeDepth(nested.error)).toBe(4);
+  });
+
+  it("bounds a cyclic cause chain serialized under a property key", () => {
+    const first = apiError();
+    const second = new AhaSendRateLimitQueueFullError("standard", 1_000, first);
+    Object.defineProperty(first, "cause", { value: second, configurable: true });
+
+    const serialized = JSON.stringify({ error: second });
+
+    // Without the cap this recursed to the stack limit and emitted close to a
+    // megabyte per log line; with it, four levels then "[REDACTED]".
+    expect(serialized.length).toBeLessThan(2_000);
+    expect(serialized).toContain('"[REDACTED]"');
+  });
 });

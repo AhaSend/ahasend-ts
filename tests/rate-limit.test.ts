@@ -876,6 +876,42 @@ describe("queue cancellation at scale", () => {
 
     expect(served).toEqual([1, 3, 4]);
   });
+
+  it("bounds the backing array when a token-starved queue is churned by aborts", async () => {
+    // A tombstone is normally reclaimed when a token grant walks past it. A
+    // bucket that never grants — offered load with per-request timeouts
+    // shorter than the pacing wait — used to retain every aborted waiter in
+    // the backing array, unbounded by maxQueue, which counts live waiters
+    // only. The sweep must keep the array proportional to the live queue.
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1, maxQueue: 5 },
+      }),
+      frozen(),
+    );
+    await limiter.acquire("GET", "/v2/ping"); // drain the only token
+
+    const churns = 500;
+    for (let index = 0; index < churns; index += 1) {
+      const controller = new AbortController();
+      const pending = limiter.acquire("GET", "/v2/ping", controller.signal);
+      controller.abort();
+      await expect(pending).rejects.toBeInstanceOf(AhaSendAbortError);
+    }
+
+    const bucket = (
+      limiter as unknown as {
+        buckets: { standard: { queue: unknown[]; pendingCount: number } };
+      }
+    ).buckets.standard;
+    expect(bucket.pendingCount).toBe(0);
+    // Every churned entry frees capacity immediately (asserted above via the
+    // successful re-admissions); the sweep keeps the slots themselves from
+    // accumulating. 64 = the 32-tombstone sweep floor with slack, against a
+    // pre-fix occupancy of `churns`.
+    expect(bucket.queue.length).toBeLessThan(64);
+  });
 });
 
 describe("rateLimiter controller input validation", () => {
@@ -952,5 +988,38 @@ describe("rateLimiter controller input validation", () => {
     });
     rateLimiter.setEnabled(true);
     expect(rateLimiter.isEnabled()).toBe(true);
+  });
+
+  it("rejects a null field value instead of silently keeping the current one", () => {
+    // `??` implements "an omitted field keeps its current value", but it
+    // coalesces `null` too — so `{ requestsPerSecond: null }` (the natural
+    // output of JSON round-trips) validated as an object, then meant
+    // keep-current rather than being refused like every other unusable value.
+    const rateLimiter = controller();
+    for (const field of ["requestsPerSecond", "burst", "maxQueue"] as const) {
+      expect(() => rateLimiter.setLimit("standard", { [field]: null } as never)).toThrow(
+        AhaSendConfigurationError,
+      );
+    }
+    expect(rateLimiter.getLimit("standard")).toMatchObject({
+      requestsPerSecond: DEFAULT_RATE_LIMIT_CONFIG.standard.requestsPerSecond,
+      burst: DEFAULT_RATE_LIMIT_CONFIG.standard.burst,
+      maxQueue: DEFAULT_MAX_QUEUE,
+    });
+  });
+
+  it("applies the value it validated, not a second read of an accessor", () => {
+    const rateLimiter = controller();
+    let reads = 0;
+    const flickering = {
+      get requestsPerSecond(): number {
+        reads += 1;
+        return reads === 1 ? 50 : (Number.NaN as number);
+      },
+    };
+
+    rateLimiter.setLimit("standard", flickering);
+
+    expect(rateLimiter.getLimit("standard").requestsPerSecond).toBe(50);
   });
 });

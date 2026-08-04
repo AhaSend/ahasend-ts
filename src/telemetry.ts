@@ -34,29 +34,36 @@ export interface ErrorEvent extends RequestEvent {
   requestId?: string;
 }
 
-/** Isolated observability callbacks for the request attempt lifecycle. */
+/**
+ * Isolated observability callbacks for the request attempt lifecycle.
+ *
+ * Every member is explicitly `| undefined` so that under
+ * `exactOptionalPropertyTypes` a consumer can build the set from
+ * conditionally-present hooks (`onRequest: maybeHook`) — the runtime has
+ * always treated an explicit `undefined` member as absent.
+ */
 export interface TelemetryHooks {
   /** Runs when an attempt starts. The request does not wait for the returned promise. */
-  onRequest?(event: RequestEvent): void | Promise<void>;
+  onRequest?: ((event: RequestEvent) => void | Promise<void>) | undefined;
   /**
    * Runs only after a **2xx** response is read. Non-2xx responses reject the
    * attempt, so they fire `onError` instead — count completions from both
    * hooks if you need a total. The request does not wait for the returned
    * promise.
    */
-  onResponse?(event: ResponseEvent): void | Promise<void>;
+  onResponse?: ((event: ResponseEvent) => void | Promise<void>) | undefined;
   /** Runs before a retry delay. The request does not wait for the returned promise. */
-  onRetry?(event: RetryEvent): void | Promise<void>;
+  onRetry?: ((event: RetryEvent) => void | Promise<void>) | undefined;
   /**
    * Runs after each failed attempt, even if a retry later succeeds.
    * The request does not wait for the returned promise.
    */
-  onError?(event: ErrorEvent): void | Promise<void>;
+  onError?: ((event: ErrorEvent) => void | Promise<void>) | undefined;
 }
 
-export type ResolvedTelemetryHooks = Required<{
-  [K in keyof TelemetryHooks]: TelemetryHooks[K];
-}>;
+export type ResolvedTelemetryHooks = {
+  [K in keyof TelemetryHooks]-?: NonNullable<TelemetryHooks[K]>;
+};
 
 const NOOP = () => {};
 
