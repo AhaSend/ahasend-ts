@@ -959,13 +959,17 @@ describe("single-run release workflow", () => {
     // The capture is one registry read standing before the promotion-state
     // upload. Unretried, a transient npm failure here killed the job with no
     // state artifact, which then broke compensation's download. It must use
-    // the same five-attempt pattern as every other registry read here.
+    // the same five-attempt pattern as every other registry read here — all
+    // three fragments, matching the assertions on registry-smoke's loops: a
+    // loop that never sleeps, or never fails on exhaustion, is not a retry.
     const captureScript = String(capture["run"] ?? "");
     expect(captureScript).toContain("for ATTEMPT in 1 2 3 4 5");
-    expect(captureScript).toContain('PREVIOUS_LATEST="$(npm view');
+    expect(captureScript).toContain('if PREVIOUS_LATEST="$(npm view');
+    expect(captureScript).toContain('test "$ATTEMPT" -lt 5');
+    expect(captureScript).toContain("sleep 5");
   });
 
-  it("compensates without promotion state by skipping restore but still cleaning up", () => {
+  it("compensates through unavailable or unusable promotion state without losing cleanup", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
     const steps = jobSteps(jobs["release-compensation"], "compensation");
     const stateDownload = steps.find(
@@ -977,17 +981,28 @@ describe("single-run release workflow", () => {
       (step) => step["name"] === "Restore latest and remove an incomplete release",
     );
 
-    // The promotion-state artifact is uploaded before `latest` can move, so a
-    // missing artifact proves promotion never ran: compensation must not die
-    // on the download — the GitHub-release removal below it still applies.
+    // A failed download must not kill the job before the GitHub-release
+    // removal it can still perform.
     expect(record(stateDownload, "promotion-state download")["continue-on-error"]).toBe(true);
+
     const restoreScript = String(record(restore, "restore step")["run"] ?? "");
-    expect(restoreScript).toContain("if test -f /tmp/promotion-state/promotion-state.json");
-    expect(restoreScript).toContain("latest was never moved, nothing to restore");
+    // The download cannot distinguish "never uploaded" from "exists but the
+    // download failed", so a missing file is UNKNOWN state: the job must
+    // fail after cleanup — never exit 0 as if latest were proven untouched.
+    // Same for a file that is present but unparseable or names another
+    // package.
+    expect(restoreScript).toContain("if ! test -f /tmp/promotion-state/promotion-state.json");
+    const unknownBranches = restoreScript.match(
+      /verify npm dist-tags manually" >&2\n\s+FAILED=1/gu,
+    );
+    expect(unknownBranches).toHaveLength(2);
     // Cleanup must not sit inside the state-dependent branch.
-    const guardIndex = restoreScript.indexOf("if test -f /tmp/promotion-state");
+    const guardIndex = restoreScript.indexOf("if ! test -f /tmp/promotion-state");
     const cleanupIndex = restoreScript.indexOf("gh release view");
+    expect(cleanupIndex).toBeGreaterThan(guardIndex);
     expect(restoreScript.slice(guardIndex, cleanupIndex)).toContain("fi");
+    // And the job's exit code must be the accumulated FAILED, not a constant.
+    expect(restoreScript.trimEnd().endsWith('exit "$FAILED"')).toBe(true);
   });
 
   it("pins actions and limits publish authority to terminal mutations and compensation", () => {

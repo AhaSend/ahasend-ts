@@ -540,7 +540,24 @@ const conditionalAdapterOptions: WebhookAdapterOptions = {
   maxBodyBytes: undefined,
   onError: maybeObserver,
 };
-void [conditionalHooks, conditionalAdapterOptions];
+// The request/response shapes a middleware adapter forwards are built from
+// framework objects whose members may each be conditionally present.
+declare const maybeListen:
+  | ((event: string, listener: (...args: unknown[]) => void) => unknown)
+  | undefined;
+const conditionalRequest: NodeStyleRequest = {
+  headers: {},
+  rawBody: undefined,
+  readableEnded: undefined,
+  on: maybeListen,
+  off: maybeListen,
+};
+const conditionalResponse: NodeStyleResponse = {
+  statusCode: undefined,
+  writableEnded: undefined,
+  end: () => undefined,
+};
+void [conditionalHooks, conditionalAdapterOptions, conditionalRequest, conditionalResponse];
 
 const apiErrorParams = { status: 400, message: "failed", body: null };
 void new AhaSendError("failed");

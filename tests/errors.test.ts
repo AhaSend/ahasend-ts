@@ -773,4 +773,29 @@ describe("cause serialization", () => {
     expect(serialized.length).toBeLessThan(2_000);
     expect(serialized).toContain('"[REDACTED]"');
   });
+
+  it("does not let a negative caller-supplied depth buy recursion past the cap", () => {
+    // toJSON(depth) is public API; a finite negative start such as -10000
+    // would satisfy a `>= MAX_CAUSE_DEPTH` guard only after that many extra
+    // levels — on a cyclic chain, a silent near-stack-limit recursion again.
+    expect(causeDepth(chain(8).toJSON(-10_000))).toBe(4);
+    expect(causeDepth(chain(8).toJSON(2.5))).toBe(4);
+  });
+
+  it("redacts a branded cause whose toJSON returns an unstringifiable value", () => {
+    // The brand is a global-registry symbol, so `toJSON` may not be ours: one
+    // that RETURNS a cyclic structure (rather than throwing) used to be
+    // spliced in verbatim and blew up JSON.stringify later, inside the
+    // consumer's logger — the exact crash serializeCause exists to prevent.
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    const impostor = {
+      [Symbol.for("@ahasend/sdk.error")]: true,
+      toJSON: () => cyclic,
+    };
+    const wrapped = new AhaSendRateLimitQueueFullError("standard", 1, impostor);
+
+    expect(() => JSON.stringify(wrapped)).not.toThrow();
+    expect(wrapped.toJSON().cause).toBe("[REDACTED]");
+  });
 });

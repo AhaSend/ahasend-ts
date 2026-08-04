@@ -212,7 +212,7 @@ export interface FastifyStyleReply {
     // (undocumented)
     send(payload?: unknown): unknown;
     // (undocumented)
-    sent?: boolean;
+    sent?: boolean | undefined;
 }
 
 // @public
@@ -283,12 +283,12 @@ export interface NodeStyleRequest {
     // (undocumented)
     headers: Record<string, string | string[] | undefined>;
     // (undocumented)
-    off?(event: string, listener: (...args: unknown[]) => void): unknown;
+    off?: ((event: string, listener: (...args: unknown[]) => void) => unknown) | undefined;
     // (undocumented)
-    on?(event: string, listener: (...args: unknown[]) => void): unknown;
+    on?: ((event: string, listener: (...args: unknown[]) => void) => unknown) | undefined;
     rawBody?: string | Uint8Array | undefined;
     // (undocumented)
-    readableEnded?: boolean;
+    readableEnded?: boolean | undefined;
 }
 
 // @public
@@ -296,9 +296,9 @@ export interface NodeStyleResponse {
     // (undocumented)
     end(payload?: string | Uint8Array): unknown;
     // (undocumented)
-    statusCode?: number;
+    statusCode?: number | undefined;
     // (undocumented)
-    writableEnded?: boolean;
+    writableEnded?: boolean | undefined;
 }
 
 // @public

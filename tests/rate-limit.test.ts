@@ -912,6 +912,99 @@ describe("queue cancellation at scale", () => {
     // pre-fix occupancy of `churns`.
     expect(bucket.queue.length).toBeLessThan(64);
   });
+
+  it("serves sweep survivors in submission order", async () => {
+    // The sweep re-packs the live waiters into a fresh array; that re-pack is
+    // the only place the queue is rebuilt under load, so its ordering IS the
+    // FIFO contract for every survivor of an abort storm. The occupancy test
+    // above never grants a token, so a re-pack that scrambled order — e.g.
+    // pushing `live` reversed — shipped green without this test.
+    const clock = createRateLimitClock();
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1, maxQueue: 100 },
+      }),
+      clock.clock,
+    );
+    await limiter.acquire("GET", "/v2/ping"); // drain the only token
+
+    const served: number[] = [];
+    const controller = new AbortController();
+    const outcomes: Promise<unknown>[] = [];
+    for (let id = 0; id < 70; id += 1) {
+      // Ids 35..69 all abort: 35 tombstones clears the 32 floor and the
+      // half-the-array ratio, forcing exactly one sweep over live ids 0..34.
+      const signal = id >= 35 ? controller.signal : undefined;
+      outcomes.push(
+        limiter.acquire("GET", "/v2/ping", signal).then(
+          () => served.push(id),
+          () => undefined,
+        ),
+      );
+    }
+    controller.abort();
+
+    const bucket = (
+      limiter as unknown as { buckets: { standard: { queue: unknown[]; tombstones: number } } }
+    ).buckets.standard;
+    expect(bucket.tombstones).toBe(0); // the sweep ran
+    expect(bucket.queue.length).toBe(35); // and kept exactly the live waiters
+
+    for (let tick = 0; tick < 36; tick += 1) await clock.advanceBy(1000);
+    await Promise.all(outcomes);
+
+    expect(served).toEqual(Array.from({ length: 35 }, (_, id) => id));
+  });
+
+  it("keeps the tombstone ledger exact through grants and drains", async () => {
+    // The sweep decides when to run from `tombstones`; a count that drifts up
+    // makes sweeps O(n) per cancel, one that drifts down re-opens the leak.
+    // The two reclaim paths the churn test never executes are dequeue (a
+    // grant walking past a tombstone) and drainAll (disable).
+    const clock = createRateLimitClock();
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1, maxQueue: 10 },
+      }),
+      clock.clock,
+    );
+    const bucket = (
+      limiter as unknown as {
+        buckets: { standard: { queue: unknown[]; tombstones: number; pendingCount: number } };
+      }
+    ).buckets.standard;
+    await limiter.acquire("GET", "/v2/ping");
+
+    const controller = new AbortController();
+    const outcomes = [1, 2, 3].map((id) =>
+      limiter
+        .acquire("GET", "/v2/ping", id === 2 ? controller.signal : undefined)
+        .catch(() => undefined),
+    );
+    controller.abort();
+    expect(bucket.tombstones).toBe(1);
+
+    // Grants walk past the tombstone: dequeue must reclaim it from the count.
+    for (let tick = 0; tick < 3; tick += 1) await clock.advanceBy(1000);
+    await Promise.all(outcomes);
+    expect(bucket.tombstones).toBe(0);
+    expect(bucket.pendingCount).toBe(0);
+
+    // And drainAll (disable path) must reset it outright.
+    const drained = limiter.acquire("GET", "/v2/ping", new AbortController().signal);
+    void drained.catch(() => undefined);
+    const second = new AbortController();
+    const cancelled = limiter.acquire("GET", "/v2/ping", second.signal);
+    void cancelled.catch(() => undefined);
+    second.abort();
+    expect(bucket.tombstones).toBe(1);
+    limiter.setEnabled(false);
+    await drained;
+    expect(bucket.tombstones).toBe(0);
+    expect(bucket.queue.length).toBe(0);
+  });
 });
 
 describe("rateLimiter controller input validation", () => {

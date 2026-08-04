@@ -432,10 +432,17 @@ describe("HttpClient", () => {
   it("configures fetch to block redirects before owned headers can reach another origin", async () => {
     // "manual" refuses to follow exactly as "error" did — the security
     // property — but returns the 3xx itself instead of a TypeError that was
-    // indistinguishable from a network failure.
+    // indistinguishable from a network failure. The mock simulates a spec
+    // fetch facing a 302 under EVERY redirect mode, so reverting the mode
+    // (to "error", or worse to "follow") fails this test rather than being
+    // invisible to a mock that ignores `init.redirect`.
     let seenInit: RequestInit | undefined;
     const fetchImpl = mockFetch((_url, init) => {
       seenInit = init;
+      if (init?.redirect === "follow" || init?.redirect === undefined) {
+        return new Response("{}", { status: 200 }); // followed to the other origin
+      }
+      if (init.redirect === "error") throw new TypeError("fetch failed");
       return Response.redirect("https://evil.example/capture", 302);
     });
     const client = makeClient(fetchImpl, { retry: { enabled: false } });
@@ -458,8 +465,14 @@ describe("HttpClient", () => {
 
   it("does not retry a redirect response — it is deterministic, not a network failure", async () => {
     // With redirect "error" a proxy or captive-portal 3xx was wrapped as a
-    // retryable AhaSendConnectionError and retried to exhaustion.
-    const fetchImpl = mockFetch(() => Response.redirect("https://portal.example/login", 307));
+    // retryable AhaSendConnectionError and retried to exhaustion. The mock
+    // reproduces that pre-fix behaviour when asked for "error", so reverting
+    // the mode makes this test fail on both the error class and the call
+    // count instead of passing vacuously.
+    const fetchImpl = mockFetch((_url, init) => {
+      if (init?.redirect !== "manual") throw new TypeError("fetch failed");
+      return Response.redirect("https://portal.example/login", 307);
+    });
     const client = makeClient(fetchImpl, {
       retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
     });

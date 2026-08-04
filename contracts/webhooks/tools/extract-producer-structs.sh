@@ -16,12 +16,23 @@ set -euo pipefail
 server="${1:?usage: extract-producer-structs.sh <path-to-ahasend-server-repo>}"
 out="$(cd "$(dirname "$0")" && pwd)/producer-structs.go"
 
+# The single list both the guard and the extraction below iterate — a second
+# hand-maintained copy is exactly the drift the guard exists to rule out.
 extracted_files=(
   cmd/job-runner/jobs/routes/message_routing.go
   cmd/job-runner/jobs/webhooks/message.go
 )
 
 server_commit="$(git -C "$server" rev-parse HEAD)"
+for f in "${extracted_files[@]}"; do
+  # `diff --quiet HEAD` reports nothing for a path HEAD does not know, so an
+  # untracked working-tree file would otherwise extract "clean" while
+  # matching no serverCommit at all.
+  if ! git -C "$server" cat-file -e "HEAD:$f" 2>/dev/null; then
+    echo "refusing to extract: $f is not tracked at HEAD in $server" >&2
+    exit 1
+  fi
+done
 if ! git -C "$server" diff --quiet HEAD -- "${extracted_files[@]}"; then
   echo "refusing to extract: uncommitted changes in ${extracted_files[*]} at $server" >&2
   echo "commit them first — an extraction from a dirty tree matches no serverCommit" >&2
@@ -44,10 +55,10 @@ fi
   echo '	"github.com/google/uuid"'
   echo ')'
   echo
-  for f in routes/message_routing webhooks/message; do
-    echo "// --- cmd/job-runner/jobs/$f.go ---"
+  for f in "${extracted_files[@]}"; do
+    echo "// --- $f ---"
     awk '/^type .*(Payload|Data|MessageAttachmentsPayload) struct \{/,/^\}/' \
-      "$server/cmd/job-runner/jobs/$f.go"
+      "$server/$f"
     echo
   done
 } > "$out"

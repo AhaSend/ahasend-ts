@@ -58,9 +58,14 @@ export interface NodeStyleRequest {
    */
   rawBody?: string | Uint8Array | undefined;
   body?: unknown;
-  readableEnded?: boolean;
-  on?(event: string, listener: (...args: unknown[]) => void): unknown;
-  off?(event: string, listener: (...args: unknown[]) => void): unknown;
+  // Like `rawBody` and `onError`, every optional member here is explicitly
+  // `| undefined` (which for `on`/`off` forces property rather than method
+  // syntax): under `exactOptionalPropertyTypes` a consumer forwarding a
+  // conditionally-present member gets TS2375 otherwise, and the runtime has
+  // always treated an explicit `undefined` as absent.
+  readableEnded?: boolean | undefined;
+  on?: ((event: string, listener: (...args: unknown[]) => void) => unknown) | undefined;
+  off?: ((event: string, listener: (...args: unknown[]) => void) => unknown) | undefined;
 }
 
 /**
@@ -68,14 +73,14 @@ export interface NodeStyleRequest {
  * raw http.ServerResponse.
  */
 export interface NodeStyleResponse {
-  statusCode?: number;
-  writableEnded?: boolean;
+  statusCode?: number | undefined;
+  writableEnded?: boolean | undefined;
   end(payload?: string | Uint8Array): unknown;
 }
 
 /** Minimal Fastify reply shape. */
 export interface FastifyStyleReply {
-  sent?: boolean;
+  sent?: boolean | undefined;
   code(status: number): FastifyStyleReply;
   send(payload?: unknown): unknown;
 }
@@ -134,12 +139,7 @@ export function expressWebhookHandler(
       event = verifier.parse(req.headers, rawBody);
     } catch (error) {
       if (isWebhookVerificationError(error)) {
-        completeExpress(
-          res,
-          error.reason === "body_too_large" ? 413 : 400,
-          next,
-          adapterOptions.onError,
-        );
+        completeExpress(res, verificationFailureStatus(error), next, adapterOptions.onError);
         return;
       }
       propagateExpress(error, "setup", next, adapterOptions.onError);
@@ -192,11 +192,7 @@ export function fastifyWebhookHandler(
       event = verifier.parse(request.headers, rawBody);
     } catch (error) {
       if (isWebhookVerificationError(error)) {
-        completeFastify(
-          reply,
-          error.reason === "body_too_large" ? 413 : 400,
-          adapterOptions.onError,
-        );
+        completeFastify(reply, verificationFailureStatus(error), adapterOptions.onError);
         return;
       }
       observeError(adapterOptions.onError, error, "fastify", "setup");
@@ -236,7 +232,7 @@ export function nextRouteHandler(
       event = verifier.parse(request.headers, rawBody);
     } catch (error) {
       if (isWebhookVerificationError(error)) {
-        return opaqueResponse(error.reason === "body_too_large" ? 413 : 400);
+        return opaqueResponse(verificationFailureStatus(error));
       }
       observeError(adapterOptions.onError, error, "next", "setup");
       throw error;
@@ -426,11 +422,35 @@ function isBytes(value: unknown): value is Uint8Array {
  * opaque 400. The `Symbol.for` brand and the `code` field survive
  * duplication — the same dispatch `http.ts` already uses via
  * `AhaSendError.is()`. A cross-instance error also carries `reason`; if a
- * branded impostor omits it, the comparison below reads `undefined` and the
- * response is the plain 400.
+ * branded impostor omits it, {@link verificationFailureStatus} reads
+ * `undefined` and the response is the plain 400.
+ *
+ * The brand alone does not make the object trustworthy — any code in the
+ * process can set a global-registry symbol — so the `code` read is guarded
+ * the same way `isAhaSendError` guards its own brand read: a throwing `code`
+ * accessor means "not a verification error", not a crash in the adapter.
  */
 function isWebhookVerificationError(error: unknown): error is AhaSendWebhookVerificationError {
-  return isAhaSendError(error) && error.code === "webhook_verification_error";
+  if (!isAhaSendError(error)) return false;
+  try {
+    return error.code === "webhook_verification_error";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Map a verification failure to its opaque response status. Guarded for the
+ * same reason as the `code` read above: on a branded impostor, a throwing
+ * `reason` accessor must yield the default 400, not escape into the
+ * framework error path this classification exists to avoid.
+ */
+function verificationFailureStatus(error: AhaSendWebhookVerificationError): 400 | 413 {
+  try {
+    return error.reason === "body_too_large" ? 413 : 400;
+  } catch {
+    return 400;
+  }
 }
 
 function toBoundedBytes(body: string | Uint8Array, maxBodyBytes: number): Uint8Array {

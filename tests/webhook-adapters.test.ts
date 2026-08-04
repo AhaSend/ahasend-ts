@@ -788,4 +788,46 @@ describe("cross-instance verification errors", () => {
     expect(response.status).toBe(400);
     expect(await response.text()).toBe("");
   });
+
+  it("answers 400 when a branded impostor's reason accessor throws", async () => {
+    // The brand is settable by any code in the process, so the properties
+    // read after it — `code`, `reason` — must be treated as hostile too. A
+    // throwing accessor used to escape into the framework error path (the
+    // 500 the classification exists to avoid).
+    const error = new Error("Webhook verification failed");
+    Object.defineProperty(error, "code", { value: "webhook_verification_error" });
+    Object.defineProperty(error, "reason", {
+      get() {
+        throw new TypeError("hostile reason accessor");
+      },
+    });
+    Object.defineProperty(error, Symbol.for("@ahasend/sdk.error"), { value: true });
+    const verifier = {
+      parse: () => {
+        throw error;
+      },
+    } as unknown as WebhookVerifier;
+
+    const next = vi.fn();
+    const res = new MockExpressRes();
+    await expressWebhookHandler(verifier, vi.fn())(
+      { headers: signEnvelope(eventBody), rawBody: eventBody },
+      res,
+      next,
+    );
+    expect(res.statusCode).toBe(400);
+    expect(next).not.toHaveBeenCalled();
+
+    const response = await nextRouteHandler(
+      verifier,
+      vi.fn(),
+    )(
+      new Request("https://example.test/webhook", {
+        method: "POST",
+        headers: signEnvelope(eventBody),
+        body: eventBody,
+      }),
+    );
+    expect(response.status).toBe(400);
+  });
 });

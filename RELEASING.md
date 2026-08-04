@@ -53,7 +53,7 @@ no real mail" covers the messages API, which this repo controls — not that.
 | `AHASEND_API_KEY`          | `live-gates` (release.yml:317)                                                                | Needs broad scopes — live acceptance exercises all 56 operations. |
 | `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:318)                                                                | The account the live scenarios run against.                       |
 | `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:319)                                                                | Schema below. Validated with **exact** key matching.              |
-| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:722, 788, 847, 927) | Publish rights on `@ahasend/sdk`.                                 |
+| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:722, 801, 860, 949) | Publish rights on `@ahasend/sdk`.                                 |
 
 > **`next-publish` deliberately has no `NPM_TOKEN`.** It runs
 > `npm publish --provenance` (release.yml:481) with `id-token: write`, which

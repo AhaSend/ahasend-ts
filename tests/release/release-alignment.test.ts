@@ -121,6 +121,50 @@ describe("v0.1.0 release source alignment", () => {
     }
   });
 
+  it("keeps every release.yml line citation in RELEASING.md anchored to what it cites", () => {
+    // The runbook cites exact release.yml lines; edits to the workflow shift
+    // them silently. Each citation is held to the fragment that makes it
+    // meaningful, and the coverage check at the end forces a new citation to
+    // be added here rather than drifting unverified.
+    const workflowLines = readFileSync(
+      resolve(root, ".github/workflows/release.yml"),
+      "utf8",
+    ).split("\n");
+    const lineAt = (lineNumber: number): string => workflowLines[lineNumber - 1] ?? "";
+    const verified = new Set<number>();
+
+    // Secrets table: the cited line must consume that secret.
+    const secretRows = [...runbook.matchAll(/^\| `(\w+)`\s+\|[^|]*\(release\.yml:([\d, ]+)\)/gmu)];
+    expect(secretRows.length).toBeGreaterThanOrEqual(4);
+    for (const [, secret, numbers] of secretRows) {
+      for (const cited of numbers!.split(",").map((value) => Number(value.trim()))) {
+        expect(lineAt(cited), `release.yml:${cited} cited for ${secret}`).toContain(
+          `secrets.${secret}`,
+        );
+        verified.add(cited);
+      }
+    }
+
+    // Inline citations pin one fact each.
+    const provenance = /`npm publish --provenance` \(release\.yml:(\d+)\)/u.exec(runbook);
+    expect(provenance).not.toBeNull();
+    expect(lineAt(Number(provenance![1]))).toContain("--provenance");
+    verified.add(Number(provenance![1]));
+
+    const promotionGate = /`registry-smoke` succeeded \(release\.yml:(\d+)\)/u.exec(runbook);
+    expect(promotionGate).not.toBeNull();
+    expect(lineAt(Number(promotionGate![1]))).toContain("registry-smoke.result == 'success'");
+    verified.add(Number(promotionGate![1]));
+
+    // Every release.yml citation in the runbook must be one of the verified.
+    const cited = [...runbook.matchAll(/release\.yml:([\d, ]+)/gu)].flatMap(([, numbers]) =>
+      numbers!.split(",").map((value) => Number(value.trim())),
+    );
+    for (const citation of cited) {
+      expect(verified.has(citation), `release.yml:${citation} is cited but unverified`).toBe(true);
+    }
+  });
+
   it("runs the full gate chain before publishing, not a subset of it", () => {
     // `prepublishOnly` is the last gate before the registry. It previously
     // omitted lint and the packed-package preflight, so a publish could skip

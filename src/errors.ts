@@ -126,9 +126,11 @@ export class AhaSendError extends Error {
     // default. Propagated through `depth + 1` that key concatenated instead of
     // counting, so the `MAX_CAUSE_DEPTH` comparison in `serializeCause` was
     // string arithmetic that fired early at the root and never fired under a
-    // key. Anything that is not a usable number restarts the count at 0; the
-    // recursion below always passes real numbers.
-    const level = typeof depth === "number" && Number.isFinite(depth) ? depth : 0;
+    // key. Anything that is not a non-negative integer restarts the count at
+    // 0 — a finite *negative* number would buy that many extra recursion
+    // levels past the cap — and the recursion below always passes real
+    // counts.
+    const level = typeof depth === "number" && Number.isInteger(depth) && depth >= 0 ? depth : 0;
     const serialized: SerializedAhaSendError = {
       name: this.name,
       code: this.code,
@@ -756,7 +758,17 @@ function serializeCause(cause: unknown, depth: number): SerializedAhaSendError |
   const serialize = (cause as { toJSON?: unknown }).toJSON;
   if (typeof serialize !== "function") return REDACTED;
   try {
-    return (cause as { toJSON: (depth: number) => SerializedAhaSendError }).toJSON(depth + 1);
+    const serialized = (cause as { toJSON: (depth: number) => SerializedAhaSendError }).toJSON(
+      depth + 1,
+    );
+    // The brand does not prove this is our toJSON: a foreign one can *return*
+    // — rather than throw — something that only fails later, inside the
+    // consumer's logger (a cyclic structure, a BigInt, a throwing getter).
+    // Prove the subtree stringifies while still inside this catch. For a
+    // genuine SDK chain this re-serializes at most `MAX_CAUSE_DEPTH` small
+    // plain objects.
+    JSON.stringify(serialized);
+    return serialized;
   } catch {
     return REDACTED;
   }
