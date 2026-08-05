@@ -19,7 +19,7 @@ export AHASEND_API_KEY="aha-sk-your-64-char-key"
 export AHASEND_ACCOUNT_ID="your-account-uuid"
 ```
 
-Get these from the [AhaSend dashboard](https://dashboard.ahasend.com).
+Get these from the [AhaSend dashboard](https://dash.ahasend.com).
 
 ## Examples (in recommended order)
 

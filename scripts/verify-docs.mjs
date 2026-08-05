@@ -38,7 +38,7 @@ const INSTALLED_DOCUMENT_PATHS = Object.freeze(["README.md", "CHANGELOG.md"]);
 const AUTHORITATIVE_LINK_HOSTS = Object.freeze([
   "ahasend.com",
   "www.ahasend.com",
-  "dashboard.ahasend.com",
+  "dash.ahasend.com",
   "github.com",
   "keepachangelog.com",
   "semver.org",
@@ -46,7 +46,7 @@ const AUTHORITATIVE_LINK_HOSTS = Object.freeze([
 export const INSTALLED_EXTERNAL_URLS = Object.freeze([
   "https://ahasend.com",
   "https://github.com/AhaSend/ahasend-ts/blob/main/CHANGELOG.md",
-  "https://dashboard.ahasend.com",
+  "https://dash.ahasend.com",
   "https://github.com/AhaSend/ahasend-ts/blob/main/docs/api-reference.md",
   "https://github.com/AhaSend/ahasend-ts/blob/main/docs/retries-and-idempotency.md",
   "https://github.com/AhaSend/ahasend-ts/blob/main/docs/cancellation.md",
