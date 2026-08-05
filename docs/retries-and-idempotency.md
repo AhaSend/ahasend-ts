@@ -21,7 +21,11 @@ The SDK retries:
   `Retry-After`.
 
 Caller cancellation is never retried. Ordinary 4xx responses, including an API-key self-lockout
-409, are terminal. `domains.checkDns()`, `subAccounts.suspend()`, and
+409, are terminal. Duplicate-resource 409s — `domains.create()` for an existing domain,
+`accounts.addMember()` for an existing member, `suppressions.create()` for an existing
+suppression — surface as terminal `AhaSendConflictError` (`error.code === "conflict_error"`):
+they carry neither `Idempotent-Replayed` nor `Retry-After`, which is what distinguishes them
+from the retryable in-progress state on the same status code. `domains.checkDns()`, `subAccounts.suspend()`, and
 `subAccounts.unsuspend()` are also never retried because the API does not declare them retry-safe.
 
 For HTTP 429, a valid `Retry-After` in seconds or HTTP-date form is authoritative and capped at

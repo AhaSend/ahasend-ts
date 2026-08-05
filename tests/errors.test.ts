@@ -1,6 +1,7 @@
 import { inspect } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import { AhaSendClient } from "../src/client.js";
+import { isRetryableError } from "../src/retry.js";
 import * as errors from "../src/errors.js";
 import {
   AhaSendAbortError,
@@ -95,6 +96,29 @@ describe("createApiError", () => {
     const err = createApiError({ status: 409, body: { message: "domain exists" } });
     expect(err).toBeInstanceOf(AhaSendConflictError);
     expect(err).not.toBeInstanceOf(AhaSendIdempotencyConflictError);
+  });
+
+  it("keeps every production duplicate 409 a terminal conflict, never a retry", () => {
+    // The exact bodies the API emits for duplicate creates. They share the
+    // 409 status with the idempotency in-progress state but never its header
+    // tuple — the middleware sets `Idempotent-Replayed: false` + `Retry-After`
+    // only on its own early return, so a handler duplicate cannot carry them.
+    for (const message of [
+      "domain already exists",
+      "user is already a member of this account",
+      "suppression already exists",
+    ]) {
+      const err = createApiError({
+        status: 409,
+        body: { message },
+        headers: {},
+        idempotency: ELIGIBLE_KEYED,
+      });
+      expect(err, message).toBeInstanceOf(AhaSendConflictError);
+      expect(err, message).not.toBeInstanceOf(AhaSendIdempotencyConflictError);
+      expect(isRetryableError(err), message).toBe(false);
+      expect(err.message).toBe(message);
+    }
   });
 
   it("maps the complete eligible 409 in-progress tuple", () => {

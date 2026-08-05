@@ -3630,7 +3630,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          $ref: '#/components/responses/IdempotencyConflict'
+          description: |
+            Either the domain already exists on the account or the idempotency-key
+            execution is in progress. The in-progress case is identified only
+            by `Idempotent-Replayed: false` plus a positive integer
+            `Retry-After`. A new duplicate-domain response has neither
+            header; a stored replay of that response has
+            `Idempotent-Replayed: true`. The message is not a stable
+            discriminator.
+          headers:
+            Idempotent-Replayed:
+              description: |
+                `false` with a positive `Retry-After` means an execution is in
+                progress. `true` means a stored duplicate-domain 409 was
+                replayed. Absent means a fresh duplicate-domain conflict.
+              schema:
+                type: string
+                enum: ['true', 'false']
+            Retry-After:
+              $ref: '#/components/headers/IdempotencyRetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '422':
           $ref: '#/components/responses/IdempotencyPayloadMismatch'
         '500':
@@ -5365,7 +5387,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          $ref: '#/components/responses/IdempotencyConflict'
+          description: |
+            Either the user is already a member of the account or the idempotency-key
+            execution is in progress. The in-progress case is identified only
+            by `Idempotent-Replayed: false` plus a positive integer
+            `Retry-After`. A new duplicate-member response has neither
+            header; a stored replay of that response has
+            `Idempotent-Replayed: true`. The message is not a stable
+            discriminator.
+          headers:
+            Idempotent-Replayed:
+              description: |
+                `false` with a positive `Retry-After` means an execution is in
+                progress. `true` means a stored duplicate-member 409 was
+                replayed. Absent means a fresh duplicate-member conflict.
+              schema:
+                type: string
+                enum: ['true', 'false']
+            Retry-After:
+              $ref: '#/components/headers/IdempotencyRetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '422':
           $ref: '#/components/responses/IdempotencyPayloadMismatch'
         '500':
