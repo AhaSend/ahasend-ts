@@ -1393,13 +1393,20 @@ async function runStatisticsAuthorizationCase({
   } catch (error) {
     if (expectedAuthorized) throw error;
     const failure = requireObject(error, `${label} rejection`);
-    if (failure.status !== 403) {
-      throw new TypeError(`${label} must fail with HTTP 403.`);
+    // HTTP 400, not 403. The server checks per-domain scope permission first
+    // and domain existence second, so a *scoped* key is refused 403 before
+    // the lookup — but this suite runs the broad release key, which passes
+    // the permission check for any domain, and a domain that is not on the
+    // account then fails the lookup as 400 `invalid sender_domain`. The 403
+    // branch is unreachable with a key broad enough to run all 56
+    // operations; 400 is the rejection this probe can actually observe.
+    if (failure.status !== 400) {
+      throw new TypeError(`${label} must fail with HTTP 400.`);
     }
     return Object.freeze({
       authorized: false,
       domainCount: suppliedDomains.length,
-      status: 403,
+      status: 400,
     });
   }
   if (!expectedAuthorized) {
@@ -4505,10 +4512,10 @@ function requireAuthorizationOutcomes(operations) {
       ["senderAuthorization.singleDomain.domainCount", 1],
       ["senderAuthorization.unauthorizedDomain.authorized", false],
       ["senderAuthorization.unauthorizedDomain.domainCount", 1],
-      ["senderAuthorization.unauthorizedDomain.status", 403],
+      ["senderAuthorization.unauthorizedDomain.status", 400],
       ["senderAuthorization.multiDomain.authorized", false],
       ["senderAuthorization.multiDomain.domainCount", 2],
-      ["senderAuthorization.multiDomain.status", 403],
+      ["senderAuthorization.multiDomain.status", 400],
     ]);
   }
 }

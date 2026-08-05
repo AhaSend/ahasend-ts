@@ -171,8 +171,8 @@ function completeLiveResults(candidate: LiveCandidate) {
         source: "query.sender_domain",
         quantifier: "every",
         singleDomain: { authorized: true, domainCount: 1, resultBuckets: 0 },
-        unauthorizedDomain: { authorized: false, domainCount: 1, status: 403 },
-        multiDomain: { authorized: false, domainCount: 2, status: 403 },
+        unauthorizedDomain: { authorized: false, domainCount: 1, status: 400 },
+        multiDomain: { authorized: false, domainCount: 2, status: 400 },
       },
     };
   }
@@ -437,8 +437,11 @@ function statisticsClientFixture(options: { checkEveryDomain?: boolean } = {}) {
       checkedDomains.length === 0 ||
       !checkedDomains.every((domain) => authorizedDomains.has(domain))
     ) {
-      throw Object.assign(new Error("statistics sender is not authorized"), {
-        status: 403,
+      // Mirrors production seen through the broad release key: the per-domain
+      // permission check passes for any domain, and one that is not on the
+      // account fails the existence lookup as 400 invalid sender_domain.
+      throw Object.assign(new Error("invalid sender_domain, provide a valid sender_domain value"), {
+        status: 400,
         url: `https://api.example.test/statistics?sender_domain=${params.sender_domain}`,
       });
     }
@@ -4106,8 +4109,8 @@ describe("live scenario inventory", () => {
               source: "query.sender_domain",
               quantifier: "every",
               singleDomain: { authorized: true, domainCount: 1, resultBuckets: 1 },
-              unauthorizedDomain: { authorized: false, domainCount: 1, status: 403 },
-              multiDomain: { authorized: false, domainCount: 2, status: 403 },
+              unauthorizedDomain: { authorized: false, domainCount: 1, status: 400 },
+              multiDomain: { authorized: false, domainCount: 2, status: 400 },
             },
           },
         }),
