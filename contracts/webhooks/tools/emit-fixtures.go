@@ -69,8 +69,10 @@ func main() {
 			Subject:   "Captured delivery — byte exact",
 			MessageID: "<capture-delivered-01@capture.example>",
 			ID:        "capture-message-01",
-			// UserAgent, IP and IsBot carry omitempty and a delivery event
-			// sets none of them, so they are absent rather than empty.
+			// UserAgent and IP carry omitempty and a delivery event sets
+			// neither, so they are absent rather than empty. IsBot lost its
+			// omitempty in server faa5f995 and now serializes as false on
+			// every message event.
 		},
 	})
 

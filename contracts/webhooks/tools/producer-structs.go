@@ -3,6 +3,8 @@
 // Verbatim struct blocks from the AhaSend server. They are compiled
 // against encoding/json so the fixture bodies carry Go's real
 // serialization semantics rather than a transcription of them.
+//
+// Extracted from server commit faa5f995f24d24bdb96236ff13b237e82628a790 (extracted files clean).
 package main
 
 import (
@@ -63,7 +65,7 @@ type MessageWebhookData struct {
 	MessageID string    `json:"message_id_header"`
 	UserAgent string    `json:"user_agent,omitempty"`
 	IP        string    `json:"ip,omitempty"`
-	IsBot     *bool     `json:"is_bot,omitempty"`
+	IsBot     bool      `json:"is_bot"`
 	ID        string    `json:"id"`
 }
 

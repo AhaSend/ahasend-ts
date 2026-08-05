@@ -771,9 +771,9 @@ describe("captured webhook evidence", () => {
   it.each([
     [
       "configured-webhook-message-delivered",
-      "6e30f9ad44700297e558a8eeb89fa6961d05afca57ebb34707efe94df3b55807",
-      "v1,ZZ1D/PQGd6lITtMPo476ENQayRteG40BkkjTOaY/ZPE=",
-      "a1a94d3aed86bbd9ecf196d2c9ec81d776febddc2e61a2b3cfd1bde89acc138f",
+      "d70e21ceb9d893e6e31eed67e12ecabd07d3d490e2561d6502a7da286888c2c8",
+      "v1,QbYYSjbV2eqIxujTOS1zGfPbWvIfGjwcHynIsFhi/ec=",
+      "43ac342ee82651b36ed87c438e284e85c6edc7291a8bb062db1aa40dd557c1ff",
     ],
     [
       "route-message-routing",
@@ -794,7 +794,7 @@ describe("captured webhook evidence", () => {
   });
 
   it("pins the server revision the evidence corresponds to", () => {
-    expect(capturedManifest.serverCommit).toBe("22b3f98d224473789e9f32b57c7c969b9701c344");
+    expect(capturedManifest.serverCommit).toBe("faa5f995f24d24bdb96236ff13b237e82628a790");
   });
 
   it("records how each fixture's bytes were obtained, and does not overstate it", () => {
