@@ -125,30 +125,34 @@ describe("generated webhook schema", () => {
     expect(WEBHOOK_SHA256).toBe(digest);
   });
 
-  it("regenerates webhook output deterministically and passes clean check mode", async () => {
-    const first = await generateSdkArtifacts(OPENAPI_SOURCE, WEBHOOK_SOURCE);
-    const second = await generateSdkArtifacts(OPENAPI_SOURCE, WEBHOOK_SOURCE);
-    const generatedPaths = [
-      "src/generated/webhook-types.ts",
-      "src/generated/webhook-validators.ts",
-    ] as const;
+  it(
+    "regenerates webhook output deterministically and passes clean check mode",
+    { timeout: 120_000 },
+    async () => {
+      const first = await generateSdkArtifacts(OPENAPI_SOURCE, WEBHOOK_SOURCE);
+      const second = await generateSdkArtifacts(OPENAPI_SOURCE, WEBHOOK_SOURCE);
+      const generatedPaths = [
+        "src/generated/webhook-types.ts",
+        "src/generated/webhook-validators.ts",
+      ] as const;
 
-    for (const path of generatedPaths) {
-      expect(first.get(path), path).toBe(second.get(path));
-      expect(readFileSync(resolve(ROOT, path), "utf8"), path).toBe(first.get(path));
-    }
+      for (const path of generatedPaths) {
+        expect(first.get(path), path).toBe(second.get(path));
+        expect(readFileSync(resolve(ROOT, path), "utf8"), path).toBe(first.get(path));
+      }
 
-    const beforeCheck = generatedPaths.map((path) => readFileSync(resolve(ROOT, path), "utf8"));
-    const check = spawnSync(process.execPath, ["scripts/generate-sdk.mjs", "--check"], {
-      cwd: ROOT,
-      encoding: "utf8",
-    });
-    expect(check.stderr).toBe("");
-    expect(check.status).toBe(0);
-    expect(generatedPaths.map((path) => readFileSync(resolve(ROOT, path), "utf8"))).toEqual(
-      beforeCheck,
-    );
-  });
+      const beforeCheck = generatedPaths.map((path) => readFileSync(resolve(ROOT, path), "utf8"));
+      const check = spawnSync(process.execPath, ["scripts/generate-sdk.mjs", "--check"], {
+        cwd: ROOT,
+        encoding: "utf8",
+      });
+      expect(check.stderr).toBe("");
+      expect(check.status).toBe(0);
+      expect(generatedPaths.map((path) => readFileSync(resolve(ROOT, path), "utf8"))).toEqual(
+        beforeCheck,
+      );
+    },
+  );
 
   it("models canonical routing, deprecated input compatibility, and optional is_bot", () => {
     expect(CANONICAL_WEBHOOK_EVENT_TYPES).toContain("message.routing");

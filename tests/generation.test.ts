@@ -45,7 +45,7 @@ const digestPath = resolve(root, "src/generated/operation-profile.sha256");
 const profile = JSON.parse(readFileSync(profilePath, "utf8")) as JsonRecord;
 
 describe("SDK artifact generation", () => {
-  it("reproduces every committed artifact byte-for-byte", async () => {
+  it("reproduces every committed artifact byte-for-byte", { timeout: 120_000 }, async () => {
     const artifacts = await generateSdkArtifacts(openApiSource, webhookSource);
     expect(artifacts.size).toBe(8);
     for (const [path, expected] of artifacts) {

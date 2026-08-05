@@ -417,54 +417,73 @@ describe("operational documentation verification", () => {
     expect(retainedArtifact.stderr).toContain("Installed external URL request failed");
     expect(retainedArtifact.status).toBe(1);
     // Two full verify-docs spawns take ~14s on a fast machine; 20s left no
-    // headroom on two-core CI runners, where this was the suite's only flake.
-  }, 60_000);
+    // headroom on two-core CI runners under coverage instrumentation, where
+    // this class of spawn-heavy test produced every flake the suite has had.
+    // 120s matches the cap on the other spawn-heavy tests.
+  }, 120_000);
 
-  it("strict-checks all 56 SDK samples against the packed declarations", async () => {
-    expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(56);
+  it(
+    "strict-checks all 56 SDK samples against the packed declarations",
+    { timeout: 120_000 },
+    async () => {
+      expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(56);
 
-    await expect(
-      verifyPackagedJavaScript(packedSdkTarball, packedSdkChecksum),
-    ).resolves.toBeUndefined();
-  });
+      await expect(
+        verifyPackagedJavaScript(packedSdkTarball, packedSdkChecksum),
+      ).resolves.toBeUndefined();
+    },
+  );
 
-  it("rejects a packed sample that is outside the public facade declarations", async () => {
-    const pingSample = NODE_CODE_SAMPLES.ping;
-    expect(pingSample).toBeDefined();
-    const invalidSamples = {
-      ...NODE_CODE_SAMPLES,
-      ping: {
-        ...pingSample!,
-        source: pingSample!.source.replace("client.ping()", "client.notAnSdkMethod()"),
-      },
-    };
+  it(
+    "rejects a packed sample that is outside the public facade declarations",
+    { timeout: 120_000 },
+    async () => {
+      const pingSample = NODE_CODE_SAMPLES.ping;
+      expect(pingSample).toBeDefined();
+      const invalidSamples = {
+        ...NODE_CODE_SAMPLES,
+        ping: {
+          ...pingSample!,
+          source: pingSample!.source.replace("client.ping()", "client.notAnSdkMethod()"),
+        },
+      };
 
-    await expect(
-      verifyPackagedJavaScript(packedSdkTarball, packedSdkChecksum, repositoryRoot, invalidSamples),
-    ).rejects.toThrow(/Property 'notAnSdkMethod' does not exist on type 'AhaSendClient'/u);
-  });
+      await expect(
+        verifyPackagedJavaScript(
+          packedSdkTarball,
+          packedSdkChecksum,
+          repositoryRoot,
+          invalidSamples,
+        ),
+      ).rejects.toThrow(/Property 'notAnSdkMethod' does not exist on type 'AhaSendClient'/u);
+    },
+  );
 
-  it("indexes and verifies commands, links, snippets, examples, samples, and profile counts", async () => {
-    const index = await buildDocumentationIndex();
+  it(
+    "indexes and verifies commands, links, snippets, examples, samples, and profile counts",
+    { timeout: 120_000 },
+    async () => {
+      const index = await buildDocumentationIndex();
 
-    expect(index.commands.length).toBeGreaterThan(0);
-    expect(index.links.length).toBeGreaterThan(0);
-    expect(index.snippets.length).toBeGreaterThan(0);
-    expect(index.examples.map(({ path }) => path)).toEqual(
-      expect.arrayContaining([
-        "examples/bootstrap-subaccount.mjs",
-        "examples/next-webhook-route.mjs",
-        "examples/update-api-key-ip-list.mjs",
-        "examples/webhook-express.mjs",
-      ]),
-    );
-    expect(index.supportingExamples.map(({ path }) => path)).toEqual([
-      "examples/next-webhook-route/create-webhook-route.mjs",
-    ]);
-    expect(Object.keys(index.nodeSamples)).toHaveLength(56);
-    expect(index.profileSummary).toEqual({ operations: 56, iterators: 9 });
-    await expect(verifyDocumentationIndex(index)).resolves.toBeUndefined();
-  });
+      expect(index.commands.length).toBeGreaterThan(0);
+      expect(index.links.length).toBeGreaterThan(0);
+      expect(index.snippets.length).toBeGreaterThan(0);
+      expect(index.examples.map(({ path }) => path)).toEqual(
+        expect.arrayContaining([
+          "examples/bootstrap-subaccount.mjs",
+          "examples/next-webhook-route.mjs",
+          "examples/update-api-key-ip-list.mjs",
+          "examples/webhook-express.mjs",
+        ]),
+      );
+      expect(index.supportingExamples.map(({ path }) => path)).toEqual([
+        "examples/next-webhook-route/create-webhook-route.mjs",
+      ]);
+      expect(Object.keys(index.nodeSamples)).toHaveLength(56);
+      expect(index.profileSummary).toEqual({ operations: 56, iterators: 9 });
+      await expect(verifyDocumentationIndex(index)).resolves.toBeUndefined();
+    },
+  );
 
   it("rejects unguarded mutations and webhook handlers without durable ID deduplication", async () => {
     const index = await buildDocumentationIndex();

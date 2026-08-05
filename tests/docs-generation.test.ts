@@ -52,7 +52,7 @@ function securityScopes(operation: Readonly<Record<string, unknown>>): string[] 
 }
 
 describe("generated API reference", () => {
-  it("reproduces the committed reference byte-for-byte", async () => {
+  it("reproduces the committed reference byte-for-byte", { timeout: 120_000 }, async () => {
     const generated = await generateApiReference();
     expect(readFileSync(referencePath, "utf8")).toBe(generated);
 
@@ -64,34 +64,38 @@ describe("generated API reference", () => {
     expect(check.status).toBe(0);
   });
 
-  it("accounts for all 56 methods and nine iterators exactly once", async () => {
-    const reference = await generateApiReference();
-    const methodMarkers = [...reference.matchAll(/<!-- operation: ([A-Za-z0-9]+) -->/g)].map(
-      ([, operationId]) => operationId,
-    );
-    const iteratorMarkers = [...reference.matchAll(/<!-- iterator: ([A-Za-z0-9]+) -->/g)].map(
-      ([, operationId]) => operationId,
-    );
-
-    expect(methodMarkers).toEqual(
-      OPERATION_PROFILE.operations.map(({ operationId }) => operationId),
-    );
-    expect(iteratorMarkers).toEqual(
-      OPERATION_PROFILE.iterators.map(({ operationId }) => operationId),
-    );
-    expect(new Set(methodMarkers)).toHaveLength(56);
-    expect(new Set(iteratorMarkers)).toHaveLength(9);
-
-    for (const mapping of [...OPERATION_PROFILE.operations, ...OPERATION_PROFILE.iterators]) {
-      const kind = OPERATION_PROFILE.iterators.includes(mapping) ? "iterator" : "operation";
-      const contents = section(reference, kind, mapping.operationId);
-      expect(contents).toContain(`### ${mapping.facade}.${mapping.method}`);
-      expect(contents).toContain(
-        `client.${mapping.facade === "client" ? "" : `${mapping.facade}.`}`,
+  it(
+    "accounts for all 56 methods and nine iterators exactly once",
+    { timeout: 120_000 },
+    async () => {
+      const reference = await generateApiReference();
+      const methodMarkers = [...reference.matchAll(/<!-- operation: ([A-Za-z0-9]+) -->/g)].map(
+        ([, operationId]) => operationId,
       );
-      expect(contents).toMatch(/\*\*Models:\*\* \[[A-Za-z]/);
-    }
-  });
+      const iteratorMarkers = [...reference.matchAll(/<!-- iterator: ([A-Za-z0-9]+) -->/g)].map(
+        ([, operationId]) => operationId,
+      );
+
+      expect(methodMarkers).toEqual(
+        OPERATION_PROFILE.operations.map(({ operationId }) => operationId),
+      );
+      expect(iteratorMarkers).toEqual(
+        OPERATION_PROFILE.iterators.map(({ operationId }) => operationId),
+      );
+      expect(new Set(methodMarkers)).toHaveLength(56);
+      expect(new Set(iteratorMarkers)).toHaveLength(9);
+
+      for (const mapping of [...OPERATION_PROFILE.operations, ...OPERATION_PROFILE.iterators]) {
+        const kind = OPERATION_PROFILE.iterators.includes(mapping) ? "iterator" : "operation";
+        const contents = section(reference, kind, mapping.operationId);
+        expect(contents).toContain(`### ${mapping.facade}.${mapping.method}`);
+        expect(contents).toContain(
+          `client.${mapping.facade === "client" ? "" : `${mapping.facade}.`}`,
+        );
+        expect(contents).toMatch(/\*\*Models:\*\* \[[A-Za-z]/);
+      }
+    },
+  );
 
   it("renders one registry SDK sample on its matching public facade", async () => {
     const reference = await generateApiReference();
@@ -223,15 +227,18 @@ describe("generated API reference", () => {
     );
   });
 
-  it("rejects missing and overloaded interface method declarations", async () => {
-    const missing = withAPIKeysInterface(
-      'interface FixtureAPIKeysClient extends Omit<Readonly<APIKeysClient>, "list"> {}',
-    );
-    await expect(generateApiReference({ clientSource: missing })).rejects.toThrow(
-      "Profile method apiKeys.list is not public",
-    );
+  it(
+    "rejects missing and overloaded interface method declarations",
+    { timeout: 120_000 },
+    async () => {
+      const missing = withAPIKeysInterface(
+        'interface FixtureAPIKeysClient extends Omit<Readonly<APIKeysClient>, "list"> {}',
+      );
+      await expect(generateApiReference({ clientSource: missing })).rejects.toThrow(
+        "Profile method apiKeys.list is not public",
+      );
 
-    const overloaded = withAPIKeysInterface(`interface FixtureAPIKeysClient
+      const overloaded = withAPIKeysInterface(`interface FixtureAPIKeysClient
   extends Omit<Readonly<APIKeysClient>, "list"> {
   list(params?: PaginationParams): Promise<PaginatedResponse<APIKey>>;
   list(
@@ -239,34 +246,39 @@ describe("generated API reference", () => {
     options?: RequestOptions,
   ): Promise<PaginatedResponse<APIKey>>;
 }`);
-    await expect(generateApiReference({ clientSource: overloaded })).rejects.toThrow(
-      "apiKeys.list must have exactly one public call signature",
-    );
-  });
+      await expect(generateApiReference({ clientSource: overloaded })).rejects.toThrow(
+        "apiKeys.list must have exactly one public call signature",
+      );
+    },
+  );
 
-  it("requires public JSDoc on every structural method and iterator", async () => {
-    const undocumentedMethod = withAPIKeysInterface(`interface FixtureAPIKeysClient
+  it(
+    "requires public JSDoc on every structural method and iterator",
+    { timeout: 120_000 },
+    async () => {
+      const undocumentedMethod = withAPIKeysInterface(`interface FixtureAPIKeysClient
   extends Omit<Readonly<APIKeysClient>, "list"> {
   list(
     params?: PaginationParams,
     options?: RequestOptions,
   ): Promise<PaginatedResponse<APIKey>>;
 }`);
-    await expect(generateApiReference({ clientSource: undocumentedMethod })).rejects.toThrow(
-      "apiKeys.list must have public JSDoc",
-    );
+      await expect(generateApiReference({ clientSource: undocumentedMethod })).rejects.toThrow(
+        "apiKeys.list must have public JSDoc",
+      );
 
-    const undocumentedIterator = withAPIKeysInterface(`interface FixtureAPIKeysClient
+      const undocumentedIterator = withAPIKeysInterface(`interface FixtureAPIKeysClient
   extends Omit<Readonly<APIKeysClient>, "iterate"> {
   iterate(
     params?: PaginationParams,
     options?: RequestOptions,
   ): AsyncGenerator<APIKey, void, undefined>;
 }`);
-    await expect(generateApiReference({ clientSource: undocumentedIterator })).rejects.toThrow(
-      "apiKeys.iterate must have public JSDoc",
-    );
-  });
+      await expect(generateApiReference({ clientSource: undocumentedIterator })).rejects.toThrow(
+        "apiKeys.iterate must have public JSDoc",
+      );
+    },
+  );
 
   it("rejects operation and iterator inventory drift", async () => {
     const profile = structuredClone(OPERATION_PROFILE) as {

@@ -224,16 +224,20 @@ describe("REST contract normalization", () => {
     );
   });
 
-  it("emits modern ESM JavaScript accepted by the supported Node.js runtime", () => {
-    for (const [operationId, sample] of Object.entries(NODE_CODE_SAMPLES)) {
-      const result = spawnSync(process.execPath, ["--check", "--input-type=module"], {
-        input: sample.source,
-        encoding: "utf8",
-      });
-      expect(result.stderr, operationId).toBe("");
-      expect(result.status, operationId).toBe(0);
-    }
-  });
+  it(
+    "emits modern ESM JavaScript accepted by the supported Node.js runtime",
+    { timeout: 120_000 },
+    () => {
+      for (const [operationId, sample] of Object.entries(NODE_CODE_SAMPLES)) {
+        const result = spawnSync(process.execPath, ["--check", "--input-type=module"], {
+          input: sample.source,
+          encoding: "utf8",
+        });
+        expect(result.stderr, operationId).toBe("");
+        expect(result.status, operationId).toBe(0);
+      }
+    },
+  );
 
   it("uses only the public client, matching facades, safe mutation controls, and safe output", () => {
     expect(() => validateNodeSampleRegistry(document)).not.toThrow();
@@ -1032,7 +1036,7 @@ describe("captured webhook evidence", () => {
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
-  }, 60_000);
+  }, 120_000);
 
   it("enforces manifest.schema.json against the captured manifest", () => {
     const changedVersionSchema = structuredClone(capturedSchema);

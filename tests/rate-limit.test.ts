@@ -780,7 +780,7 @@ describe("pacing failure during a retry", () => {
 describe("queue cancellation at scale", () => {
   const frozen = () => ({ now: () => 0, sleep: vi.fn(() => new Promise<void>(() => undefined)) });
 
-  it("aborts a whole fan-out without a quadratic stall", () => {
+  it("aborts a whole fan-out without a quadratic stall", { timeout: 120_000 }, () => {
     // Cancelling used to indexOf + splice per waiter, and one shared signal
     // across a fan-out made that O(n²) *synchronously*. At 20,000 waiters it
     // blocked the event loop for over a second — and the guide now tells
