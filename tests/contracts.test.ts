@@ -59,7 +59,8 @@ const source = readFileSync(OPENAPI_PATH, "utf8");
 const document = parseOpenApi(source);
 const webhookSource = readFileSync(WEBHOOK_PATH, "utf8");
 const webhookDocument = parseWebhookContract(webhookSource);
-const lock = JSON.parse(readFileSync(LOCK_PATH, "utf8")) as {
+const lockSource = readFileSync(LOCK_PATH, "utf8");
+const lock = JSON.parse(lockSource) as {
   artifactHashes: Record<string, string>;
   inventories: JsonRecord;
 };
@@ -927,6 +928,15 @@ describe("captured webhook evidence", () => {
           recursive: true,
         });
       }
+      // The copies above race whatever else touches the working tree during a
+      // parallel test run — a CI flake captured a torn openapi.yaml here and
+      // failed the isolated check with an artifact-hash drift. Pin the
+      // lock-governed artifacts to the exact bytes this suite already
+      // validated against the lock at module load, instead of trusting the
+      // racing copy.
+      writeFileSync(resolve(temporaryRoot, "openapi.yaml"), source);
+      writeFileSync(resolve(temporaryRoot, "webhooks.yaml"), webhookSource);
+      writeFileSync(resolve(temporaryRoot, "contracts.lock.json"), lockSource);
       symlinkSync(resolve(repositoryRoot, "node_modules"), resolve(temporaryRoot, "node_modules"));
 
       const isolatedDist = resolve(temporaryRoot, "dist");
