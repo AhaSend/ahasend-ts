@@ -48,25 +48,25 @@ no real mail" covers the messages API, which this repo controls — not that.
 
 ### Secrets
 
-| Secret                     | Consumed by                                                                                   | Notes                                                             |
-| -------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `AHASEND_API_KEY`          | `live-gates` (release.yml:317)                                                                | Needs broad scopes — live acceptance exercises all 56 operations. |
-| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:318)                                                                | The account the live scenarios run against.                       |
-| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:319)                                                                | Schema below. Validated with **exact** key matching.              |
-| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:722, 801, 860, 949) | Publish rights on `@ahasend/sdk`.                                 |
+| Secret                     | Consumed by                                                                                                                                        | Notes                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `AHASEND_API_KEY`          | `live-gates` (release.yml:317)                                                                                                                     | Needs broad scopes — live acceptance exercises all 56 operations. |
+| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:318)                                                                                                                     | The account the live scenarios run against.                       |
+| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:319)                                                                                                                     | Schema below. Validated with **exact** key matching.              |
+| `NPM_TOKEN`                | `next-publish` (first release only, see below), `latest-promotion`, `github-release`, `release-compensation` (release.yml:480, 724, 803, 862, 951) | Publish rights on `@ahasend/sdk`.                                 |
 
-> **`next-publish` deliberately has no `NPM_TOKEN`.** It runs
-> `npm publish --provenance` (release.yml:481) with `id-token: write`, which
+> **`next-publish` normally has no `NPM_TOKEN`.** It runs
+> `npm publish --provenance` (release.yml:483) with `id-token: write`, which
 > means it depends on **npm trusted publishing** being configured for
 > `@ahasend/sdk` against this repository and the `npm-next` environment.
 >
 > **Trusted publishing must be configured on a package that already exists in
-> the registry.** For the very first publish of a new package name, confirm the
-> npm-side configuration is in place before tagging — otherwise the job fails
-> _after_ `live-gates` has already mutated the release account, and the live run
-> has to be repeated. If the first publish cannot use trusted publishing, add
-> `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to that step to match its
-> four siblings.
+> the registry**, which a first release cannot satisfy — so the step currently
+> carries `NODE_AUTH_TOKEN` (release.yml:480) as a first-release exception.
+> After v0.1.0 is published: configure trusted publishing on npmjs.com
+> (`@ahasend/sdk` → Settings → Trusted publisher: this repository,
+> `release.yml`, environment `npm-next`), then remove that `env` block so
+> publication returns to the tokenless path.
 
 ### `AHASEND_LIVE_CONFIG_JSON`
 
@@ -161,7 +161,7 @@ git push origin v0.1.0
 | `live-gates`           | Real API acceptance in `live-release`. Mutates the account; sends no real mail. |
 | `next-publish`         | `npm publish --tag next --provenance` of the retained bytes.                    |
 | `registry-smoke`       | Installs from the registry and verifies provenance.                             |
-| `latest-promotion`     | Only if `live-gates` **and** `registry-smoke` succeeded (release.yml:676).      |
+| `latest-promotion`     | Only if `live-gates` **and** `registry-smoke` succeeded (release.yml:678).      |
 | `github-release`       | Cuts the GitHub release.                                                        |
 | `release-compensation` | Runs on failure after promotion to unwind `latest`.                             |
 

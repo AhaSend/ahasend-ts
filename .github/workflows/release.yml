@@ -476,6 +476,8 @@ jobs:
           NODE
 
       - name: Publish the retained bytes with provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           npm publish "$TARBALL" --tag next --provenance --access public
