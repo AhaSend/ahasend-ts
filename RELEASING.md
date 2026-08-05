@@ -48,25 +48,24 @@ no real mail" covers the messages API, which this repo controls — not that.
 
 ### Secrets
 
-| Secret                     | Consumed by                                                                                                                                        | Notes                                                                                                                                                                                                                                                                                                                                               |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AHASEND_API_KEY`          | `live-gates` (release.yml:317)                                                                                                                     | Needs **every** scope — live acceptance exercises all 56 operations, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
-| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:318)                                                                                                                     | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                         |
-| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:319)                                                                                                                     | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                |
-| `NPM_TOKEN`                | `next-publish` (first release only, see below), `latest-promotion`, `github-release`, `release-compensation` (release.yml:480, 724, 803, 862, 951) | Publish rights on `@ahasend/sdk`.                                                                                                                                                                                                                                                                                                                   |
+| Secret                     | Consumed by                                                                                   | Notes                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AHASEND_API_KEY`          | `live-gates` (release.yml:317)                                                                | Needs **every** scope — live acceptance exercises all 56 operations, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
+| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:318)                                                                | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                         |
+| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:319)                                                                | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                |
+| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:722, 801, 860, 949) | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                          |
 
-> **`next-publish` normally has no `NPM_TOKEN`.** It runs
-> `npm publish --provenance` (release.yml:483) with `id-token: write`, which
+> **`next-publish` has no `NPM_TOKEN`.** It runs
+> `npm publish --provenance` (release.yml:481) with `id-token: write`, which
 > means it depends on **npm trusted publishing** being configured for
-> `@ahasend/sdk` against this repository and the `npm-next` environment.
->
-> **Trusted publishing must be configured on a package that already exists in
-> the registry**, which a first release cannot satisfy — so the step currently
-> carries `NODE_AUTH_TOKEN` (release.yml:480) as a first-release exception.
-> After v0.1.0 is published: configure trusted publishing on npmjs.com
-> (`@ahasend/sdk` → Settings → Trusted publisher: this repository,
-> `release.yml`, environment `npm-next`), then remove that `env` block so
-> publication returns to the tokenless path.
+> `@ahasend/sdk` against this repository, `release.yml`, and the `npm-next`
+> environment. That configuration exists on npmjs.com since v0.1.0 shipped
+> (trusted publishing cannot be configured on a package that does not exist
+> yet, so the first release carried a `NODE_AUTH_TOKEN` exception on the
+> publish step; it has been removed). If the trusted-publisher entry is ever
+> deleted, `next-publish` fails with an authentication error — restore the
+> entry, or as a stopgap re-add
+> `env: { NODE_AUTH_TOKEN: secrets.NPM_TOKEN }` to the publish step.
 
 ### `AHASEND_LIVE_CONFIG_JSON`
 
@@ -172,7 +171,7 @@ git push origin v0.1.0
 | `live-gates`           | Real API acceptance in `live-release`. Mutates the account; sends no real mail. |
 | `next-publish`         | `npm publish --tag next --provenance` of the retained bytes.                    |
 | `registry-smoke`       | Installs from the registry and verifies provenance.                             |
-| `latest-promotion`     | Only if `live-gates` **and** `registry-smoke` succeeded (release.yml:678).      |
+| `latest-promotion`     | Only if `live-gates` **and** `registry-smoke` succeeded (release.yml:676).      |
 | `github-release`       | Cuts the GitHub release.                                                        |
 | `release-compensation` | Runs on failure after promotion to unwind `latest`.                             |
 
