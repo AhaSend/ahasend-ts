@@ -112,9 +112,13 @@ Account preconditions:
   delete (`scripts/run-live-acceptance.mjs:557`).
   Like `dnslessDomain`, a copy left behind by a cancelled run must be removed
   before re-tagging.
-- `suppressionDomain` has **every suppression deleted** for it
-  (`deleteAllSuppressions` scoped to that domain). Never point it at a real
-  sending domain whose suppression list matters.
+- `suppressionDomain` must **exist as a domain on the account** — the API
+  refuses to create a suppression scoped to a domain it does not know
+  (`invalid domain`, HTTP 400). DNS verification is not required: register the
+  name on the account and leave it unverified. The run then has **every
+  suppression deleted** for it (`deleteAllSuppressions` scoped to that
+  domain), so keep it a dedicated throwaway — never a real sending domain
+  whose suppression list matters.
 - `disposableMailbox` must **not already be a member** of the release account.
   The run adds it and removes it again, but a partial run (or a local
   `release:live` during development) can leave the membership behind, and the
