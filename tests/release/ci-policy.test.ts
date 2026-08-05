@@ -203,11 +203,16 @@ describe("CI policy", () => {
     );
 
     expect(permissions).toEqual({ contents: "read" });
+    // Reviewed pins, node24 runtimes (GitHub deprecated the node20 action
+    // runtime). checkout v7.0.1 and setup-node v6.5.0 — v6 deliberately, not
+    // v7: setup-node v7 stopped exporting the dummy NODE_AUTH_TOKEN, and any
+    // job that sets registry-url without providing the token (registry-smoke,
+    // by design) would then fail npm's env substitution in .npmrc.
     expect(actionReferences).toEqual([
-      "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
-      "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
-      "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
-      "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
+      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
     ]);
     expect(actionReferences.every((reference) => /@[0-9a-f]{40}$/.test(reference))).toBe(true);
   });
