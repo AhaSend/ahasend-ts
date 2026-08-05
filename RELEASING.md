@@ -115,6 +115,12 @@ Account preconditions:
 - `suppressionDomain` has **every suppression deleted** for it
   (`deleteAllSuppressions` scoped to that domain). Never point it at a real
   sending domain whose suppression list matters.
+- `disposableMailbox` must **not already be a member** of the release account.
+  The run adds it and removes it again, but a partial run (or a local
+  `release:live` during development) can leave the membership behind, and the
+  member list exposes no email, so the suite cannot find a leftover on its
+  own — the next `addAccountMember` then fails on the duplicate. Remove the
+  member in the dashboard before re-running.
 - `webhookUrl` must accept POSTs and return 2xx.
 
 ---

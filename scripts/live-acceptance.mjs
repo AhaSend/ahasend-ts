@@ -2979,18 +2979,18 @@ export function createAccountScenarioRegistry({
       {
         operationId: "addAccountMember",
         async run({ cleanup }) {
-          const result = requireObject(
-            await methods.addMember(addBody),
-            "Account-member add scenario response",
-          );
-          const createdMemberId = requireString(
-            result.user_id,
-            "Account-member add scenario response user_id",
-          );
-          memberId = createdMemberId;
+          // Registered BEFORE the add call, closing over a box the response
+          // fills. Registering after the response validated left a window —
+          // the add lands on the wire, a response-shape check throws, and the
+          // member is orphaned with no cleanup to remove it. The member list
+          // exposes no email, so a leaked member cannot be found again by
+          // this suite; it must not lose the id it was given. A `null` box
+          // means the add never returned: nothing to remove.
+          const createdMember = { id: null };
           cleanup.register("remove and verify disposable account member", async () => {
+            if (createdMember.id === null) return;
             try {
-              await methods.removeMember(createdMemberId);
+              await methods.removeMember(createdMember.id);
             } catch (error) {
               if (!isNotFoundError(error)) throw error;
             }
@@ -2999,10 +2999,23 @@ export function createAccountScenarioRegistry({
               accountId,
               "Account-member cleanup verification",
             );
-            if (members.data.some(({ user_id: userId }) => userId === createdMemberId)) {
+            if (members.data.some(({ user_id: userId }) => userId === createdMember.id)) {
               throw new TypeError("Account-member cleanup verification found the member.");
             }
           });
+          const result = requireObject(
+            await methods.addMember(addBody),
+            "Account-member add scenario response",
+          );
+          // Capture the id before any validation that can throw.
+          if (typeof result.user_id === "string" && result.user_id !== "") {
+            createdMember.id = result.user_id;
+          }
+          const createdMemberId = requireString(
+            result.user_id,
+            "Account-member add scenario response user_id",
+          );
+          memberId = createdMemberId;
           if (result.account_id !== accountId || result.role !== addBody.role) {
             throw new TypeError("Account-member add scenario returned the wrong relationship.");
           }
