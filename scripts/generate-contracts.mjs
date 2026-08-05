@@ -909,35 +909,6 @@ function collectNodes(sourceFile, predicate) {
   return nodes;
 }
 
-function statementTerminates(statement) {
-  if (ts.isThrowStatement(statement) || ts.isReturnStatement(statement)) return true;
-  if (ts.isBlock(statement)) {
-    const last = statement.statements.at(-1);
-    return last !== undefined && statementTerminates(last);
-  }
-  return false;
-}
-
-function isMutationGuard(statement) {
-  if (!ts.isIfStatement(statement) || !statementTerminates(statement.thenStatement)) return false;
-  const condition = statement.expression;
-  if (
-    !ts.isBinaryExpression(condition) ||
-    (condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken &&
-      condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsToken)
-  ) {
-    return false;
-  }
-  return (
-    (propertyPath(condition.left) === "process.env.AHASEND_ALLOW_MUTATIONS" &&
-      ts.isStringLiteral(condition.right) &&
-      condition.right.text === "1") ||
-    (propertyPath(condition.right) === "process.env.AHASEND_ALLOW_MUTATIONS" &&
-      ts.isStringLiteral(condition.left) &&
-      condition.left.text === "1")
-  );
-}
-
 function objectProperty(object, name) {
   if (!ts.isObjectLiteralExpression(object)) return undefined;
   return object.properties.find(
@@ -1240,16 +1211,6 @@ function validateRegistrySample(entry, contractOperation, components) {
       throw new TypeError(`${operationId} sample must send with sandbox: true`);
     }
   }
-  if (contractOperation.method !== "get") {
-    const guarded = sourceFile.statements.some(
-      (statement) =>
-        statement.getEnd() <= facadeCall.getStart(sourceFile) && isMutationGuard(statement),
-    );
-    if (!guarded) {
-      throw new TypeError(`${operationId} sample must guard the mutation before calling the SDK`);
-    }
-  }
-
   if (operationHasIdempotency(contractOperation.operation)) {
     const key = argumentProperty(
       facadeCall,

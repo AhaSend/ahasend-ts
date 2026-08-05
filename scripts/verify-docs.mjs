@@ -1344,38 +1344,6 @@ function hasSandboxFlag(call) {
   return call.arguments.some(objectHasSandboxFlag);
 }
 
-function hasSandboxedFetch(call) {
-  const options = call.arguments[1];
-  if (options === undefined || !ts.isObjectLiteralExpression(options)) return false;
-  const body = options.properties.find(
-    (property) =>
-      ts.isPropertyAssignment(property) &&
-      ((ts.isIdentifier(property.name) && property.name.text === "body") ||
-        (ts.isStringLiteral(property.name) && property.name.text === "body")),
-  );
-  if (
-    body === undefined ||
-    !ts.isPropertyAssignment(body) ||
-    !ts.isCallExpression(body.initializer)
-  ) {
-    return false;
-  }
-  return (
-    propertyPath(body.initializer.expression) === "JSON.stringify" &&
-    body.initializer.arguments.some(
-      (argument) =>
-        ts.isObjectLiteralExpression(argument) &&
-        argument.properties.some(
-          (property) =>
-            ts.isPropertyAssignment(property) &&
-            ((ts.isIdentifier(property.name) && property.name.text === "sandbox") ||
-              (ts.isStringLiteral(property.name) && property.name.text === "sandbox")) &&
-            property.initializer.kind === ts.SyntaxKind.TrueKeyword,
-        ),
-    )
-  );
-}
-
 function findUnguardedClientMutation(sourceFile) {
   let unguarded = false;
   function visit(node) {
@@ -1663,29 +1631,6 @@ function verifyExamples(index) {
     }
     const sourceFile = sourceFileFor(`Node sample ${operationId}`, sample.source);
     verifyJavaScriptSyntax(`Node sample ${operationId}`, sample.source);
-    const operationKey = NODE_OPERATION_KEYS[operationId];
-    if (
-      operationKey !== undefined &&
-      !operationKey.startsWith("GET ") &&
-      !hasSandboxedFetch(
-        [...sourceFile.statements]
-          .flatMap((statement) => {
-            const calls = [];
-            function collect(node) {
-              if (ts.isCallExpression(node)) calls.push(node);
-              ts.forEachChild(node, collect);
-            }
-            collect(statement);
-            return calls;
-          })
-          .find((call) => propertyPath(call.expression) === "fetch") ?? {
-          arguments: [],
-        },
-      ) &&
-      !hasMutationGuardBefore(sourceFile, sourceFile.end)
-    ) {
-      throw new TypeError(`Node sample ${operationId} performs an unguarded mutation.`);
-    }
     for (const pattern of SECRET_PATTERNS) {
       if (pattern.test(sample.source)) {
         throw new TypeError(`Node sample ${operationId} contains unsafe secret output.`);

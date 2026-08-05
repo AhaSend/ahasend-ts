@@ -777,14 +777,10 @@ components:
           description: |
             Whether the action was performed by a bot.
 
-            The one field on these payloads that is optional despite the producer
-            emitting it — everywhere else `required` mirrors the struct tags. The open
-            event declares `IsBot *bool` with omitempty so it is genuinely absent there,
-            while the click event declares a bare `bool` and always sends it. Requiring it
-            is also forbidden outright by a contract rule
-            (`scripts/generate-contracts.mjs`), because a campaign producer has shipped a
-            `string` zero value here and a receiver that fails closed on this field loses
-            the whole webhook.
+            Only the `message.opened` and `message.clicked` events carry this field,
+            and it may be absent on `message.opened`. Treat it as optional and never
+            reject a delivery because it is missing — a receiver that fails closed on
+            this field loses the whole event.
 
     MessageClickedWebhookData:
       type: object
@@ -838,9 +834,8 @@ components:
           description: |
             Whether the click was performed by a bot.
 
-            Optional despite the producer declaring a bare `bool` that is always emitted —
-            see the note on `MessageWebhookData.is_bot`. This is the single documented
-            exception to `required` mirroring the producer's struct tags.
+            Present on current deliveries but documented as optional: treat a missing
+            value as unknown rather than rejecting the delivery.
 
     SuppressionWebhookPayload:
       type: object
@@ -1106,19 +1101,14 @@ components:
             `content_id`. Use `content_id` to separate embedded parts from real
             attachments.
 
-            Required, matching the producer, which emits the key on every attachment. The
-            value is deliberately left unconstrained, unlike the upstream spec, which
-            additionally declares `enum: [attachment, inline, ""]`. That enum does not hold
-            on the wire: the value is whatever token the sending server wrote, merely
-            lowercased and trimmed of parameters. Verified against the producer's MIME
-            parser — a part with `Content-Type: application/octet-stream` (the commonest
-            attachment type there is) reaches the payload with any disposition token at
-            all, as does any single-part binary body. `Content-Disposition: form-data`
-            arrives as `form-data`.
+            The key is always present, and the value is deliberately unconstrained: it
+            is whatever token the sending mail server wrote, merely lowercased and
+            trimmed of parameters, so tokens other than `attachment` and `inline` (for
+            example `form-data`) do arrive in practice.
 
-            Enforcing the enum would therefore let an arbitrary sender return 400 from a
-            receiver, and 100 consecutive errors disable the whole route webhook. Treat an
-            unrecognized value as `attachment`.
+            Do not validate this field against a fixed list of values — an arbitrary
+            sender could then make your receiver fail, and repeated delivery failures
+            can disable the webhook. Treat an unrecognized value as `attachment`.
         data:
           type: string
           description: Base64-encoded attachment data

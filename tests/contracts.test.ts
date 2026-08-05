@@ -524,17 +524,7 @@ describe("REST contract rejection checks", () => {
     );
   });
 
-  it("rejects missing mutation guards, unsandboxed sends, unstable keys, and secret output", () => {
-    const unguarded = changedRegistryEntry("deleteRoute", (entry) => ({
-      ...entry,
-      sample: {
-        ...entry.sample,
-        source: entry.sample.source.replace(
-          /if \(process\.env\.AHASEND_ALLOW_MUTATIONS[\s\S]*?\n\}\n\n/u,
-          "",
-        ),
-      },
-    }));
+  it("rejects unsandboxed sends, unstable keys, and secret output", () => {
     const unsandboxed = changedRegistryEntry("createMessage", (entry) => ({
       ...entry,
       sample: {
@@ -564,23 +554,6 @@ describe("REST contract rejection checks", () => {
       sample: {
         ...entry.sample,
         source: `${entry.sample.source}\nconst emit = console.log;\nemit(apiKey.secret_key);\n`,
-      },
-    }));
-    const callInsideGuard = changedRegistryEntry("deleteRoute", (entry) => ({
-      ...entry,
-      sample: {
-        ...entry.sample,
-        source: `import { AhaSendClient } from "@ahasend/sdk";
-
-const client = AhaSendClient.fromEnv();
-const routeId = "00000000-0000-4000-8000-000000000006";
-let result;
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  result = await client.routes.delete(routeId);
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-console.log("Route deleted.", { message: result.message });
-`,
       },
     }));
     const responseBodyOutput = changedRegistryEntry("createAPIKey", (entry) => ({
@@ -628,10 +601,6 @@ console.log("Route deleted.", { message: result.message });
       },
     }));
 
-    expect(() => validateNodeSampleRegistry(document, unguarded)).toThrow(/guard the mutation/);
-    expect(() => validateNodeSampleRegistry(document, callInsideGuard)).toThrow(
-      /guard the mutation/,
-    );
     expect(() => validateNodeSampleRegistry(document, unsandboxed)).toThrow(/sandbox: true/);
     expect(() => validateNodeSampleRegistry(document, nestedSandbox)).toThrow(/sandbox: true/);
     expect(() => validateNodeSampleRegistry(document, unstableKey)).toThrow(

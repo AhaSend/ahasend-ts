@@ -95,10 +95,6 @@ client.apiKeys.create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOpt
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const apiKey = await client.apiKeys.create(
   { label: "Production API key", scopes: ["messages:send:all"] },
   { idempotencyKey: "sdk-sample-create-api-key" },
@@ -163,10 +159,6 @@ client.apiKeys.update(keyId: UUID, body: UpdateAPIKeyRequest, options?: RequestO
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const keyId = "00000000-0000-4000-8000-000000000001";
 const apiKey = await client.apiKeys.update(keyId, { label: "Renamed API key" });
 console.log("API key updated.", { id: apiKey.id, label: apiKey.label });
@@ -198,10 +190,6 @@ client.apiKeys.delete(keyId: UUID, options?: RequestOptions): AhaSendPromise<Suc
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const keyId = "00000000-0000-4000-8000-000000000001";
 const result = await client.apiKeys.delete(keyId);
 console.log("API key deleted.", { message: result.message });
@@ -264,10 +252,6 @@ client.domains.create(body: CreateDomainRequest, options?: IdempotencyRequestOpt
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const domain = await client.domains.create(
   { domain: "example.com" },
   { idempotencyKey: "sdk-sample-create-domain" },
@@ -332,10 +316,6 @@ client.domains.update(domain: string, body: UpdateDomainRequest, options?: Reque
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const domainName = "example.com";
 const domain = await client.domains.update(domainName, { tracking_subdomain: "click" });
 console.log("Domain updated.", { domain: domain.domain });
@@ -367,10 +347,6 @@ client.domains.delete(domain: string, options?: RequestOptions): AhaSendPromise<
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const domainName = "example.com";
 const result = await client.domains.delete(domainName);
 console.log("Domain deleted.", { message: result.message });
@@ -402,10 +378,6 @@ client.domains.checkDns(domain: string, options?: RequestOptions): AhaSendPromis
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const domainName = "example.com";
 const domain = await client.domains.checkDns(domainName);
 console.log("DNS check completed.", { domain: domain.domain, dnsValid: domain.dns_valid });
@@ -468,10 +440,6 @@ client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOpt
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const result = await client.messages.send(
   {
     from: { email: "sender@example.com", name: "Example" },
@@ -511,10 +479,6 @@ client.messages.sendConversation(body: CreateConversationMessageRequest, options
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const result = await client.messages.sendConversation(
   {
     from: { email: "sender@example.com", name: "Example" },
@@ -585,10 +549,6 @@ client.messages.cancel(messageId: string, options?: RequestOptions): AhaSendProm
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const messageId = "00000000-0000-4000-8000-000000000002";
 const result = await client.messages.cancel(messageId);
 console.log("Message cancellation requested.", { message: result.message });
@@ -650,10 +610,6 @@ client.accounts.update(body: UpdateAccountRequest, options?: RequestOptions): Ah
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const account = await client.accounts.update({ name: "Example, Inc." });
 console.log("Account updated.", { id: account.id, name: account.name });
 ```
@@ -714,10 +670,6 @@ client.accounts.addMember(body: AddAccountMemberRequest, options?: IdempotencyRe
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const member = await client.accounts.addMember(
   { email: "developer@example.com", role: "Developer" },
   { idempotencyKey: "sdk-sample-add-account-member" },
@@ -751,10 +703,6 @@ client.accounts.removeMember(userId: UUID, options?: RequestOptions): AhaSendPro
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const userId = "00000000-0000-4000-8000-000000000003";
 const result = await client.accounts.removeMember(userId);
 console.log("Account member removed.", { message: result.message });
@@ -817,10 +765,6 @@ client.subAccounts.create(body: CreateSubAccountRequest, options?: IdempotencyRe
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const subAccount = await client.subAccounts.create(
   { name: "Example subsidiary", website: "subsidiary.example.com" },
   { idempotencyKey: "sdk-sample-create-sub-account" },
@@ -918,10 +862,6 @@ client.subAccounts.update(subAccountId: UUID, body: UpdateSubAccountRequest, opt
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const subAccount = await client.subAccounts.update(subAccountId, {
   name: "Renamed subsidiary",
@@ -955,10 +895,6 @@ client.subAccounts.delete(subAccountId: UUID, options?: RequestOptions): AhaSend
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const result = await client.subAccounts.delete(subAccountId);
 console.log("Sub-account deleted.", { message: result.message });
@@ -990,10 +926,6 @@ client.subAccounts.suspend(subAccountId: UUID, body: SuspendSubAccountRequest, o
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const subAccount = await client.subAccounts.suspend(subAccountId, {
   reason: "Requested by account administrator",
@@ -1027,10 +959,6 @@ client.subAccounts.unsuspend(subAccountId: UUID, options?: RequestOptions): AhaS
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const subAccount = await client.subAccounts.unsuspend(subAccountId);
 console.log("Sub-account unsuspended.", { id: subAccount.id, status: subAccount.status });
@@ -1094,10 +1022,6 @@ client.subAccounts.apiKeys.create(subAccountId: UUID, body: CreateAPIKeyRequest,
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const apiKey = await client.subAccounts.apiKeys.create(
   subAccountId,
@@ -1165,10 +1089,6 @@ client.subAccounts.apiKeys.update(subAccountId: UUID, keyId: UUID, body: UpdateA
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const keyId = "00000000-0000-4000-8000-000000000005";
 const apiKey = await client.subAccounts.apiKeys.update(subAccountId, keyId, {
@@ -1203,10 +1123,6 @@ client.subAccounts.apiKeys.delete(subAccountId: UUID, keyId: UUID, options?: Req
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const keyId = "00000000-0000-4000-8000-000000000005";
 const result = await client.subAccounts.apiKeys.delete(subAccountId, keyId);
@@ -1270,10 +1186,6 @@ client.suppressions.create(body: CreateSuppressionRequest, options?: Idempotency
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const result = await client.suppressions.create(
   {
     email: "recipient@example.net",
@@ -1311,10 +1223,6 @@ client.suppressions.delete(params: DeleteSuppressionParams, options?: RequestOpt
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const result = await client.suppressions.delete({ email: "recipient@example.net" });
 console.log("Suppression deleted.", { message: result.message });
 ```
@@ -1345,10 +1253,6 @@ client.suppressions.wipe(params?: WipeSuppressionsParams, options?: RequestOptio
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const result = await client.suppressions.wipe({ domain: "example.com" });
 console.log("Domain suppressions deleted.", { message: result.message });
 ```
@@ -1410,10 +1314,6 @@ client.routes.create(body: CreateRouteRequest, options?: IdempotencyRequestOptio
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const route = await client.routes.create(
   {
     name: "Inbound messages",
@@ -1482,10 +1382,6 @@ client.routes.update(routeId: UUID, body: UpdateRouteRequest, options?: RequestO
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const routeId = "00000000-0000-4000-8000-000000000006";
 const route = await client.routes.update(routeId, {
   url: "https://example.com/inbound-v2",
@@ -1519,10 +1415,6 @@ client.routes.delete(routeId: UUID, options?: RequestOptions): AhaSendPromise<Su
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const routeId = "00000000-0000-4000-8000-000000000006";
 const result = await client.routes.delete(routeId);
 console.log("Route deleted.", { message: result.message });
@@ -1585,10 +1477,6 @@ client.webhooks.create(body: CreateWebhookRequest, options?: IdempotencyRequestO
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const webhook = await client.webhooks.create(
   {
     name: "Delivery events",
@@ -1658,10 +1546,6 @@ client.webhooks.update(webhookId: UUID, body: UpdateWebhookRequest, options?: Re
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const webhookId = "00000000-0000-4000-8000-000000000007";
 const webhook = await client.webhooks.update(webhookId, {
   name: "Transactional delivery events",
@@ -1695,10 +1579,6 @@ client.webhooks.delete(webhookId: UUID, options?: RequestOptions): AhaSendPromis
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const webhookId = "00000000-0000-4000-8000-000000000007";
 const result = await client.webhooks.delete(webhookId);
 console.log("Webhook deleted.", { message: result.message });
@@ -1761,10 +1641,6 @@ client.smtpCredentials.create(body: CreateSMTPCredentialRequest, options?: Idemp
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const credential = await client.smtpCredentials.create(
   { name: "Production SMTP", scope: "global" },
   { idempotencyKey: "sdk-sample-create-smtp-credential" },
@@ -1829,10 +1705,6 @@ client.smtpCredentials.delete(credentialId: UUID, options?: RequestOptions): Aha
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
 const credentialId = "00000000-0000-4000-8000-000000000008";
 const result = await client.smtpCredentials.delete(credentialId);
 console.log("SMTP credential deleted.", { message: result.message });

@@ -1,18 +1,12 @@
-const mutationGuard = `if (process.env.AHASEND_ALLOW_MUTATIONS !== "1") {
-  throw new Error("Set AHASEND_ALLOW_MUTATIONS=1 after reviewing this mutation.");
-}
-
-`;
-
-function sdkSource(body, { guarded = false } = {}) {
+function sdkSource(body) {
   return `import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-${guarded ? mutationGuard : ""}${body}
+${body}
 `;
 }
 
-function entry(operationId, operationKey, facade, body, options) {
+function entry(operationId, operationKey, facade, body) {
   return Object.freeze({
     operationId,
     operationKey,
@@ -20,7 +14,7 @@ function entry(operationId, operationKey, facade, body, options) {
     sample: Object.freeze({
       lang: NODE_SAMPLE_LANGUAGE,
       label: NODE_SAMPLE_LABEL,
-      source: sdkSource(body, options),
+      source: sdkSource(body),
     }),
   });
 }
@@ -52,7 +46,6 @@ console.log("API keys listed.", { count: page.data.length });`,
   { idempotencyKey: "sdk-sample-create-api-key" },
 );
 console.log("API key created.", { id: apiKey.id, label: apiKey.label });`,
-    { guarded: true },
   ),
   entry(
     "getAPIKey",
@@ -69,7 +62,6 @@ console.log("API key found.", { id: apiKey.id, label: apiKey.label });`,
     `const keyId = "00000000-0000-4000-8000-000000000001";
 const apiKey = await client.apiKeys.update(keyId, { label: "Renamed API key" });
 console.log("API key updated.", { id: apiKey.id, label: apiKey.label });`,
-    { guarded: true },
   ),
   entry(
     "deleteAPIKey",
@@ -78,7 +70,6 @@ console.log("API key updated.", { id: apiKey.id, label: apiKey.label });`,
     `const keyId = "00000000-0000-4000-8000-000000000001";
 const result = await client.apiKeys.delete(keyId);
 console.log("API key deleted.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "getDomains",
@@ -96,7 +87,6 @@ console.log("Domains listed.", { count: page.data.length });`,
   { idempotencyKey: "sdk-sample-create-domain" },
 );
 console.log("Domain created.", { id: domain.id, domain: domain.domain });`,
-    { guarded: true },
   ),
   entry(
     "getDomain",
@@ -113,7 +103,6 @@ console.log("Domain found.", { domain: domain.domain, dnsValid: domain.dns_valid
     `const domainName = "example.com";
 const domain = await client.domains.update(domainName, { tracking_subdomain: "click" });
 console.log("Domain updated.", { domain: domain.domain });`,
-    { guarded: true },
   ),
   entry(
     "deleteDomain",
@@ -122,7 +111,6 @@ console.log("Domain updated.", { domain: domain.domain });`,
     `const domainName = "example.com";
 const result = await client.domains.delete(domainName);
 console.log("Domain deleted.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "checkDomainDNS",
@@ -131,7 +119,6 @@ console.log("Domain deleted.", { message: result.message });`,
     `const domainName = "example.com";
 const domain = await client.domains.checkDns(domainName);
 console.log("DNS check completed.", { domain: domain.domain, dnsValid: domain.dns_valid });`,
-    { guarded: true },
   ),
   entry(
     "getMessages",
@@ -155,7 +142,6 @@ console.log("Messages listed.", { count: page.data.length });`,
   { idempotencyKey: "sdk-sample-send-message" },
 );
 console.log("Sandbox message accepted.", { count: result.data.length });`,
-    { guarded: true },
   ),
   entry(
     "createConversationMessage",
@@ -172,7 +158,6 @@ console.log("Sandbox message accepted.", { count: result.data.length });`,
   { idempotencyKey: "sdk-sample-send-conversation" },
 );
 console.log("Sandbox conversation accepted.", { count: result.data.length });`,
-    { guarded: true },
   ),
   entry(
     "getMessage",
@@ -189,7 +174,6 @@ console.log("Message found.", { id: message.id, status: message.status });`,
     `const messageId = "00000000-0000-4000-8000-000000000002";
 const result = await client.messages.cancel(messageId);
 console.log("Message cancellation requested.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "getAccount",
@@ -204,7 +188,6 @@ console.log("Account found.", { id: account.id, name: account.name });`,
     "client.accounts.update",
     `const account = await client.accounts.update({ name: "Example, Inc." });
 console.log("Account updated.", { id: account.id, name: account.name });`,
-    { guarded: true },
   ),
   entry(
     "getAccountMembers",
@@ -222,7 +205,6 @@ console.log("Account members listed.", { count: members.data.length });`,
   { idempotencyKey: "sdk-sample-add-account-member" },
 );
 console.log("Account member added.", { userId: member.user_id, role: member.role });`,
-    { guarded: true },
   ),
   entry(
     "removeAccountMember",
@@ -231,7 +213,6 @@ console.log("Account member added.", { userId: member.user_id, role: member.role
     `const userId = "00000000-0000-4000-8000-000000000003";
 const result = await client.accounts.removeMember(userId);
 console.log("Account member removed.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "listSubAccounts",
@@ -249,7 +230,6 @@ console.log("Sub-accounts listed.", { count: page.data.length });`,
   { idempotencyKey: "sdk-sample-create-sub-account" },
 );
 console.log("Sub-account created.", { id: subAccount.id, status: subAccount.status });`,
-    { guarded: true },
   ),
   entry(
     "getSubAccountsUsage",
@@ -278,7 +258,6 @@ const subAccount = await client.subAccounts.update(subAccountId, {
   name: "Renamed subsidiary",
 });
 console.log("Sub-account updated.", { id: subAccount.id, status: subAccount.status });`,
-    { guarded: true },
   ),
   entry(
     "deleteSubAccount",
@@ -287,7 +266,6 @@ console.log("Sub-account updated.", { id: subAccount.id, status: subAccount.stat
     `const subAccountId = "00000000-0000-4000-8000-000000000004";
 const result = await client.subAccounts.delete(subAccountId);
 console.log("Sub-account deleted.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "suspendSubAccount",
@@ -298,7 +276,6 @@ const subAccount = await client.subAccounts.suspend(subAccountId, {
   reason: "Requested by account administrator",
 });
 console.log("Sub-account suspended.", { id: subAccount.id, status: subAccount.status });`,
-    { guarded: true },
   ),
   entry(
     "unsuspendSubAccount",
@@ -307,7 +284,6 @@ console.log("Sub-account suspended.", { id: subAccount.id, status: subAccount.st
     `const subAccountId = "00000000-0000-4000-8000-000000000004";
 const subAccount = await client.subAccounts.unsuspend(subAccountId);
 console.log("Sub-account unsuspended.", { id: subAccount.id, status: subAccount.status });`,
-    { guarded: true },
   ),
   entry(
     "listSubAccountAPIKeys",
@@ -328,7 +304,6 @@ const apiKey = await client.subAccounts.apiKeys.create(
   { idempotencyKey: "sdk-sample-create-sub-account-api-key" },
 );
 console.log("Sub-account API key created.", { id: apiKey.id, label: apiKey.label });`,
-    { guarded: true },
   ),
   entry(
     "getSubAccountAPIKey",
@@ -349,7 +324,6 @@ const apiKey = await client.subAccounts.apiKeys.update(subAccountId, keyId, {
   label: "Renamed bootstrap key",
 });
 console.log("Sub-account API key updated.", { id: apiKey.id, label: apiKey.label });`,
-    { guarded: true },
   ),
   entry(
     "deleteSubAccountAPIKey",
@@ -359,7 +333,6 @@ console.log("Sub-account API key updated.", { id: apiKey.id, label: apiKey.label
 const keyId = "00000000-0000-4000-8000-000000000005";
 const result = await client.subAccounts.apiKeys.delete(subAccountId, keyId);
 console.log("Sub-account API key deleted.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "getSuppressions",
@@ -381,7 +354,6 @@ console.log("Suppressions listed.", { count: page.data.length });`,
   { idempotencyKey: "sdk-sample-create-suppression" },
 );
 console.log("Suppression created.", { count: result.data.length });`,
-    { guarded: true },
   ),
   entry(
     "deleteSuppression",
@@ -389,7 +361,6 @@ console.log("Suppression created.", { count: result.data.length });`,
     "client.suppressions.delete",
     `const result = await client.suppressions.delete({ email: "recipient@example.net" });
 console.log("Suppression deleted.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "deleteAllSuppressions",
@@ -397,7 +368,6 @@ console.log("Suppression deleted.", { message: result.message });`,
     "client.suppressions.wipe",
     `const result = await client.suppressions.wipe({ domain: "example.com" });
 console.log("Domain suppressions deleted.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "getRoutes",
@@ -419,7 +389,6 @@ console.log("Routes listed.", { count: page.data.length });`,
   { idempotencyKey: "sdk-sample-create-route" },
 );
 console.log("Route created.", { id: route.id, name: route.name });`,
-    { guarded: true },
   ),
   entry(
     "getRoute",
@@ -438,7 +407,6 @@ const route = await client.routes.update(routeId, {
   url: "https://example.com/inbound-v2",
 });
 console.log("Route updated.", { id: route.id, name: route.name });`,
-    { guarded: true },
   ),
   entry(
     "deleteRoute",
@@ -447,7 +415,6 @@ console.log("Route updated.", { id: route.id, name: route.name });`,
     `const routeId = "00000000-0000-4000-8000-000000000006";
 const result = await client.routes.delete(routeId);
 console.log("Route deleted.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "getWebhooks",
@@ -470,7 +437,6 @@ console.log("Webhooks listed.", { count: page.data.length });`,
   { idempotencyKey: "sdk-sample-create-webhook" },
 );
 console.log("Webhook created.", { id: webhook.id, name: webhook.name });`,
-    { guarded: true },
   ),
   entry(
     "getWebhook",
@@ -489,7 +455,6 @@ const webhook = await client.webhooks.update(webhookId, {
   name: "Transactional delivery events",
 });
 console.log("Webhook updated.", { id: webhook.id, name: webhook.name });`,
-    { guarded: true },
   ),
   entry(
     "deleteWebhook",
@@ -498,7 +463,6 @@ console.log("Webhook updated.", { id: webhook.id, name: webhook.name });`,
     `const webhookId = "00000000-0000-4000-8000-000000000007";
 const result = await client.webhooks.delete(webhookId);
 console.log("Webhook deleted.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "getSMTPCredentials",
@@ -516,7 +480,6 @@ console.log("SMTP credentials listed.", { count: page.data.length });`,
   { idempotencyKey: "sdk-sample-create-smtp-credential" },
 );
 console.log("SMTP credential created.", { id: credential.id, name: credential.name });`,
-    { guarded: true },
   ),
   entry(
     "getSMTPCredential",
@@ -533,7 +496,6 @@ console.log("SMTP credential found.", { id: credential.id, name: credential.name
     `const credentialId = "00000000-0000-4000-8000-000000000008";
 const result = await client.smtpCredentials.delete(credentialId);
 console.log("SMTP credential deleted.", { message: result.message });`,
-    { guarded: true },
   ),
   entry(
     "getDeliverabilityStatistics",
