@@ -777,10 +777,12 @@ components:
           description: |
             Whether the action was performed by a bot.
 
-            Only the `message.opened` and `message.clicked` events carry this field,
-            and it may be absent on `message.opened`. Treat it as optional and never
-            reject a delivery because it is missing — a receiver that fails closed on
-            this field loses the whole event.
+            Bot detection runs on every open and click and always yields a definite
+            true or false. Current deliveries include the field on every message
+            event; it is meaningful for `message.opened` and always `false`
+            elsewhere. Older deliveries may omit it — absence carries no signal, so
+            do not infer `false` from a missing field and never reject a delivery
+            because of it.
 
     MessageClickedWebhookData:
       type: object
@@ -834,8 +836,10 @@ components:
           description: |
             Whether the click was performed by a bot.
 
-            Present on current deliveries but documented as optional: treat a missing
-            value as unknown rather than rejecting the delivery.
+            Bot detection runs on every click, so the field is always present with a
+            definite true or false. It stays optional in this schema for tolerance:
+            if it were ever absent, do not infer `false` and do not reject the
+            delivery.
 
     SuppressionWebhookPayload:
       type: object
