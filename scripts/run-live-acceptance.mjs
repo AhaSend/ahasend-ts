@@ -554,7 +554,7 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
       client,
       createRequest: {
         name: `SDK live child ${suffix}`,
-        website: `https://${config.lifecycleDomain}`,
+        website: config.lifecycleDomain,
         monthly_credit: 50_000,
       },
       updateRequest: {

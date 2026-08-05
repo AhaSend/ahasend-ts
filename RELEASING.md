@@ -107,9 +107,10 @@ Account preconditions:
 - `neverRegisteredDomain` must not exist on the account at all.
 - `lifecycleDomain` must **not** exist on the account either — the run creates
   it (`scripts/run-live-acceptance.mjs:351`), drives it through the full
-  create/update/delete lifecycle, and uses `https://<lifecycleDomain>` as the
-  `website` of the disposable sub-account the sub-account scenarios create and
-  delete (`scripts/run-live-acceptance.mjs:557`).
+  create/update/delete lifecycle, and uses it (as a bare FQDN — the API
+  validates `website` as `format: fqdn`, not a URL) as the `website` of the
+  disposable sub-account the sub-account scenarios create and delete
+  (`scripts/run-live-acceptance.mjs:557`).
   Like `dnslessDomain`, a copy left behind by a cancelled run must be removed
   before re-tagging.
 - `suppressionDomain` must **exist as a domain on the account** — the API

@@ -610,7 +610,6 @@ export interface CreateSubAccountRequest {
     monthly_credit?: number | undefined;
     // (undocumented)
     name: string;
-    // (undocumented)
     website: string;
 }
 

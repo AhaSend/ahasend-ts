@@ -35,6 +35,10 @@ export interface SubAccount {
 
 export interface CreateSubAccountRequest {
   name: string;
+  /**
+   * A bare fully-qualified domain name (`acme.example.com`), **not** a URL —
+   * the API validates `format: fqdn` and rejects `https://…` with HTTP 400.
+   */
   website: string;
   /** OpenAPI `int64`, represented as a JavaScript number. Valid values are 0 to 1 billion. */
   monthly_credit?: number | undefined;
@@ -43,6 +47,7 @@ export interface CreateSubAccountRequest {
 /** At least one non-null field is required; omitted or null fields are left unchanged. */
 export type UpdateSubAccountRequest = {
   name?: string | null | undefined;
+  /** Bare FQDN, not a URL — see {@link CreateSubAccountRequest.website}. */
   website?: string | null | undefined;
   /** OpenAPI `int64`, represented as a JavaScript number. Valid values are 0 to 1 billion. */
   monthly_credit?: number | null | undefined;
