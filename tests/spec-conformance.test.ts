@@ -46,7 +46,10 @@ const IDEMPOTENCY_KEY = "matrix-idempotency-key";
 const IDS = {
   key: API_KEY_ID,
   domain: HOSTNAME,
-  message: "message/id",
+  // Full generated Message-ID form: the facade must reduce it to the bare
+  // UUID, the one spelling the server reads back identically (it does not
+  // decode path parameters).
+  message: "<0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e@mail.example.com>",
   user: USER_ID,
   subAccount: SUB_ACCOUNT_ID,
   webhook: WEBHOOK_ID,
@@ -254,11 +257,11 @@ const PRIMARY_MATRIX = [
   }),
   primary("getMessage", "messages", "get", (client) => ({
     result: client.messages.get(IDS.message, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/messages/message%2Fid` },
+    input: { path: `${ACCOUNT_PATH}/messages/0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e` },
   })),
   primary("cancelMessage", "messages", "cancel", (client) => ({
     result: client.messages.cancel(IDS.message, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/messages/message%2Fid/cancel` },
+    input: { path: `${ACCOUNT_PATH}/messages/0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e/cancel` },
   })),
   primary("getAccount", "accounts", "get", (client) => ({
     result: client.accounts.get(REQUEST_OPTIONS),

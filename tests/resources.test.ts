@@ -610,11 +610,16 @@ describe("MessagesClient", () => {
     );
     const client = makeClient(fetch);
 
-    const message = await client.messages.get("opaque/message:id");
+    const message = await client.messages.get(
+      "<0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e@mail.example.com>",
+    );
 
     expect(calls[0]!.method).toBe("GET");
+    // Only the UUID travels: the server reads path parameters undecoded, so
+    // the percent-encoded full Message-ID form was refused as
+    // `invalid message_id` by the real API (first live acceptance run).
     expect(calls[0]!.url).toBe(
-      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/opaque%2Fmessage%3Aid`,
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e`,
     );
     expect(calls[0]!.operationId).toBe("getMessage");
     expect(message).toMatchObject({
@@ -637,13 +642,44 @@ describe("MessagesClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.messages.cancel("opaque/message:id");
+    await client.messages.cancel("0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e@mail.example.com");
 
     expect(calls[0]!.method).toBe("DELETE");
     expect(calls[0]!.url).toBe(
-      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/opaque%2Fmessage%3Aid/cancel`,
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e/cancel`,
     );
     expect(calls[0]!.operationId).toBe("cancelMessage");
+  });
+
+  it("normalizes every documented message ID form to the bare UUID", async () => {
+    const uuid = "0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e";
+    const forms: readonly (readonly [string, string])[] = [
+      [uuid, uuid],
+      [uuid.toUpperCase(), uuid.toUpperCase()], // case preserved, as the server accepts both
+      [`${uuid}@mail.example.com`, uuid],
+      [`<${uuid}@mail.example.com>`, uuid],
+      [`  <${uuid}@mail.example.com>  `, uuid],
+    ];
+    for (const [form, pathId] of forms) {
+      const { fetch, calls } = captureFetch();
+      const client = makeClient(fetch);
+      await client.messages.cancel(form).catch(() => undefined);
+      expect(calls[0]!.url, form).toBe(
+        `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${pathId}/cancel`,
+      );
+    }
+  });
+
+  it("refuses a message ID containing no UUID locally, before any request", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    for (const bad of ["opaque/message:id", "", "  ", "<@mail.example.com>", "not-a-uuid"]) {
+      // Synchronous, like every local validation in this SDK.
+      expect(() => client.messages.get(bad), bad).toThrow(AhaSendConfigurationError);
+      expect(() => client.messages.cancel(bad), bad).toThrow(AhaSendConfigurationError);
+    }
+    expect(calls).toHaveLength(0);
   });
 });
 

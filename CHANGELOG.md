@@ -80,6 +80,14 @@ Initial release.
   scoped webhook / SMTP-credential `domains`). These throw
   `AhaSendConfigurationError` synchronously, before the request is
   dispatched, so the failure is local rather than a server 422.
+- `messages.get()` and `messages.cancel()` reduce the message ID to its
+  bare UUID before building the request path. `send` returns ids in
+  generated Message-ID form (`<uuid@domain>`), but the server reads path
+  parameters undecoded, so the percent-encoded full form a correct client
+  must produce was refused as `invalid message_id` — found by the first
+  live acceptance run. All three spellings (`uuid`, `uuid@domain`,
+  `<uuid@domain>`) are accepted; a value containing no UUID throws
+  `AhaSendConfigurationError` locally, without echoing the value.
 - Construction validates `accountId` as a UUID (the format every
   account-scoped path parameter declares) and stores it trimmed, so a
   dashboard slug or a secret with a trailing newline fails at boot with

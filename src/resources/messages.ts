@@ -1,3 +1,4 @@
+import { AhaSendConfigurationError } from "../errors.js";
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
@@ -16,6 +17,40 @@ import {
   forwardWithIdempotency,
   type IdempotencyRequestOptions,
 } from "./_helpers.js";
+
+const MESSAGE_UUID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+/**
+ * Reduce a caller-supplied message ID to the bare UUID the API routes on.
+ *
+ * `send` returns ids in generated Message-ID form — `<uuid@sender-domain>` —
+ * and the server's own parser trims the angle brackets and everything from
+ * the `@` onward before parsing a UUID. Mirroring that here instead of
+ * sending the full form matters because of an encoding asymmetry the first
+ * live acceptance run surfaced: a client must percent-encode `<`, `@`, and
+ * `>` in a path segment, but the server reads path parameters undecoded, so
+ * an encoded full form arrives as `%3C…%40…%3E` and is refused with HTTP 400
+ * `invalid message_id`. The bare UUID contains only unreserved characters —
+ * encoded and raw are the same bytes — so it is the one spelling both sides
+ * read identically.
+ *
+ * Anything that does not contain a UUID in that shape is refused locally as
+ * {@link AhaSendConfigurationError}, before a request is dispatched. The
+ * message does not echo the value.
+ */
+function messagePathId(messageId: string): string {
+  let candidate = typeof messageId === "string" ? messageId.trim() : "";
+  if (candidate.startsWith("<")) candidate = candidate.slice(1);
+  if (candidate.endsWith(">")) candidate = candidate.slice(0, -1);
+  const atIndex = candidate.indexOf("@");
+  if (atIndex !== -1) candidate = candidate.slice(0, atIndex);
+  if (!MESSAGE_UUID_PATTERN.test(candidate)) {
+    throw new AhaSendConfigurationError(
+      "AhaSend: `messageId` must be a message UUID, optionally in the generated Message-ID form `<uuid@domain>`.",
+    );
+  }
+  return candidate;
+}
 
 /** A value in a Jinja2 substitution context, including nested objects and arrays. */
 export type SubstitutionValue = unknown;
@@ -326,9 +361,11 @@ export interface MessagesClient {
   ): AsyncGenerator<MessageSummary, void, undefined>;
 
   /**
-   * Fetch a single message by its opaque message ID. Accepts the generated
-   * Message-ID returned by {@link send} when non-null, or its bare UUID portion.
-   * The ID is encoded as one path segment.
+   * Fetch a single message by its message ID. Accepts the generated
+   * Message-ID returned by {@link send} when non-null, or its bare UUID
+   * portion. Only the UUID is sent as the path segment — the server routes on
+   * it, and it needs no percent-encoding — and a value containing no UUID is
+   * refused locally as {@link AhaSendConfigurationError}.
    *
    * Authorization requires `messages:read:all` or `messages:read:{domain}`
    * matching the message's `sender` domain.
@@ -434,9 +471,11 @@ class MessagesClientImplementation implements MessagesClient {
   }
 
   /**
-   * Fetch a single message by its opaque message ID. Accepts the generated
-   * Message-ID returned by {@link send} when non-null, or its bare UUID portion.
-   * The ID is encoded as one path segment.
+   * Fetch a single message by its message ID. Accepts the generated
+   * Message-ID returned by {@link send} when non-null, or its bare UUID
+   * portion. Only the UUID is sent as the path segment — the server routes on
+   * it, and it needs no percent-encoding — and a value containing no UUID is
+   * refused locally as {@link AhaSendConfigurationError}.
    *
    * Authorization requires `messages:read:all` or `messages:read:{domain}`
    * matching the message's `sender` domain.
@@ -444,7 +483,7 @@ class MessagesClientImplementation implements MessagesClient {
   get(messageId: string, options: RequestOptions = {}): AhaSendPromise<Message> {
     return this.#operations.execute(
       "getMessage",
-      { path: { account_id: this.#accountId, message_id: messageId } },
+      { path: { account_id: this.#accountId, message_id: messagePathId(messageId) } },
       forwardOptions(options),
     );
   }
@@ -461,7 +500,7 @@ class MessagesClientImplementation implements MessagesClient {
   cancel(messageId: string, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
     return this.#operations.execute(
       "cancelMessage",
-      { path: { account_id: this.#accountId, message_id: messageId } },
+      { path: { account_id: this.#accountId, message_id: messagePathId(messageId) } },
       forwardOptions(options),
     );
   }
