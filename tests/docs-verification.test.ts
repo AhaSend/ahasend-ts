@@ -416,7 +416,9 @@ describe("operational documentation verification", () => {
     expect(retainedArtifact.stdout).toBe("");
     expect(retainedArtifact.stderr).toContain("Installed external URL request failed");
     expect(retainedArtifact.status).toBe(1);
-  }, 20_000);
+    // Two full verify-docs spawns take ~14s on a fast machine; 20s left no
+    // headroom on two-core CI runners, where this was the suite's only flake.
+  }, 60_000);
 
   it("strict-checks all 56 SDK samples against the packed declarations", async () => {
     expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(56);

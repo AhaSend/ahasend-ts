@@ -1520,7 +1520,17 @@ async function startExampleRequestProxy(
       if (observedRequest.httpMethod !== "GET" && observedRequest.httpMethod !== "HEAD") {
         init.body = observedRequest.body;
       }
-      const upstreamUrl = new URL(request.url ?? "/", upstreamBaseUrl);
+      // `request.url` is the raw request-target. An absolute-form target
+      // (`GET http://other.example/ HTTP/1.1`) would override the base in
+      // `new URL(target, base)` and point this fetch at an arbitrary host, so
+      // only the path and query are taken — the upstream authority is always
+      // the configured one. Parsed from the raw target rather than the
+      // observed record, whose query object collapses duplicate keys.
+      const requestTarget = new URL(request.url ?? "/", "http://proxy.invalid");
+      const upstreamUrl = new URL(
+        `${requestTarget.pathname}${requestTarget.search}`,
+        upstreamBaseUrl,
+      );
       const upstreamResponse = await fetch(upstreamUrl, init);
       response.statusCode = upstreamResponse.status;
       upstreamResponse.headers.forEach((value, name) => {
@@ -1529,9 +1539,13 @@ async function startExampleRequestProxy(
         }
       });
       response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
-    } catch (error) {
+    } catch {
+      // Constant body: echoing the error would reflect request-derived text
+      // into the response. Failures surface through the asserting test — the
+      // observed request is already recorded above.
       response.statusCode = 502;
-      response.end(error instanceof Error ? error.message : "Example request proxy failed.");
+      response.setHeader("content-type", "text/plain; charset=utf-8");
+      response.end("Example request proxy failed.");
     }
   });
   await new Promise<void>((resolveListening, reject) => {
