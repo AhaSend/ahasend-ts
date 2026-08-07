@@ -46,6 +46,7 @@ const MAINTAINED_RUNTIME_INVENTORY = [
   "Cloudflare workerd without `nodejs_compat`.",
   "Vercel Edge through `@edge-runtime/vm`.",
 ] as const;
+const MAINTAINED_CI_JOB_IDS = new Set(["test", "coverage", "workerd", "deno", "bun"]);
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -267,13 +268,11 @@ function expectReadmeRuntimeSupportPolicy(
   expectMaintainedRuntimeGates(scripts, candidateWorkflow, vitestConfigSource);
 
   const jobs = record(record(candidateWorkflow, "CI workflow")["jobs"], "CI jobs");
-  const edgeJobs = Object.entries(jobs).filter(([jobId, job]) => {
-    const jobName = String(record(job, `${jobId} job`)["name"] ?? "");
-    return /edge/u.test(`${jobId} ${jobName}`);
-  });
-  expect(edgeJobs, "Edge VM must execute inside the Node matrix, not a separate CI job").toEqual(
-    [],
-  );
+  const unexpectedJobs = Object.keys(jobs).filter((jobId) => !MAINTAINED_CI_JOB_IDS.has(jobId));
+  expect(
+    unexpectedJobs,
+    "Edge VM must execute inside the Node matrix, not as a fifth runtime family",
+  ).toEqual([]);
 
   expect(vitestConfigSource).toContain('include: ["tests/**/*.test.ts"]');
   expect(vitestConfigSource).not.toMatch(
@@ -507,7 +506,10 @@ describe("CI policy", () => {
           string,
           unknown
         >;
-        jobs["edge"] = structuredClone(jobs["test"]);
+        jobs["vercel"] = {
+          name: "Vercel Edge VM conformance",
+          steps: [],
+        };
         return [readme, vitestConfig];
       },
     ],
