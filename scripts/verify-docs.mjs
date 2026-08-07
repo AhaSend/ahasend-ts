@@ -213,6 +213,26 @@ const REQUIREMENTS = Object.freeze([
     text: "does not learn from undocumented\nremaining-quota response headers",
   },
   {
+    label: "client-and-isolate pacing scope",
+    path: "docs/rate-pacing.md",
+    text: "Limiter state is scoped to one `AhaSendClient` instance in one JavaScript isolate.",
+  },
+  {
+    label: "frozen-clock zero-duration telemetry",
+    path: "docs/rate-pacing.md",
+    text: "when that clock is frozen, a pacing duration may validly be zero.",
+  },
+  {
+    label: "non-stalling pacing wall-clock fallback",
+    path: "docs/rate-pacing.md",
+    text: "pacing falls back to advancing wall-clock time, so\nqueued bursts continue draining instead of stalling.",
+  },
+  {
+    label: "authoritative cross-isolate server 429 handling",
+    path: "docs/rate-pacing.md",
+    text: "Server HTTP 429 handling is authoritative across isolates:",
+  },
+  {
     label: "retry status policy",
     path: "docs/retries-and-idempotency.md",
     text: "HTTP 408, 429, and 5xx responses",

@@ -1028,6 +1028,31 @@ logger.error(output);`,
   });
 
   it.each([
+    [
+      "client-and-isolate scope",
+      "Limiter state is scoped to one `AhaSendClient` instance in one JavaScript isolate.",
+    ],
+    [
+      "frozen-clock zero-duration telemetry",
+      "when that clock is frozen, a pacing duration may validly be zero.",
+    ],
+    [
+      "non-stalling wall-clock fallback",
+      "pacing falls back to advancing wall-clock time, so\nqueued bursts continue draining instead of stalling.",
+    ],
+    [
+      "authoritative cross-isolate server 429 handling",
+      "Server HTTP 429 handling is authoritative across isolates:",
+    ],
+  ])("fails if the rate-pacing %s is removed", async (_label, requiredText) => {
+    const documents = await loadDocumentation();
+    const path = "docs/rate-pacing.md";
+    documents[path] = documents[path]!.replace(requiredText, "");
+
+    expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
+  });
+
+  it.each([
     ["Node-only", "README.md", "This is a server-side SDK for Node.js."],
     ["Node runtime requirement", "README.md", "The SDK requires Node.js 22 or later."],
     ["Node-only inverse", "README.md", "This SDK supports Node.js only."],

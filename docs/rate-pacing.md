@@ -29,6 +29,12 @@ Waiting calls are queued within one client instance and remain cancellable throu
 `AbortSignal`. Local pacing happens before the per-attempt `timeoutMs` budget starts. Use a caller
 deadline when the queue wait must count toward an end-to-end deadline.
 
+Limiter state is scoped to one `AhaSendClient` instance in one JavaScript isolate. It is not shared
+with another client in the same isolate or with clients in other isolates. On runtimes that freeze
+the high-resolution clock between I/O turns, pacing falls back to advancing wall-clock time, so
+queued bursts continue draining instead of stalling. Telemetry durations still use the
+high-resolution clock; when that clock is frozen, a pacing duration may validly be zero.
+
 ## Queue capacity
 
 Each bucket admits at most `maxQueue` waiting calls, 1,000 by default. Beyond that, further calls
@@ -127,8 +133,9 @@ Raise `maxQueue` in the same breath.
 
 The limiter is process-local. Separate client instances, workers, containers, and hosts do not
 share tokens, so this is not a distributed quota coordinator. It does not learn from undocumented
-remaining-quota response headers. Server HTTP 429 responses still flow through the retry policy,
-including a valid `Retry-After`.
+remaining-quota response headers. Server HTTP 429 handling is authoritative across isolates:
+responses still flow through the retry policy, including a valid `Retry-After`, regardless of each
+isolate's local bucket state.
 
 Choose limits below the account's actual server quota when multiple processes share one key or
 account. Statistics fan-out should normally retain its stricter bucket so dashboards queue locally
