@@ -107,12 +107,16 @@ describe("dependency audit policy", () => {
     expect(packageJson.devDependencies["@edge-runtime/vm"]).toBe("5.0.0");
     expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.0");
     expect(packageJson.devDependencies["@stoplight/prism-cli"]).toBe("5.14.2");
+    expect(packageJson.devDependencies["workerd"]).toBe("1.20260722.1");
+    expect(packageJson.devDependencies["wrangler"]).toBe("4.114.0");
 
     const rootPackage = lockfilePackage("");
     expect(rootPackage.dependencies ?? {}).toEqual({});
     expect(rootPackage.devDependencies?.["@edge-runtime/vm"]).toBe("5.0.0");
     expect(rootPackage.devDependencies?.["js-yaml"]).toBe("4.3.0");
     expect(rootPackage.devDependencies?.["@stoplight/prism-cli"]).toBe("5.14.2");
+    expect(rootPackage.devDependencies?.["workerd"]).toBe("1.20260722.1");
+    expect(rootPackage.devDependencies?.["wrangler"]).toBe("4.114.0");
     for (const path of ["node_modules/@edge-runtime/vm", "node_modules/@edge-runtime/primitives"]) {
       expect(lockfilePackage(path)).toMatchObject({
         dev: true,
@@ -129,6 +133,17 @@ describe("dependency audit policy", () => {
     expect(lockfilePackage("node_modules/js-yaml")).toMatchObject({
       version: "4.3.0",
       dev: true,
+    });
+    expect(lockfilePackage("node_modules/workerd")).toMatchObject({
+      version: "1.20260722.1",
+      dev: true,
+      engines: { node: ">=16" },
+    });
+    expect(lockfilePackage("node_modules/wrangler")).toMatchObject({
+      version: "4.114.0",
+      dev: true,
+      engines: { node: ">=22.0.0" },
+      dependencies: { workerd: "1.20260722.1" },
     });
     // prism-core and prism-http-server were advanced by the audit
     // remediation that cleared the lodash/uuid advisories; they now declare a

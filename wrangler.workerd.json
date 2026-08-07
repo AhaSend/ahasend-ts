@@ -1,0 +1,7 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ahasend-sdk-workerd-conformance",
+  "main": "./tests/conformance/workerd-worker.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": []
+}

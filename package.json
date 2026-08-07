@@ -78,6 +78,7 @@
     "test:integration": "npm run test:integration:preflight",
     "test:integration:tarball": "vitest run --config vitest.integration.config.ts",
     "test:integration:preflight": "npm run test:package:preflight",
+    "test:conformance:workerd": "vitest run --config vitest.workerd.config.ts",
     "test:coverage": "npm run test:policy && vitest run --coverage --exclude 'tests/test-policy.test.ts'",
     "contracts:generate": "node scripts/generate-contracts.mjs",
     "contracts:check": "node scripts/generate-contracts.mjs --check",
@@ -116,7 +117,9 @@
     "tsup": "^8.3.0",
     "typescript": "5.6.3",
     "typescript-current": "npm:typescript@7.0.2",
-    "vitest": "^3.2.6"
+    "vitest": "^3.2.6",
+    "workerd": "1.20260722.1",
+    "wrangler": "4.114.0"
   },
   "overrides": {
     "esbuild": "^0.28.1",

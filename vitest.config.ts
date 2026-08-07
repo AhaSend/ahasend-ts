@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
-    exclude: ["tests/integration/**"],
+    exclude: ["tests/integration/**", "tests/conformance/workerd.test.ts"],
     allowOnly: false,
     reporters: ["default", new CommittedTestPolicyReporter()],
     testTimeout: 10_000,
