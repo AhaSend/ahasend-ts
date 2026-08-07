@@ -25,6 +25,15 @@ import { DEFAULT_USER_AGENT } from "./version.js";
  */
 export type ProcessEnvLike = Readonly<Record<string, string | undefined>>;
 
+const EMPTY_PROCESS_ENV: ProcessEnvLike = Object.freeze({});
+
+/** @internal Resolve the Node.js environment without assuming `process` exists. */
+export function defaultProcessEnv(): ProcessEnvLike {
+  return typeof process !== "undefined" && process !== null && process.env
+    ? process.env
+    : EMPTY_PROCESS_ENV;
+}
+
 export const DEFAULT_BASE_URL = "https://api.ahasend.com";
 export const DEFAULT_TIMEOUT_MS = 30_000;
 /** @internal Largest delay supported by Node.js timer APIs without coercion. */
@@ -186,7 +195,7 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
   };
 }
 
-export function optionsFromEnv(env: ProcessEnvLike = process.env): ClientOptions {
+export function optionsFromEnv(env: ProcessEnvLike = defaultProcessEnv()): ClientOptions {
   const apiKey = env.AHASEND_API_KEY || env.AHASEND_TOKEN;
   if (!apiKey) {
     throw new AhaSendConfigurationError(
