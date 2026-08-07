@@ -79,6 +79,8 @@
     "test:integration:tarball": "vitest run --config vitest.integration.config.ts",
     "test:integration:preflight": "npm run test:package:preflight",
     "test:conformance:workerd": "vitest run --config vitest.workerd.config.ts",
+    "test:runtime:deno": "node scripts/run-runtime-smoke.mjs deno",
+    "test:runtime:bun": "node scripts/run-runtime-smoke.mjs bun",
     "test:coverage": "npm run test:policy && vitest run --coverage --exclude 'tests/test-policy.test.ts'",
     "contracts:generate": "node scripts/generate-contracts.mjs",
     "contracts:check": "node scripts/generate-contracts.mjs --check",
