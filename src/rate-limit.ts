@@ -209,10 +209,28 @@ interface RateLimitClock {
   sleep(ms: number, signal?: AbortSignal): Promise<void>;
 }
 
-const MONOTONIC_CLOCK: RateLimitClock = {
-  now: () => performance.now(),
-  sleep,
-};
+function createProductionClock(): RateLimitClock {
+  let performanceOrigin: number | undefined;
+  let wallOrigin: number | undefined;
+  let elapsedMs = 0;
+
+  return {
+    now: () => {
+      const performanceNow = performance.now();
+      const wallNow = Date.now();
+      performanceOrigin ??= performanceNow;
+      wallOrigin ??= wallNow;
+
+      // Some runtimes can freeze performance time between I/O turns. Keep its
+      // monotonic behavior when it advances, but let advancing wall time make
+      // pacing progress. The previous elapsed value prevents a backwards wall
+      // adjustment from moving the bucket clock backwards.
+      elapsedMs = Math.max(elapsedMs, performanceNow - performanceOrigin, wallNow - wallOrigin);
+      return elapsedMs;
+    },
+    sleep,
+  };
+}
 
 interface PendingAcquisition {
   resolve: () => void;
@@ -482,7 +500,7 @@ export class RateLimiter {
   private readonly buckets: Record<EndpointCategory, TokenBucket>;
   private masterEnabled: boolean;
 
-  constructor(config: ResolvedRateLimitConfig, clock: RateLimitClock = MONOTONIC_CLOCK) {
+  constructor(config: ResolvedRateLimitConfig, clock: RateLimitClock = createProductionClock()) {
     this.masterEnabled = config.enabled;
     this.buckets = {
       standard: new TokenBucket(
