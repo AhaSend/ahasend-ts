@@ -563,6 +563,11 @@ describe("operational documentation verification", () => {
       'export const runtime = "edge"',
       'export const runtime = "nodejs"',
     ],
+    [
+      "replaced with the obsolete Node runtime while the Edge declaration remains in a comment",
+      'export const runtime = "edge"',
+      '// export const runtime = "edge"\nexport const runtime = "nodejs"',
+    ],
   ])(
     "rejects the Next Edge runtime selection when it is %s",
     async (_label, current, replacement) => {
