@@ -25,6 +25,15 @@ import { DEFAULT_USER_AGENT } from "./version.js";
  */
 export type ProcessEnvLike = Readonly<Record<string, string | undefined>>;
 
+const EMPTY_PROCESS_ENV: ProcessEnvLike = Object.freeze({});
+
+/** @internal Resolve the Node.js environment without assuming `process` exists. */
+export function defaultProcessEnv(): ProcessEnvLike {
+  return typeof process !== "undefined" && process !== null && process.env
+    ? process.env
+    : EMPTY_PROCESS_ENV;
+}
+
 export const DEFAULT_BASE_URL = "https://api.ahasend.com";
 export const DEFAULT_TIMEOUT_MS = 30_000;
 /** @internal Largest delay supported by Node.js timer APIs without coercion. */
@@ -53,9 +62,10 @@ export interface ClientOptions {
   /**
    * This SDK is server-side only — embedding the bearer API key in a
    * browser bundle exposes it to anyone visiting your site. The
-   * constructor throws if it detects a browser-like global (`window`).
+   * constructor throws if it detects browser globals (`window` or `document`),
+   * or a service-worker scope without a recognized server-runtime signal.
    * Set this to `true` only when you have a non-browser reason for the
-   * `window` global to exist (e.g. JSDOM in unit tests).
+   * browser-shaped globals to exist (e.g. JSDOM in unit tests).
    */
   dangerouslyAllowBrowser?: boolean | undefined;
 }
@@ -186,7 +196,7 @@ export function resolveConfig(options: ClientOptions): ResolvedConfig {
   };
 }
 
-export function optionsFromEnv(env: ProcessEnvLike = process.env): ClientOptions {
+export function optionsFromEnv(env: ProcessEnvLike = defaultProcessEnv()): ClientOptions {
   const apiKey = env.AHASEND_API_KEY || env.AHASEND_TOKEN;
   if (!apiKey) {
     throw new AhaSendConfigurationError(
@@ -371,16 +381,27 @@ function buildBaseUrl(scheme: string | undefined, host: string | undefined): str
 
 function assertNotBrowser(allow: boolean): void {
   if (allow) return;
-  // Regular browsers expose `window`/`document`; Service Workers expose
-  // `ServiceWorkerGlobalScope` but not `window`. Both are credential-exposure risks.
+
   const g = globalThis as {
     window?: unknown;
     document?: unknown;
     ServiceWorkerGlobalScope?: unknown;
+    navigator?: { userAgent?: unknown } | null;
+    EdgeRuntime?: unknown;
+    Deno?: unknown;
+    Bun?: unknown;
+    process?: { versions?: { node?: unknown } | null } | null;
   };
   const isBrowser = typeof g.window !== "undefined" || typeof g.document !== "undefined";
   const isServiceWorker = typeof g.ServiceWorkerGlobalScope !== "undefined";
-  if (isBrowser || isServiceWorker) {
+  const hasServerRuntimeSignal =
+    g.navigator?.userAgent === "Cloudflare-Workers" ||
+    typeof g.EdgeRuntime !== "undefined" ||
+    typeof g.Deno !== "undefined" ||
+    typeof g.Bun !== "undefined" ||
+    typeof g.process?.versions?.node !== "undefined";
+
+  if (isBrowser || (isServiceWorker && !hasServerRuntimeSignal)) {
     throw new AhaSendConfigurationError(
       "AhaSend: refusing to construct an AhaSendClient in a browser-like " +
         "environment (window/document/ServiceWorker) — embedding the bearer " +
