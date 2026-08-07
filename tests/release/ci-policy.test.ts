@@ -46,7 +46,7 @@ const MAINTAINED_RUNTIME_INVENTORY = [
   "Cloudflare workerd without `nodejs_compat`.",
   "Vercel Edge through `@edge-runtime/vm`.",
 ] as const;
-const MAINTAINED_CI_JOB_IDS = new Set(["test", "coverage", "workerd", "deno", "bun"]);
+const EDGE_VM_CONFORMANCE_TEST = "tests/conformance/edge-vm.test.ts";
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -268,9 +268,22 @@ function expectReadmeRuntimeSupportPolicy(
   expectMaintainedRuntimeGates(scripts, candidateWorkflow, vitestConfigSource);
 
   const jobs = record(record(candidateWorkflow, "CI workflow")["jobs"], "CI jobs");
-  const unexpectedJobs = Object.keys(jobs).filter((jobId) => !MAINTAINED_CI_JOB_IDS.has(jobId));
+  const dedicatedEdgeJobs = Object.entries(jobs)
+    .filter(([jobId]) => jobId !== "test")
+    .filter(([, job]) => {
+      const candidateSteps = record(job, "CI job")["steps"];
+      return (
+        Array.isArray(candidateSteps) &&
+        candidateSteps.some((step, index) =>
+          String(record(step, `CI job step ${String(index)}`)["run"] ?? "").includes(
+            EDGE_VM_CONFORMANCE_TEST,
+          ),
+        )
+      );
+    })
+    .map(([jobId]) => jobId);
   expect(
-    unexpectedJobs,
+    dedicatedEdgeJobs,
     "Edge VM must execute inside the Node matrix, not as a fifth runtime family",
   ).toEqual([]);
 
@@ -475,6 +488,20 @@ describe("CI policy", () => {
     expectReadmeRuntimeSupportPolicy(readmeSource, packageJson.scripts, workflow);
   });
 
+  it("allows unrelated blocking CI jobs outside the maintained runtime topology", () => {
+    const ciFixture = structuredClone(workflow);
+    const jobs = record(record(ciFixture, "CI workflow")["jobs"], "CI jobs") as Record<
+      string,
+      unknown
+    >;
+    jobs["security"] = {
+      name: "Dependency security policy",
+      steps: [{ run: "npm run verify:audit" }],
+    };
+
+    expectReadmeRuntimeSupportPolicy(readmeSource, packageJson.scripts, ciFixture);
+  });
+
   it.each([
     [
       "a documented runtime without blocking evidence",
@@ -508,9 +535,15 @@ describe("CI policy", () => {
         >;
         jobs["vercel"] = {
           name: "Vercel Edge VM conformance",
-          steps: [],
+          steps: [{ run: `npx vitest run ${EDGE_VM_CONFORMANCE_TEST}` }],
         };
-        return [readme, vitestConfig];
+        return [
+          readme,
+          vitestConfig.replace(
+            '"tests/conformance/workerd.test.ts"',
+            `"tests/conformance/workerd.test.ts", "${EDGE_VM_CONFORMANCE_TEST}"`,
+          ),
+        ];
       },
     ],
     [
