@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import { strict as assert } from "node:assert";
-import { copyFile, mkdir, readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { copyFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "tsup";
+import { assertNoNodeSpecifiers } from "./assert-no-node-specifiers.mjs";
 import { digestArtifactFile } from "./digest-artifact.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -56,6 +57,23 @@ async function copyMetadata() {
   await verifyMetadata(profileDestination, digestDestination);
 }
 
+async function collectDistArtifacts(
+  directory = resolve(repositoryRoot, "dist"),
+  artifacts = new Map(),
+) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) {
+      await collectDistArtifacts(path, artifacts);
+    } else if (entry.isFile()) {
+      const artifactPath = relative(repositoryRoot, path).split(sep).join("/");
+      artifacts.set(artifactPath, await readFile(path));
+    }
+  }
+  return artifacts;
+}
+
 process.chdir(repositoryRoot);
 await build({ config: resolve(repositoryRoot, "tsup.config.ts") });
 await copyMetadata();
+assertNoNodeSpecifiers(await collectDistArtifacts());
