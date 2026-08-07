@@ -206,29 +206,85 @@ describe("resolveConfig", () => {
     ).not.toThrow();
   });
 
-  it("refuses to construct in a browser-like environment (window present)", () => {
-    const g = globalThis as { window?: unknown };
-    const original = g.window;
-    g.window = {}; // simulate a browser
-    try {
-      expect(() => resolveConfig({ apiKey: "aha-sk-test" })).toThrow(/browser/i);
-    } finally {
-      if (original === undefined) delete g.window;
-      else g.window = original;
+  it.each([
+    [
+      "the explicit override with every browser guard present",
+      {
+        window: {},
+        document: {},
+        ServiceWorkerGlobalScope: class {},
+      },
+      true,
+      true,
+    ],
+    ["window even with a server signal", { window: {}, EdgeRuntime: "edge-runtime" }, false, false],
+    ["document even with a server signal", { document: {}, Deno: {} }, false, false],
+    [
+      "a service-worker scope without a server signal",
+      { ServiceWorkerGlobalScope: class {} },
+      false,
+      false,
+    ],
+    [
+      "a Cloudflare Workers service-worker scope",
+      {
+        ServiceWorkerGlobalScope: class {},
+        navigator: { userAgent: "Cloudflare-Workers" },
+      },
+      false,
+      true,
+    ],
+    [
+      "a service-worker scope with a near-match Cloudflare user agent",
+      {
+        ServiceWorkerGlobalScope: class {},
+        navigator: { userAgent: "cloudflare-workers" },
+      },
+      false,
+      false,
+    ],
+    [
+      "an EdgeRuntime service-worker scope",
+      { ServiceWorkerGlobalScope: class {}, EdgeRuntime: "edge-runtime" },
+      false,
+      true,
+    ],
+    ["a Deno service-worker scope", { ServiceWorkerGlobalScope: class {}, Deno: {} }, false, true],
+    ["a Bun service-worker scope", { ServiceWorkerGlobalScope: class {}, Bun: {} }, false, true],
+    [
+      "a Node.js service-worker scope",
+      { ServiceWorkerGlobalScope: class {}, process: { versions: { node: "22.0.0" } } },
+      false,
+      true,
+    ],
+  ] as const)("%s", (_name, globals, dangerouslyAllowBrowser, shouldAllow) => {
+    const cleanGlobals: Readonly<Record<string, unknown>> = {
+      window: undefined,
+      document: undefined,
+      ServiceWorkerGlobalScope: undefined,
+      navigator: undefined,
+      EdgeRuntime: undefined,
+      Deno: undefined,
+      Bun: undefined,
+      process: undefined,
+    };
+    for (const [name, value] of Object.entries({ ...cleanGlobals, ...globals })) {
+      vi.stubGlobal(name, value);
     }
-  });
 
-  it("dangerouslyAllowBrowser opt-in bypasses the browser guard", () => {
-    const g = globalThis as { window?: unknown };
-    const original = g.window;
-    g.window = {};
     try {
-      expect(() =>
-        resolveConfig({ apiKey: "aha-sk-test", dangerouslyAllowBrowser: true }),
-      ).not.toThrow();
+      const construct = () =>
+        new AhaSendClient({
+          apiKey: "aha-sk-test",
+          accountId: "22222222-2222-4222-8222-222222222222",
+          fetch: vi.fn<typeof fetch>(),
+          dangerouslyAllowBrowser,
+        });
+
+      if (shouldAllow) expect(construct).not.toThrow();
+      else expect(construct).toThrow(/browser/i);
     } finally {
-      if (original === undefined) delete g.window;
-      else g.window = original;
+      vi.unstubAllGlobals();
     }
   });
 
