@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
+import { assertNoNodeSpecifiers } from "../scripts/assert-no-node-specifiers.mjs";
 import { digestJsonArtifact } from "../scripts/digest-artifact.mjs";
 
 type RootModule = typeof import("../src/index.js");
@@ -53,6 +54,56 @@ function parsePackOutput(output: string): readonly PackResult[] {
   const parsed = JSON.parse(output) as PackOutput;
   return Array.isArray(parsed) ? parsed : Object.values(parsed);
 }
+
+describe("published artifact Node.js specifiers", () => {
+  const cleanArtifacts = new Map<string, Buffer>([
+    ["dist/index.js", Buffer.from("export const sdk = true;\n")],
+    ["dist/index.cjs", Buffer.from('"use strict";\nexports.sdk = true;\n')],
+    ["dist/index.d.ts", Buffer.from("export declare const sdk: true;\n")],
+    ["dist/errors-clean.d.cts", Buffer.from("export declare class SDKError extends Error {}\n")],
+    ["dist/index.js.map", Buffer.from('{"version":3,"sources":[]}\n')],
+    ["README.md", Buffer.from("Use node:crypto only in application code.\n")],
+    ["CHANGELOG.md", Buffer.from("Removed the node:buffer dependency.\n")],
+  ]);
+
+  it.each([
+    ["ESM runtime", "dist/index.js", 'import "node:crypto";\n'],
+    ["CommonJS runtime", "dist/index.cjs", 'require("node:buffer");\n'],
+    ["declaration entry", "dist/index.d.ts", 'import type { Buffer } from "node:buffer";\n'],
+    [
+      "declaration chunk",
+      "dist/errors-clean.d.cts",
+      'import type { InspectOptions } from "node:util";\n',
+    ],
+    [
+      "source map",
+      "dist/index.js.map",
+      '{"version":3,"sourcesContent":["import \\"node:stream\\";"]}\n',
+    ],
+  ])("rejects synthetic %s contamination", (_label, path, contamination) => {
+    const contaminatedArtifacts = new Map(cleanArtifacts);
+    contaminatedArtifacts.set(path, Buffer.from(contamination));
+
+    expect(() => assertNoNodeSpecifiers(contaminatedArtifacts)).toThrow(path);
+  });
+
+  it("reports every contaminated generated artifact and ignores package prose", () => {
+    const contaminatedArtifacts = new Map(cleanArtifacts);
+    contaminatedArtifacts.set("dist/index.js", Buffer.from('import "node:crypto";\n'));
+    contaminatedArtifacts.set(
+      "dist/webhooks/index.d.cts",
+      Buffer.from('export { EventEmitter } from "node:events";\n'),
+    );
+
+    expect(() => assertNoNodeSpecifiers(contaminatedArtifacts)).toThrowError(
+      new TypeError(
+        "Generated artifacts contain forbidden Node.js specifiers:\n" +
+          "- dist/index.js\n" +
+          "- dist/webhooks/index.d.cts",
+      ),
+    );
+  });
+});
 
 beforeAll(async () => {
   const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
