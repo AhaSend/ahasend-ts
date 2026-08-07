@@ -1028,17 +1028,47 @@ logger.error(output);`,
   });
 
   it.each([
-    ["Node-only", "This is a server-side SDK for Node.js."],
-    ["Node runtime requirement", "The SDK requires Node.js 22 or later."],
-    ["edge-unsupported", "Cloudflare and Vercel Edge runtimes are not supported."],
-    ["alternative-runtime unsupported", "Alternative JavaScript runtimes are not supported."],
-  ])("fails if an obsolete %s claim is introduced", async (_label, obsoleteText) => {
+    ["Node-only", "README.md", "This is a server-side SDK for Node.js."],
+    ["Node runtime requirement", "README.md", "The SDK requires Node.js 22 or later."],
+    ["edge-unsupported", "README.md", "Cloudflare and Vercel Edge runtimes are not supported."],
+    [
+      "alternative-runtime unsupported",
+      "README.md",
+      "Alternative JavaScript runtimes are not supported.",
+    ],
+  ])("fails if an obsolete %s claim is introduced", async (_label, path, obsoleteText) => {
     const documents = await loadDocumentation();
-    const path = "README.md";
     documents[path] = `${documents[path]}\n${obsoleteText}\n`;
 
     expect(() => verifyDocumentation(documents)).toThrow(/unsafe guidance/);
   });
+
+  it.each([
+    ["Node-only README", "README.md", "This is a server-side SDK for\nNode.js."],
+    [
+      "edge-unsupported README",
+      "README.md",
+      "Cloudflare and Vercel Edge runtimes are\nnot supported.",
+    ],
+    [
+      "alternative-runtime unsupported README",
+      "README.md",
+      "Alternative JavaScript runtimes are\nnot supported.",
+    ],
+    [
+      "edge-unsupported security guide",
+      "docs/security-and-webhooks.md",
+      "Cloudflare and Vercel Edge runtimes are\nnot supported.",
+    ],
+  ])(
+    "fails if a line-wrapped obsolete %s claim is introduced",
+    async (_label, path, obsoleteText) => {
+      const documents = await loadDocumentation();
+      documents[path] = `${documents[path]}\n${obsoleteText}\n`;
+
+      expect(() => verifyDocumentation(documents)).toThrow(/unsafe guidance/);
+    },
+  );
 
   it.each([
     ["operation-level retry gate", "`maxRetries` never overrides the operation-level gate"],

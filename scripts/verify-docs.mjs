@@ -404,22 +404,23 @@ const PROHIBITED_PATTERNS = Object.freeze([
   {
     label: "an obsolete Node-only support claim",
     path: "README.md",
-    pattern: /(?:server-side SDK for Node\.js|only supports Node\.js|SDK requires Node\.js)/iu,
+    pattern:
+      /(?:server-side\s+SDK\s+for\s+Node\.js|only\s+supports\s+Node\.js|SDK\s+requires\s+Node\.js)/iu,
   },
   {
     label: "an obsolete edge-unsupported claim",
     path: "README.md",
-    pattern: /edge runtimes?[^.\n]*not supported/iu,
+    pattern: /edge\s+runtimes?[^.]*not\s+supported/iu,
   },
   {
     label: "an obsolete alternative-runtime unsupported claim",
     path: "README.md",
-    pattern: /alternative JavaScript runtimes?[^.\n]*not supported/iu,
+    pattern: /alternative\s+JavaScript\s+runtimes?[^.]*not\s+supported/iu,
   },
   {
     label: "an obsolete edge-unsupported claim",
     path: "docs/security-and-webhooks.md",
-    pattern: /edge runtimes?[^.\n]*not supported/iu,
+    pattern: /edge\s+runtimes?[^.]*not\s+supported/iu,
   },
   {
     label: "an Express parser mounted before the webhook adapter",
