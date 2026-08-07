@@ -1220,7 +1220,7 @@ export interface RoutesClient {
 export type SandboxResult = "deliver" | "bounce" | "defer" | "fail" | "suppress";
 
 // @public (undocumented)
-export const SDK_VERSION = "0.1.0";
+export const SDK_VERSION = "0.2.0";
 
 // @public (undocumented)
 export interface SendMessageResponse {
