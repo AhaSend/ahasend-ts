@@ -1,22 +1,34 @@
-# AhaSend Node.js SDK
+# AhaSend TypeScript SDK
 
-The official Node.js TypeScript SDK for the [AhaSend](https://ahasend.com) transactional email API.
+The official TypeScript SDK for the [AhaSend](https://ahasend.com) transactional email API.
 
 > **v0.x** — the public API may change before 1.0. Pin an exact version in
 > production and read the
 > [CHANGELOG](https://github.com/AhaSend/ahasend-ts/blob/main/CHANGELOG.md) before upgrading.
 
-> ⚠️ **This is a server-side SDK for Node.js.** The AhaSend API key must
-> not be embedded in a browser bundle — anyone with the key can send mail
-> on your account's behalf. The constructor throws if it detects a
-> browser-like environment (`window`, `document`, or a Service Worker
-> scope).
+> ⚠️ **This is a server-side SDK.** The AhaSend API key must not be embedded in a browser
+> bundle — anyone with the key can send mail on your account's behalf. `AhaSendClient` refuses to
+> construct in a browser-like environment (`window`, `document`, or a browser Service Worker scope)
+> by default.
+
+## Supported runtimes
+
+The maintained, blocking CI gates define the supported runtime inventory exactly:
+
+- Node.js 22 and 24.
+- Deno latest 2.x.
+- Bun latest.
+- Cloudflare workerd without `nodejs_compat`.
+- Vercel Edge through `@edge-runtime/vm`.
+
+Newer runtime versions may be exercised experimentally before they join this maintained inventory.
+Browser and browser Service Worker use is refused by default. The unchanged
+`dangerouslyAllowBrowser: true` escape hatch exists for browser-shaped server test environments such
+as JSDOM; it disables the construction check, not the risk of exposing a bearer key. Never use it to
+put an API key in client-side code.
 
 ## Requirements
 
-- **Node.js 22 or later.** Browsers and edge runtimes (Cloudflare Workers,
-  Vercel Edge, Deno without Node compatibility) are not supported — the SDK
-  uses `node:crypto` and `node:buffer`.
 - An [AhaSend account](https://dash.ahasend.com), an API key
   (`aha-sk-…`), and an account ID.
 
@@ -101,6 +113,7 @@ const client = new AhaSendClient({
   accountId: "uuid", // required, must be a UUID — one client per account
   baseUrl: "https://api.ahasend.com", // HTTPS enforced (localhost exempt)
   dangerouslyAllowInsecureBaseUrl: false, // dangerous: permits bearer keys over HTTP
+  dangerouslyAllowBrowser: false, // dangerous: bypasses browser-like environment refusal
   timeoutMs: 30_000, // default per-attempt timeout in MILLISECONDS
   userAgent: "ahasend-node/x.y.z",
   debug: false, // built-in diagnostics; may include error messages
@@ -146,12 +159,31 @@ official Go SDK reads:
 const client = AhaSendClient.fromEnv();
 ```
 
+Cloudflare Workers expose environment bindings as the handler's `env` argument instead of
+`process.env`. Pass that object explicitly; no `nodejs_compat` flag is needed:
+
+```ts
+interface Env {
+  readonly [name: string]: string | undefined;
+  AHASEND_API_KEY: string;
+  AHASEND_ACCOUNT_ID: string;
+}
+
+export default {
+  async fetch(_request: Request, env: Env): Promise<Response> {
+    const client = AhaSendClient.fromEnv(env);
+    const result = await client.ping();
+    return Response.json(result);
+  },
+};
+```
+
 `AHASEND_BASE_URL` takes precedence when it is set; `AHASEND_SCHEME` and
 `AHASEND_HOST` are used only when it is absent. Environment-derived HTTP
 endpoints are rejected unless `AHASEND_DANGEROUSLY_ALLOW_INSECURE_BASE_URL`
 parses as true. Leave this opt-in unset or false in production: it permits the
-SDK to send the bearer API key over plaintext HTTP. The SDK requires Node.js 22
-or later and uses its built-in `fetch` unless you inject another implementation.
+SDK to send the bearer API key over plaintext HTTP. All supported runtimes provide a built-in
+`fetch`; inject another compatible implementation only when your deployment requires it.
 
 `optionsFromEnv()` is also exported if you want the env-derived options
 to compose with your own overrides (see `examples/telemetry.mjs`).
@@ -360,7 +392,7 @@ fastify.post(
   fastifyWebhookHandler(verifier, async (event) => {}),
 );
 
-// Next.js (app router)
+// Web-standard Request adapter (including Next.js app router and Vercel Edge)
 import { nextRouteHandler } from "@ahasend/sdk/webhooks";
 export const POST = nextRouteHandler(verifier, async (event) => {
   return new Response(null, { status: 200 });
@@ -370,9 +402,20 @@ export const POST = nextRouteHandler(verifier, async (event) => {
 Using the verifier directly (any framework):
 
 ```ts
+await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);
+// Resolves only after the signature and timestamp have been verified.
+```
+
+To verify and parse the event in one awaited call:
+
+```ts
 const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);
 // rejects with AhaSendWebhookVerificationError on bad signature / stale timestamp / malformed payload
 ```
+
+Use one of these direct forms for a request; `parse()` already performs verification. The existing
+`nextRouteHandler` export is the web-standard `Request` adapter for Request/Response runtimes; it is
+not a Node-only adapter.
 
 Headers may be a plain record (`req.headers`) or anything with a case-insensitive
 `Headers`-style `get`, matched structurally rather than by class — so a `Headers`
@@ -391,6 +434,9 @@ work. The
 [security and webhooks guide](https://github.com/AhaSend/ahasend-ts/blob/main/docs/security-and-webhooks.md)
 includes an Express 5.x integration pattern, body limits, adapter failure behavior, and safe replay
 handling.
+
+Direct verification and every adapter enforce a fixed 30,000,000-byte webhook body ceiling.
+Adapter option `maxBodyBytes` is only a lower deployment cap; it cannot raise that fixed ceiling.
 
 ## Operational guides
 
@@ -532,10 +578,8 @@ npm run format            # prettier
 
 ## Support and security
 
-Node.js 22 and 24 are blocking CI targets. Newer Node releases may be tested on
-a best-effort basis before they become a blocking support target. Browsers,
-service workers, edge runtimes, and alternative JavaScript runtimes are not
-supported.
+Runtime support is defined by the maintained blocking inventory above. Browser-like environments
+remain refused by default to keep bearer keys out of client-side bundles.
 
 Use [GitHub issues](https://github.com/AhaSend/ahasend-ts/issues) for reproducible
 SDK bugs and questions that do not contain secrets. Report vulnerabilities

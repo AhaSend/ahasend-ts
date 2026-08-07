@@ -964,6 +964,28 @@ logger.error(output);`,
   });
 
   it.each([
+    ["Node.js maintained versions", "Node.js 22 and 24."],
+    ["Deno maintained version", "Deno latest 2.x."],
+    ["Bun maintained version", "Bun latest."],
+    ["workerd compatibility mode", "Cloudflare workerd without `nodejs_compat`."],
+    ["Vercel Edge conformance runtime", "Vercel Edge through `@edge-runtime/vm`."],
+    ["browser refusal", "Browser and browser Service Worker use is refused by default."],
+    ["browser escape hatch", "`dangerouslyAllowBrowser: true` escape hatch"],
+    ["Workers environment binding", "const client = AhaSendClient.fromEnv(env);"],
+    [
+      "awaited direct webhook verification",
+      "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ],
+    [
+      "awaited direct webhook parsing",
+      "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ],
+    [
+      "existing web-standard Request adapter",
+      "`nextRouteHandler` export is the web-standard `Request` adapter",
+    ],
+    ["fixed webhook body ceiling", "fixed 30,000,000-byte webhook body ceiling"],
+    ["lower webhook deployment cap", "`maxBodyBytes` is only a lower deployment cap"],
     [
       "idempotent-operation inventory",
       "all 11 endpoints whose generated operation profile marks them idempotent",
@@ -980,6 +1002,42 @@ logger.error(output);`,
     documents[path] = documents[path]!.replace(requiredText, "");
 
     expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
+  });
+
+  it.each([
+    [
+      "awaited direct webhook verification",
+      "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ],
+    [
+      "awaited direct webhook parsing",
+      "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ],
+    [
+      "existing web-standard Request adapter",
+      "`nextRouteHandler` is the existing web-standard `Request` adapter.",
+    ],
+    ["fixed webhook body ceiling", "fixed 30,000,000-byte body ceiling"],
+    ["lower webhook deployment cap", "is only a lower deployment cap"],
+  ])("fails if the security guide %s is removed", async (_label, requiredText) => {
+    const documents = await loadDocumentation();
+    const path = "docs/security-and-webhooks.md";
+    documents[path] = documents[path]!.replace(requiredText, "");
+
+    expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
+  });
+
+  it.each([
+    ["Node-only", "This is a server-side SDK for Node.js."],
+    ["Node runtime requirement", "The SDK requires Node.js 22 or later."],
+    ["edge-unsupported", "Cloudflare and Vercel Edge runtimes are not supported."],
+    ["alternative-runtime unsupported", "Alternative JavaScript runtimes are not supported."],
+  ])("fails if an obsolete %s claim is introduced", async (_label, obsoleteText) => {
+    const documents = await loadDocumentation();
+    const path = "README.md";
+    documents[path] = `${documents[path]}\n${obsoleteText}\n`;
+
+    expect(() => verifyDocumentation(documents)).toThrow(/unsafe guidance/);
   });
 
   it.each([

@@ -75,7 +75,27 @@ const REQUIREMENTS = Object.freeze([
   {
     label: "Node 22 runtime floor",
     path: "README.md",
-    text: "Node.js 22 or later",
+    text: "Node.js 22 and 24.",
+  },
+  {
+    label: "Deno runtime support",
+    path: "README.md",
+    text: "Deno latest 2.x.",
+  },
+  {
+    label: "Bun runtime support",
+    path: "README.md",
+    text: "Bun latest.",
+  },
+  {
+    label: "workerd runtime support",
+    path: "README.md",
+    text: "Cloudflare workerd without `nodejs_compat`.",
+  },
+  {
+    label: "Vercel Edge runtime support",
+    path: "README.md",
+    text: "Vercel Edge through `@edge-runtime/vm`.",
   },
   {
     label: "JavaScript and TypeScript parity",
@@ -93,9 +113,44 @@ const REQUIREMENTS = Object.freeze([
     text: "`Bundler`, `Node16`, and `NodeNext`",
   },
   {
-    label: "unsupported runtime boundary",
+    label: "browser runtime refusal",
     path: "README.md",
-    text: "Browsers and edge runtimes",
+    text: "Browser and browser Service Worker use is refused by default.",
+  },
+  {
+    label: "dangerous browser escape hatch",
+    path: "README.md",
+    text: "`dangerouslyAllowBrowser: true` escape hatch",
+  },
+  {
+    label: "Workers environment binding",
+    path: "README.md",
+    text: "const client = AhaSendClient.fromEnv(env);",
+  },
+  {
+    label: "awaited direct webhook verification",
+    path: "README.md",
+    text: "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+  },
+  {
+    label: "awaited direct webhook parsing",
+    path: "README.md",
+    text: "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+  },
+  {
+    label: "existing web-standard Request adapter",
+    path: "README.md",
+    text: "`nextRouteHandler` export is the web-standard `Request` adapter",
+  },
+  {
+    label: "fixed webhook body ceiling",
+    path: "README.md",
+    text: "fixed 30,000,000-byte webhook body ceiling",
+  },
+  {
+    label: "lower webhook deployment cap",
+    path: "README.md",
+    text: "`maxBodyBytes` is only a lower deployment cap",
   },
   {
     label: "Express 5 support",
@@ -228,6 +283,31 @@ const REQUIREMENTS = Object.freeze([
     text: "Timestamp-window verification is not replay deduplication.",
   },
   {
+    label: "security-guide awaited direct verification",
+    path: "docs/security-and-webhooks.md",
+    text: "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+  },
+  {
+    label: "security-guide awaited direct parsing",
+    path: "docs/security-and-webhooks.md",
+    text: "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+  },
+  {
+    label: "security-guide existing Request adapter",
+    path: "docs/security-and-webhooks.md",
+    text: "`nextRouteHandler` is the existing web-standard `Request` adapter.",
+  },
+  {
+    label: "security-guide fixed webhook body ceiling",
+    path: "docs/security-and-webhooks.md",
+    text: "fixed 30,000,000-byte body ceiling",
+  },
+  {
+    label: "security-guide lower webhook deployment cap",
+    path: "docs/security-and-webhooks.md",
+    text: "is only a lower deployment cap",
+  },
+  {
     label: "application webhook-id responsibility",
     path: "docs/security-and-webhooks.md",
     text: "Applications must deduplicate the `webhook-id` value.",
@@ -321,6 +401,26 @@ const REQUIREMENTS = Object.freeze([
 ]);
 
 const PROHIBITED_PATTERNS = Object.freeze([
+  {
+    label: "an obsolete Node-only support claim",
+    path: "README.md",
+    pattern: /(?:server-side SDK for Node\.js|only supports Node\.js|SDK requires Node\.js)/iu,
+  },
+  {
+    label: "an obsolete edge-unsupported claim",
+    path: "README.md",
+    pattern: /edge runtimes?[^.\n]*not supported/iu,
+  },
+  {
+    label: "an obsolete alternative-runtime unsupported claim",
+    path: "README.md",
+    pattern: /alternative JavaScript runtimes?[^.\n]*not supported/iu,
+  },
+  {
+    label: "an obsolete edge-unsupported claim",
+    path: "docs/security-and-webhooks.md",
+    pattern: /edge runtimes?[^.\n]*not supported/iu,
+  },
   {
     label: "an Express parser mounted before the webhook adapter",
     path: "README.md",
