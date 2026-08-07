@@ -4,10 +4,11 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_USER_AGENT, SDK_VERSION } from "../src/version.js";
 
 describe("SDK_VERSION", () => {
-  it("matches package.json#version (bump both together)", () => {
+  it("pins 0.2.0 and matches package.json#version (bump both together)", () => {
     const pkg = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf-8")) as {
       version: string;
     };
+    expect(SDK_VERSION).toBe("0.2.0");
     expect(SDK_VERSION).toBe(pkg.version);
   });
 
