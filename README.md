@@ -370,8 +370,8 @@ export const POST = nextRouteHandler(verifier, async (event) => {
 Using the verifier directly (any framework):
 
 ```ts
-const event = verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);
-// throws AhaSendWebhookVerificationError on bad signature / stale timestamp / malformed payload
+const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);
+// rejects with AhaSendWebhookVerificationError on bad signature / stale timestamp / malformed payload
 ```
 
 Headers may be a plain record (`req.headers`) or anything with a case-insensitive
@@ -379,7 +379,7 @@ Headers may be a plain record (`req.headers`) or anything with a case-insensitiv
 from a separately installed `undici`/`node-fetch`, an edge runtime, or another
 realm works, as do express's `req` and Koa's `ctx.request`.
 
-`parse()` returns `AnyWebhookEvent`: the strict `WebhookEvent` union for
+`parse()` returns a `Promise` that resolves to `AnyWebhookEvent`: the strict `WebhookEvent` union for
 known types, plus an `UnknownWebhookEvent` branch so a new event type
 added by the server doesn't crash your exhaustive `switch`. Narrow with
 `isKnownWebhookEvent(event)`.
