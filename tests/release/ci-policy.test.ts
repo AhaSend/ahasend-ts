@@ -25,6 +25,15 @@ const documentationPreflightSource = readFileSync(
   resolve(repositoryRoot, "scripts/create-docs-preflight-pack.mjs"),
   "utf8",
 );
+const ordinaryVitestConfigSource = readFileSync(
+  resolve(repositoryRoot, "vitest.config.ts"),
+  "utf8",
+);
+
+const CHECKOUT_ACTION = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+const SETUP_NODE_ACTION = "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38";
+const SETUP_DENO_ACTION = "denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282";
+const SETUP_BUN_ACTION = "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6";
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -71,6 +80,147 @@ function namedStep(
   const step = steps(job, jobLabel).find((candidate) => candidate["name"] === stepName);
   if (step === undefined) throw new TypeError(`${jobLabel} is missing ${stepName}.`);
   return step;
+}
+
+function actionStep(
+  job: unknown,
+  jobLabel: string,
+  actionRepository: string,
+): Readonly<Record<string, unknown>> {
+  const step = steps(job, jobLabel).find((candidate) =>
+    String(candidate["uses"] ?? "").startsWith(`${actionRepository}@`),
+  );
+  if (step === undefined) throw new TypeError(`${jobLabel} is missing ${actionRepository}.`);
+  return step;
+}
+
+function expectBlockingJob(job: unknown, label: string): void {
+  expect(record(job, label)["continue-on-error"], `${label} continue-on-error`).toBeUndefined();
+  for (const [index, step] of steps(job, label).entries()) {
+    expect(step["continue-on-error"], `${label} step ${index} continue-on-error`).toBeUndefined();
+  }
+}
+
+function expectNode22Toolchain(job: unknown, label: string): void {
+  expect(actionStep(job, label, "actions/setup-node")).toMatchObject({
+    uses: SETUP_NODE_ACTION,
+    with: { "node-version": 22, cache: "npm" },
+  });
+  expectAssertedNpmToolchain(job, label);
+  expect(namedStep(job, label, "Install dependencies")).toMatchObject({ run: "npm ci" });
+}
+
+function expectCandidateTarball(job: unknown, label: string): void {
+  const pack = namedStep(job, label, "Build candidate tarball");
+  const command = String(pack["run"] ?? "");
+
+  expect(pack["id"]).toBe("pack");
+  expect(pack["continue-on-error"]).toBeUndefined();
+  expect(command).toContain("npm run build");
+  expect(command).toContain(
+    'npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/ahasend-runtime-smoke"',
+  );
+  expect(command).toContain("-type f -name '*.tgz'");
+  expect(command).toContain('echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"');
+}
+
+function expectMaintainedRuntimeGates(
+  scripts: Readonly<Record<string, string>>,
+  candidateWorkflow: unknown,
+): void {
+  const jobs = record(record(candidateWorkflow, "CI workflow")["jobs"], "CI jobs");
+  const testJob = record(jobs["test"], "Node test job");
+  const strategy = record(testJob["strategy"], "Node test strategy");
+  const matrix = record(strategy["matrix"], "Node test matrix");
+
+  expect(array(matrix["include"], "Node matrix includes")).toEqual([
+    { node: 22, experimental: false },
+    { node: 24, experimental: false },
+    { node: 26, experimental: true },
+  ]);
+  expect(testJob["continue-on-error"]).toBe("${{ matrix.experimental }}");
+  expect(strategy["fail-fast"]).toBe(false);
+  expect(
+    namedStep(testJob, "Node test job", "Required source gates and packed preflights"),
+  ).toMatchObject({ run: "npm run ci" });
+  expect(scripts["ci"]?.split(" && ")).toContain("npm test");
+  expect(scripts["test"]).toBe(
+    "npm run test:policy && vitest run --exclude 'tests/test-policy.test.ts'",
+  );
+  expect(ordinaryVitestConfigSource).toContain(
+    'exclude: ["tests/integration/**", "tests/conformance/workerd.test.ts"]',
+  );
+
+  const coverageJob = jobs["coverage"];
+  expect(record(coverageJob, "coverage job")).toMatchObject({
+    name: "Coverage thresholds",
+    "runs-on": "ubuntu-latest",
+  });
+  expectBlockingJob(coverageJob, "coverage job");
+  expectNode22Toolchain(coverageJob, "coverage job");
+  expect(
+    namedStep(coverageJob, "coverage job", "Coverage (thresholds enforced in vitest.config.ts)"),
+  ).toMatchObject({ run: "npm run test:coverage" });
+
+  const workerdJob = jobs["workerd"];
+  expect(record(workerdJob, "workerd job")).toMatchObject({
+    name: "workerd shared conformance (no nodejs_compat)",
+    "runs-on": "ubuntu-latest",
+  });
+  expectBlockingJob(workerdJob, "workerd job");
+  expectNode22Toolchain(workerdJob, "workerd job");
+  expect(scripts["test:conformance:workerd"]).toBe("vitest run --config vitest.workerd.config.ts");
+  expect(namedStep(workerdJob, "workerd job", "Run maintained workerd conformance")).toMatchObject({
+    run: "npm run test:conformance:workerd",
+  });
+
+  const runtimeGates = [
+    {
+      jobId: "deno",
+      label: "Deno job",
+      actionRepository: "denoland/setup-deno",
+      action: SETUP_DENO_ACTION,
+      actionInputs: { "deno-version": "2.x" },
+      jobName: "Deno 2.x packed smoke",
+      script: "test:runtime:deno",
+      scriptCommand: "node scripts/run-runtime-smoke.mjs deno",
+      stepName: "Run maintained Deno packed smoke",
+    },
+    {
+      jobId: "bun",
+      label: "Bun job",
+      actionRepository: "oven-sh/setup-bun",
+      action: SETUP_BUN_ACTION,
+      actionInputs: { "bun-version": "latest" },
+      jobName: "Bun packed smoke",
+      script: "test:runtime:bun",
+      scriptCommand: "node scripts/run-runtime-smoke.mjs bun",
+      stepName: "Run maintained Bun packed smoke",
+    },
+  ] as const;
+
+  for (const runtime of runtimeGates) {
+    const job = jobs[runtime.jobId];
+    expect(record(job, runtime.label)).toMatchObject({
+      name: runtime.jobName,
+      "runs-on": "ubuntu-latest",
+    });
+    expectBlockingJob(job, runtime.label);
+    expectNode22Toolchain(job, runtime.label);
+    expect(actionStep(job, runtime.label, runtime.actionRepository)).toMatchObject({
+      uses: runtime.action,
+      with: runtime.actionInputs,
+    });
+    expectCandidateTarball(job, runtime.label);
+    expect(scripts[runtime.script]).toBe(runtime.scriptCommand);
+
+    const smoke = namedStep(job, runtime.label, runtime.stepName);
+    expect(smoke).toMatchObject({
+      run: `npm run ${runtime.script} -- \"\${{ steps.pack.outputs.tarball }}\"`,
+    });
+    expect(smoke["continue-on-error"]).toBeUndefined();
+    expect(String(smoke["run"])).not.toMatch(/(?:^|\s)(?:src|tests)\//u);
+  }
 }
 
 function expectDocumentationCallerPolicy(
@@ -160,6 +310,9 @@ describe("CI policy", () => {
     expect(packageJson.packageManager).toBe("npm@11.12.0");
     expectAssertedNpmToolchain(jobs["test"], "test job");
     expectAssertedNpmToolchain(jobs["coverage"], "coverage job");
+    expectAssertedNpmToolchain(jobs["workerd"], "workerd job");
+    expectAssertedNpmToolchain(jobs["deno"], "Deno job");
+    expectAssertedNpmToolchain(jobs["bun"], "Bun job");
   });
 
   it("loads type-aware rules from the dedicated ESLint TypeScript program", async () => {
@@ -209,10 +362,18 @@ describe("CI policy", () => {
     // job that sets registry-url without providing the token (registry-smoke,
     // by design) would then fail npm's env substitution in .npmrc.
     expect(actionReferences).toEqual([
-      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-      "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
-      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-      "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
+      CHECKOUT_ACTION,
+      SETUP_NODE_ACTION,
+      CHECKOUT_ACTION,
+      SETUP_NODE_ACTION,
+      CHECKOUT_ACTION,
+      SETUP_NODE_ACTION,
+      CHECKOUT_ACTION,
+      SETUP_NODE_ACTION,
+      SETUP_DENO_ACTION,
+      CHECKOUT_ACTION,
+      SETUP_NODE_ACTION,
+      SETUP_BUN_ACTION,
     ]);
     expect(actionReferences.every((reference) => /@[0-9a-f]{40}$/.test(reference))).toBe(true);
   });
@@ -245,6 +406,96 @@ describe("CI policy", () => {
     expect(packagePreflightSource).toContain(
       'verificationScripts: ["test:docs:tarball", "test:package:tarball", "test:integration:tarball"]',
     );
+  });
+
+  it("keeps every maintained runtime gate blocking and attached to its package script", () => {
+    expectMaintainedRuntimeGates(packageJson.scripts, workflow);
+  });
+
+  it.each([
+    [
+      "a removed runtime job",
+      (_scripts: Record<string, string>, ci: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs") as Record<
+          string,
+          unknown
+        >;
+        delete jobs["workerd"];
+      },
+    ],
+    [
+      "a runtime job allowed to continue on error",
+      (_scripts: Record<string, string>, ci: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
+        const deno = record(jobs["deno"], "Deno job") as Record<string, unknown>;
+        deno["continue-on-error"] = true;
+      },
+    ],
+    [
+      "a packed smoke replaced by a source import",
+      (_scripts: Record<string, string>, ci: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
+        const smoke = namedStep(
+          jobs["bun"],
+          "Bun job",
+          "Run maintained Bun packed smoke",
+        ) as Record<string, unknown>;
+        smoke["run"] = "bun run tests/runtime-smoke.mjs";
+      },
+    ],
+    [
+      "a workerd gate detached from its maintained script",
+      (_scripts: Record<string, string>, ci: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
+        const gate = namedStep(
+          jobs["workerd"],
+          "workerd job",
+          "Run maintained workerd conformance",
+        ) as Record<string, unknown>;
+        gate["run"] = "vitest run --config vitest.workerd.config.ts";
+      },
+    ],
+    [
+      "a Deno gate detached from its maintained script",
+      (_scripts: Record<string, string>, ci: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
+        const smoke = namedStep(
+          jobs["deno"],
+          "Deno job",
+          "Run maintained Deno packed smoke",
+        ) as Record<string, unknown>;
+        smoke["run"] =
+          'node scripts/run-runtime-smoke.mjs deno "${{ steps.pack.outputs.tarball }}"';
+      },
+    ],
+    [
+      "an unpinned runtime setup action",
+      (_scripts: Record<string, string>, ci: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
+        const setup = actionStep(jobs["deno"], "Deno job", "denoland/setup-deno") as Record<
+          string,
+          unknown
+        >;
+        setup["uses"] = "denoland/setup-deno@v2";
+      },
+    ],
+    [
+      "a runtime gate without tarball packing",
+      (_scripts: Record<string, string>, ci: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
+        const pack = namedStep(jobs["bun"], "Bun job", "Build candidate tarball") as Record<
+          string,
+          unknown
+        >;
+        pack["run"] = "npm run build";
+      },
+    ],
+  ])("rejects %s", (_label, mutate) => {
+    const scripts = { ...packageJson.scripts };
+    const ciFixture = structuredClone(workflow);
+    mutate(scripts, ciFixture);
+
+    expect(() => expectMaintainedRuntimeGates(scripts, ciFixture)).toThrow();
   });
 
   it.each([
