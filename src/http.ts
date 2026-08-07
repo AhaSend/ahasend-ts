@@ -1,5 +1,4 @@
-import { Buffer } from "node:buffer";
-import type { ReadableStreamReadResult } from "node:stream/web";
+import { concatBytes } from "./bytes.js";
 import type { ResolvedConfig } from "./config.js";
 import { assertHeaders, assertRequestRetryOverride, assertTimeoutMs } from "./config.js";
 import {
@@ -69,6 +68,10 @@ export type QueryValue =
   | null
   | undefined
   | ReadonlyArray<string | number | boolean>;
+
+type ByteStreamReadResult =
+  | { readonly done: false; readonly value: Uint8Array }
+  | { readonly done: true; readonly value?: undefined };
 
 const REQUEST_ID_HEADER = "x-request-id";
 
@@ -449,7 +452,7 @@ export class HttpClient {
   }
 
   /**
-   * Buffer a response body, refusing to grow past {@link MAX_RESPONSE_BYTES}.
+   * Read a response body, refusing to grow past {@link MAX_RESPONSE_BYTES}.
    *
    * `response.text()` reads to completion with no ceiling, so a compressed body
    * could inflate a few hundred kilobytes on the wire into hundreds of
@@ -468,21 +471,21 @@ export class HttpClient {
     let total = 0;
     try {
       for (;;) {
-        const { done, value } = (await reader.read()) as ReadableStreamReadResult<Uint8Array>;
-        if (done) break;
-        total += value.byteLength;
+        const result = (await reader.read()) as ByteStreamReadResult;
+        if (result.done) break;
+        total += result.value.byteLength;
         if (total > MAX_RESPONSE_BYTES) {
           // Stop pulling immediately rather than reading to the end and then
           // rejecting — that is the whole point of the ceiling.
           void reader.cancel().catch(() => undefined);
           throw new AhaSendResponseTooLargeError(MAX_RESPONSE_BYTES, options.method, options.path);
         }
-        chunks.push(value);
+        chunks.push(result.value);
       }
     } finally {
       reader.releaseLock();
     }
-    return new TextDecoder("utf-8").decode(Buffer.concat(chunks));
+    return new TextDecoder("utf-8").decode(concatBytes(chunks));
   }
 
   private async parseResponse<T>(

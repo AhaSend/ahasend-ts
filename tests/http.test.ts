@@ -6,6 +6,7 @@ import type {
   RequestOptions,
   RetryConfig,
 } from "../src/index.js";
+import { concatBytes, encodeUtf8 } from "../src/bytes.js";
 import { MAX_TIMER_DELAY_MS, resolveConfig } from "../src/config.js";
 import {
   AhaSendAbortError,
@@ -1686,14 +1687,28 @@ describe("response body ceiling", () => {
     // yields DECOMPRESSED bytes, a few hundred kilobytes of gzip could inflate
     // to hundreds of megabytes resident — measured at 1028:1 — and the failure
     // surfaced generically enough that the retry policy repeated it.
+    const cancel = vi.fn();
     const client = makeClient(
-      mockFetch(() => new Response(bodyOf(MAX_RESPONSE_BYTES + 1024), { status: 200 })),
+      mockFetch(
+        () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new Uint8Array(MAX_RESPONSE_BYTES));
+                controller.enqueue(new Uint8Array(1));
+              },
+              cancel,
+            }),
+            { status: 200 },
+          ),
+      ),
       { retry: { enabled: false } },
     );
 
     await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
       AhaSendResponseTooLargeError,
     );
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("does not retry a body that exceeded the ceiling", async () => {
@@ -1727,6 +1742,34 @@ describe("response body ceiling", () => {
     );
   });
 
+  it("reassembles exact response bytes from multiple chunks", async () => {
+    const chunks = [
+      encodeUtf8('{"values":['),
+      Uint8Array.from([49, 44]),
+      Uint8Array.from([50, 44, 51]),
+      encodeUtf8("]}"),
+    ];
+    const client = makeClient(
+      mockFetch(
+        () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                for (const chunk of chunks) controller.enqueue(chunk);
+                controller.close();
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+      { retry: { enabled: false } },
+    );
+
+    await expect(client.request({ method: "GET", path: "/x" })).resolves.toEqual({
+      values: [1, 2, 3],
+    });
+  });
+
   it("decodes a multi-byte character split across stream chunks", async () => {
     // Concatenating chunks before decoding is what makes this work; decoding
     // per chunk would corrupt any character straddling a boundary.
@@ -1750,6 +1793,18 @@ describe("response body ceiling", () => {
     await expect(client.request({ method: "GET", path: "/x" })).resolves.toEqual({
       text: "héllo — wörld 💥",
     });
+  });
+});
+
+describe("byte utilities", () => {
+  it("encodes UTF-8 and concatenates views into an exactly sized Uint8Array", () => {
+    const encoded = encodeUtf8("Aé💥");
+    const padded = Uint8Array.from([0, ...encoded, 0]);
+    const bytes = concatBytes([padded.subarray(1, 3), padded.subarray(3, -1)]);
+
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(bytes.byteLength).toBe(7);
+    expect(Array.from(bytes)).toEqual([0x41, 0xc3, 0xa9, 0xf0, 0x9f, 0x92, 0xa5]);
   });
 });
 

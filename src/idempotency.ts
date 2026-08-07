@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { AhaSendConfigurationError } from "./errors.js";
 
 export interface IdempotencyConfig {
@@ -77,7 +76,7 @@ export function resolveIdempotencyConfig(override?: IdempotencyConfig): Resolved
  */
 export function generateIdempotencyKey(prefix?: string): string {
   if (prefix !== undefined) assertValidPrefix(prefix);
-  const uuid = randomUUID();
+  const uuid = globalThis.crypto.randomUUID();
   return prefix && prefix.length > 0 ? `${prefix}${uuid}` : uuid;
 }
 
@@ -130,7 +129,7 @@ export class IdempotencyKeyBuilder {
       this.used = true;
       return this.baseKey;
     }
-    const key = `${this.baseKey}-${randomUUID()}`;
+    const key = `${this.baseKey}-${globalThis.crypto.randomUUID()}`;
     assertValidIdempotencyKey(key, "IdempotencyKeyBuilder.next() result");
     return key;
   }
