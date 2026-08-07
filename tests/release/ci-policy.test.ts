@@ -95,9 +95,12 @@ function actionStep(
 }
 
 function expectBlockingJob(job: unknown, label: string): void {
-  expect(record(job, label)["continue-on-error"], `${label} continue-on-error`).toBeUndefined();
+  const jobRecord = record(job, label);
+  expect(jobRecord["continue-on-error"], `${label} continue-on-error`).toBeUndefined();
+  expect(jobRecord["if"], `${label} condition`).toBeUndefined();
   for (const [index, step] of steps(job, label).entries()) {
     expect(step["continue-on-error"], `${label} step ${index} continue-on-error`).toBeUndefined();
+    expect(step["if"], `${label} step ${index} condition`).toBeUndefined();
   }
 }
 
@@ -139,10 +142,16 @@ function expectMaintainedRuntimeGates(
     { node: 26, experimental: true },
   ]);
   expect(testJob["continue-on-error"]).toBe("${{ matrix.experimental }}");
+  expect(testJob["if"], "Node test job condition").toBeUndefined();
   expect(strategy["fail-fast"]).toBe(false);
-  expect(
-    namedStep(testJob, "Node test job", "Required source gates and packed preflights"),
-  ).toMatchObject({ run: "npm run ci" });
+  const nodeGate = namedStep(
+    testJob,
+    "Node test job",
+    "Required source gates and packed preflights",
+  );
+  expect(nodeGate).toMatchObject({ run: "npm run ci" });
+  expect(nodeGate["if"], "Node required gate condition").toBeUndefined();
+  expect(nodeGate["continue-on-error"], "Node required gate continue-on-error").toBeUndefined();
   expect(scripts["ci"]?.split(" && ")).toContain("npm test");
   expect(scripts["test"]).toBe(
     "npm run test:policy && vitest run --exclude 'tests/test-policy.test.ts'",
@@ -429,6 +438,26 @@ describe("CI policy", () => {
         const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
         const deno = record(jobs["deno"], "Deno job") as Record<string, unknown>;
         deno["continue-on-error"] = true;
+      },
+    ],
+    [
+      "a runtime job muted by a condition",
+      (_scripts: Record<string, string>, ci: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
+        const workerd = record(jobs["workerd"], "workerd job") as Record<string, unknown>;
+        workerd["if"] = "${{ false }}";
+      },
+    ],
+    [
+      "a maintained runtime step muted by a condition",
+      (_scripts: Record<string, string>, ci: unknown) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs");
+        const smoke = namedStep(
+          jobs["deno"],
+          "Deno job",
+          "Run maintained Deno packed smoke",
+        ) as Record<string, unknown>;
+        smoke["if"] = "${{ false }}";
       },
     ],
     [
