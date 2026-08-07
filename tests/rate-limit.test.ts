@@ -110,6 +110,7 @@ describe("RateLimiter", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -149,6 +150,31 @@ describe("RateLimiter", () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(limiter.available("standard")).toBe(1);
+  });
+
+  it("paces a FIFO burst when performance time freezes while wall time advances", async () => {
+    const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
+    const limiter = new RateLimiter(
+      resolveRateLimitConfig({
+        enabled: true,
+        standard: { requestsPerSecond: 1, burst: 1 },
+      }),
+    );
+    const completed: number[] = [];
+
+    const acquisitions = [1, 2, 3].map((id) =>
+      limiter.acquire("GET", "/v2/ping").then(() => completed.push(id)),
+    );
+    await Promise.resolve();
+    expect(completed).toEqual([1]);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(completed).toEqual([1, 2]);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.all(acquisitions);
+    expect(completed).toEqual([1, 2, 3]);
+    performanceNow.mockRestore();
   });
 
   it("removes an aborted acquisition from the queue immediately", async () => {
