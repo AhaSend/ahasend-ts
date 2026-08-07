@@ -1833,8 +1833,8 @@ function verifyExamples(index) {
     throw new TypeError("The Express webhook example must let the adapter own the raw stream.");
   }
   const next = index.examples.find(({ path }) => path === "examples/next-webhook-route.mjs");
-  if (!next?.source.includes('export const runtime = "nodejs"')) {
-    throw new TypeError("The Next.js example must select the Node.js runtime explicitly.");
+  if (!next?.source.includes('export const runtime = "edge"')) {
+    throw new TypeError("The Next.js example must select the Edge runtime explicitly.");
   }
   const nextSourceFile = sourceFileFor("examples/next-webhook-route.mjs", next.source);
   const nextExports = nextSourceFile.statements.flatMap((statement) => {

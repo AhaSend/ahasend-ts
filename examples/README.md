@@ -78,10 +78,14 @@ node examples/send-sandbox.mjs
 | `list-suppressions.mjs`      | Read-only suppression listing                                                                                     |
 | `statistics.mjs`             | Read-only deliverability statistics                                                                               |
 | `webhook-express.mjs`        | Express webhook endpoint with application-owned, durable `webhook-id` deduplication (needs `npm install express`) |
-| `next-webhook-route.mjs`     | Next.js App Router webhook route with a companion factory, explicit Node.js runtime, and durable deduplication    |
+| `next-webhook-route.mjs`     | Next.js App Router webhook route with an Edge-ready companion factory and durable deduplication                   |
 | `verify-webhook.mjs`         | Offline HMAC sign + verify round-trip — runs without any credentials                                              |
 | `update-api-key-ip-list.mjs` | Guarded replacement of an API key IP allow-list                                                                   |
 | `bootstrap-subaccount.mjs`   | Guarded child-account and child-key bootstrap without printing the one-time secret                                |
+
+The Next.js companion factory uses the existing `nextRouteHandler` web-standard `Request` adapter,
+so the same construction is portable across Request/Response runtimes. The route module selects the
+Next.js Edge runtime explicitly; webhook verification does not require the Node.js runtime.
 
 ---
 
