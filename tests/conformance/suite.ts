@@ -103,19 +103,30 @@ async function withGlobals<T>(globals: ConformanceGlobals, run: () => T | Promis
   const descriptors = new Map<string, PropertyDescriptor | undefined>();
   try {
     for (const [name, value] of Object.entries(globals)) {
-      descriptors.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
-      Object.defineProperty(globalThis, name, {
-        configurable: true,
-        enumerable: false,
-        value,
-        writable: true,
-      });
+      const descriptor = Object.getOwnPropertyDescriptor(globalThis, name);
+      descriptors.set(name, descriptor);
+      if (descriptor !== undefined && !descriptor.configurable) {
+        assert(descriptor.writable === true, `${name} global cannot be temporarily replaced`);
+        assert(Reflect.set(globalThis, name, value), `${name} global could not be replaced`);
+      } else {
+        Object.defineProperty(globalThis, name, {
+          configurable: true,
+          enumerable: false,
+          value,
+          writable: true,
+        });
+      }
     }
     return await run();
   } finally {
     for (const [name, descriptor] of descriptors) {
       if (descriptor === undefined) Reflect.deleteProperty(globalThis, name);
-      else Object.defineProperty(globalThis, name, descriptor);
+      else if (!descriptor.configurable) {
+        assert(
+          Reflect.set(globalThis, name, descriptor.value),
+          `${name} global could not be restored`,
+        );
+      } else Object.defineProperty(globalThis, name, descriptor);
     }
   }
 }

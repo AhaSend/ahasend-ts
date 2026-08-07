@@ -11,6 +11,7 @@ import auditCases from "../fixtures/release/audit-cases.json";
 interface PackageManifest {
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly devDependencies: Readonly<Record<string, string>>;
+  readonly engines: Readonly<Record<string, string>>;
   readonly overrides?: Readonly<Record<string, unknown>>;
 }
 
@@ -102,13 +103,29 @@ describe("dependency audit policy", () => {
 
   it("pins the corrected development tools without adding production dependencies", () => {
     expect(packageJson.dependencies ?? {}).toEqual({});
+    expect(packageJson.engines.node).toBe(">=22");
+    expect(packageJson.devDependencies["@edge-runtime/vm"]).toBe("5.0.0");
     expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.0");
     expect(packageJson.devDependencies["@stoplight/prism-cli"]).toBe("5.14.2");
 
     const rootPackage = lockfilePackage("");
     expect(rootPackage.dependencies ?? {}).toEqual({});
+    expect(rootPackage.devDependencies?.["@edge-runtime/vm"]).toBe("5.0.0");
     expect(rootPackage.devDependencies?.["js-yaml"]).toBe("4.3.0");
     expect(rootPackage.devDependencies?.["@stoplight/prism-cli"]).toBe("5.14.2");
+    for (const path of ["node_modules/@edge-runtime/vm", "node_modules/@edge-runtime/primitives"]) {
+      expect(lockfilePackage(path)).toMatchObject({
+        dev: true,
+        engines: { node: ">=18" },
+      });
+    }
+    expect(lockfilePackage("node_modules/@edge-runtime/vm")).toMatchObject({
+      version: "5.0.0",
+      dependencies: { "@edge-runtime/primitives": "6.0.0" },
+    });
+    expect(lockfilePackage("node_modules/@edge-runtime/primitives")).toMatchObject({
+      version: "6.0.0",
+    });
     expect(lockfilePackage("node_modules/js-yaml")).toMatchObject({
       version: "4.3.0",
       dev: true,
