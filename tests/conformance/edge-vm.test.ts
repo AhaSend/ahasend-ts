@@ -5,25 +5,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { EdgeVM } from "@edge-runtime/vm";
 import { describe, expect, it } from "vitest";
+import { withDeadline } from "../helpers/local-process.js";
 import { CONFORMANCE_CASES } from "./suite.js";
 
 const COMPLETION_TIMEOUT_MS = 15_000;
-
-async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`Edge VM conformance exceeded ${String(timeoutMs)}ms`)),
-      timeoutMs,
-    );
-  });
-
-  try {
-    return await Promise.race([operation, timeout]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
 
 describe("Edge VM web-globals conformance", () => {
   it(
@@ -89,7 +74,11 @@ describe("Edge VM web-globals conformance", () => {
           "globalThis.__AHASEND_EDGE_CONFORMANCE__.run()",
         );
         const outcomes = JSON.parse(
-          await withTimeout(serializedOutcomes, COMPLETION_TIMEOUT_MS),
+          await withDeadline(
+            () => serializedOutcomes,
+            COMPLETION_TIMEOUT_MS,
+            () => new Error(`Edge VM conformance exceeded ${String(COMPLETION_TIMEOUT_MS)}ms`),
+          ),
         ) as unknown;
         expect(outcomes).toEqual(expectedNames.map((name) => ({ name, status: "passed" })));
       } finally {
