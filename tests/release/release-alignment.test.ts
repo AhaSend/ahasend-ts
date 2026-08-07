@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 interface PackageManifest {
   readonly name: string;
   readonly version: string;
+  readonly description: string;
+  readonly engines: Readonly<Record<string, string>>;
+  readonly dependencies?: Readonly<Record<string, string>>;
   readonly scripts: Readonly<Record<string, string>>;
 }
 
@@ -26,16 +29,55 @@ const changelog = readFileSync(resolve(root, "CHANGELOG.md"), "utf8");
 const rootApiReport = readFileSync(resolve(root, "etc/ahasend-sdk.api.md"), "utf8");
 const webhookApiReport = readFileSync(resolve(root, "etc/ahasend-sdk-webhooks.api.md"), "utf8");
 
-describe("v0.1.0 release source alignment", () => {
+const releaseSection = changelog.slice(
+  changelog.indexOf("## [0.2.0]"),
+  changelog.indexOf("## [0.1.0]"),
+);
+const beforeMigration = /Before:\s+```ts\n([\s\S]*?)\n```/u.exec(releaseSection)?.[1] ?? "";
+const afterMigration = /After:\s+```ts\n([\s\S]*?)\n```/u.exec(releaseSection)?.[1] ?? "";
+
+describe("v0.2.0 release source alignment", () => {
   it("pins the package, lockfile, runtime, changelog, and root declaration report", () => {
     expect(packageManifest.name).toBe("@ahasend/sdk");
-    expect(packageManifest.version).toBe("0.1.0");
-    expect(packageLock.version).toBe("0.1.0");
-    expect(packageLock.packages[""]?.version).toBe("0.1.0");
-    expect(versionSource).toContain('export const SDK_VERSION = "0.1.0";');
-    expect(changelog).toContain("## [0.1.0] — 2026-07-25");
-    expect(changelog).not.toContain("## [0.1.0] — Unreleased");
-    expect(rootApiReport).toContain('export const SDK_VERSION = "0.1.0";');
+    expect(packageManifest.version).toBe("0.2.0");
+    expect(packageLock.version).toBe("0.2.0");
+    expect(packageLock.packages[""]?.version).toBe("0.2.0");
+    expect(versionSource).toContain('export const SDK_VERSION = "0.2.0";');
+    expect(changelog).toContain("## [0.2.0] — 2026-08-07");
+    expect(changelog).not.toContain("## [0.2.0] — Unreleased");
+    expect(rootApiReport).toContain('export const SDK_VERSION = "0.2.0";');
+  });
+
+  it("documents the executable direct-verifier migration and supported runtimes", () => {
+    expect(releaseSection).toContain("### BREAKING");
+    expect(beforeMigration.split("\n")).toEqual([
+      "verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+      "const event = verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ]);
+    expect(afterMigration.split("\n")).toEqual([
+      "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+      "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ]);
+    for (const runtime of [
+      "Node.js 22 and 24",
+      "Deno latest 2.x",
+      "Bun latest",
+      "Cloudflare workerd without `nodejs_compat`",
+      "Vercel Edge through `@edge-runtime/vm`",
+    ]) {
+      expect(releaseSection).toContain(runtime);
+    }
+    expect(releaseSection).toContain("Existing Express, Fastify, and `nextRouteHandler`");
+    expect(releaseSection).not.toMatch(/new .*adapter|adapter export|body limit|body-limit/iu);
+  });
+
+  it("uses runtime-neutral package wording without changing the Node engine or dependency policy", () => {
+    expect(packageManifest.description).toBe(
+      "Official TypeScript SDK for the AhaSend transactional email API.",
+    );
+    expect(packageManifest.description).not.toMatch(/Node(?:\.js)?[- ]only/iu);
+    expect(packageManifest.engines.node).toBe(">=22");
+    expect(packageManifest.dependencies ?? {}).toEqual({});
   });
 
   it("retains the reviewed cursor-exclusive pagination declarations", () => {
@@ -56,6 +98,12 @@ describe("v0.1.0 release source alignment", () => {
     expect(rootApiReport).not.toContain("export class WebhookVerifier");
     expect(webhookApiReport).toContain('## API Report File for "@ahasend/sdk"');
     expect(webhookApiReport).toContain("export class WebhookVerifier");
+    expect(webhookApiReport).toContain(
+      "parse(headers: WebhookHeadersInput, rawBody: WebhookRawBody): Promise<AnyWebhookEvent>;",
+    );
+    expect(webhookApiReport).toContain(
+      "verify(headers: WebhookHeadersInput, rawBody: WebhookRawBody): Promise<void>;",
+    );
     expect(webhookApiReport).toContain("export function expressWebhookHandler");
     expect(webhookApiReport).not.toContain("export class AhaSendClient");
   });

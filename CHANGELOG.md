@@ -4,6 +4,36 @@ All notable changes to this package are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-08-07
+
+### BREAKING
+
+- Direct `WebhookVerifier.verify()` and `WebhookVerifier.parse()` calls are now asynchronous because
+  webhook signing uses native Web Crypto. Await either method before treating the request body as
+  trusted. Existing Express, Fastify, and `nextRouteHandler` adapter callers need no migration
+  because those adapters await verification internally.
+
+Before:
+
+```ts
+verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);
+const event = verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);
+```
+
+After:
+
+```ts
+await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);
+const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);
+```
+
+### Changed
+
+- The maintained server-runtime inventory is Node.js 22 and 24, Deno latest 2.x, Bun latest,
+  Cloudflare workerd without `nodejs_compat`, and Vercel Edge through `@edge-runtime/vm`. Browser
+  and browser Service Worker use remains refused by default; `dangerouslyAllowBrowser: true`
+  remains the explicit escape hatch for browser-shaped server test environments.
+
 ## [0.1.0] — 2026-07-25
 
 Initial release.

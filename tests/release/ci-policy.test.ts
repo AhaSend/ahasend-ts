@@ -17,6 +17,7 @@ const releaseWorkflow = yaml.load(
   readFileSync(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8"),
   { schema: yaml.JSON_SCHEMA },
 ) as unknown;
+const readmeSource = readFileSync(resolve(repositoryRoot, "README.md"), "utf8");
 const packagePreflightSource = readFileSync(
   resolve(repositoryRoot, "scripts/create-preflight-pack.mjs"),
   "utf8",
@@ -29,11 +30,23 @@ const ordinaryVitestConfigSource = readFileSync(
   resolve(repositoryRoot, "vitest.config.ts"),
   "utf8",
 );
+const edgeVmConformanceSource = readFileSync(
+  resolve(repositoryRoot, "tests/conformance/edge-vm.test.ts"),
+  "utf8",
+);
 
 const CHECKOUT_ACTION = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE_ACTION = "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38";
 const SETUP_DENO_ACTION = "denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282";
 const SETUP_BUN_ACTION = "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6";
+const MAINTAINED_RUNTIME_INVENTORY = [
+  "Node.js 22 and 24.",
+  "Deno latest 2.x.",
+  "Bun latest.",
+  "Cloudflare workerd without `nodejs_compat`.",
+  "Vercel Edge through `@edge-runtime/vm`.",
+] as const;
+const EDGE_VM_CONFORMANCE_TEST = "tests/conformance/edge-vm.test.ts";
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -127,9 +140,21 @@ function expectCandidateTarball(job: unknown, label: string): void {
   expect(command).toContain('echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"');
 }
 
+function readmeRuntimeInventory(source: string): readonly string[] {
+  const section = /^## Supported runtimes\s*$([\s\S]*?)(?=^##\s)/mu.exec(source);
+  if (section?.[1] === undefined) {
+    throw new TypeError("README.md is missing its bounded Supported runtimes section.");
+  }
+
+  return Array.from(section[1].matchAll(/^- (.+)$/gmu), (match) => match[1]).filter(
+    (entry): entry is string => entry !== undefined,
+  );
+}
+
 function expectMaintainedRuntimeGates(
   scripts: Readonly<Record<string, string>>,
   candidateWorkflow: unknown,
+  vitestConfigSource = ordinaryVitestConfigSource,
 ): void {
   const jobs = record(record(candidateWorkflow, "CI workflow")["jobs"], "CI jobs");
   const testJob = record(jobs["test"], "Node test job");
@@ -156,7 +181,7 @@ function expectMaintainedRuntimeGates(
   expect(scripts["test"]).toBe(
     "npm run test:policy && vitest run --exclude 'tests/test-policy.test.ts'",
   );
-  expect(ordinaryVitestConfigSource).toContain(
+  expect(vitestConfigSource).toContain(
     'exclude: ["tests/integration/**", "tests/conformance/workerd.test.ts"]',
   );
 
@@ -230,6 +255,44 @@ function expectMaintainedRuntimeGates(
     expect(smoke["continue-on-error"]).toBeUndefined();
     expect(String(smoke["run"])).not.toMatch(/(?:^|\s)(?:src|tests)\//u);
   }
+}
+
+function expectReadmeRuntimeSupportPolicy(
+  readme: string,
+  scripts: Readonly<Record<string, string>>,
+  candidateWorkflow: unknown,
+  vitestConfigSource = ordinaryVitestConfigSource,
+  edgeConformanceSource = edgeVmConformanceSource,
+): void {
+  expect(readmeRuntimeInventory(readme)).toEqual(MAINTAINED_RUNTIME_INVENTORY);
+  expectMaintainedRuntimeGates(scripts, candidateWorkflow, vitestConfigSource);
+
+  const jobs = record(record(candidateWorkflow, "CI workflow")["jobs"], "CI jobs");
+  const dedicatedEdgeJobs = Object.entries(jobs)
+    .filter(([jobId]) => jobId !== "test")
+    .filter(([, job]) => {
+      const candidateSteps = record(job, "CI job")["steps"];
+      return (
+        Array.isArray(candidateSteps) &&
+        candidateSteps.some((step, index) =>
+          String(record(step, `CI job step ${String(index)}`)["run"] ?? "").includes(
+            EDGE_VM_CONFORMANCE_TEST,
+          ),
+        )
+      );
+    })
+    .map(([jobId]) => jobId);
+  expect(
+    dedicatedEdgeJobs,
+    "Edge VM must execute inside the Node matrix, not as a fifth runtime family",
+  ).toEqual([]);
+
+  expect(vitestConfigSource).toContain('include: ["tests/**/*.test.ts"]');
+  expect(vitestConfigSource).not.toMatch(
+    /exclude:\s*\[[\s\S]*?tests\/conformance\/edge-vm\.test\.ts[\s\S]*?\]/u,
+  );
+  expect(edgeConformanceSource).toContain('import { EdgeVM } from "@edge-runtime/vm";');
+  expect(edgeConformanceSource).toContain("new EdgeVM({ initialCode: bundle })");
 }
 
 function expectDocumentationCallerPolicy(
@@ -419,6 +482,107 @@ describe("CI policy", () => {
 
   it("keeps every maintained runtime gate blocking and attached to its package script", () => {
     expectMaintainedRuntimeGates(packageJson.scripts, workflow);
+  });
+
+  it("keeps the bounded README support inventory aligned with blocking CI evidence", () => {
+    expectReadmeRuntimeSupportPolicy(readmeSource, packageJson.scripts, workflow);
+  });
+
+  it("allows unrelated blocking CI jobs outside the maintained runtime topology", () => {
+    const ciFixture = structuredClone(workflow);
+    const jobs = record(record(ciFixture, "CI workflow")["jobs"], "CI jobs") as Record<
+      string,
+      unknown
+    >;
+    jobs["security"] = {
+      name: "Dependency security policy",
+      steps: [{ run: "npm run verify:audit" }],
+    };
+
+    expectReadmeRuntimeSupportPolicy(readmeSource, packageJson.scripts, ciFixture);
+  });
+
+  it.each([
+    [
+      "a documented runtime without blocking evidence",
+      (readme: string, _ci: unknown, _vitestConfig: string, _edgeConformance: string) =>
+        readme.replace(
+          "- Vercel Edge through `@edge-runtime/vm`.",
+          "- Vercel Edge through `@edge-runtime/vm`.\n- QuickJS latest.",
+        ),
+    ],
+    [
+      "an omitted maintained runtime",
+      (readme: string, _ci: unknown, _vitestConfig: string, _edgeConformance: string) =>
+        readme.replace("- Bun latest.\n", ""),
+    ],
+    [
+      "Edge VM excluded from the Node Vitest run",
+      (readme: string, _ci: unknown, vitestConfig: string, _edgeConformance: string) => [
+        readme,
+        vitestConfig.replace(
+          '"tests/conformance/workerd.test.ts"',
+          '"tests/conformance/workerd.test.ts", "tests/conformance/edge-vm.test.ts"',
+        ),
+      ],
+    ],
+    [
+      "an Edge VM gate moved to a separate CI job",
+      (readme: string, ci: unknown, vitestConfig: string, _edgeConformance: string) => {
+        const jobs = record(record(ci, "CI workflow")["jobs"], "CI jobs") as Record<
+          string,
+          unknown
+        >;
+        jobs["vercel"] = {
+          name: "Vercel Edge VM conformance",
+          steps: [{ run: `npx vitest run ${EDGE_VM_CONFORMANCE_TEST}` }],
+        };
+        return [
+          readme,
+          vitestConfig.replace(
+            '"tests/conformance/workerd.test.ts"',
+            `"tests/conformance/workerd.test.ts", "${EDGE_VM_CONFORMANCE_TEST}"`,
+          ),
+        ];
+      },
+    ],
+    [
+      "an Edge VM test without Edge VM execution",
+      (readme: string, _ci: unknown, vitestConfig: string, edgeConformance: string) => [
+        readme,
+        vitestConfig,
+        edgeConformance.replace(
+          "new EdgeVM({ initialCode: bundle })",
+          "new FakeVm({ initialCode: bundle })",
+        ),
+      ],
+    ],
+  ])("rejects %s", (_label, mutate) => {
+    const ciFixture = structuredClone(workflow);
+    const mutation = mutate(
+      readmeSource,
+      ciFixture,
+      ordinaryVitestConfigSource,
+      edgeVmConformanceSource,
+    );
+    const [readmeFixture, vitestConfigFixture, edgeConformanceFixture] =
+      typeof mutation === "string"
+        ? [mutation, ordinaryVitestConfigSource, edgeVmConformanceSource]
+        : [
+            mutation[0] ?? readmeSource,
+            mutation[1] ?? ordinaryVitestConfigSource,
+            mutation[2] ?? edgeVmConformanceSource,
+          ];
+
+    expect(() =>
+      expectReadmeRuntimeSupportPolicy(
+        readmeFixture,
+        packageJson.scripts,
+        ciFixture,
+        vitestConfigFixture,
+        edgeConformanceFixture,
+      ),
+    ).toThrow();
   });
 
   it.each([
