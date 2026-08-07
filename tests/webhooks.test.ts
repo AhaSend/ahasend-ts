@@ -731,6 +731,30 @@ describe("WebhookVerifier", () => {
     }
   });
 
+  it("parses the same byte snapshot that it verifies", async () => {
+    const signedPayload = {
+      ...validDelivery,
+      data: { ...validDelivery.data, subject: "Signed" },
+    };
+    const forgedPayload = {
+      ...signedPayload,
+      data: { ...signedPayload.data, subject: "Forged" },
+    };
+    const { headers, body } = buildEnvelope(SECRET, signedPayload);
+    const forgedBody = Buffer.from(JSON.stringify(forgedPayload), "utf8");
+    const bytes = Uint8Array.from(Buffer.from(body, "utf8"));
+    expect(forgedBody.byteLength).toBe(bytes.byteLength);
+
+    const verifier = new WebhookVerifier(SECRET);
+    await verifier.verify(headers, bytes);
+
+    const pending = verifier.parse(headers, bytes);
+    queueMicrotask(() => bytes.set(forgedBody));
+
+    await expect(pending).resolves.toEqual(signedPayload);
+    expect(bytes).toEqual(Uint8Array.from(forgedBody));
+  });
+
   it("parses signed configured-webhook bodies with absent or present webhook IDs", async () => {
     const verifier = new WebhookVerifier(SECRET);
 

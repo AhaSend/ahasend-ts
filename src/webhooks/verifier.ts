@@ -138,8 +138,12 @@ export class WebhookVerifier {
    * ```
    */
   async parse(headers: WebhookHeadersInput, rawBody: WebhookRawBody): Promise<AnyWebhookEvent> {
-    await this.verify(headers, rawBody);
-    const text = typeof rawBody === "string" ? rawBody : utf8Decoder.decode(rawBody);
+    assertBodySize(rawBody);
+    // WebCrypto is asynchronous, so keep one private snapshot for both HMAC
+    // verification and parsing instead of rereading caller-owned mutable bytes.
+    const verifiedBody = typeof rawBody === "string" ? rawBody : new Uint8Array(rawBody);
+    await this.verify(headers, verifiedBody);
+    const text = typeof verifiedBody === "string" ? verifiedBody : utf8Decoder.decode(verifiedBody);
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
