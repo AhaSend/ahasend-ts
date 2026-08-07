@@ -400,17 +400,26 @@ const REQUIREMENTS = Object.freeze([
   },
 ]);
 
+const NODE_ONLY_SUPPORT_PATTERN =
+  /(?:server-side\s+SDK\s+for\s+Node\.js|only\s+supports\s+Node\.js|SDK\s+requires\s+Node\.js|SDK\s+supports\s+Node\.js\s+only|Node\.js(?:\s*-\s*|\s+)only\s+SDK)/iu;
+const EDGE_UNSUPPORTED_PATTERN =
+  /(?:edge\s+runtimes?[^.]*\b(?:not\s+supported|unsupported)\b|(?:does\s+not|doesn['’]t)\s+support[^.]*\bedge\s+runtimes?\b)/iu;
+
 const PROHIBITED_PATTERNS = Object.freeze([
   {
     label: "an obsolete Node-only support claim",
     path: "README.md",
-    pattern:
-      /(?:server-side\s+SDK\s+for\s+Node\.js|only\s+supports\s+Node\.js|SDK\s+requires\s+Node\.js)/iu,
+    pattern: NODE_ONLY_SUPPORT_PATTERN,
+  },
+  {
+    label: "an obsolete Node-only support claim",
+    path: "docs/security-and-webhooks.md",
+    pattern: NODE_ONLY_SUPPORT_PATTERN,
   },
   {
     label: "an obsolete edge-unsupported claim",
     path: "README.md",
-    pattern: /edge\s+runtimes?[^.]*not\s+supported/iu,
+    pattern: EDGE_UNSUPPORTED_PATTERN,
   },
   {
     label: "an obsolete alternative-runtime unsupported claim",
@@ -420,7 +429,7 @@ const PROHIBITED_PATTERNS = Object.freeze([
   {
     label: "an obsolete edge-unsupported claim",
     path: "docs/security-and-webhooks.md",
-    pattern: /edge\s+runtimes?[^.]*not\s+supported/iu,
+    pattern: EDGE_UNSUPPORTED_PATTERN,
   },
   {
     label: "an Express parser mounted before the webhook adapter",

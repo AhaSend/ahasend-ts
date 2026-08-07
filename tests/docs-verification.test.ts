@@ -1030,7 +1030,20 @@ logger.error(output);`,
   it.each([
     ["Node-only", "README.md", "This is a server-side SDK for Node.js."],
     ["Node runtime requirement", "README.md", "The SDK requires Node.js 22 or later."],
+    ["Node-only inverse", "README.md", "This SDK supports Node.js only."],
+    ["Node-only adjective", "README.md", "This is a Node.js-only SDK."],
+    [
+      "Node-only security guide",
+      "docs/security-and-webhooks.md",
+      "This SDK supports Node.js only.",
+    ],
     ["edge-unsupported", "README.md", "Cloudflare and Vercel Edge runtimes are not supported."],
+    ["edge-unsupported inverse", "README.md", "This SDK does not support edge runtimes."],
+    [
+      "edge-unsupported inverse security guide",
+      "docs/security-and-webhooks.md",
+      "This SDK does not support edge runtimes.",
+    ],
     [
       "alternative-runtime unsupported",
       "README.md",
@@ -1045,6 +1058,12 @@ logger.error(output);`,
 
   it.each([
     ["Node-only README", "README.md", "This is a server-side SDK for\nNode.js."],
+    ["Node-only inverse README", "README.md", "This SDK supports Node.js\nonly."],
+    [
+      "Node-only inverse security guide",
+      "docs/security-and-webhooks.md",
+      "This SDK supports Node.js\nonly.",
+    ],
     [
       "edge-unsupported README",
       "README.md",
@@ -1059,6 +1078,12 @@ logger.error(output);`,
       "edge-unsupported security guide",
       "docs/security-and-webhooks.md",
       "Cloudflare and Vercel Edge runtimes are\nnot supported.",
+    ],
+    ["edge-unsupported inverse README", "README.md", "This SDK does not support\nedge runtimes."],
+    [
+      "edge-unsupported inverse security guide",
+      "docs/security-and-webhooks.md",
+      "This SDK does not support\nedge runtimes.",
     ],
   ])(
     "fails if a line-wrapped obsolete %s claim is introduced",
