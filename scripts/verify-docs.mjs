@@ -1833,10 +1833,24 @@ function verifyExamples(index) {
     throw new TypeError("The Express webhook example must let the adapter own the raw stream.");
   }
   const next = index.examples.find(({ path }) => path === "examples/next-webhook-route.mjs");
-  if (!next?.source.includes('export const runtime = "nodejs"')) {
-    throw new TypeError("The Next.js example must select the Node.js runtime explicitly.");
+  const nextSourceFile = sourceFileFor("examples/next-webhook-route.mjs", next?.source ?? "");
+  const hasEdgeRuntimeExport = nextSourceFile.statements.some(
+    (statement) =>
+      ts.isVariableStatement(statement) &&
+      statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) &&
+      (statement.declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+      statement.declarationList.declarations.some(
+        (declaration) =>
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === "runtime" &&
+          declaration.initializer !== undefined &&
+          ts.isStringLiteral(declaration.initializer) &&
+          declaration.initializer.text === "edge",
+      ),
+  );
+  if (!hasEdgeRuntimeExport) {
+    throw new TypeError("The Next.js example must select the Edge runtime explicitly.");
   }
-  const nextSourceFile = sourceFileFor("examples/next-webhook-route.mjs", next.source);
   const nextExports = nextSourceFile.statements.flatMap((statement) => {
     if (ts.isExportDeclaration(statement)) {
       return statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)

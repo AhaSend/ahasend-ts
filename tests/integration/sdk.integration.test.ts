@@ -141,7 +141,7 @@ interface PackedExpressExample {
 
 interface PackedNextRouteModule {
   readonly POST: (request: Request) => Promise<Response>;
-  readonly runtime: "nodejs";
+  readonly runtime: "edge";
 }
 
 interface PackedNextRouteFactory {
@@ -783,7 +783,7 @@ describe("packed Next webhook example", () => {
         )) as PackedNextRouteFactory;
         expect(Object.keys(routeModule).sort()).toEqual(["POST", "runtime"]);
         expect(routeModule.POST).toBeTypeOf("function");
-        expect(routeModule.runtime).toBe("nodejs");
+        expect(routeModule.runtime).toBe("edge");
         const route = routeFactory.createWebhookRoute({
           secret,
           enqueueOnce: createInMemoryEnqueueOnce(),

@@ -556,6 +556,37 @@ describe("operational documentation verification", () => {
     );
   });
 
+  it.each([
+    ["removed", 'export const runtime = "edge"', ""],
+    [
+      "replaced with the obsolete Node runtime",
+      'export const runtime = "edge"',
+      'export const runtime = "nodejs"',
+    ],
+    [
+      "replaced with the obsolete Node runtime while the Edge declaration remains in a comment",
+      'export const runtime = "edge"',
+      '// export const runtime = "edge"\nexport const runtime = "nodejs"',
+    ],
+  ])(
+    "rejects the Next Edge runtime selection when it is %s",
+    async (_label, current, replacement) => {
+      const index = await buildDocumentationIndex();
+      const mutatedRuntime = {
+        ...structuredClone(index),
+        examples: index.examples.map((example) =>
+          example.path === "examples/next-webhook-route.mjs"
+            ? { ...example, source: example.source.replace(current, replacement) }
+            : example,
+        ),
+      };
+
+      await expect(verifyDocumentationIndex(mutatedRuntime)).rejects.toThrow(
+        /must select the Edge runtime explicitly/,
+      );
+    },
+  );
+
   it("rejects sensitive values in multiline console output", async () => {
     const index = await buildDocumentationIndex();
     const unsafeOutput = {
