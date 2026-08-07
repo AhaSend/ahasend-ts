@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   allocateLoopbackPort,
@@ -88,6 +90,7 @@ describe("no-compat workerd conformance", () => {
 
     const port = await allocateLoopbackPort();
     const origin = `http://127.0.0.1:${String(port)}`;
+    const runtimeDirectory = await mkdtemp(join(tmpdir(), "ahasend-workerd-conformance-"));
     let workerd: CapturedLocalProcess | undefined;
 
     try {
@@ -103,10 +106,12 @@ describe("no-compat workerd conformance", () => {
           "--port",
           String(port),
           "--local",
+          "--persist-to",
+          runtimeDirectory,
           "--show-interactive-dev-session=false",
         ],
         {
-          cwd: process.cwd(),
+          cwd: runtimeDirectory,
           env: {
             ...process.env,
             NO_COLOR: "1",
@@ -162,7 +167,11 @@ describe("no-compat workerd conformance", () => {
       expect(outcomes).toEqual(expectedNames.map((name) => ({ name, status: "passed" })));
       assertNoCompatibilityDateFallback(workerd);
     } finally {
-      await stopProcess(workerd);
+      try {
+        await stopProcess(workerd);
+      } finally {
+        await rm(runtimeDirectory, { recursive: true, force: true });
+      }
     }
   });
 });
