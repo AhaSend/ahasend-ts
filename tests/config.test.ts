@@ -8,6 +8,7 @@ import {
   optionsFromEnv,
   resolveConfig,
 } from "../src/config.js";
+import { AhaSendConfigurationError } from "../src/errors.js";
 import { DEFAULT_MAX_QUEUE, MIN_REQUESTS_PER_SECOND } from "../src/rate-limit.js";
 import { MAX_RETRIES } from "../src/retry.js";
 
@@ -610,6 +611,45 @@ describe("resolveConfig", () => {
 
 describe("optionsFromEnv", () => {
   it.each([
+    ["optionsFromEnv", () => optionsFromEnv()],
+    ["AhaSendClient.fromEnv", () => AhaSendClient.fromEnv()],
+  ])("%s reports the missing API key when process is absent", (_name, readEnvironment) => {
+    const processDescriptor = Object.getOwnPropertyDescriptor(globalThis, "process");
+    expect(processDescriptor).toBeDefined();
+    Reflect.deleteProperty(globalThis, "process");
+
+    try {
+      expect(readEnvironment).toThrow(AhaSendConfigurationError);
+      expect(readEnvironment).toThrow(/missing API key.*AHASEND_API_KEY/i);
+    } finally {
+      Object.defineProperty(globalThis, "process", processDescriptor!);
+    }
+  });
+
+  it.each([
+    [
+      "API key",
+      {
+        AHASEND_API_KEY: "aha-sk-workers",
+        AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
+      },
+    ],
+    [
+      "fallback token and optional settings",
+      {
+        AHASEND_TOKEN: "aha-token-workers",
+        AHASEND_ACCOUNT_ID: "33333333-3333-4333-8333-333333333333",
+        AHASEND_TIMEOUT: "10",
+        AHASEND_DEBUG: "false",
+      },
+    ],
+  ] as const)("AhaSendClient.fromEnv accepts a Workers-style %s record", (_name, env) => {
+    const workersEnv: Readonly<Record<string, string>> = env;
+
+    expect(AhaSendClient.fromEnv(workersEnv).accountId).toBe(env.AHASEND_ACCOUNT_ID);
+  });
+
+  it.each([
     ["reads AHASEND_API_KEY", { AHASEND_API_KEY: "aha-sk-env" }, "aha-sk-env"],
     ["falls back to AHASEND_TOKEN", { AHASEND_TOKEN: "aha-sk-token" }, "aha-sk-token"],
     [
@@ -626,10 +666,15 @@ describe("optionsFromEnv", () => {
     expect(optionsFromEnv(env).apiKey).toBe(expected);
   });
 
-  it("throws when neither AHASEND_API_KEY nor AHASEND_TOKEN has a credential", () => {
-    expect(() => optionsFromEnv({ AHASEND_API_KEY: "", AHASEND_TOKEN: "" })).toThrow(
-      /AHASEND_API_KEY/,
-    );
+  it.each([
+    ["optionsFromEnv", () => optionsFromEnv({ AHASEND_API_KEY: "", AHASEND_TOKEN: "" })],
+    [
+      "AhaSendClient.fromEnv",
+      () => AhaSendClient.fromEnv({ AHASEND_API_KEY: "", AHASEND_TOKEN: "" }),
+    ],
+  ])("%s reports the normal missing-credential error", (_name, readEnvironment) => {
+    expect(readEnvironment).toThrow(AhaSendConfigurationError);
+    expect(readEnvironment).toThrow(/AHASEND_API_KEY/);
   });
 
   it.each([

@@ -1,5 +1,5 @@
 import type { ClientOptions, ProcessEnvLike } from "./config.js";
-import { assertPlainRecord, optionsFromEnv, resolveConfig } from "./config.js";
+import { assertPlainRecord, defaultProcessEnv, optionsFromEnv, resolveConfig } from "./config.js";
 import { AhaSendConfigurationError } from "./errors.js";
 import { HttpClient } from "./http.js";
 import { createRateLimiterController } from "./rate-limit.js";
@@ -202,7 +202,7 @@ export class AhaSendClient {
    * `AHASEND_ACCOUNT_ID`; honours every other documented variable
    * (base URL, timeout, retries, rate limit, idempotency, debug).
    */
-  static fromEnv(env: ProcessEnvLike = process.env): AhaSendClient {
+  static fromEnv(env: ProcessEnvLike = defaultProcessEnv()): AhaSendClient {
     const base = optionsFromEnv(env);
     const accountId = env.AHASEND_ACCOUNT_ID;
     if (!accountId) {
