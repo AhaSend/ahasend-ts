@@ -12,6 +12,7 @@
 import type * as SDK from "@ahasend/sdk";
 import { AhaSendClient, optionsFromEnv } from "@ahasend/sdk";
 import type {
+  AnyWebhookEvent,
   ExpressHandler,
   FastifyHandler,
   NextHandler,
@@ -36,8 +37,9 @@ void [envOptions, envClient, AhaSendClient.fromEnv];
 const byteBody: WebhookRawBody = new Uint8Array([123, 125]);
 const textBody: WebhookRawBody = "{}";
 declare const verifier: WebhookVerifier;
-verifier.verify({ "webhook-id": "id" }, byteBody);
-void verifier.parse(new Headers(), textBody);
+const verification: Promise<void> = verifier.verify({ "webhook-id": "id" }, byteBody);
+const parsed: Promise<AnyWebhookEvent> = verifier.parse(new Headers(), textBody);
+void [verification, parsed];
 void new WebhookVerifier("whsec_dGVzdA==");
 
 const nodeRequest: NodeStyleRequest = { headers: {}, rawBody: new Uint8Array([123, 125]) };

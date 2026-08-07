@@ -46,7 +46,7 @@ const headers = {
 };
 
 try {
-  const event = verifier.parse(headers, body);
+  const event = await verifier.parse(headers, body);
   if (event.type !== "message.delivered") throw new Error("Unexpected webhook event type.");
   console.log("✓ verified webhook signature");
 } catch {
@@ -56,7 +56,7 @@ try {
 
 // Demonstrate that tampering is detected
 try {
-  verifier.parse(headers, body.replace("Hello", "Tampered"));
+  await verifier.parse(headers, body.replace("Hello", "Tampered"));
   console.error("✗ verifier accepted a tampered body — this should not happen");
   process.exit(1);
 } catch (err) {

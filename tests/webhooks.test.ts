@@ -2,7 +2,7 @@ import { createHash, createHmac } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { digestJsonArtifact, digestYamlArtifact, sha256Hex } from "../scripts/digest-artifact.mjs";
 import { parseWebhookContract } from "../scripts/generate-contracts.mjs";
 import { generateSdkArtifacts } from "../scripts/generate-sdk.mjs";
@@ -114,7 +114,7 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 describe("generated webhook schema", () => {
-  it("binds generated artifacts to the pinned webhook contract digest", () => {
+  it("binds generated artifacts to the pinned webhook contract digest", async () => {
     const lock = JSON.parse(readFileSync(resolve(ROOT, "contracts.lock.json"), "utf8")) as {
       artifactHashes: Record<string, string>;
     };
@@ -154,7 +154,7 @@ describe("generated webhook schema", () => {
     },
   );
 
-  it("models canonical routing, deprecated input compatibility, and optional is_bot", () => {
+  it("models canonical routing, deprecated input compatibility, and optional is_bot", async () => {
     expect(CANONICAL_WEBHOOK_EVENT_TYPES).toContain("message.routing");
     expect(CANONICAL_WEBHOOK_EVENT_TYPES).not.toContain("route.message");
     expect(DEPRECATED_WEBHOOK_EVENT_TYPES).toEqual(["route.message"]);
@@ -179,7 +179,7 @@ describe("generated webhook schema", () => {
     }>().toExtend<WebhookComponents["schemas"]["RouteWebhookPayload"]>();
   });
 
-  it("covers every declared webhook schema and canonical event example", () => {
+  it("covers every declared webhook schema and canonical event example", async () => {
     const document = parseWebhookContract(WEBHOOK_SOURCE);
     const schemas = record(record(document["components"])["schemas"]);
     const webhooks = record(document["webhooks"]);
@@ -198,7 +198,7 @@ describe("generated webhook schema", () => {
     }
   });
 
-  it("validates complete known envelopes and nested payload fields", () => {
+  it("validates complete known envelopes and nested payload fields", async () => {
     const clicked = {
       type: "message.clicked",
       webhook_id: BODY_WEBHOOK_ID,
@@ -233,7 +233,7 @@ describe("generated webhook schema", () => {
     expect(validateKnownWebhookEvent(withoutUrl)).toBe(false);
   });
 
-  it("requires webhook_id on every configured-webhook envelope", () => {
+  it("requires webhook_id on every configured-webhook envelope", async () => {
     // All six producers declare `WebhookID uuid.UUID` with no omitempty, so
     // the key is always on the wire. It was optional only because the fixture
     // it was aligned against omitted it, and that fixture was generated rather
@@ -249,7 +249,7 @@ describe("generated webhook schema", () => {
     }
   });
 
-  it("validates RFC 3339 date-times and the complete UUID format", () => {
+  it("validates RFC 3339 date-times and the complete UUID format", async () => {
     const clicked = {
       type: "message.clicked",
       webhook_id: BODY_WEBHOOK_ID,
@@ -306,7 +306,7 @@ describe("generated webhook schema", () => {
     ).toBe(false);
   });
 
-  it("does not reject address fields on their shape", () => {
+  it("does not reject address fields on their shape", async () => {
     // Previously these fields were validated as strict RFC 5321 mailboxes.
     // That rejected shapes AhaSend actually sends (campaign display-name
     // mailboxes) and shapes arbitrary inbound senders use (SMTPUTF8), and a
@@ -359,7 +359,7 @@ describe("generated webhook schema", () => {
     }
   });
 
-  it("accepts canonical and deprecated routing inputs against the same full schema", () => {
+  it("accepts canonical and deprecated routing inputs against the same full schema", async () => {
     const routing = {
       type: "message.routing",
       route_id: "abe11757-2886-4b55-96f1-0e0afc95795a",
@@ -418,7 +418,7 @@ describe("generated webhook schema", () => {
     ).toBe(false);
   });
 
-  it("validates future event types only against the schema-defined common envelope", () => {
+  it("validates future event types only against the schema-defined common envelope", async () => {
     const future = {
       type: "message.future_event",
       timestamp: "2026-07-22T12:00:00Z",
@@ -470,7 +470,7 @@ describe("captured TypeScript verification results", () => {
     results: unknown[];
   };
 
-  it("binds canonical result rows to the manifest with a detached digest", () => {
+  it("binds canonical result rows to the manifest with a detached digest", async () => {
     expect(results).toMatchObject({
       version: 1,
       implementation: "@ahasend/sdk",
@@ -499,7 +499,7 @@ describe("captured TypeScript verification results", () => {
     );
   });
 
-  it("reproduces every HMAC and header hash from exact persisted strings and matching keys", () => {
+  it("reproduces every HMAC and header hash from exact persisted strings and matching keys", async () => {
     for (const capture of manifest.captures) {
       const rawBody = readFileSync(resolve(ROOT, capture.bodyPath));
       const keyFile = readFileSync(resolve(ROOT, capture.signingResource.keyPath));
@@ -523,7 +523,7 @@ describe("captured TypeScript verification results", () => {
         key.toString("utf8"),
         () => Number(capture.webhookTimestamp) * 1000,
       );
-      expect(() =>
+      await expect(
         verifier.verify(
           {
             "webhook-id": capture.webhookId,
@@ -532,11 +532,11 @@ describe("captured TypeScript verification results", () => {
           },
           rawBody,
         ),
-      ).not.toThrow();
+      ).resolves.toBeUndefined();
     }
   });
 
-  it("rejects altered exact headers, reserialized bodies, and swapped resource keys", () => {
+  it("rejects altered exact headers, reserialized bodies, and swapped resource keys", async () => {
     for (const [index, capture] of manifest.captures.entries()) {
       const rawBody = readFileSync(resolve(ROOT, capture.bodyPath));
       const keyFile = readFileSync(resolve(ROOT, capture.signingResource.keyPath));
@@ -555,12 +555,12 @@ describe("captured TypeScript verification results", () => {
       };
 
       expect(
-        reasonFrom(() =>
+        await reasonFrom(() =>
           verifier.verify({ ...headers, "webhook-id": `${capture.webhookId}x` }, rawBody),
         ),
       ).toBe("signature_mismatch");
       expect(
-        reasonFrom(() =>
+        await reasonFrom(() =>
           verifier.verify(
             {
               ...headers,
@@ -571,7 +571,7 @@ describe("captured TypeScript verification results", () => {
         ),
       ).toBe("signature_mismatch");
       expect(
-        reasonFrom(() =>
+        await reasonFrom(() =>
           verifier.verify(
             { ...headers, "webhook-signature": capture.signature.replace("v1,", "v1,x") },
             rawBody,
@@ -579,12 +579,12 @@ describe("captured TypeScript verification results", () => {
         ),
       ).toBe("signature_mismatch");
       expect(
-        reasonFrom(() =>
+        await reasonFrom(() =>
           verifier.verify(headers, Buffer.from(JSON.stringify(JSON.parse(rawBody.toString())))),
         ),
       ).toBe("signature_mismatch");
       expect(
-        reasonFrom(() =>
+        await reasonFrom(() =>
           createWebhookVerifierWithClock(
             otherKey,
             () => Number(capture.webhookTimestamp) * 1000,
@@ -697,9 +697,11 @@ interface RouteEventDataFixture {
   attachments: Array<Partial<WebhookComponents["schemas"]["RouteAttachment"]>>;
 }
 
-function reasonFrom(run: () => unknown): WebhookVerificationReason {
+async function reasonFrom(
+  run: () => unknown | Promise<unknown>,
+): Promise<WebhookVerificationReason> {
   try {
-    run();
+    await run();
   } catch (error) {
     expect(error).toBeInstanceOf(AhaSendWebhookVerificationError);
     return (error as AhaSendWebhookVerificationError).reason;
@@ -708,20 +710,20 @@ function reasonFrom(run: () => unknown): WebhookVerificationReason {
 }
 
 describe("WebhookVerifier", () => {
-  it("verifies a correctly signed payload", () => {
+  it("verifies a correctly signed payload", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: new Date().toISOString(),
       data: { id: "msg_1" },
     });
-    expect(() => verifier.verify(headers, body)).not.toThrow();
+    await expect(verifier.verify(headers, body)).resolves.toBeUndefined();
   });
 
-  it("parses verified payload as a typed event", () => {
+  it("parses verified payload as a typed event", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const { headers, body } = buildEnvelope(SECRET, validDelivery);
-    const event = verifier.parse(headers, body);
+    const event = await verifier.parse(headers, body);
     expect(event.type).toBe("message.delivered");
     expect(isKnownWebhookEvent(event)).toBe(true);
     if (isKnownWebhookEvent(event) && event.type === "message.delivered") {
@@ -729,18 +731,18 @@ describe("WebhookVerifier", () => {
     }
   });
 
-  it("parses signed configured-webhook bodies with absent or present webhook IDs", () => {
+  it("parses signed configured-webhook bodies with absent or present webhook IDs", async () => {
     const verifier = new WebhookVerifier(SECRET);
 
     for (const payload of CONFIGURED_WEBHOOK_BODIES) {
       for (const bodyPayload of [payload, { ...payload, webhook_id: BODY_WEBHOOK_ID }]) {
         const { headers, body } = buildEnvelope(SECRET, bodyPayload);
-        expect(verifier.parse(headers, body)).toEqual(bodyPayload);
+        expect(await verifier.parse(headers, body)).toEqual(bodyPayload);
       }
     }
   });
 
-  it("validates every signed synthetic body and preserves is_bot compatibility cases", () => {
+  it("validates every signed synthetic body and preserves is_bot compatibility cases", async () => {
     const manifest = JSON.parse(readFileSync(resolve(SYNTHETIC_PATH, "manifest.json"), "utf8")) as {
       fixtures: Array<{
         fixtureId: string;
@@ -775,7 +777,7 @@ describe("WebhookVerifier", () => {
       ).toBe(fixture.signature);
       expect(validateKnownWebhookEvent(payload), fixture.fixtureId).toBe(true);
 
-      const event = createWebhookVerifierWithClock(
+      const event = await createWebhookVerifierWithClock(
         key.toString("utf8"),
         () => Number(fixture.webhookTimestamp) * 1000,
       ).parse(
@@ -800,7 +802,7 @@ describe("WebhookVerifier", () => {
     }
   });
 
-  it("rejects a tampered body", () => {
+  it("rejects a tampered body", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
@@ -809,7 +811,7 @@ describe("WebhookVerifier", () => {
     });
     const tamperedBody = body.replace("message.delivered", "message.opened");
     try {
-      verifier.verify(headers, tamperedBody);
+      await verifier.verify(headers, tamperedBody);
       throw new Error("expected to throw");
     } catch (err) {
       expect(err).toBeInstanceOf(AhaSendWebhookVerificationError);
@@ -817,17 +819,19 @@ describe("WebhookVerifier", () => {
     }
   });
 
-  it("rejects a wrong secret", () => {
+  it("rejects a wrong secret", async () => {
     const verifier = new WebhookVerifier("a-different-secret-entirely");
     const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: new Date().toISOString(),
       data: {},
     });
-    expect(() => verifier.verify(headers, body)).toThrow(AhaSendWebhookVerificationError);
+    await expect(verifier.verify(headers, body)).rejects.toBeInstanceOf(
+      AhaSendWebhookVerificationError,
+    );
   });
 
-  it("rejects an outdated timestamp (replay attack)", () => {
+  it("rejects an outdated timestamp (replay attack)", async () => {
     const verifier = new WebhookVerifier(SECRET, { toleranceSeconds: 300 });
     const oldTs = Math.floor(Date.now() / 1000) - 1000;
     const { headers, body } = buildEnvelope(
@@ -836,19 +840,19 @@ describe("WebhookVerifier", () => {
       { timestamp: oldTs },
     );
     try {
-      verifier.verify(headers, body);
+      await verifier.verify(headers, body);
       throw new Error("expected to throw");
     } catch (err) {
       expect((err as AhaSendWebhookVerificationError).reason).toBe("timestamp_outside_tolerance");
     }
   });
 
-  it("rejects when required headers are missing", () => {
+  it("rejects when required headers are missing", async () => {
     const verifier = new WebhookVerifier(SECRET);
-    expect(() => verifier.verify({}, "{}")).toThrow(/missing_webhook_id/);
+    await expect(verifier.verify({}, "{}")).rejects.toThrow(/missing_webhook_id/);
   });
 
-  it("treats the aha-whsec- prefix as part of the secret bytes (matches Go SDK)", () => {
+  it("treats the aha-whsec- prefix as part of the secret bytes (matches Go SDK)", async () => {
     // AhaSend's secret format is `aha-whsec-<key>`. The Go SDK uses the
     // entire string (prefix included) as the HMAC key bytes, and so does
     // the AhaSend server. The TS verifier must do the same.
@@ -858,10 +862,10 @@ describe("WebhookVerifier", () => {
       timestamp: new Date().toISOString(),
       data: {},
     });
-    expect(() => verifier.verify(headers, body)).not.toThrow();
+    await expect(verifier.verify(headers, body)).resolves.toBeUndefined();
   });
 
-  it("CROSS-SDK FIXTURE: accepts a base64-legal raw secret without decoding it", () => {
+  it("CROSS-SDK FIXTURE: accepts a base64-legal raw secret without decoding it", async () => {
     // `MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw` is 32 alphanumeric characters —
     // it is base64-legal (length % 4 == 0, only base64 alphabet). The
     // previous verifier base64-decoded it, producing different key bytes
@@ -873,20 +877,20 @@ describe("WebhookVerifier", () => {
       timestamp: new Date().toISOString(),
       data: {},
     });
-    expect(() => verifier.verify(headers, body)).not.toThrow();
+    await expect(verifier.verify(headers, body)).resolves.toBeUndefined();
   });
 
-  it("accepts a Buffer body", () => {
+  it("accepts a Buffer body", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: new Date().toISOString(),
       data: {},
     });
-    expect(() => verifier.verify(headers, Buffer.from(body, "utf-8"))).not.toThrow();
+    await expect(verifier.verify(headers, Buffer.from(body, "utf-8"))).resolves.toBeUndefined();
   });
 
-  it("accepts a plain Uint8Array body and decodes it as UTF-8", () => {
+  it("accepts a plain Uint8Array body and decodes it as UTF-8", async () => {
     // A Buffer passes either way, because `Buffer#toString("utf-8")` honours
     // its argument. A plain Uint8Array is the case the published type now
     // admits, and it is the one that breaks under `rawBody.toString("utf-8")`:
@@ -904,11 +908,11 @@ describe("WebhookVerifier", () => {
     expect(bytes.byteLength).toBeGreaterThan(body.length);
 
     const verifier = new WebhookVerifier(SECRET);
-    expect(() => verifier.verify(headers, bytes)).not.toThrow();
-    expect(verifier.parse(headers, bytes)).toEqual(payload);
+    await expect(verifier.verify(headers, bytes)).resolves.toBeUndefined();
+    expect(await verifier.parse(headers, bytes)).toEqual(payload);
   });
 
-  it("keeps a leading byte-order mark in the decoded body", () => {
+  it("keeps a leading byte-order mark in the decoded body", async () => {
     // Decoding moved from `Buffer#toString("utf-8")` to a TextDecoder, which
     // strips a leading U+FEFF by default. That would quietly start accepting
     // bodies that were previously rejected, so the decoder is constructed with
@@ -928,13 +932,13 @@ describe("WebhookVerifier", () => {
     };
 
     const verifier = new WebhookVerifier(SECRET);
-    expect(() => verifier.verify(headers, bytes)).not.toThrow();
-    expect(() => verifier.parse(headers, bytes)).toThrowError(
+    await expect(verifier.verify(headers, bytes)).resolves.toBeUndefined();
+    await expect(verifier.parse(headers, bytes)).rejects.toThrowError(
       expect.objectContaining({ reason: "invalid_json" }),
     );
   });
 
-  it("accepts multiple signatures separated by spaces (key rotation)", () => {
+  it("accepts multiple signatures separated by spaces (key rotation)", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const ts = Math.floor(Date.now() / 1000);
     const id = "msg_1";
@@ -945,19 +949,42 @@ describe("WebhookVerifier", () => {
       "webhook-timestamp": String(ts),
       "webhook-signature": `v1,wrong-signature ${validSig} v1,another-wrong`,
     };
-    expect(() => verifier.verify(headers, body)).not.toThrow();
+    await expect(verifier.verify(headers, body)).resolves.toBeUndefined();
   });
 
-  it("rejects malformed non-ASCII signatures with the closed mismatch reason", () => {
+  it("imports one non-extractable HMAC key lazily and reuses it", async () => {
+    const { headers, body } = buildEnvelope(SECRET, validDelivery);
+    const importKey = vi.spyOn(globalThis.crypto.subtle, "importKey");
+    try {
+      const verifier = new WebhookVerifier(SECRET);
+      expect(importKey).not.toHaveBeenCalled();
+
+      await verifier.verify(headers, body);
+      await verifier.verify(headers, body);
+
+      expect(importKey).toHaveBeenCalledOnce();
+      expect(importKey).toHaveBeenCalledWith(
+        "raw",
+        expect.any(Uint8Array),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
+      );
+    } finally {
+      importKey.mockRestore();
+    }
+  });
+
+  it("rejects malformed non-ASCII signatures with the closed mismatch reason", async () => {
     const { headers, body } = buildEnvelope(SECRET, validDelivery);
     headers["webhook-signature"] = "é".repeat(headers["webhook-signature"]!.length);
 
-    expect(reasonFrom(() => new WebhookVerifier(SECRET).verify(headers, body))).toBe(
+    expect(await reasonFrom(() => new WebhookVerifier(SECRET).verify(headers, body))).toBe(
       "signature_mismatch",
     );
   });
 
-  it("accepts a Headers instance", () => {
+  it("accepts a Headers instance", async () => {
     const verifier = new WebhookVerifier(SECRET);
     const { headers, body } = buildEnvelope(SECRET, {
       type: "message.delivered",
@@ -965,10 +992,10 @@ describe("WebhookVerifier", () => {
       data: {},
     });
     const h = new Headers(headers);
-    expect(() => verifier.verify(h, body)).not.toThrow();
+    await expect(verifier.verify(h, body)).resolves.toBeUndefined();
   });
 
-  it("accepts a Headers that is not the realm's global one", () => {
+  it("accepts a Headers that is not the realm's global one", async () => {
     // A separately installed undici or node-fetch, an edge runtime, or any
     // value that crossed a realm boundary is not `instanceof` the realm's
     // global Headers. Detecting by class sent those down the plain-record
@@ -992,29 +1019,29 @@ describe("WebhookVerifier", () => {
 
     const foreign = new ForeignHeaders(headers);
     expect(foreign).not.toBeInstanceOf(Headers);
-    expect(new WebhookVerifier(SECRET).parse(foreign, body)).toEqual(validDelivery);
+    expect(await new WebhookVerifier(SECRET).parse(foreign, body)).toEqual(validDelivery);
 
     // A bare getter object — the minimum a header source can offer.
     const minimal = { get: (name: string) => headers[name] };
-    expect(() => new WebhookVerifier(SECRET).verify(minimal, body)).not.toThrow();
+    await expect(new WebhookVerifier(SECRET).verify(minimal, body)).resolves.toBeUndefined();
 
     // Case-insensitive lookup remains the header source's responsibility, as
     // it is for the global Headers.
     const map = new Map(Object.entries(headers));
-    expect(() => new WebhookVerifier(SECRET).verify(map, body)).not.toThrow();
+    await expect(new WebhookVerifier(SECRET).verify(map, body)).resolves.toBeUndefined();
   });
 
-  it("keeps reading a plain record that happens to carry a get header", () => {
+  it("keeps reading a plain record that happens to carry a get header", async () => {
     // Capability detection must not misread a header literally named `get`.
     // A plain record's values are strings or string arrays, never functions,
     // so the two shapes stay distinguishable.
     const { headers, body } = buildEnvelope(SECRET, validDelivery);
     const withGetHeader = { ...headers, get: "max-age=0" };
 
-    expect(new WebhookVerifier(SECRET).parse(withGetHeader, body)).toEqual(validDelivery);
+    expect(await new WebhookVerifier(SECRET).parse(withGetHeader, body)).toEqual(validDelivery);
   });
 
-  it("treats a record whose get is a function as a header getter", () => {
+  it("treats a record whose get is a function as a header getter", async () => {
     // The one shape whose behaviour the capability check actually changed, and
     // the boundary of the guarantee above: a *function* under `get` wins over
     // the sibling header keys. TypeScript cannot produce this from the
@@ -1024,15 +1051,15 @@ describe("WebhookVerifier", () => {
     const { headers, body } = buildEnvelope(SECRET, validDelivery);
 
     const delegating = { ...headers, get: (name: string) => headers[name] };
-    expect(new WebhookVerifier(SECRET).parse(delegating, body)).toEqual(validDelivery);
+    expect(await new WebhookVerifier(SECRET).parse(delegating, body)).toEqual(validDelivery);
 
     const ignoring = { ...headers, get: () => undefined };
-    expect(reasonFrom(() => new WebhookVerifier(SECRET).verify(ignoring, body))).toBe(
+    expect(await reasonFrom(() => new WebhookVerifier(SECRET).verify(ignoring, body))).toBe(
       "missing_webhook_id",
     );
   });
 
-  it("treats a non-string header value as absent, from either header shape", () => {
+  it("treats a non-string header value as absent, from either header shape", async () => {
     // A header source is caller supplied: a foreign Headers is not bound by
     // the WHATWG return contract, and a JavaScript caller can put anything in
     // a plain record. Both must report a missing header rather than handing a
@@ -1045,7 +1072,7 @@ describe("WebhookVerifier", () => {
       get: (name: string) =>
         name === WEBHOOK_TIMESTAMP_HEADER ? (numericTimestamp as unknown as string) : headers[name],
     };
-    expect(reasonFrom(() => new WebhookVerifier(SECRET).verify(foreign, body))).toBe(
+    expect(await reasonFrom(() => new WebhookVerifier(SECRET).verify(foreign, body))).toBe(
       "missing_webhook_timestamp",
     );
 
@@ -1053,16 +1080,16 @@ describe("WebhookVerifier", () => {
       ...headers,
       [WEBHOOK_TIMESTAMP_HEADER]: numericTimestamp as unknown as string,
     };
-    expect(reasonFrom(() => new WebhookVerifier(SECRET).verify(record, body))).toBe(
+    expect(await reasonFrom(() => new WebhookVerifier(SECRET).verify(record, body))).toBe(
       "missing_webhook_timestamp",
     );
   });
 
-  it("constructor throws on empty secret", () => {
+  it("constructor throws on empty secret", async () => {
     expect(() => new WebhookVerifier("")).toThrow(/secret/);
   });
 
-  it("PINNED CROSS-SDK FIXTURE: signature byte-stability under decodeSecret refactors", () => {
+  it("PINNED CROSS-SDK FIXTURE: signature byte-stability under decodeSecret refactors", async () => {
     // (secret, id, timestamp, body) tuple. The expected signature is
     // computed once using the byte-exact algorithm the Go SDK
     // (ahasend-go/webhooks/webhooks.go) and the AhaSend server use,
@@ -1082,7 +1109,7 @@ describe("WebhookVerifier", () => {
     const expectedSignature = `v1,${expectedDigest}`;
 
     const verifier = createWebhookVerifierWithClock(secret, () => timestamp * 1000);
-    expect(() =>
+    await expect(
       verifier.verify(
         {
           "webhook-id": id,
@@ -1091,10 +1118,10 @@ describe("WebhookVerifier", () => {
         },
         body,
       ),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
-  it("normalizes deprecated route.message input after full validation", () => {
+  it("normalizes deprecated route.message input after full validation", async () => {
     const payload = {
       type: "route.message",
       route_id: "abe11757-2886-4b55-96f1-0e0afc95795a",
@@ -1124,20 +1151,22 @@ describe("WebhookVerifier", () => {
     };
     const { headers, body } = buildEnvelope(SECRET, payload);
 
-    const event = new WebhookVerifier(SECRET).parse(headers, body);
+    const event = await new WebhookVerifier(SECRET).parse(headers, body);
 
     expect(event).toEqual({ ...payload, type: "message.routing" });
     expect(isKnownWebhookEvent(event)).toBe(true);
   });
 
-  it("validates complete known payloads and complete unknown envelopes", () => {
+  it("validates complete known payloads and complete unknown envelopes", async () => {
     const invalidKnown = buildEnvelope(SECRET, {
       type: "message.delivered",
       timestamp: validDelivery.timestamp,
       data: { id: "incomplete" },
     });
     expect(
-      reasonFrom(() => new WebhookVerifier(SECRET).parse(invalidKnown.headers, invalidKnown.body)),
+      await reasonFrom(() =>
+        new WebhookVerifier(SECRET).parse(invalidKnown.headers, invalidKnown.body),
+      ),
     ).toBe("invalid_event");
 
     const future = {
@@ -1147,9 +1176,9 @@ describe("WebhookVerifier", () => {
       future_envelope_field: "preserved",
     };
     const validUnknown = buildEnvelope(SECRET, future);
-    expect(new WebhookVerifier(SECRET).parse(validUnknown.headers, validUnknown.body)).toEqual(
-      future,
-    );
+    expect(
+      await new WebhookVerifier(SECRET).parse(validUnknown.headers, validUnknown.body),
+    ).toEqual(future);
 
     const incompleteUnknown = buildEnvelope(SECRET, {
       type: "message.future_event",
@@ -1157,13 +1186,13 @@ describe("WebhookVerifier", () => {
       data: "not-an-object",
     });
     expect(
-      reasonFrom(() =>
+      await reasonFrom(() =>
         new WebhookVerifier(SECRET).parse(incompleteUnknown.headers, incompleteUnknown.body),
       ),
     ).toBe("invalid_payload");
   });
 
-  it("accepts sender and recipient mailboxes that are not bare RFC 5321 addresses", () => {
+  it("accepts sender and recipient mailboxes that are not bare RFC 5321 addresses", async () => {
     // Campaign deliveries carry a display-name mailbox built from the
     // campaign's from-name, and inbound routes carry whatever an arbitrary
     // external sender used. Rejecting these returns 400 to AhaSend, and 100
@@ -1182,11 +1211,11 @@ describe("WebhookVerifier", () => {
         data: { ...validDelivery.data, from: mailbox, recipient: mailbox },
       };
       const { headers, body } = buildEnvelope(SECRET, payload);
-      expect(new WebhookVerifier(SECRET).parse(headers, body), mailbox).toEqual(payload);
+      expect(await new WebhookVerifier(SECRET).parse(headers, body), mailbox).toEqual(payload);
     }
   });
 
-  it("carries attachment disposition through to the parsed route event", () => {
+  it("carries attachment disposition through to the parsed route event", async () => {
     // Route attachments mix conventional attachments, inline `cid:` parts, and
     // filename-bearing parts with no Content-Disposition header. Without
     // `disposition` a receiver cannot tell an embedded image from a real
@@ -1211,7 +1240,7 @@ describe("WebhookVerifier", () => {
     ]);
 
     const { headers, body } = buildEnvelope(SECRET, payload);
-    const event = new WebhookVerifier(SECRET).parse(headers, body);
+    const event = await new WebhookVerifier(SECRET).parse(headers, body);
 
     expect(event).toEqual(payload);
     if (isKnownWebhookEvent(event) && event.type === "message.routing") {
@@ -1228,7 +1257,7 @@ describe("WebhookVerifier", () => {
     }
   });
 
-  it("separates a Content-Disposition-less embedded image from a real attachment", () => {
+  it("separates a Content-Disposition-less embedded image from a real attachment", async () => {
     // The shape Gmail and Outlook actually produce: a multipart/related part
     // with a Content-ID and NO Content-Disposition header. Verified against
     // enmime v1.1.0 (the revision ahasend/go.mod pins) driving the
@@ -1258,7 +1287,7 @@ describe("WebhookVerifier", () => {
       },
     ]);
     const { headers, body } = buildEnvelope(SECRET, payload);
-    const event = new WebhookVerifier(SECRET).parse(headers, body);
+    const event = await new WebhookVerifier(SECRET).parse(headers, body);
 
     if (!isKnownWebhookEvent(event) || event.type !== "message.routing") {
       throw new Error("expected a routing event");
@@ -1281,7 +1310,7 @@ describe("WebhookVerifier", () => {
     expect(attachments.filter((attachment) => attachment.disposition === "inline")).toHaveLength(0);
   });
 
-  it("accepts any disposition token the sending server wrote", () => {
+  it("accepts any disposition token the sending server wrote", async () => {
     // The divergence from the upstream spec is on the ENUM, not on presence.
     // `disposition` is parsed from an inbound message's Content-Disposition
     // header, and an application/octet-stream part carries any RFC 2183
@@ -1297,7 +1326,7 @@ describe("WebhookVerifier", () => {
     for (const disposition of ["attachment", "inline", "", "form-data", "x-vendor-thing"]) {
       const payload = routeEventWithAttachments([{ ...attachment, content_id: "", disposition }]);
       const { headers, body } = buildEnvelope(SECRET, payload);
-      expect(new WebhookVerifier(SECRET).parse(headers, body), disposition).toEqual(payload);
+      expect(await new WebhookVerifier(SECRET).parse(headers, body), disposition).toEqual(payload);
     }
 
     // Still a string, though — a receiver that reads it must not get an object.
@@ -1306,12 +1335,12 @@ describe("WebhookVerifier", () => {
     ]);
     (wrongType.data.attachments[0] as Record<string, unknown>)["disposition"] = 1;
     const bad = buildEnvelope(SECRET, wrongType);
-    expect(reasonFrom(() => new WebhookVerifier(SECRET).parse(bad.headers, bad.body))).toBe(
+    expect(await reasonFrom(() => new WebhookVerifier(SECRET).parse(bad.headers, bad.body))).toBe(
       "invalid_event",
     );
   });
 
-  it("requires every key the route producer emits unconditionally", () => {
+  it("requires every key the route producer emits unconditionally", async () => {
     // `required` mirrors the producer's struct tags: in MessageData and
     // MessageAttachmentsPayload only `headers` carries `omitempty`, so every
     // other key is on the wire for every delivery.
@@ -1370,7 +1399,7 @@ describe("WebhookVerifier", () => {
     expect(Object.hasOwn(complete.data, "headers")).toBe(false);
   });
 
-  it("keeps enforcing structural formats that discriminate the envelope", () => {
+  it("keeps enforcing structural formats that discriminate the envelope", async () => {
     // Relaxing address formats must not relax uuid or date-time, which
     // identify the account and order the event stream.
     const badAccountId = buildEnvelope(SECRET, {
@@ -1378,16 +1407,20 @@ describe("WebhookVerifier", () => {
       data: { ...validDelivery.data, account_id: "not-a-uuid" },
     });
     expect(
-      reasonFrom(() => new WebhookVerifier(SECRET).parse(badAccountId.headers, badAccountId.body)),
+      await reasonFrom(() =>
+        new WebhookVerifier(SECRET).parse(badAccountId.headers, badAccountId.body),
+      ),
     ).toBe("invalid_event");
 
     const badTimestamp = buildEnvelope(SECRET, { ...validDelivery, timestamp: "last Tuesday" });
     expect(
-      reasonFrom(() => new WebhookVerifier(SECRET).parse(badTimestamp.headers, badTimestamp.body)),
+      await reasonFrom(() =>
+        new WebhookVerifier(SECRET).parse(badTimestamp.headers, badTimestamp.body),
+      ),
     ).toBe("invalid_event");
   });
 
-  it("accepts is_bot as a boolean or absent, matching the wire contract", () => {
+  it("accepts is_bot as a boolean or absent, matching the wire contract", async () => {
     // Optional here covers both producers. The open event declares
     // `IsBot *bool` with omitempty, so the wire carries `true`, `false`, or
     // nothing; the click event declares a bare `bool` and always sends it. A
@@ -1410,22 +1443,26 @@ describe("WebhookVerifier", () => {
     for (const isBot of [true, false]) {
       const payload = { ...opened, data: { ...opened.data, is_bot: isBot } };
       const { headers, body } = buildEnvelope(SECRET, payload);
-      expect(new WebhookVerifier(SECRET).parse(headers, body), String(isBot)).toEqual(payload);
+      expect(await new WebhookVerifier(SECRET).parse(headers, body), String(isBot)).toEqual(
+        payload,
+      );
     }
 
     const absent = buildEnvelope(SECRET, opened);
-    expect(new WebhookVerifier(SECRET).parse(absent.headers, absent.body)).toEqual(opened);
+    expect(await new WebhookVerifier(SECRET).parse(absent.headers, absent.body)).toEqual(opened);
 
     const stringified = buildEnvelope(SECRET, {
       ...opened,
       data: { ...opened.data, is_bot: "" },
     });
     expect(
-      reasonFrom(() => new WebhookVerifier(SECRET).parse(stringified.headers, stringified.body)),
+      await reasonFrom(() =>
+        new WebhookVerifier(SECRET).parse(stringified.headers, stringified.body),
+      ),
     ).toBe("invalid_event");
   });
 
-  it("reports malformed JSON separately from invalid envelopes", () => {
+  it("reports malformed JSON separately from invalid envelopes", async () => {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const id = "msg-json";
     const malformed = "{";
@@ -1434,19 +1471,19 @@ describe("WebhookVerifier", () => {
       "webhook-timestamp": timestamp,
       "webhook-signature": sign(SECRET, id, timestamp, malformed),
     };
-    expect(reasonFrom(() => new WebhookVerifier(SECRET).parse(headers, malformed))).toBe(
+    expect(await reasonFrom(() => new WebhookVerifier(SECRET).parse(headers, malformed))).toBe(
       "invalid_json",
     );
 
     for (const body of ["null", "[]", '{"type":1,"data":{}}']) {
       headers["webhook-signature"] = sign(SECRET, id, timestamp, body);
-      expect(reasonFrom(() => new WebhookVerifier(SECRET).parse(headers, body))).toBe(
+      expect(await reasonFrom(() => new WebhookVerifier(SECRET).parse(headers, body))).toBe(
         "invalid_payload",
       );
     }
   });
 
-  it("looks up plain header records case-insensitively without changing signed values", () => {
+  it("looks up plain header records case-insensitively without changing signed values", async () => {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const id = "Case-Sensitive-Value";
     const body = JSON.stringify(validDelivery);
@@ -1457,13 +1494,13 @@ describe("WebhookVerifier", () => {
       "Webhook-Signature": signature,
     };
 
-    expect(() => new WebhookVerifier(SECRET).verify(headers, body)).not.toThrow();
-    expect(() =>
+    await expect(new WebhookVerifier(SECRET).verify(headers, body)).resolves.toBeUndefined();
+    await expect(
       new WebhookVerifier(SECRET).verify({ ...headers, "WebHook-ID": [id.toLowerCase()] }, body),
-    ).toThrow(/signature_mismatch/);
+    ).rejects.toThrow(/signature_mismatch/);
   });
 
-  it("signs the exact body bytes and rejects JSON reserialization", () => {
+  it("signs the exact body bytes and rejects JSON reserialization", async () => {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const id = "msg-raw-body";
     const body = '{"type":"future.event", "timestamp":"2026-07-22T12:00:00Z","data":{}}';
@@ -1473,15 +1510,17 @@ describe("WebhookVerifier", () => {
       "webhook-signature": sign(SECRET, id, timestamp, Buffer.from(body, "utf-8")),
     };
 
-    expect(() => new WebhookVerifier(SECRET).verify(headers, Buffer.from(body))).not.toThrow();
+    await expect(
+      new WebhookVerifier(SECRET).verify(headers, Buffer.from(body)),
+    ).resolves.toBeUndefined();
     expect(
-      reasonFrom(() =>
+      await reasonFrom(() =>
         new WebhookVerifier(SECRET).verify(headers, JSON.stringify(JSON.parse(body))),
       ),
     ).toBe("signature_mismatch");
   });
 
-  it("preserves the exact timestamp header string when calculating the HMAC", () => {
+  it("preserves the exact timestamp header string when calculating the HMAC", async () => {
     const timestamp = "01784041401";
     const id = "msg-exact-timestamp";
     const body = "{}";
@@ -1492,13 +1531,13 @@ describe("WebhookVerifier", () => {
       "webhook-signature": sign(SECRET, id, timestamp, body),
     };
 
-    expect(() => verifier.verify(headers, body)).not.toThrow();
+    await expect(verifier.verify(headers, body)).resolves.toBeUndefined();
     expect(headers["webhook-signature"]).not.toBe(
       sign(SECRET, id, String(Number(timestamp)), body),
     );
   });
 
-  it("accepts the tolerance boundary and rejects ancient and future timestamps", () => {
+  it("accepts the tolerance boundary and rejects ancient and future timestamps", async () => {
     const nowSeconds = 1_800_000_000;
     const verifier = createWebhookVerifierWithClock(SECRET, () => nowSeconds * 1000, {
       toleranceSeconds: 300,
@@ -1506,7 +1545,7 @@ describe("WebhookVerifier", () => {
     const body = "{}";
     for (const timestamp of [nowSeconds - 300, nowSeconds + 300]) {
       const value = String(timestamp);
-      expect(() =>
+      await expect(
         verifier.verify(
           {
             "webhook-id": "msg-boundary",
@@ -1515,12 +1554,12 @@ describe("WebhookVerifier", () => {
           },
           body,
         ),
-      ).not.toThrow();
+      ).resolves.toBeUndefined();
     }
     for (const timestamp of [nowSeconds - 301, nowSeconds + 301]) {
       const value = String(timestamp);
       expect(
-        reasonFrom(() =>
+        await reasonFrom(() =>
           verifier.verify(
             {
               "webhook-id": "msg-outside",
@@ -1534,11 +1573,11 @@ describe("WebhookVerifier", () => {
     }
   });
 
-  it("rejects non-integer, nonfinite, negative, and unsafe timestamp values", () => {
+  it("rejects non-integer, nonfinite, negative, and unsafe timestamp values", async () => {
     const verifier = new WebhookVerifier(SECRET);
     for (const timestamp of ["NaN", "Infinity", "1.5", "-1", String(Number.MAX_SAFE_INTEGER + 1)]) {
       expect(
-        reasonFrom(() =>
+        await reasonFrom(() =>
           verifier.verify(
             {
               "webhook-id": "msg-invalid-time",
@@ -1553,13 +1592,13 @@ describe("WebhookVerifier", () => {
     }
   });
 
-  it("accepts safe-integer timestamp endpoints before applying the time window", () => {
+  it("accepts safe-integer timestamp endpoints before applying the time window", async () => {
     const verifier = createWebhookVerifierWithClock(SECRET, () => 0, {
       toleranceSeconds: Number.MAX_SAFE_INTEGER,
     });
     const body = "{}";
     for (const timestamp of ["0", String(Number.MAX_SAFE_INTEGER)]) {
-      expect(() =>
+      await expect(
         verifier.verify(
           {
             "webhook-id": "msg-safe-endpoint",
@@ -1568,11 +1607,11 @@ describe("WebhookVerifier", () => {
           },
           body,
         ),
-      ).not.toThrow();
+      ).resolves.toBeUndefined();
     }
   });
 
-  it("requires a finite positive safe-integer tolerance and a valid clock", () => {
+  it("requires a finite positive safe-integer tolerance and a valid clock", async () => {
     for (const toleranceSeconds of [
       0,
       -1,
@@ -1592,29 +1631,31 @@ describe("WebhookVerifier", () => {
 
     const envelope = buildEnvelope(SECRET, validDelivery);
     for (const nowMs of [Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
-      expect(() =>
+      await expect(
         createWebhookVerifierWithClock(SECRET, () => nowMs).verify(envelope.headers, envelope.body),
-      ).toThrow(AhaSendConfigurationError);
+      ).rejects.toBeInstanceOf(AhaSendConfigurationError);
     }
   });
 
-  it("returns the closed missing-header reasons", () => {
+  it("returns the closed missing-header reasons", async () => {
     const verifier = new WebhookVerifier(SECRET);
-    expect(reasonFrom(() => verifier.verify({}, "{}"))).toBe("missing_webhook_id");
-    expect(reasonFrom(() => verifier.verify({ "webhook-id": "msg" }, "{}"))).toBe(
+    expect(await reasonFrom(() => verifier.verify({}, "{}"))).toBe("missing_webhook_id");
+    expect(await reasonFrom(() => verifier.verify({ "webhook-id": "msg" }, "{}"))).toBe(
       "missing_webhook_timestamp",
     );
     expect(
-      reasonFrom(() => verifier.verify({ "webhook-id": "msg", "webhook-timestamp": "1" }, "{}")),
+      await reasonFrom(() =>
+        verifier.verify({ "webhook-id": "msg", "webhook-timestamp": "1" }, "{}"),
+      ),
     ).toBe("missing_webhook_signature");
   });
 
-  it("bounds raw string and Buffer bodies by their actual byte length", () => {
+  it("bounds raw string and Buffer bodies by their actual byte length", async () => {
     const verifier = new WebhookVerifier(SECRET, { toleranceSeconds: Number.MAX_SAFE_INTEGER });
     const timestamp = "1";
     const id = "msg-body-limit";
     const atLimit = Buffer.alloc(MAX_WEBHOOK_BODY_BYTES, 0x61);
-    expect(() =>
+    await expect(
       verifier.verify(
         {
           "webhook-id": id,
@@ -1623,17 +1664,69 @@ describe("WebhookVerifier", () => {
         },
         atLimit,
       ),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
 
-    expect(reasonFrom(() => verifier.verify({}, Buffer.alloc(MAX_WEBHOOK_BODY_BYTES + 1)))).toBe(
-      "body_too_large",
-    );
-    expect(reasonFrom(() => verifier.verify({}, "é".repeat(MAX_WEBHOOK_BODY_BYTES / 2 + 1)))).toBe(
-      "body_too_large",
-    );
+    expect(
+      await reasonFrom(() => verifier.verify({}, Buffer.alloc(MAX_WEBHOOK_BODY_BYTES + 1))),
+    ).toBe("body_too_large");
+    expect(
+      await reasonFrom(() => verifier.verify({}, "é".repeat(MAX_WEBHOOK_BODY_BYTES / 2 + 1))),
+    ).toBe("body_too_large");
   });
 
-  it("keeps secret, tolerance, and clock state out of reflection", () => {
+  it(
+    "verifies the 30 MB boundary within approximately twice the legacy HMAC wall time",
+    { timeout: 10_000 },
+    async () => {
+      const verifier = new WebhookVerifier(SECRET, {
+        toleranceSeconds: Number.MAX_SAFE_INTEGER,
+      });
+      const id = "msg-body-benchmark";
+      const timestamp = "1";
+      const body = Buffer.alloc(MAX_WEBHOOK_BODY_BYTES, 0x61);
+      const signature = sign(SECRET, id, timestamp, body);
+      await verifier.verify(
+        {
+          "webhook-id": id,
+          "webhook-timestamp": timestamp,
+          "webhook-signature": signature,
+        },
+        body,
+      );
+
+      const legacyStarted = performance.now();
+      sign(SECRET, id, timestamp, body);
+      const legacyElapsed = performance.now() - legacyStarted;
+
+      const webCryptoStarted = performance.now();
+      await verifier.verify(
+        {
+          "webhook-id": id,
+          "webhook-timestamp": timestamp,
+          "webhook-signature": signature,
+        },
+        body,
+      );
+      const webCryptoElapsed = performance.now() - webCryptoStarted;
+
+      expect(webCryptoElapsed).toBeLessThanOrEqual(legacyElapsed * 2 + 10);
+    },
+  );
+
+  it("rejects an oversized body before importing an HMAC key", async () => {
+    const importKey = vi.spyOn(globalThis.crypto.subtle, "importKey");
+    try {
+      const verifier = new WebhookVerifier(SECRET);
+      expect(
+        await reasonFrom(() => verifier.verify({}, new Uint8Array(MAX_WEBHOOK_BODY_BYTES + 1))),
+      ).toBe("body_too_large");
+      expect(importKey).not.toHaveBeenCalled();
+    } finally {
+      importKey.mockRestore();
+    }
+  });
+
+  it("keeps secret, tolerance, and clock state out of reflection", async () => {
     const verifier = createWebhookVerifierWithClock(SECRET, () => 0, {
       toleranceSeconds: 1,
     });

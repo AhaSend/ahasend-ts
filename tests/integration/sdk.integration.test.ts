@@ -842,13 +842,13 @@ describe("packed SDK operation contract", () => {
 });
 
 describe("packed webhooks subpath", () => {
-  it("verifies a signed payload through the installed subpath", () => {
+  it("verifies a signed payload through the installed subpath", async () => {
     const secret = "aha-whsec-integration-secret";
     const verifier = new installedWebhooks.WebhookVerifier(secret);
     const id = "msg_it_1";
     const { body, headers } = createSignedWebhookDelivery(secret, id);
 
-    const event = callMethod(verifier, [], "parse", [headers, body]);
+    const event = await callMethod(verifier, [], "parse", [headers, body]);
     expect(event).toMatchObject({ type: "message.delivered" });
   });
 });

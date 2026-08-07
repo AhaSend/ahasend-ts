@@ -1,5 +1,4 @@
-import { Buffer } from "node:buffer";
-import type { ReadableStreamReadResult } from "node:stream/web";
+import { concatBytes, encodeUtf8 } from "../bytes.js";
 import { isAhaSendError } from "../errors.js";
 import type { AhaSendWebhookVerificationError } from "../errors.js";
 import { MAX_WEBHOOK_BODY_BYTES, WebhookVerifier } from "./verifier.js";
@@ -41,19 +40,16 @@ export interface WebhookAdapterOptions {
 export interface NodeStyleRequest {
   headers: Record<string, string | string[] | undefined>;
   /**
-   * `Uint8Array` rather than `Buffer`, so the published declarations name
-   * nothing that only `@types/node` supplies. Supplying a `Buffer` still
-   * satisfies it.
+   * `Uint8Array` keeps the published declarations runtime-neutral while still
+   * accepting the byte arrays supplied by Node request frameworks.
    *
    * This is the one widening that is also visible in an output position: a
    * handler receives its request typed as this interface, so `req.rawBody`
-   * arrives as `Uint8Array` and no longer goes straight into a parameter
-   * declared `Buffer`. Narrow with `Buffer.isBuffer(req.rawBody)`, or wrap the
-   * bytes without copying them:
-   * `Buffer.from(b.buffer, b.byteOffset, b.byteLength)`.
+   * arrives as `Uint8Array`; callers that need a host-specific byte type can
+   * narrow or wrap it in their application.
    *
    * Explicitly `| undefined` so that under `exactOptionalPropertyTypes` a
-   * consumer can forward a `Buffer | undefined` — the ordinary shape when a
+   * consumer can forward a byte array or `undefined` — the ordinary shape when a
    * raw-body parser may or may not have run.
    */
   rawBody?: string | Uint8Array | undefined;
@@ -105,7 +101,7 @@ export type NextHandler = (
 /**
  * Express middleware. Mount directly so it can buffer the unconsumed raw
  * request stream. It can also reuse raw bytes already provided as a string or
- * Buffer in `req.rawBody` or `req.body`; a parsed object cannot be verified.
+ * byte array in `req.rawBody` or `req.body`; a parsed object cannot be verified.
  * Verifies the AhaSend signature, parses the typed event, and dispatches to
  * your handler.
  */
@@ -136,7 +132,7 @@ export function expressWebhookHandler(
 
     let event: AnyWebhookEvent;
     try {
-      event = verifier.parse(req.headers, rawBody);
+      event = await verifier.parse(req.headers, rawBody);
     } catch (error) {
       if (isWebhookVerificationError(error)) {
         completeExpress(res, verificationFailureStatus(error), next, adapterOptions.onError);
@@ -189,7 +185,7 @@ export function fastifyWebhookHandler(
 
     let event: AnyWebhookEvent;
     try {
-      event = verifier.parse(request.headers, rawBody);
+      event = await verifier.parse(request.headers, rawBody);
     } catch (error) {
       if (isWebhookVerificationError(error)) {
         completeFastify(reply, verificationFailureStatus(error), adapterOptions.onError);
@@ -218,7 +214,7 @@ export function nextRouteHandler(
   const adapterOptions = normalizeOptions(options);
 
   return async (request) => {
-    let rawBody: Buffer;
+    let rawBody: Uint8Array;
     try {
       rawBody = await readWebRawBody(request, adapterOptions.maxBodyBytes);
     } catch (error) {
@@ -229,7 +225,7 @@ export function nextRouteHandler(
 
     let event: AnyWebhookEvent;
     try {
-      event = verifier.parse(request.headers, rawBody);
+      event = await verifier.parse(request.headers, rawBody);
     } catch (error) {
       if (isWebhookVerificationError(error)) {
         return opaqueResponse(verificationFailureStatus(error));
@@ -262,6 +258,10 @@ class NodeStreamError extends Error {
   }
 }
 
+type WebStreamReadResult =
+  | { readonly done: true; readonly value?: undefined }
+  | { readonly done: false; readonly value: Uint8Array };
+
 function normalizeOptions(options: WebhookAdapterOptions): NormalizedAdapterOptions {
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   if (
@@ -293,18 +293,18 @@ function pickNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Uint8Arra
   return undefined;
 }
 
-function readNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Promise<Buffer> {
-  return new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
+function readNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Promise<Uint8Array> {
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
     let byteLength = 0;
     let settled = false;
 
     const onData = (...args: unknown[]) => {
       if (settled) return;
       const value = args[0];
-      let chunk: Buffer;
-      if (Buffer.isBuffer(value)) chunk = value;
-      else if (typeof value === "string") chunk = Buffer.from(value, "utf-8");
+      let chunk: Uint8Array;
+      if (isBytes(value)) chunk = value;
+      else if (typeof value === "string") chunk = encodeUtf8(value);
       else {
         settled = true;
         cleanup();
@@ -313,7 +313,7 @@ function readNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Promise<B
         );
         return;
       }
-      byteLength += chunk.length;
+      byteLength += chunk.byteLength;
       if (byteLength > maxBodyBytes) {
         settled = true;
         cleanup();
@@ -326,7 +326,7 @@ function readNodeRawBody(req: NodeStyleRequest, maxBodyBytes: number): Promise<B
       if (!settled) {
         settled = true;
         cleanup();
-        resolve(Buffer.concat(chunks, byteLength));
+        resolve(concatBytes(chunks));
       } else {
         cleanup();
       }
@@ -366,17 +366,17 @@ function pickFastifyRawBody(request: NodeStyleRequest, maxBodyBytes: number): st
   throw new Error("Raw webhook body unavailable: enable Fastify raw-body capture.");
 }
 
-async function readWebRawBody(request: Request, maxBodyBytes: number): Promise<Buffer> {
-  if (request.body === null) return Buffer.alloc(0);
+async function readWebRawBody(request: Request, maxBodyBytes: number): Promise<Uint8Array> {
+  if (request.body === null) return new Uint8Array();
   const reader = request.body.getReader();
-  const chunks: Buffer[] = [];
+  const chunks: Uint8Array[] = [];
   let byteLength = 0;
   try {
     while (true) {
-      const { done, value } = (await reader.read()) as ReadableStreamReadResult<Uint8Array>;
-      if (done) return Buffer.concat(chunks, byteLength);
-      const chunk = Buffer.from(value);
-      byteLength += chunk.length;
+      const { done, value } = (await reader.read()) as unknown as WebStreamReadResult;
+      if (done) return concatBytes(chunks);
+      const chunk = value;
+      byteLength += chunk.byteLength;
       if (byteLength > maxBodyBytes) {
         void reader.cancel().catch(() => undefined);
         throw new BodyTooLargeError();
@@ -389,16 +389,10 @@ async function readWebRawBody(request: Request, maxBodyBytes: number): Promise<B
 }
 
 /**
- * Byte-array test, replacing the `Buffer.isBuffer` gate that `rawBody`'s
- * widening to `Uint8Array` outgrew.
+ * Byte-array test for the runtime-neutral raw-body type.
  *
- * `instanceof Uint8Array` is the broader of the two and subsumes it: every
- * `Buffer` this can reach is a `Uint8Array` in this realm. It is also the only
- * one that accepts a `Buffer` delivered by `postMessage`, which arrives
- * structured-cloned and reports `Buffer.isBuffer` false but `instanceof` true.
- *
- * A typed array built inside a `vm` context has neither this realm's `Buffer`
- * nor its `Uint8Array` in its prototype chain, so it is refused here along with
+ * A typed array built inside a separate realm does not have this realm's
+ * `Uint8Array` in its prototype chain, so it is refused here along with
  * a `DataView` or an `Int8Array`, and the caller gets the "configure a
  * route-specific raw-body parser" error. That is a conservative reading of an
  * unrecognised `req.body`, not a safety property: the signature path itself
@@ -459,11 +453,11 @@ function toBoundedBytes(body: string | Uint8Array, maxBodyBytes: number): Uint8A
   // the copy the old code made bought nothing. Measured on a 30 MB body that
   // copy costs about +29 MB and 10 ms — roughly half again the ~52 MB the
   // decode and JSON.parse already cost, not a doubling of the whole request.
-  return typeof body === "string" ? Buffer.from(body, "utf-8") : body;
+  return typeof body === "string" ? encodeUtf8(body) : body;
 }
 
 function assertBodyWithinLimit(body: string | Uint8Array, maxBodyBytes: number): void {
-  const byteLength = typeof body === "string" ? Buffer.byteLength(body, "utf-8") : body.byteLength;
+  const byteLength = typeof body === "string" ? encodeUtf8(body).byteLength : body.byteLength;
   if (byteLength > maxBodyBytes) throw new BodyTooLargeError();
 }
 

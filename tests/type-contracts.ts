@@ -512,6 +512,24 @@ type WebhookHandlerSignatures = [
   Expect<Equal<Parameters<WebhookSDK.NextHandler>[0], WebhookSDK.AnyWebhookEvent>>,
 ];
 
+type WebhookVerifierSignatures = [
+  Expect<
+    Equal<
+      WebhookSDK.WebhookVerifier["verify"],
+      (headers: WebhookSDK.WebhookHeadersInput, rawBody: WebhookSDK.WebhookRawBody) => Promise<void>
+    >
+  >,
+  Expect<
+    Equal<
+      WebhookSDK.WebhookVerifier["parse"],
+      (
+        headers: WebhookSDK.WebhookHeadersInput,
+        rawBody: WebhookSDK.WebhookRawBody,
+      ) => Promise<WebhookSDK.AnyWebhookEvent>
+    >
+  >,
+];
+
 const expressHandler: WebhookSDK.ExpressHandler = (event, request, response) => {
   void [event, request, response];
 };

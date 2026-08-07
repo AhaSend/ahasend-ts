@@ -20,6 +20,7 @@ import {
 } from "@ahasend/sdk";
 import { optionsFromEnv } from "@ahasend/sdk";
 import type {
+  AnyWebhookEvent,
   ExpressHandler,
   FastifyHandler,
   NextHandler,
@@ -498,6 +499,11 @@ const nextHandler: NextHandler = (event, request) => {
 };
 
 void [expressHandler, fastifyHandler, nextHandler, new WebhookVerifier("whsec_dGVzdA==")];
+
+declare const webhookVerifier: WebhookVerifier;
+const verificationResult: Promise<void> = webhookVerifier.verify({}, "{}");
+const parseResult: Promise<AnyWebhookEvent> = webhookVerifier.parse({}, "{}");
+void [verificationResult, parseResult];
 
 // The declarations no longer name `Buffer` or `NodeJS.ProcessEnv` (see the
 // types-no-node fixture, which compiles them with no @types/node installed).
