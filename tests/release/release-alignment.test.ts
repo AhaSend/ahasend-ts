@@ -108,7 +108,7 @@ describe("v0.2.0 release source alignment", () => {
     expect(webhookApiReport).not.toContain("export class AhaSendClient");
   });
 
-  it("exposes the tested source, candidate, live, and aggregate release validators", () => {
+  it("exposes the release validators and maintained runtime gates", () => {
     expect(packageManifest.scripts["release:source-gate"]).toBe(
       "node scripts/run-source-gates.mjs",
     );
@@ -116,6 +116,15 @@ describe("v0.2.0 release source alignment", () => {
     expect(packageManifest.scripts["release:live"]).toBe("node scripts/run-live-acceptance.mjs");
     expect(packageManifest.scripts["release:verify"]).toBe(
       "vitest run tests/release tests/version.test.ts tests/contracts.test.ts tests/generation.test.ts",
+    );
+    expect(packageManifest.scripts["test:conformance:workerd"]).toBe(
+      "vitest run --config vitest.workerd.config.ts",
+    );
+    expect(packageManifest.scripts["test:runtime:deno"]).toBe(
+      "node scripts/run-runtime-smoke.mjs deno",
+    );
+    expect(packageManifest.scripts["test:runtime:bun"]).toBe(
+      "node scripts/run-runtime-smoke.mjs bun",
     );
   });
 
@@ -134,12 +143,41 @@ describe("v0.2.0 release source alignment", () => {
     expect(section).not.toBe("");
 
     const documented = [...section.matchAll(/^npm run ([\w:]+)/gmu)].map((match) => match[1]!);
-    expect(documented).toEqual(["ci", "release:verify", "test:package:preflight"]);
+    expect(documented).toEqual([
+      "ci",
+      "release:verify",
+      "test:package:preflight",
+      "test:conformance:workerd",
+      "build",
+      "test:runtime:deno",
+      "test:runtime:bun",
+    ]);
     for (const script of documented) {
       expect(packageManifest.scripts[script], `${script} is documented but not defined`).toBeTypeOf(
         "string",
       );
     }
+  });
+
+  it("keeps the runtime gates separate and binds Deno and Bun to one candidate tarball", () => {
+    expect(runbook).not.toMatch(/\bsuperset\b/iu);
+    expect(runbook).toContain("`npm run ci` is the core gate");
+    expect(runbook).toContain("maintained workerd conformance gate separately");
+
+    const runtimeCommands = [
+      ...runbook.matchAll(/^npm run (test:runtime:(?:deno|bun)) -- "(\$[A-Z][A-Z_]*)"$/gmu),
+    ].map(([, script, tarball]) => ({ script, tarball }));
+    expect(runtimeCommands).toEqual([
+      { script: "test:runtime:deno", tarball: "$CANDIDATE_TARBALL" },
+      { script: "test:runtime:bun", tarball: "$CANDIDATE_TARBALL" },
+    ]);
+    expect(runbook).toContain('CANDIDATE_TARBALL="$(find "$RUNTIME_SMOKE_DIR"');
+  });
+
+  it("uses the v0.2.0 tag in release and recovery commands", () => {
+    expect(runbook).toContain("git tag v0.2.0\ngit push origin v0.2.0");
+    expect(runbook).toContain("git tag -d v0.2.0 && git push origin :refs/tags/v0.2.0");
+    expect(runbook).not.toMatch(/git (?:tag|push origin(?::refs\/tags\/)?) v?0\.1\.0/u);
   });
 
   it("pins each artifact validator's usage line to the signature the runbook prints", () => {

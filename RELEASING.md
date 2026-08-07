@@ -133,7 +133,7 @@ Account preconditions:
 
 ### 1. Before you tag
 
-Run the same gates CI will run, locally:
+Install dependencies and run the core Node/package gate locally:
 
 ```bash
 npm ci
@@ -141,8 +141,10 @@ npm run ci
 ```
 
 That chain is `typecheck → lint → docs:check → test → verify:audit →
-test:package:preflight`. If it is not green locally it will not be green on the
-tag.
+test:package:preflight`. It does not include the separately maintained workerd,
+Deno, or Bun gates; run those with the commands under
+[Local verification without a release](#local-verification-without-a-release).
+If any required gate is not green locally, do not tag.
 
 Then confirm:
 
@@ -151,14 +153,16 @@ Then confirm:
 - [ ] `CHANGELOG.md` describes what actually ships.
 - [ ] npm trusted publishing is configured for `@ahasend/sdk` (see above), or
       `next-publish` has been given a token.
+- [ ] The core Node/package gate and the separate workerd, Deno, and Bun gates
+      are green.
 - [ ] The `AHASEND_LIVE_CONFIG_JSON` account preconditions still hold — domains
       get deleted and recreated by previous live runs.
 
 ### 2. Tag
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 ### 3. What runs, in order
@@ -181,7 +185,7 @@ Note that **Node 26 blocks the release** here but is `continue-on-error` in
 ### 4. If it fails
 
 - **Before `next-publish`** — nothing was published. Fix and re-tag (delete the
-  tag first: `git tag -d v0.1.0 && git push origin :refs/tags/v0.1.0`).
+  tag first: `git tag -d v0.2.0 && git push origin :refs/tags/v0.2.0`).
 - **After `next-publish`** — the version exists on npm under `next`. npm does
   not allow republishing a version, so the next attempt needs a new version
   number. Do not try to reuse it.
@@ -197,7 +201,8 @@ Note that **Node 26 blocks the release** here but is `continue-on-error` in
 
 ## Local verification without a release
 
-These three take no arguments and run to completion locally:
+These three core Node/package and release-policy commands take no arguments and
+run to completion locally:
 
 ```bash
 npm run ci                      # typecheck, lint, docs, tests, audit, packed-package preflight
@@ -205,8 +210,31 @@ npm run release:verify          # release-machinery tests
 npm run test:package:preflight  # build, pack, then verify the tarball as a consumer would
 ```
 
-`npm run ci` is the one to run before opening a pull request. It is a superset
-of the other two.
+`npm run ci` is the core gate to run before opening a pull request. The other
+commands cover release-policy and focused packed-package checks.
+
+Run the maintained workerd conformance gate separately:
+
+```bash
+npm run test:conformance:workerd
+```
+
+The maintained Deno and Bun gates test installed package bytes. Build and pack
+one candidate, then pass that exact tarball to both commands (with Deno 2.x and
+Bun installed):
+
+```bash
+npm run build
+RUNTIME_SMOKE_DIR="$(mktemp -d)"
+npm pack --ignore-scripts --pack-destination "$RUNTIME_SMOKE_DIR"
+CANDIDATE_TARBALL="$(find "$RUNTIME_SMOKE_DIR" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+test -n "$CANDIDATE_TARBALL"
+npm run test:runtime:deno -- "$CANDIDATE_TARBALL"
+npm run test:runtime:bun -- "$CANDIDATE_TARBALL"
+```
+
+Do not repack between the Deno and Bun commands: using the same candidate keeps
+both results bound to the same package bytes, as the blocking CI gates require.
 
 ### The `release:*` artifact validators are not local commands
 
