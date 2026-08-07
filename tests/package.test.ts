@@ -32,6 +32,20 @@ if (apiExtractorBin === undefined) {
   throw new TypeError("@microsoft/api-extractor does not declare its api-extractor executable.");
 }
 const apiExtractorExecutable = resolve(dirname(apiExtractorManifestPath), apiExtractorBin);
+const webhookRuntimeExports = [
+  "AhaSendWebhookVerificationError",
+  "DEFAULT_TOLERANCE_SECONDS",
+  "MAX_WEBHOOK_BODY_BYTES",
+  "WEBHOOK_ID_HEADER",
+  "WEBHOOK_SIGNATURE_HEADER",
+  "WEBHOOK_TIMESTAMP_HEADER",
+  "WebhookVerifier",
+  "expressWebhookHandler",
+  "fastifyWebhookHandler",
+  "isKnownWebhookEvent",
+  "isKnownWebhookEventType",
+  "nextRouteHandler",
+];
 let esmRoot: RootModule;
 let esmWebhooks: WebhooksModule;
 let cjsRoot: RootModule;
@@ -48,6 +62,23 @@ function runtimeFiles(directory: string, prefix = ""): string[] {
     }
   }
   return files.sort();
+}
+
+function generatedArtifacts(
+  directory: string,
+  prefix = "dist",
+  artifacts = new Map<string, Buffer>(),
+): ReadonlyMap<string, Buffer> {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relativePath = join(prefix, entry.name);
+    const absolutePath = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      generatedArtifacts(absolutePath, relativePath, artifacts);
+    } else if (entry.isFile()) {
+      artifacts.set(relativePath, readFileSync(absolutePath));
+    }
+  }
+  return artifacts;
 }
 
 function parsePackOutput(output: string): readonly PackResult[] {
@@ -135,16 +166,35 @@ describe("npm pack output compatibility", () => {
 });
 
 describe("built package topology", () => {
-  it("targets Node 22 and exposes only the supported package entries", () => {
+  it("targets Node 22 with no runtime dependencies or extra package conditions", () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
     ) as {
       engines: { node: string };
       exports: Record<string, unknown>;
+      dependencies?: Record<string, string>;
     };
 
     expect(packageJson.engines.node).toBe(">=22");
-    expect(Object.keys(packageJson.exports)).toEqual([".", "./webhooks", "./package.json"]);
+    expect(packageJson.dependencies).toBeUndefined();
+    expect(packageJson.exports).toEqual({
+      ".": {
+        import: { types: "./dist/index.d.ts", default: "./dist/index.js" },
+        require: { types: "./dist/index.d.cts", default: "./dist/index.cjs" },
+      },
+      "./webhooks": {
+        import: { types: "./dist/webhooks/index.d.ts", default: "./dist/webhooks/index.js" },
+        require: {
+          types: "./dist/webhooks/index.d.cts",
+          default: "./dist/webhooks/index.cjs",
+        },
+      },
+      "./package.json": "./package.json",
+    });
+  });
+
+  it("passes the artifact scanner with the complete clean build", () => {
+    expect(() => assertNoNodeSpecifiers(generatedArtifacts(distDirectory))).not.toThrow();
   });
 
   it("keeps exactly one shared error runtime per module format", () => {
@@ -233,9 +283,25 @@ describe("built package topology", () => {
 
   it("keeps webhook signing and test-clock facilities out of both public module formats", () => {
     for (const webhooks of [esmWebhooks, cjsWebhooks]) {
+      expect(Object.keys(webhooks).sort()).toEqual(webhookRuntimeExports);
       expect(webhooks).not.toHaveProperty("createWebhookVerifierWithClock");
+      expect(webhooks).not.toHaveProperty("fetchWebhookHandler");
       expect(webhooks).not.toHaveProperty("sign");
     }
+
+    const webhookReport = readFileSync(
+      resolve(repositoryRoot, "etc/ahasend-sdk-webhooks.api.md"),
+      "utf8",
+    );
+    for (const adapter of [
+      "expressWebhookHandler",
+      "fastifyWebhookHandler",
+      "nextRouteHandler",
+    ]) {
+      expect(webhookReport).toContain(`// @public\nexport function ${adapter}`);
+    }
+    expect(webhookReport).not.toContain("fetchWebhookHandler");
+    expect(webhookReport).not.toContain("FetchHandler");
   });
 
   it("copies the operation profile and detached digest byte-for-byte", () => {
