@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { assertNoNodeSpecifiers } from "../scripts/assert-no-node-specifiers.mjs";
@@ -22,6 +24,7 @@ type PackOutput = PackResult[] | Readonly<Record<string, PackResult>>;
 
 const repositoryRoot = process.cwd();
 const distDirectory = resolve(repositoryRoot, "dist");
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const require = createRequire(import.meta.url);
 const apiExtractorManifestPath = require.resolve("@microsoft/api-extractor/package.json");
 const apiExtractorManifest = JSON.parse(readFileSync(apiExtractorManifestPath, "utf8")) as {
@@ -62,23 +65,6 @@ function runtimeFiles(directory: string, prefix = ""): string[] {
     }
   }
   return files.sort();
-}
-
-function generatedArtifacts(
-  directory: string,
-  prefix = "dist",
-  artifacts = new Map<string, Buffer>(),
-): ReadonlyMap<string, Buffer> {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const relativePath = join(prefix, entry.name);
-    const absolutePath = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      generatedArtifacts(absolutePath, relativePath, artifacts);
-    } else if (entry.isFile()) {
-      artifacts.set(relativePath, readFileSync(absolutePath));
-    }
-  }
-  return artifacts;
 }
 
 function parsePackOutput(output: string): readonly PackResult[] {
@@ -163,6 +149,41 @@ describe("npm pack output compatibility", () => {
     const [manifest] = parsePackOutput(JSON.stringify(output));
     expect(manifest?.files[0]?.path).toBe(expectedPath);
   });
+
+  it("applies extracted-tarball scanning to clean real output", () => {
+    const packDirectory = mkdtempSync(join(tmpdir(), "ahasend-sdk-package-test-"));
+    try {
+      const packed = spawnSync(
+        npmCommand,
+        ["pack", "--ignore-scripts", "--pack-destination", packDirectory, "--json"],
+        {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+        },
+      );
+      expect(packed.status, `${packed.stdout}${packed.stderr}`).toBe(0);
+
+      const tarballs = readdirSync(packDirectory).filter((name) => name.endsWith(".tgz"));
+      expect(tarballs).toHaveLength(1);
+      const tarball = resolve(packDirectory, tarballs[0]!);
+      const checksum = createHash("sha256").update(readFileSync(tarball)).digest("hex");
+      const verified = spawnSync(
+        process.execPath,
+        ["scripts/verify-package.mjs", tarball, checksum],
+        {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+          maxBuffer: 20 * 1024 * 1024,
+        },
+      );
+
+      expect(verified.status, `${verified.stdout}${verified.stderr}`).toBe(0);
+      expect(verified.stdout).toContain("> artifact boundary");
+      expect(verified.stdout).toContain("> extract package artifact");
+    } finally {
+      rmSync(packDirectory, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
 
 describe("built package topology", () => {
@@ -191,10 +212,6 @@ describe("built package topology", () => {
       },
       "./package.json": "./package.json",
     });
-  });
-
-  it("passes the artifact scanner with the complete clean build", () => {
-    expect(() => assertNoNodeSpecifiers(generatedArtifacts(distDirectory))).not.toThrow();
   });
 
   it("keeps exactly one shared error runtime per module format", () => {
@@ -293,11 +310,7 @@ describe("built package topology", () => {
       resolve(repositoryRoot, "etc/ahasend-sdk-webhooks.api.md"),
       "utf8",
     );
-    for (const adapter of [
-      "expressWebhookHandler",
-      "fastifyWebhookHandler",
-      "nextRouteHandler",
-    ]) {
+    for (const adapter of ["expressWebhookHandler", "fastifyWebhookHandler", "nextRouteHandler"]) {
       expect(webhookReport).toContain(`// @public\nexport function ${adapter}`);
     }
     expect(webhookReport).not.toContain("fetchWebhookHandler");
@@ -326,7 +339,6 @@ describe("built package topology", () => {
   });
 
   it("packs private runtimes and metadata without exporting their subpaths", () => {
-    const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
     const packed = spawnSync(npmCommand, ["pack", "--ignore-scripts", "--dry-run", "--json"], {
       cwd: repositoryRoot,
       encoding: "utf8",
