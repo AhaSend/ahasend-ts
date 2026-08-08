@@ -1,9 +1,12 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
+import { assertNoNodeSpecifiers } from "../scripts/assert-no-node-specifiers.mjs";
 import { digestJsonArtifact } from "../scripts/digest-artifact.mjs";
 
 type RootModule = typeof import("../src/index.js");
@@ -21,6 +24,7 @@ type PackOutput = PackResult[] | Readonly<Record<string, PackResult>>;
 
 const repositoryRoot = process.cwd();
 const distDirectory = resolve(repositoryRoot, "dist");
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const require = createRequire(import.meta.url);
 const apiExtractorManifestPath = require.resolve("@microsoft/api-extractor/package.json");
 const apiExtractorManifest = JSON.parse(readFileSync(apiExtractorManifestPath, "utf8")) as {
@@ -31,6 +35,20 @@ if (apiExtractorBin === undefined) {
   throw new TypeError("@microsoft/api-extractor does not declare its api-extractor executable.");
 }
 const apiExtractorExecutable = resolve(dirname(apiExtractorManifestPath), apiExtractorBin);
+const webhookRuntimeExports = [
+  "AhaSendWebhookVerificationError",
+  "DEFAULT_TOLERANCE_SECONDS",
+  "MAX_WEBHOOK_BODY_BYTES",
+  "WEBHOOK_ID_HEADER",
+  "WEBHOOK_SIGNATURE_HEADER",
+  "WEBHOOK_TIMESTAMP_HEADER",
+  "WebhookVerifier",
+  "expressWebhookHandler",
+  "fastifyWebhookHandler",
+  "isKnownWebhookEvent",
+  "isKnownWebhookEventType",
+  "nextRouteHandler",
+];
 let esmRoot: RootModule;
 let esmWebhooks: WebhooksModule;
 let cjsRoot: RootModule;
@@ -54,13 +72,57 @@ function parsePackOutput(output: string): readonly PackResult[] {
   return Array.isArray(parsed) ? parsed : Object.values(parsed);
 }
 
-beforeAll(async () => {
-  const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  });
-  expect(build.status, `${build.stdout}${build.stderr}`).toBe(0);
+describe("published artifact Node.js specifiers", () => {
+  const cleanArtifacts = new Map<string, Buffer>([
+    ["dist/index.js", Buffer.from("export const sdk = true;\n")],
+    ["dist/index.cjs", Buffer.from('"use strict";\nexports.sdk = true;\n')],
+    ["dist/index.d.ts", Buffer.from("export declare const sdk: true;\n")],
+    ["dist/errors-clean.d.cts", Buffer.from("export declare class SDKError extends Error {}\n")],
+    ["dist/index.js.map", Buffer.from('{"version":3,"sources":[]}\n')],
+    ["README.md", Buffer.from("Use node:crypto only in application code.\n")],
+    ["CHANGELOG.md", Buffer.from("Removed the node:buffer dependency.\n")],
+  ]);
 
+  it.each([
+    ["ESM runtime", "dist/index.js", 'import "node:crypto";\n'],
+    ["CommonJS runtime", "dist/index.cjs", 'require("node:buffer");\n'],
+    ["declaration entry", "dist/index.d.ts", 'import type { Buffer } from "node:buffer";\n'],
+    [
+      "declaration chunk",
+      "dist/errors-clean.d.cts",
+      'import type { InspectOptions } from "node:util";\n',
+    ],
+    [
+      "source map",
+      "dist/index.js.map",
+      '{"version":3,"sourcesContent":["import \\"node:stream\\";"]}\n',
+    ],
+  ])("rejects synthetic %s contamination", (_label, path, contamination) => {
+    const contaminatedArtifacts = new Map(cleanArtifacts);
+    contaminatedArtifacts.set(path, Buffer.from(contamination));
+
+    expect(() => assertNoNodeSpecifiers(contaminatedArtifacts)).toThrow(path);
+  });
+
+  it("reports every contaminated generated artifact and ignores package prose", () => {
+    const contaminatedArtifacts = new Map(cleanArtifacts);
+    contaminatedArtifacts.set("dist/index.js", Buffer.from('import "node:crypto";\n'));
+    contaminatedArtifacts.set(
+      "dist/webhooks/index.d.cts",
+      Buffer.from('export { EventEmitter } from "node:events";\n'),
+    );
+
+    expect(() => assertNoNodeSpecifiers(contaminatedArtifacts)).toThrowError(
+      new TypeError(
+        "Generated artifacts contain forbidden Node.js specifiers:\n" +
+          "- dist/index.js\n" +
+          "- dist/webhooks/index.d.cts",
+      ),
+    );
+  });
+});
+
+beforeAll(async () => {
   esmRoot = (await import(pathToFileURL(resolve(distDirectory, "index.js")).href)) as RootModule;
   esmWebhooks = (await import(
     pathToFileURL(resolve(distDirectory, "webhooks/index.js")).href
@@ -81,19 +143,69 @@ describe("npm pack output compatibility", () => {
     const [manifest] = parsePackOutput(JSON.stringify(output));
     expect(manifest?.files[0]?.path).toBe(expectedPath);
   });
+
+  it("applies extracted-tarball scanning to clean real output", () => {
+    const packDirectory = mkdtempSync(join(tmpdir(), "ahasend-sdk-package-test-"));
+    try {
+      const packed = spawnSync(
+        npmCommand,
+        ["pack", "--ignore-scripts", "--pack-destination", packDirectory, "--json"],
+        {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+        },
+      );
+      expect(packed.status, `${packed.stdout}${packed.stderr}`).toBe(0);
+
+      const tarballs = readdirSync(packDirectory).filter((name) => name.endsWith(".tgz"));
+      expect(tarballs).toHaveLength(1);
+      const tarball = resolve(packDirectory, tarballs[0]!);
+      const checksum = createHash("sha256").update(readFileSync(tarball)).digest("hex");
+      const verified = spawnSync(
+        process.execPath,
+        ["scripts/verify-package.mjs", tarball, checksum],
+        {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+          maxBuffer: 20 * 1024 * 1024,
+        },
+      );
+
+      expect(verified.status, `${verified.stdout}${verified.stderr}`).toBe(0);
+      expect(verified.stdout).toContain("> artifact boundary");
+      expect(verified.stdout).toContain("> extract package artifact");
+    } finally {
+      rmSync(packDirectory, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
 
 describe("built package topology", () => {
-  it("targets Node 22 and exposes only the supported package entries", () => {
+  it("targets Node 22 with no runtime dependencies or extra package conditions", () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
     ) as {
       engines: { node: string };
       exports: Record<string, unknown>;
+      dependencies?: Record<string, string>;
     };
 
     expect(packageJson.engines.node).toBe(">=22");
-    expect(Object.keys(packageJson.exports)).toEqual([".", "./webhooks", "./package.json"]);
+    expect(packageJson.dependencies).toBeUndefined();
+    expect(packageJson.exports).toEqual({
+      ".": {
+        import: { types: "./dist/index.d.ts", default: "./dist/index.js" },
+        require: { types: "./dist/index.d.cts", default: "./dist/index.cjs" },
+      },
+      "./webhooks": {
+        import: { types: "./dist/webhooks/index.d.ts", default: "./dist/webhooks/index.js" },
+        require: {
+          types: "./dist/webhooks/index.d.cts",
+          default: "./dist/webhooks/index.cjs",
+        },
+      },
+      "./package.json": "./package.json",
+    });
   });
 
   it("keeps exactly one shared error runtime per module format", () => {
@@ -182,9 +294,21 @@ describe("built package topology", () => {
 
   it("keeps webhook signing and test-clock facilities out of both public module formats", () => {
     for (const webhooks of [esmWebhooks, cjsWebhooks]) {
+      expect(Object.keys(webhooks).sort()).toEqual(webhookRuntimeExports);
       expect(webhooks).not.toHaveProperty("createWebhookVerifierWithClock");
+      expect(webhooks).not.toHaveProperty("fetchWebhookHandler");
       expect(webhooks).not.toHaveProperty("sign");
     }
+
+    const webhookReport = readFileSync(
+      resolve(repositoryRoot, "etc/ahasend-sdk-webhooks.api.md"),
+      "utf8",
+    );
+    for (const adapter of ["expressWebhookHandler", "fastifyWebhookHandler", "nextRouteHandler"]) {
+      expect(webhookReport).toContain(`// @public\nexport function ${adapter}`);
+    }
+    expect(webhookReport).not.toContain("fetchWebhookHandler");
+    expect(webhookReport).not.toContain("FetchHandler");
   });
 
   it("copies the operation profile and detached digest byte-for-byte", () => {
@@ -209,7 +333,6 @@ describe("built package topology", () => {
   });
 
   it("packs private runtimes and metadata without exporting their subpaths", () => {
-    const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
     const packed = spawnSync(npmCommand, ["pack", "--ignore-scripts", "--dry-run", "--json"], {
       cwd: repositoryRoot,
       encoding: "utf8",

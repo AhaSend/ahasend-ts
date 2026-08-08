@@ -8,6 +8,7 @@ import {
   optionsFromEnv,
   resolveConfig,
 } from "../src/config.js";
+import { AhaSendConfigurationError } from "../src/errors.js";
 import { DEFAULT_MAX_QUEUE, MIN_REQUESTS_PER_SECOND } from "../src/rate-limit.js";
 import { MAX_RETRIES } from "../src/retry.js";
 
@@ -205,29 +206,105 @@ describe("resolveConfig", () => {
     ).not.toThrow();
   });
 
-  it("refuses to construct in a browser-like environment (window present)", () => {
-    const g = globalThis as { window?: unknown };
-    const original = g.window;
-    g.window = {}; // simulate a browser
-    try {
-      expect(() => resolveConfig({ apiKey: "aha-sk-test" })).toThrow(/browser/i);
-    } finally {
-      if (original === undefined) delete g.window;
-      else g.window = original;
+  it.each([
+    [
+      "the explicit override with every browser guard present",
+      {
+        window: {},
+        document: {},
+        ServiceWorkerGlobalScope: class {},
+      },
+      true,
+      true,
+    ],
+    ["window even with a server signal", { window: {}, EdgeRuntime: "edge-runtime" }, false, false],
+    ["document even with a server signal", { document: {}, Deno: {} }, false, false],
+    [
+      "a service-worker scope without a server signal",
+      { ServiceWorkerGlobalScope: class {} },
+      false,
+      false,
+    ],
+    [
+      "a Cloudflare Workers service-worker scope",
+      {
+        ServiceWorkerGlobalScope: class {},
+        navigator: { userAgent: "Cloudflare-Workers" },
+      },
+      false,
+      true,
+    ],
+    [
+      "a service-worker scope with a near-match Cloudflare user agent",
+      {
+        ServiceWorkerGlobalScope: class {},
+        navigator: { userAgent: "cloudflare-workers" },
+      },
+      false,
+      false,
+    ],
+    [
+      "an older Cloudflare Workers scope with WebSocketPair",
+      { ServiceWorkerGlobalScope: class {}, WebSocketPair: class {} },
+      false,
+      true,
+    ],
+    [
+      "an older Cloudflare Workers scope with HTMLRewriter",
+      { ServiceWorkerGlobalScope: class {}, HTMLRewriter: class {} },
+      false,
+      true,
+    ],
+    [
+      "a service-worker scope with a non-callable Cloudflare near-match",
+      { ServiceWorkerGlobalScope: class {}, WebSocketPair: {} },
+      false,
+      false,
+    ],
+    [
+      "an EdgeRuntime service-worker scope",
+      { ServiceWorkerGlobalScope: class {}, EdgeRuntime: "edge-runtime" },
+      false,
+      true,
+    ],
+    ["a Deno service-worker scope", { ServiceWorkerGlobalScope: class {}, Deno: {} }, false, true],
+    ["a Bun service-worker scope", { ServiceWorkerGlobalScope: class {}, Bun: {} }, false, true],
+    [
+      "a Node.js service-worker scope",
+      { ServiceWorkerGlobalScope: class {}, process: { versions: { node: "22.0.0" } } },
+      false,
+      true,
+    ],
+  ] as const)("%s", (_name, globals, dangerouslyAllowBrowser, shouldAllow) => {
+    const cleanGlobals: Readonly<Record<string, unknown>> = {
+      window: undefined,
+      document: undefined,
+      ServiceWorkerGlobalScope: undefined,
+      WebSocketPair: undefined,
+      HTMLRewriter: undefined,
+      navigator: undefined,
+      EdgeRuntime: undefined,
+      Deno: undefined,
+      Bun: undefined,
+      process: undefined,
+    };
+    for (const [name, value] of Object.entries({ ...cleanGlobals, ...globals })) {
+      vi.stubGlobal(name, value);
     }
-  });
 
-  it("dangerouslyAllowBrowser opt-in bypasses the browser guard", () => {
-    const g = globalThis as { window?: unknown };
-    const original = g.window;
-    g.window = {};
     try {
-      expect(() =>
-        resolveConfig({ apiKey: "aha-sk-test", dangerouslyAllowBrowser: true }),
-      ).not.toThrow();
+      const construct = () =>
+        new AhaSendClient({
+          apiKey: "aha-sk-test",
+          accountId: "22222222-2222-4222-8222-222222222222",
+          fetch: vi.fn<typeof fetch>(),
+          dangerouslyAllowBrowser,
+        });
+
+      if (shouldAllow) expect(construct).not.toThrow();
+      else expect(construct).toThrow(/browser/i);
     } finally {
-      if (original === undefined) delete g.window;
-      else g.window = original;
+      vi.unstubAllGlobals();
     }
   });
 
@@ -610,6 +687,45 @@ describe("resolveConfig", () => {
 
 describe("optionsFromEnv", () => {
   it.each([
+    ["optionsFromEnv", () => optionsFromEnv()],
+    ["AhaSendClient.fromEnv", () => AhaSendClient.fromEnv()],
+  ])("%s reports the missing API key when process is absent", (_name, readEnvironment) => {
+    const processDescriptor = Object.getOwnPropertyDescriptor(globalThis, "process");
+    expect(processDescriptor).toBeDefined();
+    Reflect.deleteProperty(globalThis, "process");
+
+    try {
+      expect(readEnvironment).toThrow(AhaSendConfigurationError);
+      expect(readEnvironment).toThrow(/missing API key.*AHASEND_API_KEY/i);
+    } finally {
+      Object.defineProperty(globalThis, "process", processDescriptor!);
+    }
+  });
+
+  it.each([
+    [
+      "API key",
+      {
+        AHASEND_API_KEY: "aha-sk-workers",
+        AHASEND_ACCOUNT_ID: "22222222-2222-4222-8222-222222222222",
+      },
+    ],
+    [
+      "fallback token and optional settings",
+      {
+        AHASEND_TOKEN: "aha-token-workers",
+        AHASEND_ACCOUNT_ID: "33333333-3333-4333-8333-333333333333",
+        AHASEND_TIMEOUT: "10",
+        AHASEND_DEBUG: "false",
+      },
+    ],
+  ] as const)("AhaSendClient.fromEnv accepts a Workers-style %s record", (_name, env) => {
+    const workersEnv: Readonly<Record<string, string>> = env;
+
+    expect(AhaSendClient.fromEnv(workersEnv).accountId).toBe(env.AHASEND_ACCOUNT_ID);
+  });
+
+  it.each([
     ["reads AHASEND_API_KEY", { AHASEND_API_KEY: "aha-sk-env" }, "aha-sk-env"],
     ["falls back to AHASEND_TOKEN", { AHASEND_TOKEN: "aha-sk-token" }, "aha-sk-token"],
     [
@@ -626,10 +742,15 @@ describe("optionsFromEnv", () => {
     expect(optionsFromEnv(env).apiKey).toBe(expected);
   });
 
-  it("throws when neither AHASEND_API_KEY nor AHASEND_TOKEN has a credential", () => {
-    expect(() => optionsFromEnv({ AHASEND_API_KEY: "", AHASEND_TOKEN: "" })).toThrow(
-      /AHASEND_API_KEY/,
-    );
+  it.each([
+    ["optionsFromEnv", () => optionsFromEnv({ AHASEND_API_KEY: "", AHASEND_TOKEN: "" })],
+    [
+      "AhaSendClient.fromEnv",
+      () => AhaSendClient.fromEnv({ AHASEND_API_KEY: "", AHASEND_TOKEN: "" }),
+    ],
+  ])("%s reports the normal missing-credential error", (_name, readEnvironment) => {
+    expect(readEnvironment).toThrow(AhaSendConfigurationError);
+    expect(readEnvironment).toThrow(/AHASEND_API_KEY/);
   });
 
   it.each([

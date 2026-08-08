@@ -16,6 +16,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertNoNodeSpecifiers } from "./assert-no-node-specifiers.mjs";
 import { digestJsonArtifact } from "./digest-artifact.mjs";
 import { validateSecretScanAllowlist } from "./generate-contracts.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
@@ -643,6 +644,7 @@ try {
   const sourceFiles = trackedSourceFiles();
   const rules = await loadSecretRules(sourceFiles);
   verifyPackageContents(packageFiles);
+  assertNoNodeSpecifiers(packageFiles);
   verifySourceMaps(packageFiles, sourceFiles);
   verifyMetadata(packageFiles);
   verifySourceSecrets(sourceFiles, rules);

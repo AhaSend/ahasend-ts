@@ -278,9 +278,153 @@ jobs:
             /tmp/source-report/documentation-workflows.json \
             /tmp/source-report/documentation-workflows.sha256
 
+  runtime-workerd:
+    name: Retained candidate workerd conformance
+    needs: candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-tarball
+          path: /tmp/candidate
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-manifest
+          path: /tmp/candidate
+
+      - name: Run workerd against the retained candidate
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          test -n "$TARBALL"
+          SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" "$TARBALL")" = "$SHA256"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).commit")" = "$GITHUB_SHA"
+          mkdir "$RUNNER_TEMP/ahasend-workerd-candidate"
+          tar -xzf "$TARBALL" -C "$RUNNER_TEMP/ahasend-workerd-candidate"
+          test ! -e dist
+          cp -R "$RUNNER_TEMP/ahasend-workerd-candidate/package/dist" dist
+          npm run test:conformance:workerd:artifact
+
+  runtime-deno:
+    name: Retained candidate Deno 2.x smoke
+    needs: candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
+
+      - run: npm ci
+
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: 2.x
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-tarball
+          path: /tmp/candidate
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-manifest
+          path: /tmp/candidate
+
+      - name: Run Deno against the retained candidate
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          test -n "$TARBALL"
+          SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" "$TARBALL")" = "$SHA256"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).commit")" = "$GITHUB_SHA"
+          npm run test:runtime:deno -- "$TARBALL"
+
+  runtime-bun:
+    name: Retained candidate Bun smoke
+    needs: candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install asserted npm version
+        run: npm install --global npm@11.12.0
+
+      - name: Verify asserted npm version
+        run: test "$(npm --version)" = "11.12.0"
+
+      - run: npm ci
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-tarball
+          path: /tmp/candidate
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-manifest
+          path: /tmp/candidate
+
+      - name: Run Bun against the retained candidate
+        run: |
+          TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          test -n "$TARBALL"
+          SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" "$TARBALL")" = "$SHA256"
+          test "$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[1])).digest('hex'))" /tmp/candidate/candidate-manifest.json)" = "$(tr -d '\n' < /tmp/candidate/candidate-manifest.sha256)"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).tarballSha256")" = "$SHA256"
+          test "$(node -p "JSON.parse(require('fs').readFileSync('/tmp/candidate/candidate-manifest.json')).commit")" = "$GITHUB_SHA"
+          npm run test:runtime:bun -- "$TARBALL"
+
   live-gates:
     name: Live candidate gates
-    needs: artifact-gates
+    needs: [artifact-gates, runtime-workerd, runtime-deno, runtime-bun]
     runs-on: ubuntu-latest
     environment: live-release
     steps:
@@ -367,6 +511,9 @@ jobs:
               { name: "artifact", passed: true },
               { name: "installed-documentation-links", passed: true },
               { name: "documentation-workflows", passed: true },
+              { name: "workerd", passed: true },
+              { name: "deno", passed: true },
+              { name: "bun", passed: true },
               { name: "live", passed: true },
             ],
           });
@@ -390,7 +537,16 @@ jobs:
 
   next-publish:
     name: Publish candidate to next
-    needs: [source-gate, candidate, artifact-gates, live-gates]
+    needs:
+      [
+        source-gate,
+        candidate,
+        artifact-gates,
+        runtime-workerd,
+        runtime-deno,
+        runtime-bun,
+        live-gates,
+      ]
     runs-on: ubuntu-latest
     environment: npm-next
     permissions:
@@ -468,6 +624,9 @@ jobs:
               "artifact",
               "installed-documentation-links",
               "documentation-workflows",
+              "workerd",
+              "deno",
+              "bun",
               "live",
             ],
             expectedManifestSha256: sha256Hex(manifestSource),
@@ -789,6 +948,9 @@ jobs:
               "artifact",
               "installed-documentation-links",
               "documentation-workflows",
+              "workerd",
+              "deno",
+              "bun",
               "live",
             ],
             expectedManifestSha256: sha256Hex(manifestSource),

@@ -90,7 +90,16 @@ const publicationPrerequisites = [
   "source-gate",
   "candidate",
   "artifact-gates",
+  "runtime-workerd",
+  "runtime-deno",
+  "runtime-bun",
   "live-gates",
+] as const;
+const livePrerequisites = [
+  "artifact-gates",
+  "runtime-workerd",
+  "runtime-deno",
+  "runtime-bun",
 ] as const;
 const latestPromotionPrerequisites = ["live-gates", "registry-smoke"] as const;
 const latestPromotionCondition =
@@ -118,8 +127,17 @@ function validatePublicationPolicy(workflowValue: unknown): void {
   if (record(jobs["artifact-gates"], "artifact gates")["needs"] !== "candidate") {
     throw new TypeError("Artifact gates must depend on candidate construction.");
   }
-  if (record(jobs["live-gates"], "live gates")["needs"] !== "artifact-gates") {
-    throw new TypeError("Live gates must depend directly on artifact gates.");
+  for (const runtime of ["runtime-workerd", "runtime-deno", "runtime-bun"] as const) {
+    if (record(jobs[runtime], runtime)["needs"] !== "candidate") {
+      throw new TypeError(`${runtime} must consume the retained candidate.`);
+    }
+  }
+  const liveNeeds = array(record(jobs["live-gates"], "live gates")["needs"], "live needs");
+  if (
+    liveNeeds.length !== livePrerequisites.length ||
+    livePrerequisites.some((name, index) => liveNeeds[index] !== name)
+  ) {
+    throw new TypeError("Live reporting must wait for every retained-candidate runtime gate.");
   }
 
   const publishSteps = jobSteps(jobs["next-publish"], "next publish");
@@ -127,10 +145,12 @@ function validatePublicationPolicy(workflowValue: unknown): void {
     String(step["run"] ?? "").includes("npm publish"),
   );
   const validator = publishSteps[publishIndex - 1];
+  const validation = String(validator?.["run"] ?? "");
   if (
     publishIndex < 1 ||
     validator?.["name"] !== "Validate exact publication evidence" ||
-    !String(validator["run"] ?? "").includes("validateGateReport")
+    !validation.includes("validateGateReport") ||
+    !["workerd", "deno", "bun"].every((name) => validation.includes(`"${name}"`))
   ) {
     throw new TypeError("Exact gate-report validation must immediately precede publication.");
   }
@@ -335,6 +355,9 @@ function validateLatestPromotionPolicy(workflowValue: unknown): void {
     !validation.includes("expectedTarballSha256: sha256Hex(tarballSource)") ||
     !validation.includes('"installed-documentation-links"') ||
     !validation.includes('"documentation-workflows"') ||
+    !validation.includes('"workerd"') ||
+    !validation.includes('"deno"') ||
+    !validation.includes('"bun"') ||
     !validation.includes('"live"')
   ) {
     throw new TypeError("Strict gate-report validation must immediately precede latest promotion.");
@@ -350,6 +373,9 @@ describe("single-run release workflow", () => {
       "source-gate",
       "candidate",
       "artifact-gates",
+      "runtime-workerd",
+      "runtime-deno",
+      "runtime-bun",
       "live-gates",
       "next-publish",
       "registry-smoke",
@@ -396,6 +422,9 @@ describe("single-run release workflow", () => {
       "source-gate",
       "candidate",
       "artifact-gates",
+      "runtime-workerd",
+      "runtime-deno",
+      "runtime-bun",
       "live-gates",
       "next-publish",
       "registry-smoke",
@@ -405,7 +434,10 @@ describe("single-run release workflow", () => {
     ]);
     expect(record(jobs["candidate"], "candidate")["needs"]).toBe("source-gate");
     expect(record(jobs["artifact-gates"], "artifact")["needs"]).toBe("candidate");
-    expect(record(jobs["live-gates"], "live")["needs"]).toBe("artifact-gates");
+    expect(record(jobs["runtime-workerd"], "workerd")["needs"]).toBe("candidate");
+    expect(record(jobs["runtime-deno"], "Deno")["needs"]).toBe("candidate");
+    expect(record(jobs["runtime-bun"], "Bun")["needs"]).toBe("candidate");
+    expect(record(jobs["live-gates"], "live")["needs"]).toEqual(livePrerequisites);
     expect(record(jobs["next-publish"], "next")["needs"]).toEqual(publicationPrerequisites);
     expect(record(jobs["registry-smoke"], "smoke")["needs"]).toBe("next-publish");
     expect(record(jobs["latest-promotion"], "promotion")["needs"]).toEqual(
@@ -444,6 +476,9 @@ describe("single-run release workflow", () => {
     expect(gateReportCreation).toContain('{ name: "artifact", passed: true }');
     expect(gateReportCreation).toContain('{ name: "installed-documentation-links", passed: true }');
     expect(gateReportCreation).toContain('{ name: "documentation-workflows", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "workerd", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "deno", passed: true }');
+    expect(gateReportCreation).toContain('{ name: "bun", passed: true }');
     expect(gateReportCreation).toContain('{ name: "live", passed: true }');
     expect(gateReportCreation).not.toContain('{ name: "external", passed: true }');
     expect(
@@ -515,6 +550,59 @@ describe("single-run release workflow", () => {
     );
   });
 
+  it("runs every edge runtime against the exact retained candidate before live reporting", () => {
+    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const cases = [
+      {
+        job: "runtime-workerd",
+        step: "Run workerd against the retained candidate",
+        command: "npm run test:conformance:workerd:artifact",
+      },
+      {
+        job: "runtime-deno",
+        step: "Run Deno against the retained candidate",
+        command: 'npm run test:runtime:deno -- "$TARBALL"',
+      },
+      {
+        job: "runtime-bun",
+        step: "Run Bun against the retained candidate",
+        command: 'npm run test:runtime:bun -- "$TARBALL"',
+      },
+    ] as const;
+
+    for (const runtimeCase of cases) {
+      const job = record(jobs[runtimeCase.job], runtimeCase.job);
+      const downloads = jobSteps(job, runtimeCase.job)
+        .filter((step) => String(step["uses"] ?? "").startsWith("actions/download-artifact@"))
+        .map((step) => record(step["with"], `${runtimeCase.job} download`));
+      const run = String(namedStep(job, runtimeCase.job, runtimeCase.step)["run"]);
+
+      expect(job["needs"]).toBe("candidate");
+      expect(job["continue-on-error"]).toBeUndefined();
+      expect(downloads).toEqual([
+        { name: "candidate-tarball", path: "/tmp/candidate" },
+        { name: "candidate-manifest", path: "/tmp/candidate" },
+      ]);
+      expect(run).toContain("candidate-manifest.sha256");
+      expect(run).toContain(".tarballSha256");
+      expect(run).toContain(".commit");
+      expect(run).toContain('= "$GITHUB_SHA"');
+      expect(run).toContain(runtimeCase.command);
+      expect(run).not.toMatch(/\bnpm run build\b|\bnpm pack\b|create-candidate\.mjs/u);
+    }
+
+    const workerdRun = String(
+      namedStep(
+        jobs["runtime-workerd"],
+        "runtime-workerd",
+        "Run workerd against the retained candidate",
+      )["run"],
+    );
+    expect(workerdRun).toContain('tar -xzf "$TARBALL"');
+    expect(workerdRun).toContain('package/dist" dist');
+    expect(record(jobs["live-gates"], "live gates")["needs"]).toEqual(livePrerequisites);
+  });
+
   it("runs every retained artifact behavior without rebuilding or repacking", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
     const artifactCommands = commands(jobs["artifact-gates"], "artifact gates");
@@ -565,6 +653,9 @@ describe("single-run release workflow", () => {
     expect(validation).toContain("expectedTarballSha256: sha256Hex(tarballSource)");
     expect(validation).toContain('"installed-documentation-links"');
     expect(validation).toContain('"documentation-workflows"');
+    expect(validation).toContain('"workerd"');
+    expect(validation).toContain('"deno"');
+    expect(validation).toContain('"bun"');
     expect(publishSteps[publishIndex]?.["name"]).toBe("Publish the retained bytes with provenance");
     expect(String(publishSteps[publishIndex]?.["run"]).match(/npm publish/gu)).toHaveLength(1);
     expect(() => validatePublicationPolicy(workflow)).not.toThrow();

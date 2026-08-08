@@ -12,12 +12,24 @@
 // reach, so naming one type per entry point is enough to put both .d.cts files
 // under the compiler. See the sibling types-no-node fixture for the ESM half.
 import type { AhaSendClient, ClientOptions, ProcessEnvLike } from "@ahasend/sdk";
-import type { NodeStyleRequest, WebhookRawBody } from "@ahasend/sdk/webhooks";
+import { WebhookVerifier } from "@ahasend/sdk/webhooks";
+import type { AnyWebhookEvent, NodeStyleRequest, WebhookRawBody } from "@ahasend/sdk/webhooks";
 
 declare const client: AhaSendClient;
 declare const options: ClientOptions;
 declare const env: ProcessEnvLike;
 declare const request: NodeStyleRequest;
 declare const rawBody: WebhookRawBody;
+declare const verifier: WebhookVerifier;
+const verification: Promise<void> = verifier.verify({}, rawBody);
+const parsed: Promise<AnyWebhookEvent> = verifier.parse({}, rawBody);
 
-export type Surface = [typeof client, typeof options, typeof env, typeof request, typeof rawBody];
+export type Surface = [
+  typeof client,
+  typeof options,
+  typeof env,
+  typeof request,
+  typeof rawBody,
+  typeof verification,
+  typeof parsed,
+];

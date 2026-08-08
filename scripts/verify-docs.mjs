@@ -75,7 +75,27 @@ const REQUIREMENTS = Object.freeze([
   {
     label: "Node 22 runtime floor",
     path: "README.md",
-    text: "Node.js 22 or later",
+    text: "Node.js 22 and 24.",
+  },
+  {
+    label: "Deno runtime support",
+    path: "README.md",
+    text: "Deno latest 2.x.",
+  },
+  {
+    label: "Bun runtime support",
+    path: "README.md",
+    text: "Bun latest.",
+  },
+  {
+    label: "workerd runtime support",
+    path: "README.md",
+    text: "Cloudflare workerd without `nodejs_compat`.",
+  },
+  {
+    label: "Vercel Edge runtime support",
+    path: "README.md",
+    text: "Vercel Edge through `@edge-runtime/vm`.",
   },
   {
     label: "JavaScript and TypeScript parity",
@@ -93,9 +113,44 @@ const REQUIREMENTS = Object.freeze([
     text: "`Bundler`, `Node16`, and `NodeNext`",
   },
   {
-    label: "unsupported runtime boundary",
+    label: "browser runtime refusal",
     path: "README.md",
-    text: "Browsers and edge runtimes",
+    text: "Browser and browser Service Worker use is refused by default.",
+  },
+  {
+    label: "dangerous browser escape hatch",
+    path: "README.md",
+    text: "`dangerouslyAllowBrowser: true` escape hatch",
+  },
+  {
+    label: "Workers environment binding",
+    path: "README.md",
+    text: "const client = AhaSendClient.fromEnv(env);",
+  },
+  {
+    label: "awaited direct webhook verification",
+    path: "README.md",
+    text: "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+  },
+  {
+    label: "awaited direct webhook parsing",
+    path: "README.md",
+    text: "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+  },
+  {
+    label: "existing web-standard Request adapter",
+    path: "README.md",
+    text: "`nextRouteHandler` export is the web-standard `Request` adapter",
+  },
+  {
+    label: "fixed webhook body ceiling",
+    path: "README.md",
+    text: "fixed 30,000,000-byte webhook body ceiling",
+  },
+  {
+    label: "lower webhook deployment cap",
+    path: "README.md",
+    text: "`maxBodyBytes` is only a lower deployment cap",
   },
   {
     label: "Express 5 support",
@@ -156,6 +211,26 @@ const REQUIREMENTS = Object.freeze([
     label: "pacing header independence",
     path: "docs/rate-pacing.md",
     text: "does not learn from undocumented\nremaining-quota response headers",
+  },
+  {
+    label: "client-and-isolate pacing scope",
+    path: "docs/rate-pacing.md",
+    text: "Limiter state is scoped to one `AhaSendClient` instance in one JavaScript isolate.",
+  },
+  {
+    label: "clamped-clock zero-duration telemetry",
+    path: "docs/rate-pacing.md",
+    text: "on runtimes that clamp it between I/O turns, a\nCPU-only pacing duration may validly be zero.",
+  },
+  {
+    label: "monotonic pacing clock and workerd progress",
+    path: "docs/rate-pacing.md",
+    text: "Token refill uses the\nmonotonic high-resolution clock and deliberately ignores the adjustable wall clock, so an NTP or\nhost-clock correction cannot pin queued calls at a future timestamp. The blocking workerd\nconformance burst verifies that timer-driven pacing drains without a wall-clock fallback.",
+  },
+  {
+    label: "authoritative cross-isolate server 429 handling",
+    path: "docs/rate-pacing.md",
+    text: "Server HTTP 429 handling is authoritative across isolates:",
   },
   {
     label: "retry status policy",
@@ -226,6 +301,31 @@ const REQUIREMENTS = Object.freeze([
     label: "timestamp versus replay distinction",
     path: "docs/security-and-webhooks.md",
     text: "Timestamp-window verification is not replay deduplication.",
+  },
+  {
+    label: "security-guide awaited direct verification",
+    path: "docs/security-and-webhooks.md",
+    text: "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+  },
+  {
+    label: "security-guide awaited direct parsing",
+    path: "docs/security-and-webhooks.md",
+    text: "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+  },
+  {
+    label: "security-guide existing Request adapter",
+    path: "docs/security-and-webhooks.md",
+    text: "`nextRouteHandler` is the existing web-standard `Request` adapter.",
+  },
+  {
+    label: "security-guide fixed webhook body ceiling",
+    path: "docs/security-and-webhooks.md",
+    text: "fixed 30,000,000-byte body ceiling",
+  },
+  {
+    label: "security-guide lower webhook deployment cap",
+    path: "docs/security-and-webhooks.md",
+    text: "is only a lower deployment cap",
   },
   {
     label: "application webhook-id responsibility",
@@ -320,7 +420,37 @@ const REQUIREMENTS = Object.freeze([
   },
 ]);
 
+const NODE_ONLY_SUPPORT_PATTERN =
+  /(?:server-side\s+SDK\s+for\s+Node\.js|only\s+supports\s+Node\.js|SDK\s+requires\s+Node\.js|SDK\s+supports\s+Node\.js\s+only|Node\.js(?:\s*-\s*|\s+)only\s+SDK)/iu;
+const EDGE_UNSUPPORTED_PATTERN =
+  /(?:edge\s+runtimes?[^.]*\b(?:not\s+supported|unsupported)\b|(?:does\s+not|doesn['’]t)\s+support[^.]*\bedge\s+runtimes?\b)/iu;
+
 const PROHIBITED_PATTERNS = Object.freeze([
+  {
+    label: "an obsolete Node-only support claim",
+    path: "README.md",
+    pattern: NODE_ONLY_SUPPORT_PATTERN,
+  },
+  {
+    label: "an obsolete Node-only support claim",
+    path: "docs/security-and-webhooks.md",
+    pattern: NODE_ONLY_SUPPORT_PATTERN,
+  },
+  {
+    label: "an obsolete edge-unsupported claim",
+    path: "README.md",
+    pattern: EDGE_UNSUPPORTED_PATTERN,
+  },
+  {
+    label: "an obsolete alternative-runtime unsupported claim",
+    path: "README.md",
+    pattern: /alternative\s+JavaScript\s+runtimes?[^.]*not\s+supported/iu,
+  },
+  {
+    label: "an obsolete edge-unsupported claim",
+    path: "docs/security-and-webhooks.md",
+    pattern: EDGE_UNSUPPORTED_PATTERN,
+  },
   {
     label: "an Express parser mounted before the webhook adapter",
     path: "README.md",
@@ -1703,10 +1833,24 @@ function verifyExamples(index) {
     throw new TypeError("The Express webhook example must let the adapter own the raw stream.");
   }
   const next = index.examples.find(({ path }) => path === "examples/next-webhook-route.mjs");
-  if (!next?.source.includes('export const runtime = "nodejs"')) {
-    throw new TypeError("The Next.js example must select the Node.js runtime explicitly.");
+  const nextSourceFile = sourceFileFor("examples/next-webhook-route.mjs", next?.source ?? "");
+  const hasEdgeRuntimeExport = nextSourceFile.statements.some(
+    (statement) =>
+      ts.isVariableStatement(statement) &&
+      statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) &&
+      (statement.declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+      statement.declarationList.declarations.some(
+        (declaration) =>
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === "runtime" &&
+          declaration.initializer !== undefined &&
+          ts.isStringLiteral(declaration.initializer) &&
+          declaration.initializer.text === "edge",
+      ),
+  );
+  if (!hasEdgeRuntimeExport) {
+    throw new TypeError("The Next.js example must select the Edge runtime explicitly.");
   }
-  const nextSourceFile = sourceFileFor("examples/next-webhook-route.mjs", next.source);
   const nextExports = nextSourceFile.statements.flatMap((statement) => {
     if (ts.isExportDeclaration(statement)) {
       return statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)

@@ -26,12 +26,6 @@ let packedSdkTarball = "";
 let packedSdkChecksum = "";
 
 beforeAll(() => {
-  const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  });
-  expect(build.status, `${build.stdout}${build.stderr}`).toBe(0);
-
   const npmExecutable = process.env.npm_execpath;
   const command = npmExecutable === undefined ? "npm" : process.execPath;
   const args = [
@@ -556,6 +550,37 @@ describe("operational documentation verification", () => {
     );
   });
 
+  it.each([
+    ["removed", 'export const runtime = "edge"', ""],
+    [
+      "replaced with the obsolete Node runtime",
+      'export const runtime = "edge"',
+      'export const runtime = "nodejs"',
+    ],
+    [
+      "replaced with the obsolete Node runtime while the Edge declaration remains in a comment",
+      'export const runtime = "edge"',
+      '// export const runtime = "edge"\nexport const runtime = "nodejs"',
+    ],
+  ])(
+    "rejects the Next Edge runtime selection when it is %s",
+    async (_label, current, replacement) => {
+      const index = await buildDocumentationIndex();
+      const mutatedRuntime = {
+        ...structuredClone(index),
+        examples: index.examples.map((example) =>
+          example.path === "examples/next-webhook-route.mjs"
+            ? { ...example, source: example.source.replace(current, replacement) }
+            : example,
+        ),
+      };
+
+      await expect(verifyDocumentationIndex(mutatedRuntime)).rejects.toThrow(
+        /must select the Edge runtime explicitly/,
+      );
+    },
+  );
+
   it("rejects sensitive values in multiline console output", async () => {
     const index = await buildDocumentationIndex();
     const unsafeOutput = {
@@ -964,6 +989,28 @@ logger.error(output);`,
   });
 
   it.each([
+    ["Node.js maintained versions", "Node.js 22 and 24."],
+    ["Deno maintained version", "Deno latest 2.x."],
+    ["Bun maintained version", "Bun latest."],
+    ["workerd compatibility mode", "Cloudflare workerd without `nodejs_compat`."],
+    ["Vercel Edge conformance runtime", "Vercel Edge through `@edge-runtime/vm`."],
+    ["browser refusal", "Browser and browser Service Worker use is refused by default."],
+    ["browser escape hatch", "`dangerouslyAllowBrowser: true` escape hatch"],
+    ["Workers environment binding", "const client = AhaSendClient.fromEnv(env);"],
+    [
+      "awaited direct webhook verification",
+      "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ],
+    [
+      "awaited direct webhook parsing",
+      "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ],
+    [
+      "existing web-standard Request adapter",
+      "`nextRouteHandler` export is the web-standard `Request` adapter",
+    ],
+    ["fixed webhook body ceiling", "fixed 30,000,000-byte webhook body ceiling"],
+    ["lower webhook deployment cap", "`maxBodyBytes` is only a lower deployment cap"],
     [
       "idempotent-operation inventory",
       "all 11 endpoints whose generated operation profile marks them idempotent",
@@ -981,6 +1028,122 @@ logger.error(output);`,
 
     expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
   });
+
+  it.each([
+    [
+      "awaited direct webhook verification",
+      "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ],
+    [
+      "awaited direct webhook parsing",
+      "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
+    ],
+    [
+      "existing web-standard Request adapter",
+      "`nextRouteHandler` is the existing web-standard `Request` adapter.",
+    ],
+    ["fixed webhook body ceiling", "fixed 30,000,000-byte body ceiling"],
+    ["lower webhook deployment cap", "is only a lower deployment cap"],
+  ])("fails if the security guide %s is removed", async (_label, requiredText) => {
+    const documents = await loadDocumentation();
+    const path = "docs/security-and-webhooks.md";
+    documents[path] = documents[path]!.replace(requiredText, "");
+
+    expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
+  });
+
+  it.each([
+    [
+      "client-and-isolate scope",
+      "Limiter state is scoped to one `AhaSendClient` instance in one JavaScript isolate.",
+    ],
+    [
+      "clamped-clock zero-duration telemetry",
+      "on runtimes that clamp it between I/O turns, a\nCPU-only pacing duration may validly be zero.",
+    ],
+    [
+      "monotonic clock and workerd progress",
+      "Token refill uses the\nmonotonic high-resolution clock and deliberately ignores the adjustable wall clock, so an NTP or\nhost-clock correction cannot pin queued calls at a future timestamp. The blocking workerd\nconformance burst verifies that timer-driven pacing drains without a wall-clock fallback.",
+    ],
+    [
+      "authoritative cross-isolate server 429 handling",
+      "Server HTTP 429 handling is authoritative across isolates:",
+    ],
+  ])("fails if the rate-pacing %s is removed", async (_label, requiredText) => {
+    const documents = await loadDocumentation();
+    const path = "docs/rate-pacing.md";
+    documents[path] = documents[path]!.replace(requiredText, "");
+
+    expect(() => verifyDocumentation(documents)).toThrow(/required guidance/);
+  });
+
+  it.each([
+    ["Node-only", "README.md", "This is a server-side SDK for Node.js."],
+    ["Node runtime requirement", "README.md", "The SDK requires Node.js 22 or later."],
+    ["Node-only inverse", "README.md", "This SDK supports Node.js only."],
+    ["Node-only adjective", "README.md", "This is a Node.js-only SDK."],
+    [
+      "Node-only security guide",
+      "docs/security-and-webhooks.md",
+      "This SDK supports Node.js only.",
+    ],
+    ["edge-unsupported", "README.md", "Cloudflare and Vercel Edge runtimes are not supported."],
+    ["edge-unsupported inverse", "README.md", "This SDK does not support edge runtimes."],
+    [
+      "edge-unsupported inverse security guide",
+      "docs/security-and-webhooks.md",
+      "This SDK does not support edge runtimes.",
+    ],
+    [
+      "alternative-runtime unsupported",
+      "README.md",
+      "Alternative JavaScript runtimes are not supported.",
+    ],
+  ])("fails if an obsolete %s claim is introduced", async (_label, path, obsoleteText) => {
+    const documents = await loadDocumentation();
+    documents[path] = `${documents[path]}\n${obsoleteText}\n`;
+
+    expect(() => verifyDocumentation(documents)).toThrow(/unsafe guidance/);
+  });
+
+  it.each([
+    ["Node-only README", "README.md", "This is a server-side SDK for\nNode.js."],
+    ["Node-only inverse README", "README.md", "This SDK supports Node.js\nonly."],
+    [
+      "Node-only inverse security guide",
+      "docs/security-and-webhooks.md",
+      "This SDK supports Node.js\nonly.",
+    ],
+    [
+      "edge-unsupported README",
+      "README.md",
+      "Cloudflare and Vercel Edge runtimes are\nnot supported.",
+    ],
+    [
+      "alternative-runtime unsupported README",
+      "README.md",
+      "Alternative JavaScript runtimes are\nnot supported.",
+    ],
+    [
+      "edge-unsupported security guide",
+      "docs/security-and-webhooks.md",
+      "Cloudflare and Vercel Edge runtimes are\nnot supported.",
+    ],
+    ["edge-unsupported inverse README", "README.md", "This SDK does not support\nedge runtimes."],
+    [
+      "edge-unsupported inverse security guide",
+      "docs/security-and-webhooks.md",
+      "This SDK does not support\nedge runtimes.",
+    ],
+  ])(
+    "fails if a line-wrapped obsolete %s claim is introduced",
+    async (_label, path, obsoleteText) => {
+      const documents = await loadDocumentation();
+      documents[path] = `${documents[path]}\n${obsoleteText}\n`;
+
+      expect(() => verifyDocumentation(documents)).toThrow(/unsafe guidance/);
+    },
+  );
 
   it.each([
     ["operation-level retry gate", "`maxRetries` never overrides the operation-level gate"],

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 import { afterAll, describe, expect, it } from "vitest";
 import { canonicalizeJson, sha256Hex } from "../scripts/digest-artifact.mjs";
 import { buildDocumentationIndex } from "../scripts/verify-docs.mjs";
@@ -15,6 +16,15 @@ import {
 } from "../scripts/verify-doc-workflows.mjs";
 
 const spawnedProcessIds: number[] = [];
+
+async function waitForProcessExit(processId: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    if (spawnSync("kill", ["-0", String(processId)]).status !== 0) return true;
+    await delay(10);
+  } while (Date.now() < deadline);
+  return spawnSync("kill", ["-0", String(processId)]).status !== 0;
+}
 
 afterAll(() => {
   if (process.platform === "win32") return;
@@ -111,11 +121,11 @@ describe("documented workflow registry", () => {
   it.each([
     [
       "clone",
-      490,
+      536,
       "git clone https://invalid.example/not-the-sdk.git",
       "clone https://github.com/AhaSend/ahasend-ts.git",
     ],
-    ["working directory", 491, "cd not-the-sdk", "enter the cloned ahasend-ts directory"],
+    ["working directory", 537, "cd not-the-sdk", "enter the cloned ahasend-ts directory"],
   ])("rejects coordinated invalid source setup %s argv", async (_label, line, command, message) => {
     const index = await buildDocumentationIndex();
     const entries = DOCUMENTED_WORKFLOW_REGISTRY.map((entry) =>
@@ -187,18 +197,34 @@ describe("test watch readiness marker", () => {
 });
 
 describe("bounded documented processes", () => {
-  it("terminates a process tree after its startup marker", async () => {
-    const output = await runBoundedInteractive({
-      label: "ready fixture",
-      command: process.execPath,
-      args: ["-e", 'console.log("ready"); setInterval(() => {}, 1000)'],
-      cwd: process.cwd(),
-      marker: /ready/u,
-      timeoutMs: 2_000,
-    });
+  it.runIf(process.platform !== "win32")(
+    "terminates a process tree after its startup marker",
+    async () => {
+      const output = await runBoundedInteractive({
+        label: "ready fixture",
+        command: process.execPath,
+        args: [
+          "-e",
+          [
+            'const { spawn } = require("node:child_process");',
+            'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+            "console.log(`child-pid=${child.pid}`);",
+            'console.log("ready");',
+            "setInterval(() => {}, 1000);",
+          ].join(" "),
+        ],
+        cwd: process.cwd(),
+        marker: /ready/u,
+        timeoutMs: 2_000,
+      });
 
-    expect(output).toContain("ready");
-  });
+      expect(output).toContain("ready");
+      const processId = Number(output.match(/child-pid=(\d+)/u)?.[1]);
+      expect(processId).toBeGreaterThan(0);
+      spawnedProcessIds.push(processId);
+      await expect(waitForProcessExit(processId, 1_000)).resolves.toBe(true);
+    },
+  );
 
   it("rejects a dev build that fails after an early per-format success", async () => {
     await expect(
@@ -221,22 +247,14 @@ describe("bounded documented processes", () => {
   });
 
   it.runIf(process.platform !== "win32")(
-    "kills a hanging child process tree and reports timeout as failure",
+    "reports a hanging process timeout as failure",
     async () => {
       let failure: unknown;
       try {
         await runBoundedInteractive({
           label: "hanging fixture",
           command: process.execPath,
-          args: [
-            "-e",
-            [
-              'const { spawn } = require("node:child_process");',
-              'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
-              "console.log(`child-pid=${child.pid}`);",
-              "setInterval(() => {}, 1000);",
-            ].join(" "),
-          ],
+          args: ["-e", ["setInterval(() => {}, 1000);"].join(" ")],
           cwd: process.cwd(),
           marker: /never-ready/u,
           timeoutMs: 100,
@@ -248,11 +266,6 @@ describe("bounded documented processes", () => {
       expect(failure).toBeInstanceOf(TypeError);
       const message = failure instanceof Error ? failure.message : "";
       expect(message).toContain("did not become ready");
-      const processId = Number(message.match(/child-pid=(\d+)/u)?.[1]);
-      expect(processId).toBeGreaterThan(0);
-      spawnedProcessIds.push(processId);
-      const probe = spawnSync("kill", ["-0", String(processId)]);
-      expect(probe.status).not.toBe(0);
     },
   );
 });

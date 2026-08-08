@@ -452,9 +452,9 @@ export type WebhookVerificationReason = "missing_webhook_id" | "missing_webhook_
 // @public (undocumented)
 export class WebhookVerifier {
     constructor(secret: string, options?: WebhookVerifierOptions);
-    parse(headers: WebhookHeadersInput, rawBody: WebhookRawBody): AnyWebhookEvent;
+    parse(headers: WebhookHeadersInput, rawBody: WebhookRawBody): Promise<AnyWebhookEvent>;
     // (undocumented)
-    verify(headers: WebhookHeadersInput, rawBody: WebhookRawBody): void;
+    verify(headers: WebhookHeadersInput, rawBody: WebhookRawBody): Promise<void>;
 }
 
 // @public (undocumented)

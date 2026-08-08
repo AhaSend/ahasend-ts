@@ -8,12 +8,12 @@ import {
   resolveIdempotencyConfig,
 } from "../src/idempotency.js";
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 describe("generateIdempotencyKey", () => {
   it("returns a UUID v4 with no prefix by default", () => {
     const key = generateIdempotencyKey();
-    expect(key).toMatch(UUID_REGEX);
+    expect(key).toMatch(UUID_V4_REGEX);
   });
 
   it("returns a prefixed key with literal concatenation (no separator inserted)", () => {
@@ -22,12 +22,12 @@ describe("generateIdempotencyKey", () => {
     // This avoids the previous "msg-" + "-" + uuid = "msg--<uuid>" bug.
     expect(key.startsWith("welcome-")).toBe(true);
     expect(key.startsWith("welcome--")).toBe(false);
-    expect(key.slice("welcome-".length)).toMatch(UUID_REGEX);
+    expect(key.slice("welcome-".length)).toMatch(UUID_V4_REGEX);
   });
 
   it("ignores empty-string prefix", () => {
     const key = generateIdempotencyKey("");
-    expect(key).toMatch(UUID_REGEX);
+    expect(key).toMatch(UUID_V4_REGEX);
   });
 
   it.each([" \t ", " leading-"])(
@@ -51,7 +51,7 @@ describe("IdempotencyKeyBuilder", () => {
     const second = builder.next();
     expect(second.startsWith("order-123-")).toBe(true);
     expect(second).not.toBe("order-123");
-    expect(second.slice("order-123-".length)).toMatch(UUID_REGEX);
+    expect(second.slice("order-123-".length)).toMatch(UUID_V4_REGEX);
     const third = builder.next();
     expect(third).not.toBe(second);
   });
@@ -148,7 +148,7 @@ describe("idempotency key boundaries", () => {
     const prefix = "p".repeat(219);
     const key = generateIdempotencyKey(prefix);
     expect(key).toHaveLength(255);
-    expect(key.slice(prefix.length)).toMatch(UUID_REGEX);
+    expect(key.slice(prefix.length)).toMatch(UUID_V4_REGEX);
     expect(() => generateIdempotencyKey(`${prefix}p`)).toThrow(/219/);
   });
 });

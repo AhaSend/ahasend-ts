@@ -96,6 +96,9 @@ const requiredFinalGates = [
   "artifact",
   "installed-documentation-links",
   "documentation-workflows",
+  "workerd",
+  "deno",
+  "bun",
   "live",
 ] as const;
 
@@ -368,6 +371,9 @@ describe("final gate report validation", () => {
       "artifact",
       "installed-documentation-links",
       "documentation-workflows",
+      "workerd",
+      "deno",
+      "bun",
       "live",
     ]);
     expect(validateFinalGateFixture(report)).toEqual({

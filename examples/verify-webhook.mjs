@@ -10,6 +10,7 @@ import { AhaSendWebhookVerificationError, WebhookVerifier } from "@ahasend/sdk/w
 // of the string as the HMAC key, matching the Go SDK and the server.
 const SECRET = "aha-whsec-local-demo-secret-please-rotate";
 const verifier = new WebhookVerifier(SECRET);
+const encoder = new globalThis.TextEncoder();
 
 const id = "msg_demo_1";
 const timestamp = Math.floor(Date.now() / 1000);
@@ -31,13 +32,13 @@ const body = JSON.stringify({
 const toSign = `${id}.${timestamp}.${body}`;
 const key = await globalThis.crypto.subtle.importKey(
   "raw",
-  Buffer.from(SECRET, "utf8"),
+  encoder.encode(SECRET),
   { name: "HMAC", hash: "SHA-256" },
   false,
   ["sign"],
 );
-const signature = await globalThis.crypto.subtle.sign("HMAC", key, Buffer.from(toSign, "utf8"));
-const sig = `v1,${Buffer.from(signature).toString("base64")}`;
+const signature = await globalThis.crypto.subtle.sign("HMAC", key, encoder.encode(toSign));
+const sig = `v1,${globalThis.btoa(String.fromCharCode(...new Uint8Array(signature)))}`;
 
 const headers = {
   "webhook-id": id,
@@ -46,7 +47,7 @@ const headers = {
 };
 
 try {
-  const event = verifier.parse(headers, body);
+  const event = await verifier.parse(headers, body);
   if (event.type !== "message.delivered") throw new Error("Unexpected webhook event type.");
   console.log("✓ verified webhook signature");
 } catch {
@@ -56,7 +57,7 @@ try {
 
 // Demonstrate that tampering is detected
 try {
-  verifier.parse(headers, body.replace("Hello", "Tampered"));
+  await verifier.parse(headers, body.replace("Hello", "Tampered"));
   console.error("✗ verifier accepted a tampered body — this should not happen");
   process.exit(1);
 } catch (err) {

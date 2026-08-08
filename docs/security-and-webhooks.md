@@ -14,6 +14,19 @@ payload and makes verification impossible. Pass the dashboard secret literally, 
 tolerance. Verification and the framework adapters have a fixed 30,000,000-byte body ceiling.
 Bodies above that ceiling receive an opaque 413 response from the adapters.
 
+Direct verification is asynchronous. Await it before reading or processing the body as trusted:
+
+```ts
+await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);
+```
+
+When you also need the validated event, use the awaited combined operation instead; `parse()`
+already performs verification:
+
+```ts
+const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);
+```
+
 Timestamp-window verification is not replay deduplication. It only rejects deliveries whose
 timestamp is outside the accepted window; the same correctly signed delivery can be presented
 again inside that window. Applications must deduplicate the `webhook-id` value. Keep IDs at least
@@ -73,6 +86,10 @@ key or diagnostic logs.
 
 ## Adapter boundaries
 
+`nextRouteHandler` is the existing web-standard `Request` adapter. Use it in Request/Response
+runtimes such as the Next.js app router and Vercel Edge; webhook verification does not add a
+different edge adapter export.
+
 The Express 5.x, Fastify, and Next.js factories share trailing
 `WebhookAdapterOptions`:
 
@@ -90,9 +107,9 @@ const options = {
 ```
 
 `maxBodyBytes` defaults to 30,000,000. It accepts only integer byte counts from 1 through
-30,000,000, so it can narrow the fixed verifier ceiling but can never raise it. Set the reverse
-proxy's request-body limit to the same value or lower and configure its rejection response to be
-opaque as well.
+30,000,000 and is only a lower deployment cap: it can narrow the fixed verifier ceiling but can
+never raise it. Set the reverse proxy's request-body limit to the same value or lower and configure
+its rejection response to be opaque as well.
 
 Invalid signatures and schemas receive an opaque 400 response. Fastify also returns an opaque 400
 when a parsed body is present without captured `rawBody` bytes. Oversized bodies receive an opaque
@@ -119,8 +136,8 @@ original application error can still carry sensitive information.
 
 ## Deployment checklist
 
-- Load API keys and webhook secrets from a secret manager; never ship them to a browser or edge
-  bundle.
+- Load API keys and webhook secrets from a secret manager; never ship them to a browser bundle or
+  client-side code.
 - Serve webhook endpoints over HTTPS and preserve the raw body.
 - Apply request-body and concurrency limits at the reverse proxy, and narrow the adapter body
   limit where possible; configure proxy failures to avoid exposing diagnostics.

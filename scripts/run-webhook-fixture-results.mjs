@@ -39,7 +39,7 @@ async function observedResult(root, capture, WebhookVerifier, VerificationError)
 
   let result = "invalid";
   try {
-    const event = verifier.parse(headers, rawBody);
+    const event = await verifier.parse(headers, rawBody);
     if (isRouteBound(event, capture.signingResource)) result = "valid";
   } catch (error) {
     if (!(error instanceof VerificationError)) throw error;

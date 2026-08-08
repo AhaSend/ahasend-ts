@@ -51,7 +51,8 @@ describe("webhook public types", () => {
 
   it("returns AnyWebhookEvent and narrows validated known payloads", () => {
     const verifier = new WebhookVerifier("test-secret");
-    expectTypeOf(verifier.parse).returns.toEqualTypeOf<AnyWebhookEvent>();
+    expectTypeOf(verifier.verify).returns.toEqualTypeOf<Promise<void>>();
+    expectTypeOf(verifier.parse).returns.toEqualTypeOf<Promise<AnyWebhookEvent>>();
 
     function assertNarrowing(event: AnyWebhookEvent): void {
       if (isKnownWebhookEvent(event)) {

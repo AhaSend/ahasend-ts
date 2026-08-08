@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { concatBytes, encodeUtf8 } from "../bytes.js";
 import { AhaSendConfigurationError, AhaSendWebhookVerificationError } from "../errors.js";
 import {
   isKnownWebhookEventType,
@@ -19,7 +19,7 @@ export const MAX_WEBHOOK_BODY_BYTES = 30_000_000;
 
 /**
  * `ignoreBOM: true` keeps a leading U+FEFF in the decoded text instead of
- * stripping it, which is what `Buffer.prototype.toString("utf-8")` does. The
+ * stripping it, which preserves the verifier's legacy decoding behavior. The
  * signature covers the raw bytes either way, so this only decides whether a
  * BOM-prefixed body reaches `JSON.parse` unchanged — and it should, so that a
  * body which used to be reported as `invalid_json` still is.
@@ -66,9 +66,8 @@ export type WebhookHeadersInput =
 /**
  * Raw request body to verify: the exact bytes received, unparsed.
  *
- * `Uint8Array` rather than `Buffer` so the published declarations do not
- * require `@types/node`. Every `Buffer` is a `Uint8Array`, so passing
- * `req.rawBody` straight through still type-checks.
+ * `Uint8Array` keeps the published declarations runtime-neutral while still
+ * accepting the byte arrays supplied by Node request frameworks.
  */
 export type WebhookRawBody = string | Uint8Array;
 type Clock = () => number;
@@ -76,7 +75,8 @@ type Clock = () => number;
 const verifierClocks = new WeakMap<WebhookVerifier, Clock>();
 
 export class WebhookVerifier {
-  readonly #key: Buffer;
+  readonly #secret: Uint8Array;
+  #key: ReturnType<typeof globalThis.crypto.subtle.importKey> | undefined;
   readonly #toleranceSeconds: number;
 
   constructor(secret: string, options: WebhookVerifierOptions = {}) {
@@ -91,12 +91,16 @@ export class WebhookVerifier {
         "WebhookVerifier: toleranceSeconds must be a positive safe integer.",
       );
     }
-    this.#key = Buffer.from(secret, "utf-8");
+    this.#secret = encodeUtf8(secret);
     this.#toleranceSeconds = options.toleranceSeconds ?? DEFAULT_TOLERANCE_SECONDS;
   }
 
-  verify(headers: WebhookHeadersInput, rawBody: WebhookRawBody): void {
-    assertBodySize(rawBody);
+  async verify(headers: WebhookHeadersInput, rawBody: WebhookRawBody): Promise<void> {
+    const body = checkedBodyBytes(rawBody, false);
+    await this.#verifyBytes(headers, body);
+  }
+
+  async #verifyBytes(headers: WebhookHeadersInput, body: Uint8Array): Promise<void> {
     const { id, timestamp, signature } = extractHeaders(headers);
 
     const timestampSeconds = parseTimestamp(timestamp);
@@ -111,7 +115,7 @@ export class WebhookVerifier {
       throw new AhaSendWebhookVerificationError("timestamp_outside_tolerance");
     }
 
-    const expected = sign(this.#key, id, timestamp, rawBody);
+    const expected = await sign(await this.#getKey(), id, timestamp, body);
     const provided = signature.split(" ").filter((part) => part.length > 0);
 
     if (!provided.some((part) => signatureMatches(part, expected))) {
@@ -137,9 +141,12 @@ export class WebhookVerifier {
    * }
    * ```
    */
-  parse(headers: WebhookHeadersInput, rawBody: WebhookRawBody): AnyWebhookEvent {
-    this.verify(headers, rawBody);
-    const text = typeof rawBody === "string" ? rawBody : utf8Decoder.decode(rawBody);
+  async parse(headers: WebhookHeadersInput, rawBody: WebhookRawBody): Promise<AnyWebhookEvent> {
+    // WebCrypto is asynchronous, so keep one private snapshot for both HMAC
+    // verification and parsing instead of rereading caller-owned mutable bytes.
+    const verifiedBody = checkedBodyBytes(rawBody, true);
+    await this.#verifyBytes(headers, verifiedBody);
+    const text = typeof rawBody === "string" ? rawBody : utf8Decoder.decode(verifiedBody);
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
@@ -185,6 +192,17 @@ export class WebhookVerifier {
     }
     return parsed;
   }
+
+  #getKey(): ReturnType<typeof globalThis.crypto.subtle.importKey> {
+    this.#key ??= globalThis.crypto.subtle.importKey(
+      "raw",
+      this.#secret,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    return this.#key;
+  }
 }
 
 /**
@@ -201,12 +219,24 @@ export function createWebhookVerifierWithClock(
   return verifier;
 }
 
-function assertBodySize(rawBody: WebhookRawBody): void {
-  const bytes =
-    typeof rawBody === "string" ? Buffer.byteLength(rawBody, "utf-8") : rawBody.byteLength;
-  if (bytes > MAX_WEBHOOK_BODY_BYTES) {
+function checkedBodyBytes(rawBody: WebhookRawBody, snapshotBytes: boolean): Uint8Array {
+  // UTF-8 never uses fewer bytes than JavaScript code units. This rejects the
+  // common oversized ASCII path without allocating, while a potentially valid
+  // string is encoded exactly once and that useful result continues to HMAC.
+  if (typeof rawBody === "string" && rawBody.length > MAX_WEBHOOK_BODY_BYTES) {
     throw new AhaSendWebhookVerificationError("body_too_large");
   }
+  if (typeof rawBody === "string") {
+    const bytes = encodeUtf8(rawBody);
+    if (bytes.byteLength > MAX_WEBHOOK_BODY_BYTES) {
+      throw new AhaSendWebhookVerificationError("body_too_large");
+    }
+    return bytes;
+  }
+  if (rawBody.byteLength > MAX_WEBHOOK_BODY_BYTES) {
+    throw new AhaSendWebhookVerificationError("body_too_large");
+  }
+  return snapshotBytes ? new Uint8Array(rawBody) : rawBody;
 }
 
 function parseTimestamp(value: string): number {
@@ -257,7 +287,7 @@ function extractHeaders(input: WebhookHeadersInput): NormalizedHeaders {
   // supplied — a foreign `Headers` is not bound by the WHATWG return contract,
   // and a JavaScript caller can put anything in a plain record — so a
   // non-string is reported as a missing header rather than reaching `sign()`,
-  // where it throws a bare ERR_INVALID_ARG_TYPE from inside node:crypto.
+  // where a host cryptography implementation may throw an unrelated type error.
   // Failing closed is right here: this is the signature path, and a header we
   // cannot read is a header we cannot verify against.
   const get = (name: string): string | undefined => {
@@ -276,15 +306,31 @@ function extractHeaders(input: WebhookHeadersInput): NormalizedHeaders {
   return { id, timestamp, signature };
 }
 
-function sign(key: Buffer, id: string, timestamp: string, rawBody: WebhookRawBody): string {
-  const hmac = createHmac("sha256", key).update(id, "utf-8").update(".", "utf-8");
-  hmac.update(timestamp, "utf-8").update(".", "utf-8").update(rawBody);
-  return `v1,${hmac.digest("base64")}`;
+async function sign(
+  key: Awaited<ReturnType<typeof globalThis.crypto.subtle.importKey>>,
+  id: string,
+  timestamp: string,
+  body: Uint8Array,
+): Promise<string> {
+  const signingInput = concatBytes([encodeUtf8(`${id}.${timestamp}.`), body]);
+  const signature = new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, signingInput));
+  return `v1,${bytesToBase64(signature)}`;
 }
 
 function signatureMatches(provided: string, expected: string): boolean {
-  const providedBytes = Buffer.from(provided, "utf-8");
-  const expectedBytes = Buffer.from(expected, "utf-8");
-  if (providedBytes.length !== expectedBytes.length) return false;
-  return timingSafeEqual(providedBytes, expectedBytes);
+  const providedBytes = encodeUtf8(provided);
+  const expectedBytes = encodeUtf8(expected);
+  if (providedBytes.byteLength !== expectedBytes.byteLength) return false;
+
+  let difference = 0;
+  for (let index = 0; index < expectedBytes.byteLength; index += 1) {
+    difference |= providedBytes[index]! ^ expectedBytes[index]!;
+  }
+  return difference === 0;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCodePoint(byte);
+  return btoa(binary);
 }

@@ -209,10 +209,16 @@ interface RateLimitClock {
   sleep(ms: number, signal?: AbortSignal): Promise<void>;
 }
 
-const MONOTONIC_CLOCK: RateLimitClock = {
-  now: () => performance.now(),
-  sleep,
-};
+function createProductionClock(): RateLimitClock {
+  return {
+    // Token refill needs elapsed time, not civil time. The supported runtimes
+    // expose this monotonic clock, and the workerd conformance burst proves its
+    // timer-driven queue makes progress. Date.now() is deliberately excluded:
+    // a corrected NTP step must not pin a bucket at a future timestamp.
+    now: () => performance.now(),
+    sleep,
+  };
+}
 
 interface PendingAcquisition {
   resolve: () => void;
@@ -482,7 +488,7 @@ export class RateLimiter {
   private readonly buckets: Record<EndpointCategory, TokenBucket>;
   private masterEnabled: boolean;
 
-  constructor(config: ResolvedRateLimitConfig, clock: RateLimitClock = MONOTONIC_CLOCK) {
+  constructor(config: ResolvedRateLimitConfig, clock: RateLimitClock = createProductionClock()) {
     this.masterEnabled = config.enabled;
     this.buckets = {
       standard: new TokenBucket(

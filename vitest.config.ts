@@ -1,11 +1,18 @@
 import { defineConfig } from "vitest/config";
+import { resolve } from "node:path";
 import { CommittedTestPolicyReporter } from "./tests/helpers/test-policy-reporter.js";
 
 export default defineConfig({
+  resolve: {
+    alias: [
+      { find: /^@ahasend\/sdk$/, replacement: resolve("src/index.ts") },
+      { find: /^@ahasend\/sdk\/webhooks$/, replacement: resolve("src/webhooks/index.ts") },
+    ],
+  },
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
-    exclude: ["tests/integration/**"],
+    exclude: ["tests/integration/**", "tests/conformance/workerd.test.ts"],
     allowOnly: false,
     reporters: ["default", new CommittedTestPolicyReporter()],
     testTimeout: 10_000,

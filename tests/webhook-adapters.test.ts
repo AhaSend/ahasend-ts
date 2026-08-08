@@ -477,13 +477,14 @@ describe("expressWebhookHandler", () => {
 
 describe("fastifyWebhookHandler", () => {
   it("verifies and dispatches when rawBody is present", async () => {
-    const handler = vi.fn(async () => {});
+    const handler = vi.fn(async (_event: AnyWebhookEvent) => {});
     const route = fastifyWebhookHandler(new WebhookVerifier(SECRET), handler);
     const reply = new MockFastifyReply();
 
     await route({ headers: signEnvelope(eventBody), rawBody: eventBody }, reply);
 
     expect(handler).toHaveBeenCalledOnce();
+    expect(handler.mock.calls[0]![0]).toMatchObject({ type: "message.delivered" });
     expect(reply.sent).toBe(true);
     expect(reply.status).toBe(200);
   });
@@ -614,7 +615,7 @@ describe("fastifyWebhookHandler", () => {
 
 describe("nextRouteHandler", () => {
   it("verifies and returns the handler response", async () => {
-    const handler = vi.fn(async () => new Response("ok", { status: 202 }));
+    const handler = vi.fn(async (_event: AnyWebhookEvent) => new Response("ok", { status: 202 }));
     const route = nextRouteHandler(new WebhookVerifier(SECRET), handler);
     const request = new Request("https://example.test/webhooks", {
       method: "POST",
@@ -625,6 +626,7 @@ describe("nextRouteHandler", () => {
     const response = await route(request);
 
     expect(handler).toHaveBeenCalledOnce();
+    expect(handler.mock.calls[0]![0]).toMatchObject({ type: "message.delivered" });
     expect(response.status).toBe(202);
     expect(await response.text()).toBe("ok");
   });

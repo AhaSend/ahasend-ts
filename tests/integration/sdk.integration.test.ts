@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import {
   copyFileSync,
@@ -14,7 +14,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer as createHttpServer, type IncomingMessage, type Server } from "node:http";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -22,6 +21,13 @@ import { pathToFileURL } from "node:url";
 import { format } from "node:util";
 import yaml from "js-yaml";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  allocateLoopbackPort,
+  spawnCapturedProcess,
+  stopProcess,
+  waitForProcessReadiness,
+  type CapturedLocalProcess,
+} from "../helpers/local-process.js";
 
 const ACCOUNT_ID = "00000000-0000-4000-8000-000000000001";
 const RESOURCE_ID = "00000000-0000-4000-8000-000000000002";
@@ -135,7 +141,7 @@ interface PackedExpressExample {
 
 interface PackedNextRouteModule {
   readonly POST: (request: Request) => Promise<Response>;
-  readonly runtime: "nodejs";
+  readonly runtime: "edge";
 }
 
 interface PackedNextRouteFactory {
@@ -404,8 +410,7 @@ const SPEC_OPERATIONS = loadSpecOperations();
 let consumerDirectory: string | undefined;
 let exampleRequestProxy: Server | undefined;
 const observedExampleRequests: ObservedExampleRequest[] = [];
-let prismProcess: ChildProcess | undefined;
-let prismOutput = "";
+let prismProcess: CapturedLocalProcess | undefined;
 let baseUrl = "";
 let prismBaseUrl = "";
 let prismDocumentDirectory: string | undefined;
@@ -424,11 +429,21 @@ beforeAll(async () => {
     webhooksEntry: resolvedWebhooksEntry,
   } = loadInstalledPackage(consumerDirectory));
 
-  const port = await availablePort();
+  const port = await allocateLoopbackPort();
   prismDocumentDirectory = mkdtempSync(join(tmpdir(), "ahasend-prism-contract-"));
   prismProcess = startPrism(port, writePrismCanaryDocument(prismDocumentDirectory));
   prismBaseUrl = `http://127.0.0.1:${port}`;
-  await waitForPrism(prismProcess, `${prismBaseUrl}/v2/ping`, 60_000);
+  await waitForProcessReadiness(
+    prismProcess,
+    async (signal) => {
+      const response = await fetch(`${prismBaseUrl}/v2/ping`, {
+        headers: { authorization: `Bearer ${API_KEY}` },
+        signal,
+      });
+      return response.ok;
+    },
+    { label: "Prism", timeoutMs: 60_000 },
+  );
   ({ server: exampleRequestProxy, baseUrl } = await startExampleRequestProxy(prismBaseUrl));
 }, 120_000);
 
@@ -501,6 +516,93 @@ describe("enforcing Prism", () => {
     await expect(response.json()).resolves.toMatchObject({
       title: "Request/Response not valid",
     });
+  });
+});
+
+describe("local process orchestration", () => {
+  it("reports an early Prism startup failure with its status and captured output", async () => {
+    const port = await allocateLoopbackPort();
+    const missingDocument = resolve(repositoryRoot, "missing-prism-document.yaml");
+    const failedPrism = startPrism(port, missingDocument);
+    const startedAt = Date.now();
+    let failure: unknown;
+
+    try {
+      await waitForProcessReadiness(
+        failedPrism,
+        async (signal) => {
+          const response = await fetch(`http://127.0.0.1:${port}/v2/ping`, {
+            headers: { authorization: `Bearer ${API_KEY}` },
+            signal,
+          });
+          return response.ok;
+        },
+        { label: "Prism startup test", timeoutMs: 20_000 },
+      );
+    } catch (error) {
+      failure = error;
+    } finally {
+      await stopProcess(failedPrism);
+    }
+
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(failure).toBeInstanceOf(Error);
+    if (!(failure instanceof Error)) throw new Error("Expected Prism startup to fail.");
+    expect(failure.message).toContain("Prism startup test exited before becoming ready");
+    expect(failure.message).toMatch(/\((?:exit code \d+|signal \w+)\)/u);
+    expect(failure.message).toContain("stdout:\n");
+    expect(failure.message).toContain("stderr:\n");
+    expect(`${failedPrism.stdout}${failedPrism.stderr}`).not.toBe("");
+  });
+
+  it("tears down a ready Prism process after an assertion failure", async () => {
+    const port = await allocateLoopbackPort();
+    const disposablePrism = startPrism(port, resolve(repositoryRoot, "openapi.yaml"));
+    const assertionRun = async (): Promise<void> => {
+      try {
+        await waitForProcessReadiness(
+          disposablePrism,
+          async (signal) => {
+            const response = await fetch(`http://127.0.0.1:${port}/v2/ping`, {
+              headers: { authorization: `Bearer ${API_KEY}` },
+              signal,
+            });
+            return response.ok;
+          },
+          { label: "Disposable Prism", timeoutMs: 60_000 },
+        );
+        expect("actual assertion value").toBe("expected assertion value");
+      } finally {
+        await stopProcess(disposablePrism);
+      }
+    };
+
+    await expect(assertionRun()).rejects.toThrow("expected assertion value");
+    const exit = await disposablePrism.exited;
+    expect(exit.exitCode !== null || exit.signal !== null).toBe(true);
+    await expect(fetch(`http://127.0.0.1:${port}/v2/ping`)).rejects.toThrow();
+  });
+
+  it("escalates teardown to KILL when a local child ignores TERM", async () => {
+    const stubbornProcess = spawnCapturedProcess(process.execPath, [
+      "-e",
+      [
+        'process.stdout.write("ready\\n");',
+        'process.on("SIGTERM", () => process.stderr.write("ignored TERM\\n"));',
+        "setInterval(() => {}, 1_000);",
+      ].join(""),
+    ]);
+
+    await waitForProcessReadiness(
+      stubbornProcess,
+      async () => stubbornProcess.stdout.includes("ready\n"),
+      { label: "Stubborn child", timeoutMs: 5_000, intervalMs: 10 },
+    );
+    await stopProcess(stubbornProcess, { gracePeriodMs: 100 });
+
+    const exit = await stubbornProcess.exited;
+    expect(exit.signal).toBe("SIGKILL");
+    expect(stubbornProcess.stderr).toContain("ignored TERM");
   });
 });
 
@@ -681,7 +783,7 @@ describe("packed Next webhook example", () => {
         )) as PackedNextRouteFactory;
         expect(Object.keys(routeModule).sort()).toEqual(["POST", "runtime"]);
         expect(routeModule.POST).toBeTypeOf("function");
-        expect(routeModule.runtime).toBe("nodejs");
+        expect(routeModule.runtime).toBe("edge");
         const route = routeFactory.createWebhookRoute({
           secret,
           enqueueOnce: createInMemoryEnqueueOnce(),
@@ -842,13 +944,13 @@ describe("packed SDK operation contract", () => {
 });
 
 describe("packed webhooks subpath", () => {
-  it("verifies a signed payload through the installed subpath", () => {
+  it("verifies a signed payload through the installed subpath", async () => {
     const secret = "aha-whsec-integration-secret";
     const verifier = new installedWebhooks.WebhookVerifier(secret);
     const id = "msg_it_1";
     const { body, headers } = createSignedWebhookDelivery(secret, id);
 
-    const event = callMethod(verifier, [], "parse", [headers, body]);
+    const event = await callMethod(verifier, [], "parse", [headers, body]);
     expect(event).toMatchObject({ type: "message.delivered" });
   });
 });
@@ -1560,25 +1662,6 @@ async function startExampleRequestProxy(
   return { server, baseUrl: `http://127.0.0.1:${address.port}` };
 }
 
-async function availablePort(): Promise<number> {
-  return await new Promise((resolvePort, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        server.close();
-        reject(new Error("Unable to allocate a Prism port."));
-        return;
-      }
-      server.close((error) => {
-        if (error === undefined) resolvePort(address.port);
-        else reject(error);
-      });
-    });
-  });
-}
-
 function writePrismCanaryDocument(directory: string): string {
   const source = readFileSync(resolve(repositoryRoot, "openapi.yaml"), "utf8");
   const document = yaml.load(source) as OpenAPIDocument;
@@ -1610,7 +1693,7 @@ function writePrismCanaryDocument(directory: string): string {
   return path;
 }
 
-function startPrism(port: number, documentPath: string): ChildProcess {
+function startPrism(port: number, documentPath: string): CapturedLocalProcess {
   const prismPackage = requireFromRepository.resolve("@stoplight/prism-cli/package.json");
   const manifest = JSON.parse(readFileSync(prismPackage, "utf8")) as {
     readonly bin?: string | Readonly<Record<string, string>>;
@@ -1621,7 +1704,7 @@ function startPrism(port: number, documentPath: string): ChildProcess {
     throw new Error("@stoplight/prism-cli does not declare its prism executable.");
   }
 
-  const child = spawn(
+  return spawnCapturedProcess(
     process.execPath,
     [
       resolve(dirname(prismPackage), relativeBin),
@@ -1636,47 +1719,6 @@ function startPrism(port: number, documentPath: string): ChildProcess {
     {
       cwd: repositoryRoot,
       env: { ...process.env, NO_COLOR: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
     },
   );
-  child.stdout?.on("data", (chunk: Buffer | string) => {
-    prismOutput += chunk.toString();
-  });
-  child.stderr?.on("data", (chunk: Buffer | string) => {
-    prismOutput += chunk.toString();
-  });
-  return child;
-}
-
-async function waitForPrism(
-  child: ChildProcess,
-  readinessUrl: string,
-  timeoutMs: number,
-): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (child.exitCode !== null) {
-      throw new Error(`Prism exited before becoming ready (${child.exitCode}):\n${prismOutput}`);
-    }
-    try {
-      const response = await fetch(readinessUrl, {
-        headers: { authorization: `Bearer ${API_KEY}` },
-      });
-      if (response.ok) return;
-    } catch {
-      // The local process has not started listening yet.
-    }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
-  }
-  throw new Error(`Prism did not become ready within ${timeoutMs}ms:\n${prismOutput}`);
-}
-
-async function stopProcess(child: ChildProcess | undefined): Promise<void> {
-  if (child === undefined || child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await Promise.race([
-    new Promise<void>((resolveExit) => child.once("exit", () => resolveExit())),
-    new Promise<void>((resolveTimeout) => setTimeout(resolveTimeout, 5_000)),
-  ]);
-  if (child.exitCode === null) child.kill("SIGKILL");
 }
