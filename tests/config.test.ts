@@ -244,6 +244,24 @@ describe("resolveConfig", () => {
       false,
     ],
     [
+      "an older Cloudflare Workers scope with WebSocketPair",
+      { ServiceWorkerGlobalScope: class {}, WebSocketPair: class {} },
+      false,
+      true,
+    ],
+    [
+      "an older Cloudflare Workers scope with HTMLRewriter",
+      { ServiceWorkerGlobalScope: class {}, HTMLRewriter: class {} },
+      false,
+      true,
+    ],
+    [
+      "a service-worker scope with a non-callable Cloudflare near-match",
+      { ServiceWorkerGlobalScope: class {}, WebSocketPair: {} },
+      false,
+      false,
+    ],
+    [
       "an EdgeRuntime service-worker scope",
       { ServiceWorkerGlobalScope: class {}, EdgeRuntime: "edge-runtime" },
       false,
@@ -262,6 +280,8 @@ describe("resolveConfig", () => {
       window: undefined,
       document: undefined,
       ServiceWorkerGlobalScope: undefined,
+      WebSocketPair: undefined,
+      HTMLRewriter: undefined,
       navigator: undefined,
       EdgeRuntime: undefined,
       Deno: undefined,

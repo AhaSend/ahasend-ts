@@ -3,20 +3,20 @@ import {
   AhaSendClient,
   AhaSendConfigurationError,
   AhaSendServerError,
-} from "../../src/index.js";
+} from "@ahasend/sdk";
 import {
   AhaSendWebhookVerificationError,
   MAX_WEBHOOK_BODY_BYTES,
   WebhookVerifier,
   nextRouteHandler,
-} from "../../src/webhooks/index.js";
+} from "@ahasend/sdk/webhooks";
 
 const API_KEY = "aha-sk-conformance-key";
 const ACCOUNT_ID = "11111111-1111-4111-8111-111111111111";
 const WEBHOOK_SECRET = "aha-whsec-conformance-secret";
 const WEBHOOK_ID = "conformance-webhook-message";
-const IDEMPOTENCY_KEY = "conformance-idempotency-key";
 const encoder = new TextEncoder();
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const validWebhookEvent = {
   type: "message.delivered",
@@ -51,6 +51,8 @@ type ConformanceGlobals = Partial<
     | "window"
     | "document"
     | "ServiceWorkerGlobalScope"
+    | "WebSocketPair"
+    | "HTMLRewriter"
     | "navigator"
     | "EdgeRuntime"
     | "Deno"
@@ -200,6 +202,16 @@ async function browserGuardAccepts(): Promise<void> {
       { ServiceWorkerGlobalScope: class {}, navigator: { userAgent: "Cloudflare-Workers" } },
       false,
     ],
+    [
+      "Cloudflare Workers WebSocketPair",
+      { ServiceWorkerGlobalScope: class {}, WebSocketPair: class {} },
+      false,
+    ],
+    [
+      "Cloudflare Workers HTMLRewriter",
+      { ServiceWorkerGlobalScope: class {}, HTMLRewriter: class {} },
+      false,
+    ],
     ["EdgeRuntime", { ServiceWorkerGlobalScope: class {}, EdgeRuntime: "edge-runtime" }, false],
     ["Deno", { ServiceWorkerGlobalScope: class {}, Deno: {} }, false],
     ["Bun", { ServiceWorkerGlobalScope: class {}, Bun: {} }, false],
@@ -216,6 +228,8 @@ async function browserGuardAccepts(): Promise<void> {
         window: undefined,
         document: undefined,
         ServiceWorkerGlobalScope: undefined,
+        WebSocketPair: undefined,
+        HTMLRewriter: undefined,
         navigator: undefined,
         EdgeRuntime: undefined,
         Deno: undefined,
@@ -236,6 +250,10 @@ async function browserGuardRefuses(): Promise<void> {
     ["window", { window: {}, EdgeRuntime: "edge-runtime" }],
     ["document", { document: {}, Deno: {} }],
     ["unidentified service worker", { ServiceWorkerGlobalScope: class {} }],
+    [
+      "service worker with a non-callable Cloudflare near-match",
+      { ServiceWorkerGlobalScope: class {}, WebSocketPair: {} },
+    ],
   ];
 
   for (const [label, globals] of rows) {
@@ -244,6 +262,8 @@ async function browserGuardRefuses(): Promise<void> {
         window: undefined,
         document: undefined,
         ServiceWorkerGlobalScope: undefined,
+        WebSocketPair: undefined,
+        HTMLRewriter: undefined,
         navigator: undefined,
         EdgeRuntime: undefined,
         Deno: undefined,
@@ -306,16 +326,16 @@ async function idempotency(): Promise<void> {
     }),
   );
 
-  await client.messages.send(
-    {
-      from: { email: "sender@example.com" },
-      recipients: [{ email: "recipient@example.com" }],
-      subject: "Conformance",
-      text_content: "Conformance",
-    },
-    { idempotencyKey: IDEMPOTENCY_KEY },
+  await client.messages.send({
+    from: { email: "sender@example.com" },
+    recipients: [{ email: "recipient@example.com" }],
+    subject: "Conformance",
+    text_content: "Conformance",
+  });
+  assert(
+    seenKey !== null && UUID_PATTERN.test(seenKey),
+    `automatic idempotency header must be a UUID v4, got ${String(seenKey)}`,
   );
-  assertEqual(seenKey, IDEMPOTENCY_KEY, "idempotency header");
 }
 
 async function representativeErrors(): Promise<void> {

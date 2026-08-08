@@ -48,15 +48,15 @@ no real mail" covers the messages API, which this repo controls — not that.
 
 ### Secrets
 
-| Secret                     | Consumed by                                                                                   | Notes                                                                                                                                                                                                                                                                                                                                               |
-| -------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AHASEND_API_KEY`          | `live-gates` (release.yml:317)                                                                | Needs **every** scope — live acceptance exercises all 56 operations, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
-| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:318)                                                                | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                         |
-| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:319)                                                                | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                |
-| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:722, 801, 860, 949) | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                          |
+| Secret                     | Consumed by                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AHASEND_API_KEY`          | `live-gates` (release.yml:461)                                                                  | Needs **every** scope — live acceptance exercises all 56 operations, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
+| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:462)                                                                  | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                         |
+| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:463)                                                                  | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                |
+| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:881, 963, 1022, 1111) | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                          |
 
 > **`next-publish` has no `NPM_TOKEN`.** It runs
-> `npm publish --provenance` (release.yml:481) with `id-token: write`, which
+> `npm publish --provenance` (release.yml:640) with `id-token: write`, which
 > means it depends on **npm trusted publishing** being configured for
 > `@ahasend/sdk` against this repository, `release.yml`, and the `npm-next`
 > environment. That configuration exists on npmjs.com since v0.1.0 shipped
@@ -172,15 +172,23 @@ git push origin v0.2.0
 | `source-gate`          | 13 source gates incl. `verify:audit` and the repository secret scan.            |
 | `candidate`            | Builds and packs the candidate tarball; everything downstream uses those bytes. |
 | `artifact-gates`       | Node 22, 24, 26 against the packed tarball. **All three block**, including 26.  |
+| `runtime-workerd`      | Both maintained workerd compatibility dates against extracted candidate `dist`. |
+| `runtime-deno`         | Deno 2.x smoke after installing the retained candidate tarball.                 |
+| `runtime-bun`          | Bun smoke after installing the retained candidate tarball.                      |
 | `live-gates`           | Real API acceptance in `live-release`. Mutates the account; sends no real mail. |
 | `next-publish`         | `npm publish --tag next --provenance` of the retained bytes.                    |
 | `registry-smoke`       | Installs from the registry and verifies provenance.                             |
-| `latest-promotion`     | Only if `live-gates` **and** `registry-smoke` succeeded (release.yml:676).      |
+| `latest-promotion`     | Only if `live-gates` **and** `registry-smoke` succeeded (release.yml:835).      |
 | `github-release`       | Cuts the GitHub release.                                                        |
 | `release-compensation` | Runs on failure after promotion to unwind `latest`.                             |
 
 Note that **Node 26 blocks the release** here but is `continue-on-error` in
 `ci.yml`, so a Node 26 break is invisible until you tag.
+
+The workerd, Deno, and Bun jobs all download and verify the same retained
+candidate and block `live-gates`. Their passed results are included in the
+candidate-bound gate report that is validated before both publication and
+promotion.
 
 ### 4. If it fails
 

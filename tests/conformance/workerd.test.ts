@@ -14,16 +14,15 @@ import {
 } from "../helpers/local-process.js";
 import { CONFORMANCE_CASES, type ConformanceOutcome } from "./suite.js";
 
-const CONFIG_PATH = "wrangler.workerd.json";
-const COMPATIBILITY_DATE = "2026-07-22";
-const WORKERD_VERSION = "1.20260722.1";
-const WRANGLER_VERSION = "4.114.0";
+const WORKERD_VERSION = "1.20260801.1";
+const WRANGLER_VERSION = "4.120.0";
 const STARTUP_TIMEOUT_MS = 20_000;
 const EXECUTION_TIMEOUT_MS = 15_000;
 const FORBIDDEN_DATE_DIAGNOSTIC =
   /(?:compatibility[ _-]?date)[^\n]*(?:unsupported|clamp|fall(?:ing)? back|fallback)|(?:unsupported|clamp|fall(?:ing)? back|fallback)[^\n]*(?:compatibility[ _-]?date)/iu;
 
 interface WranglerConfig {
+  readonly alias: Readonly<Record<string, string>>;
   readonly compatibility_date: string;
   readonly compatibility_flags: readonly string[];
   readonly main: string;
@@ -37,8 +36,33 @@ interface PackageMetadata {
 
 interface WorkerdInventory {
   readonly inventory: readonly string[];
-  readonly globals: Readonly<Record<string, string>>;
+  readonly globals: Readonly<Record<string, string | null>>;
 }
+
+const WORKERD_CONFIGS = [
+  {
+    label: "current compatibility date",
+    path: "wrangler.workerd.json",
+    compatibilityDate: "2026-07-22",
+    runtimeSignals: {
+      HTMLRewriter: "function",
+      WebSocketPair: "function",
+      navigator: "object",
+      navigatorUserAgent: "Cloudflare-Workers",
+    },
+  },
+  {
+    label: "pre-global_navigator compatibility date",
+    path: "wrangler.workerd-legacy.json",
+    compatibilityDate: "2021-11-03",
+    runtimeSignals: {
+      HTMLRewriter: "function",
+      WebSocketPair: "function",
+      navigator: "undefined",
+      navigatorUserAgent: null,
+    },
+  },
+] as const;
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(resolve(path), "utf8")) as T;
@@ -70,12 +94,16 @@ function earlyExitError(process: CapturedLocalProcess): Promise<never> {
 }
 
 describe("no-compat workerd conformance", () => {
-  it("runs the exact shared inventory on the pinned runtime and compatibility date", async () => {
-    const config = readJson<WranglerConfig>(CONFIG_PATH);
+  it.each(WORKERD_CONFIGS)("runs the exact shared inventory on the $label", async (runtimeCase) => {
+    const config = readJson<WranglerConfig>(runtimeCase.path);
     expect(config).toMatchObject({
-      compatibility_date: COMPATIBILITY_DATE,
+      compatibility_date: runtimeCase.compatibilityDate,
       compatibility_flags: [],
       main: "./tests/conformance/workerd-worker.ts",
+      alias: {
+        "@ahasend/sdk": "./dist/index.js",
+        "@ahasend/sdk/webhooks": "./dist/webhooks/index.js",
+      },
     });
     expect(config.compatibility_flags).not.toContain("nodejs_compat");
 
@@ -100,7 +128,7 @@ describe("no-compat workerd conformance", () => {
           resolve("node_modules/wrangler/bin/wrangler.js"),
           "dev",
           "--config",
-          resolve(CONFIG_PATH),
+          resolve(runtimeCase.path),
           "--ip",
           "127.0.0.1",
           "--port",
@@ -138,6 +166,7 @@ describe("no-compat workerd conformance", () => {
       expect(inventory.inventory).toEqual(expectedNames);
       expect(inventory.globals).toEqual({
         Buffer: "undefined",
+        ...runtimeCase.runtimeSignals,
         global: "undefined",
         module: "undefined",
         process: "undefined",

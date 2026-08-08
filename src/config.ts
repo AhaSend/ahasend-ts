@@ -386,6 +386,8 @@ function assertNotBrowser(allow: boolean): void {
     window?: unknown;
     document?: unknown;
     ServiceWorkerGlobalScope?: unknown;
+    WebSocketPair?: unknown;
+    HTMLRewriter?: unknown;
     navigator?: { userAgent?: unknown } | null;
     EdgeRuntime?: unknown;
     Deno?: unknown;
@@ -396,6 +398,8 @@ function assertNotBrowser(allow: boolean): void {
   const isServiceWorker = typeof g.ServiceWorkerGlobalScope !== "undefined";
   const hasServerRuntimeSignal =
     g.navigator?.userAgent === "Cloudflare-Workers" ||
+    typeof g.WebSocketPair === "function" ||
+    typeof g.HTMLRewriter === "function" ||
     typeof g.EdgeRuntime !== "undefined" ||
     typeof g.Deno !== "undefined" ||
     typeof g.Bun !== "undefined" ||

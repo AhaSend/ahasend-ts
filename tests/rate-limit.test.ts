@@ -152,8 +152,8 @@ describe("RateLimiter", () => {
     expect(limiter.available("standard")).toBe(1);
   });
 
-  it("paces a FIFO burst when performance time freezes while wall time advances", async () => {
-    const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
+  it("paces a FIFO burst across forward and backward wall-clock adjustments", async () => {
+    const wallNow = vi.spyOn(Date, "now").mockReturnValue(0);
     const limiter = new RateLimiter(
       resolveRateLimitConfig({
         enabled: true,
@@ -168,13 +168,14 @@ describe("RateLimiter", () => {
     await Promise.resolve();
     expect(completed).toEqual([1]);
 
+    wallNow.mockReturnValue(600_000);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(completed).toEqual([1, 2]);
 
+    wallNow.mockReturnValue(0);
     await vi.advanceTimersByTimeAsync(1_000);
     await Promise.all(acquisitions);
     expect(completed).toEqual([1, 2, 3]);
-    performanceNow.mockRestore();
   });
 
   it("removes an aborted acquisition from the queue immediately", async () => {

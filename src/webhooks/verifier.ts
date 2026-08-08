@@ -96,7 +96,11 @@ export class WebhookVerifier {
   }
 
   async verify(headers: WebhookHeadersInput, rawBody: WebhookRawBody): Promise<void> {
-    assertBodySize(rawBody);
+    const body = checkedBodyBytes(rawBody, false);
+    await this.#verifyBytes(headers, body);
+  }
+
+  async #verifyBytes(headers: WebhookHeadersInput, body: Uint8Array): Promise<void> {
     const { id, timestamp, signature } = extractHeaders(headers);
 
     const timestampSeconds = parseTimestamp(timestamp);
@@ -111,7 +115,7 @@ export class WebhookVerifier {
       throw new AhaSendWebhookVerificationError("timestamp_outside_tolerance");
     }
 
-    const expected = await sign(await this.#getKey(), id, timestamp, rawBody);
+    const expected = await sign(await this.#getKey(), id, timestamp, body);
     const provided = signature.split(" ").filter((part) => part.length > 0);
 
     if (!provided.some((part) => signatureMatches(part, expected))) {
@@ -138,12 +142,11 @@ export class WebhookVerifier {
    * ```
    */
   async parse(headers: WebhookHeadersInput, rawBody: WebhookRawBody): Promise<AnyWebhookEvent> {
-    assertBodySize(rawBody);
     // WebCrypto is asynchronous, so keep one private snapshot for both HMAC
     // verification and parsing instead of rereading caller-owned mutable bytes.
-    const verifiedBody = typeof rawBody === "string" ? rawBody : new Uint8Array(rawBody);
-    await this.verify(headers, verifiedBody);
-    const text = typeof verifiedBody === "string" ? verifiedBody : utf8Decoder.decode(verifiedBody);
+    const verifiedBody = checkedBodyBytes(rawBody, true);
+    await this.#verifyBytes(headers, verifiedBody);
+    const text = typeof rawBody === "string" ? rawBody : utf8Decoder.decode(verifiedBody);
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
@@ -216,11 +219,24 @@ export function createWebhookVerifierWithClock(
   return verifier;
 }
 
-function assertBodySize(rawBody: WebhookRawBody): void {
-  const bytes = typeof rawBody === "string" ? encodeUtf8(rawBody).byteLength : rawBody.byteLength;
-  if (bytes > MAX_WEBHOOK_BODY_BYTES) {
+function checkedBodyBytes(rawBody: WebhookRawBody, snapshotBytes: boolean): Uint8Array {
+  // UTF-8 never uses fewer bytes than JavaScript code units. This rejects the
+  // common oversized ASCII path without allocating, while a potentially valid
+  // string is encoded exactly once and that useful result continues to HMAC.
+  if (typeof rawBody === "string" && rawBody.length > MAX_WEBHOOK_BODY_BYTES) {
     throw new AhaSendWebhookVerificationError("body_too_large");
   }
+  if (typeof rawBody === "string") {
+    const bytes = encodeUtf8(rawBody);
+    if (bytes.byteLength > MAX_WEBHOOK_BODY_BYTES) {
+      throw new AhaSendWebhookVerificationError("body_too_large");
+    }
+    return bytes;
+  }
+  if (rawBody.byteLength > MAX_WEBHOOK_BODY_BYTES) {
+    throw new AhaSendWebhookVerificationError("body_too_large");
+  }
+  return snapshotBytes ? new Uint8Array(rawBody) : rawBody;
 }
 
 function parseTimestamp(value: string): number {
@@ -294,9 +310,8 @@ async function sign(
   key: Awaited<ReturnType<typeof globalThis.crypto.subtle.importKey>>,
   id: string,
   timestamp: string,
-  rawBody: WebhookRawBody,
+  body: Uint8Array,
 ): Promise<string> {
-  const body = typeof rawBody === "string" ? encodeUtf8(rawBody) : rawBody;
   const signingInput = concatBytes([encodeUtf8(`${id}.${timestamp}.`), body]);
   const signature = new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, signingInput));
   return `v1,${bytesToBase64(signature)}`;

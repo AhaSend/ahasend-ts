@@ -218,14 +218,14 @@ const REQUIREMENTS = Object.freeze([
     text: "Limiter state is scoped to one `AhaSendClient` instance in one JavaScript isolate.",
   },
   {
-    label: "frozen-clock zero-duration telemetry",
+    label: "clamped-clock zero-duration telemetry",
     path: "docs/rate-pacing.md",
-    text: "when that clock is frozen, a pacing duration may validly be zero.",
+    text: "on runtimes that clamp it between I/O turns, a\nCPU-only pacing duration may validly be zero.",
   },
   {
-    label: "non-stalling pacing wall-clock fallback",
+    label: "monotonic pacing clock and workerd progress",
     path: "docs/rate-pacing.md",
-    text: "pacing falls back to advancing wall-clock time, so\nqueued bursts continue draining instead of stalling.",
+    text: "Token refill uses the\nmonotonic high-resolution clock and deliberately ignores the adjustable wall clock, so an NTP or\nhost-clock correction cannot pin queued calls at a future timestamp. The blocking workerd\nconformance burst verifies that timer-driven pacing drains without a wall-clock fallback.",
   },
   {
     label: "authoritative cross-isolate server 429 handling",

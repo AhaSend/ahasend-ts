@@ -48,6 +48,7 @@ assert(
 assert(rejection.reason === "signature_mismatch", "a tampered webhook must reject its signature");
 
 let requestCount = 0;
+let generatedIdempotencyKey;
 const client = new AhaSendClient({
   apiKey: "aha-sk-runtime-smoke",
   accountId: "11111111-1111-4111-8111-111111111111",
@@ -55,16 +56,31 @@ const client = new AhaSendClient({
   retry: { enabled: false },
   fetch: async (input, init) => {
     requestCount += 1;
-    assert(new URL(input).pathname === "/v2/ping", "ping must use the public API path");
-    assert(init?.method === "GET", "ping must use GET");
+    assert(
+      new URL(input).pathname === "/v2/accounts/11111111-1111-4111-8111-111111111111/messages",
+      "send must use the public API path",
+    );
+    assert(init?.method === "POST", "send must use POST");
     assert(
       new Headers(init.headers).get("authorization") === "Bearer aha-sk-runtime-smoke",
       "the injected request must carry SDK authorization",
     );
-    return Response.json({ message: "pong" });
+    generatedIdempotencyKey = new Headers(init.headers).get("idempotency-key");
+    return Response.json({ object: "list", data: [] }, { status: 202 });
   },
 });
 
-const response = await client.ping();
-assert(response.message === "pong", "the client must parse the injected fetch response");
+const response = await client.messages.send({
+  from: { email: "sender@example.com" },
+  recipients: [{ email: "recipient@example.com" }],
+  subject: "Runtime smoke",
+  text_content: "Runtime smoke",
+});
+assert(response.object === "list", "the client must parse the injected fetch response");
 assert(requestCount === 1, "the client must use injected fetch exactly once");
+assert(
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+    generatedIdempotencyKey ?? "",
+  ),
+  "the client must generate a UUID v4 idempotency key",
+);

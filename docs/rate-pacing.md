@@ -30,10 +30,12 @@ Waiting calls are queued within one client instance and remain cancellable throu
 deadline when the queue wait must count toward an end-to-end deadline.
 
 Limiter state is scoped to one `AhaSendClient` instance in one JavaScript isolate. It is not shared
-with another client in the same isolate or with clients in other isolates. On runtimes that freeze
-the high-resolution clock between I/O turns, pacing falls back to advancing wall-clock time, so
-queued bursts continue draining instead of stalling. Telemetry durations still use the
-high-resolution clock; when that clock is frozen, a pacing duration may validly be zero.
+with another client in the same isolate or with clients in other isolates. Token refill uses the
+monotonic high-resolution clock and deliberately ignores the adjustable wall clock, so an NTP or
+host-clock correction cannot pin queued calls at a future timestamp. The blocking workerd
+conformance burst verifies that timer-driven pacing drains without a wall-clock fallback. Telemetry
+durations use the same high-resolution clock; on runtimes that clamp it between I/O turns, a
+CPU-only pacing duration may validly be zero.
 
 ## Queue capacity
 

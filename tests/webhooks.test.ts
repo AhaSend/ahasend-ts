@@ -1674,6 +1674,17 @@ describe("WebhookVerifier", () => {
     ).toBe("missing_webhook_signature");
   });
 
+  it("encodes a string body once across parsing and verification", async () => {
+    const envelope = buildEnvelope(SECRET, validDelivery);
+    const encode = vi.spyOn(TextEncoder.prototype, "encode");
+
+    await expect(
+      new WebhookVerifier(SECRET).parse(envelope.headers, envelope.body),
+    ).resolves.toEqual(validDelivery);
+
+    expect(encode.mock.calls.filter(([value]) => value === envelope.body)).toHaveLength(1);
+  });
+
   it("accepts the 30 MB boundary and bounds bodies by their actual byte length", async () => {
     const verifier = new WebhookVerifier(SECRET, { toleranceSeconds: Number.MAX_SAFE_INTEGER });
     const timestamp = "1";
@@ -1699,15 +1710,24 @@ describe("WebhookVerifier", () => {
   });
 
   it("rejects an oversized body before importing an HMAC key", async () => {
+    const verifier = new WebhookVerifier(SECRET);
     const importKey = vi.spyOn(globalThis.crypto.subtle, "importKey");
+    const encode = vi.spyOn(TextEncoder.prototype, "encode");
     try {
-      const verifier = new WebhookVerifier(SECRET);
       expect(
         await reasonFrom(() => verifier.verify({}, new Uint8Array(MAX_WEBHOOK_BODY_BYTES + 1))),
       ).toBe("body_too_large");
+      const oversizedAscii = "a".repeat(MAX_WEBHOOK_BODY_BYTES + 1);
+      expect(await reasonFrom(() => verifier.verify({}, oversizedAscii))).toBe("body_too_large");
+      expect(encode.mock.calls.filter(([value]) => value === oversizedAscii)).toHaveLength(0);
+
+      const oversizedUnicode = "é".repeat(MAX_WEBHOOK_BODY_BYTES / 2 + 1);
+      expect(await reasonFrom(() => verifier.verify({}, oversizedUnicode))).toBe("body_too_large");
       expect(importKey).not.toHaveBeenCalled();
+      expect(encode.mock.calls.filter(([value]) => value === oversizedUnicode)).toHaveLength(1);
     } finally {
       importKey.mockRestore();
+      encode.mockRestore();
     }
   });
 

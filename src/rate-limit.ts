@@ -210,24 +210,12 @@ interface RateLimitClock {
 }
 
 function createProductionClock(): RateLimitClock {
-  let performanceOrigin: number | undefined;
-  let wallOrigin: number | undefined;
-  let elapsedMs = 0;
-
   return {
-    now: () => {
-      const performanceNow = performance.now();
-      const wallNow = Date.now();
-      performanceOrigin ??= performanceNow;
-      wallOrigin ??= wallNow;
-
-      // Some runtimes can freeze performance time between I/O turns. Keep its
-      // monotonic behavior when it advances, but let advancing wall time make
-      // pacing progress. The previous elapsed value prevents a backwards wall
-      // adjustment from moving the bucket clock backwards.
-      elapsedMs = Math.max(elapsedMs, performanceNow - performanceOrigin, wallNow - wallOrigin);
-      return elapsedMs;
-    },
+    // Token refill needs elapsed time, not civil time. The supported runtimes
+    // expose this monotonic clock, and the workerd conformance burst proves its
+    // timer-driven queue makes progress. Date.now() is deliberately excluded:
+    // a corrected NTP step must not pin a bucket at a future timestamp.
+    now: () => performance.now(),
     sleep,
   };
 }

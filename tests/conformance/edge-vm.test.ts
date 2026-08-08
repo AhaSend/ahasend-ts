@@ -19,21 +19,7 @@ describe("Edge VM web-globals conformance", () => {
       try {
         const buildResult = spawnSync(
           process.execPath,
-          [
-            resolve("node_modules/tsup/dist/cli-default.js"),
-            resolve("tests/conformance/edge-entry.ts"),
-            "--format",
-            "iife",
-            "--platform",
-            "browser",
-            "--target",
-            "es2023",
-            "--out-dir",
-            temporaryDirectory,
-            "--no-config",
-            "--no-splitting",
-            "--silent",
-          ],
+          [resolve("scripts/build-edge-conformance.mjs"), temporaryDirectory],
           {
             cwd: process.cwd(),
             encoding: "utf8",
@@ -42,7 +28,7 @@ describe("Edge VM web-globals conformance", () => {
         );
         expect(buildResult.status, `${buildResult.stdout}${buildResult.stderr}`).toBe(0);
 
-        const bundle = await readFile(resolve(temporaryDirectory, "edge-entry.global.js"), "utf8");
+        const bundle = await readFile(resolve(temporaryDirectory, "edge-entry.js"), "utf8");
         const edgeVm = new EdgeVM({ initialCode: bundle });
         expect(
           edgeVm.evaluate(`JSON.stringify({

@@ -109,6 +109,7 @@ describe("v0.2.0 release source alignment", () => {
   });
 
   it("exposes the release validators and maintained runtime gates", () => {
+    expect(packageManifest.scripts["test:watch"]).toBe("npm run build && vitest");
     expect(packageManifest.scripts["release:source-gate"]).toBe(
       "node scripts/run-source-gates.mjs",
     );
@@ -118,6 +119,9 @@ describe("v0.2.0 release source alignment", () => {
       "vitest run tests/release tests/version.test.ts tests/contracts.test.ts tests/generation.test.ts",
     );
     expect(packageManifest.scripts["test:conformance:workerd"]).toBe(
+      "npm run build && npm run test:conformance:workerd:artifact",
+    );
+    expect(packageManifest.scripts["test:conformance:workerd:artifact"]).toBe(
       "vitest run --config vitest.workerd.config.ts",
     );
     expect(packageManifest.scripts["test:runtime:deno"]).toBe(

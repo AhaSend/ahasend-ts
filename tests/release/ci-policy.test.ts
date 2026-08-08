@@ -179,7 +179,7 @@ function expectMaintainedRuntimeGates(
   expect(nodeGate["continue-on-error"], "Node required gate continue-on-error").toBeUndefined();
   expect(scripts["ci"]?.split(" && ")).toContain("npm test");
   expect(scripts["test"]).toBe(
-    "npm run test:policy && vitest run --exclude 'tests/test-policy.test.ts'",
+    "npm run test:policy && npm run build && vitest run --exclude 'tests/test-policy.test.ts'",
   );
   expect(vitestConfigSource).toContain(
     'exclude: ["tests/integration/**", "tests/conformance/workerd.test.ts"]',
@@ -203,7 +203,12 @@ function expectMaintainedRuntimeGates(
   });
   expectBlockingJob(workerdJob, "workerd job");
   expectNode22Toolchain(workerdJob, "workerd job");
-  expect(scripts["test:conformance:workerd"]).toBe("vitest run --config vitest.workerd.config.ts");
+  expect(scripts["test:conformance:workerd"]).toBe(
+    "npm run build && npm run test:conformance:workerd:artifact",
+  );
+  expect(scripts["test:conformance:workerd:artifact"]).toBe(
+    "vitest run --config vitest.workerd.config.ts",
+  );
   expect(namedStep(workerdJob, "workerd job", "Run maintained workerd conformance")).toMatchObject({
     run: "npm run test:conformance:workerd",
   });

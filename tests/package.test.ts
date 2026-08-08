@@ -123,12 +123,6 @@ describe("published artifact Node.js specifiers", () => {
 });
 
 beforeAll(async () => {
-  const build = spawnSync(process.execPath, ["scripts/build.mjs"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  });
-  expect(build.status, `${build.stdout}${build.stderr}`).toBe(0);
-
   esmRoot = (await import(pathToFileURL(resolve(distDirectory, "index.js")).href)) as RootModule;
   esmWebhooks = (await import(
     pathToFileURL(resolve(distDirectory, "webhooks/index.js")).href

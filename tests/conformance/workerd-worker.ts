@@ -13,6 +13,11 @@ export default {
     const { pathname } = new URL(request.url);
 
     if (request.method === "GET" && pathname === "/inventory") {
+      const runtime = globalThis as typeof globalThis & {
+        HTMLRewriter?: unknown;
+        WebSocketPair?: unknown;
+        navigator?: { userAgent?: unknown };
+      };
       return json({
         inventory,
         globals: {
@@ -21,6 +26,11 @@ export default {
           module: typeof globalThis.module,
           process: typeof globalThis.process,
           require: typeof globalThis.require,
+          HTMLRewriter: typeof runtime.HTMLRewriter,
+          WebSocketPair: typeof runtime.WebSocketPair,
+          navigator: typeof runtime.navigator,
+          navigatorUserAgent:
+            typeof runtime.navigator?.userAgent === "string" ? runtime.navigator.userAgent : null,
         },
       });
     }
