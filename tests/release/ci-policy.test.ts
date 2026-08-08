@@ -40,7 +40,7 @@ const SETUP_NODE_ACTION = "actions/setup-node@249970729cb0ef3589644e2896645e5dc5
 const SETUP_DENO_ACTION = "denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282";
 const SETUP_BUN_ACTION = "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6";
 const MAINTAINED_RUNTIME_INVENTORY = [
-  "Node.js 22 and 24.",
+  "Node.js 22, 24, and 26.",
   "Deno latest 2.x.",
   "Bun latest.",
   "Cloudflare workerd without `nodejs_compat`.",
@@ -164,7 +164,7 @@ function expectMaintainedRuntimeGates(
   expect(array(matrix["include"], "Node matrix includes")).toEqual([
     { node: 22, experimental: false },
     { node: 24, experimental: false },
-    { node: 26, experimental: true },
+    { node: 26, experimental: false },
   ]);
   expect(testJob["continue-on-error"]).toBe("${{ matrix.experimental }}");
   expect(testJob["if"], "Node test job condition").toBeUndefined();
@@ -407,7 +407,7 @@ describe("CI policy", () => {
     );
   });
 
-  it("keeps Node 22 and 24 blocking while making Node 26 best-effort", () => {
+  it("keeps Node 22, 24, and 26 blocking", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
     const testJob = record(jobs["test"], "test job");
     const strategy = record(testJob["strategy"], "test strategy");
@@ -416,7 +416,7 @@ describe("CI policy", () => {
     expect(array(matrix["include"], "matrix includes")).toEqual([
       { node: 22, experimental: false },
       { node: 24, experimental: false },
-      { node: 26, experimental: true },
+      { node: 26, experimental: false },
     ]);
     expect(testJob["continue-on-error"]).toBe("${{ matrix.experimental }}");
     expect(strategy["fail-fast"]).toBe(false);

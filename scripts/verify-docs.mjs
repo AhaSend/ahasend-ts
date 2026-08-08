@@ -75,7 +75,7 @@ const REQUIREMENTS = Object.freeze([
   {
     label: "Node 22 runtime floor",
     path: "README.md",
-    text: "Node.js 22 and 24.",
+    text: "Node.js 22, 24, and 26.",
   },
   {
     label: "Deno runtime support",

@@ -59,7 +59,7 @@ describe("v0.2.0 release source alignment", () => {
       "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
     ]);
     for (const runtime of [
-      "Node.js 22 and 24",
+      "Node.js 22, 24, and 26",
       "Deno latest 2.x",
       "Bun latest",
       "Cloudflare workerd without `nodejs_compat`",

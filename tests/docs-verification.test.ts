@@ -989,7 +989,7 @@ logger.error(output);`,
   });
 
   it.each([
-    ["Node.js maintained versions", "Node.js 22 and 24."],
+    ["Node.js maintained versions", "Node.js 22, 24, and 26."],
     ["Deno maintained version", "Deno latest 2.x."],
     ["Bun maintained version", "Bun latest."],
     ["workerd compatibility mode", "Cloudflare workerd without `nodejs_compat`."],
