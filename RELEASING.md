@@ -182,8 +182,8 @@ git push origin v0.2.0
 | `github-release`       | Cuts the GitHub release.                                                        |
 | `release-compensation` | Runs on failure after promotion to unwind `latest`.                             |
 
-Note that **Node 26 blocks the release** here but is `continue-on-error` in
-`ci.yml`, so a Node 26 break is invisible until you tag.
+Node 22, 24, and 26 are maintained, blocking gates in both `ci.yml` and the
+retained-candidate release matrix.
 
 The workerd, Deno, and Bun jobs all download and verify the same retained
 candidate and block `live-gates`. Their passed results are included in the

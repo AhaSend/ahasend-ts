@@ -29,7 +29,7 @@ const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer
 
 ### Changed
 
-- The maintained server-runtime inventory is Node.js 22 and 24, Deno latest 2.x, Bun latest,
+- The maintained server-runtime inventory is Node.js 22, 24, and 26, Deno latest 2.x, Bun latest,
   Cloudflare workerd without `nodejs_compat`, and Vercel Edge through `@edge-runtime/vm`. Browser
   and browser Service Worker use remains refused by default; `dangerouslyAllowBrowser: true`
   remains the explicit escape hatch for browser-shaped server test environments.
