@@ -117,10 +117,10 @@ function expectBlockingJob(job: unknown, label: string): void {
   }
 }
 
-function expectNode22Toolchain(job: unknown, label: string): void {
+function expectNode24Toolchain(job: unknown, label: string): void {
   expect(actionStep(job, label, "actions/setup-node")).toMatchObject({
     uses: SETUP_NODE_ACTION,
-    with: { "node-version": 22, cache: "npm" },
+    with: { "node-version": 24, cache: "npm" },
   });
   expectAssertedNpmToolchain(job, label);
   expect(namedStep(job, label, "Install dependencies")).toMatchObject({ run: "npm ci" });
@@ -191,7 +191,7 @@ function expectMaintainedRuntimeGates(
     "runs-on": "ubuntu-latest",
   });
   expectBlockingJob(coverageJob, "coverage job");
-  expectNode22Toolchain(coverageJob, "coverage job");
+  expectNode24Toolchain(coverageJob, "coverage job");
   expect(
     namedStep(coverageJob, "coverage job", "Coverage (thresholds enforced in vitest.config.ts)"),
   ).toMatchObject({ run: "npm run test:coverage" });
@@ -202,7 +202,7 @@ function expectMaintainedRuntimeGates(
     "runs-on": "ubuntu-latest",
   });
   expectBlockingJob(workerdJob, "workerd job");
-  expectNode22Toolchain(workerdJob, "workerd job");
+  expectNode24Toolchain(workerdJob, "workerd job");
   expect(scripts["test:conformance:workerd"]).toBe(
     "npm run build && npm run test:conformance:workerd:artifact",
   );
@@ -245,7 +245,7 @@ function expectMaintainedRuntimeGates(
       "runs-on": "ubuntu-latest",
     });
     expectBlockingJob(job, runtime.label);
-    expectNode22Toolchain(job, runtime.label);
+    expectNode24Toolchain(job, runtime.label);
     expect(actionStep(job, runtime.label, runtime.actionRepository)).toMatchObject({
       uses: runtime.action,
       with: runtime.actionInputs,

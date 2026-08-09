@@ -1,5 +1,7 @@
 /// <reference types="node" />
 
+import type { SourceBindings } from "./run-source-gates.mjs";
+
 export interface CandidateBindings {
   readonly commit: string;
   readonly sourceReportSha256: string;
@@ -61,11 +63,18 @@ export type CandidateCommandRunner = (
   options: RunCommandOptions,
 ) => string | Buffer;
 
+export type SourceBindingsReader = () => Promise<SourceBindings>;
+export type PackageSourceDigestsReader = (
+  runCommand: CandidateCommandRunner,
+) => Promise<Readonly<Record<string, string>>>;
+
 export interface CreateCandidateOptions {
   readonly sourceReportPath: string;
   readonly sourceReportSidecarPath?: string;
   readonly outputDirectory: string;
   readonly runCommand?: CandidateCommandRunner;
+  readonly readSourceBindings?: SourceBindingsReader;
+  readonly readPackageDigests?: PackageSourceDigestsReader;
 }
 
 export interface CreatedCandidate {

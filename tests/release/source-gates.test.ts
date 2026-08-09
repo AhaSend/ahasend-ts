@@ -803,53 +803,50 @@ describe("release candidate validation", () => {
 
   it("rejects a governed mutation during build before npm pack", async () => {
     const sourceBindings = await readRepositorySourceBindings();
-    const openApiPath = resolve(repositoryRoot, "openapi.yaml");
-    const originalOpenApi = readFileSync(openApiPath);
+    let buildRan = false;
     const fixture = candidateRunnerFixture(
       sourceBindings,
       [{ filename: "ahasend-sdk-0.1.0.tgz" }],
       undefined,
-      () => {
-        writeFileSync(
-          openApiPath,
-          originalOpenApi.toString("utf8").replace("title: AhaSend API v2", "title: Mutated API"),
-        );
-      },
+      () => (buildRan = true),
     );
 
-    try {
-      await expect(createCandidate(fixture.createOptions)).rejects.toThrow(
-        "Candidate inputs references a stale openapi.yaml",
-      );
-      expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
-      expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(0);
-    } finally {
-      writeFileSync(openApiPath, originalOpenApi);
-    }
+    await expect(
+      createCandidate({
+        ...fixture.createOptions,
+        readSourceBindings: async () => ({
+          ...sourceBindings,
+          contractSha256: {
+            ...sourceBindings.contractSha256,
+            "openapi.yaml": buildRan ? zeroHash : sourceBindings.contractSha256["openapi.yaml"]!,
+          },
+        }),
+      }),
+    ).rejects.toThrow("Candidate inputs references a stale openapi.yaml");
+    expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
+    expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(0);
   });
 
   it("rejects a package-source mutation during build before npm pack", async () => {
     const sourceBindings = await readRepositorySourceBindings();
-    const sourcePath = resolve(repositoryRoot, "src/index.ts");
-    const originalSource = readFileSync(sourcePath);
+    let buildRan = false;
     const fixture = candidateRunnerFixture(
       sourceBindings,
       [{ filename: "ahasend-sdk-0.1.0.tgz" }],
       undefined,
-      () => {
-        writeFileSync(sourcePath, Buffer.concat([originalSource, Buffer.from("\n// mutation\n")]));
-      },
+      () => (buildRan = true),
     );
 
-    try {
-      await expect(createCandidate(fixture.createOptions)).rejects.toThrow(
-        "Candidate package-source inputs changed during build: src/index.ts",
-      );
-      expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
-      expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(0);
-    } finally {
-      writeFileSync(sourcePath, originalSource);
-    }
+    await expect(
+      createCandidate({
+        ...fixture.createOptions,
+        readPackageDigests: async () => ({
+          "src/index.ts": buildRan ? zeroHash : "1".repeat(64),
+        }),
+      }),
+    ).rejects.toThrow("Candidate package-source inputs changed during build: src/index.ts");
+    expect(fixture.npmCalls.filter((args) => args.includes("build"))).toHaveLength(1);
+    expect(fixture.npmCalls.filter((args) => args.includes("pack"))).toHaveLength(0);
   });
 
   for (const testCase of [
