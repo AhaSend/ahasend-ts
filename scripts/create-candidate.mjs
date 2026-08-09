@@ -539,6 +539,8 @@ export async function createCandidate({
   sourceReportSidecarPath,
   outputDirectory,
   runCommand = defaultRunCommand,
+  readSourceBindings = readRepositorySourceBindings,
+  readPackageDigests = readPackageSourceDigests,
 }) {
   const sourcePath = resolve(sourceReportPath);
   const sourceSidecarPath =
@@ -552,7 +554,7 @@ export async function createCandidate({
   const [sourceReport, sourceSidecar, initialSourceBindings] = await Promise.all([
     readFile(sourcePath),
     readFile(sourceSidecarPath),
-    readRepositorySourceBindings(),
+    readSourceBindings(),
   ]);
   const commit = validateCleanCommit({
     commit: String(
@@ -570,8 +572,8 @@ export async function createCandidate({
     ),
   });
   const [expectedSourceBindings, packageSourceDigests] = await Promise.all([
-    readRepositorySourceBindings(),
-    readPackageSourceDigests(runCommand),
+    readSourceBindings(),
+    readPackageDigests(runCommand),
   ]);
   const sourceSummary = validateSourceGateReport({
     reportSource: sourceReport,
@@ -589,8 +591,8 @@ export async function createCandidate({
   try {
     runNpm(runCommand, ["run", "build"], repositoryRoot);
     const [currentSourceBindings, currentPackageSourceDigests] = await Promise.all([
-      readRepositorySourceBindings(),
-      readPackageSourceDigests(runCommand),
+      readSourceBindings(),
+      readPackageDigests(runCommand),
     ]);
     compareRepositorySourceBindings(currentSourceBindings, expectedSourceBindings);
     comparePackageSourceDigests(currentPackageSourceDigests, packageSourceDigests);
