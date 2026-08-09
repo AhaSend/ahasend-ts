@@ -587,8 +587,8 @@ describe("local process orchestration", () => {
     const stubbornProcess = spawnCapturedProcess(process.execPath, [
       "-e",
       [
-        'process.stdout.write("ready\\n");',
         'process.on("SIGTERM", () => process.stderr.write("ignored TERM\\n"));',
+        'process.stdout.write("ready\\n");',
         "setInterval(() => {}, 1_000);",
       ].join(""),
     ]);
