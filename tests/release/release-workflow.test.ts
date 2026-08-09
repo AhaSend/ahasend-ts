@@ -388,7 +388,8 @@ describe("single-run release workflow", () => {
   });
 
   it("runs retained installed consumers as a blocking Node 22, 24, and 26 matrix", () => {
-    const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
+    const root = record(workflow, "workflow");
+    const jobs = record(root["jobs"], "jobs");
     const artifact = record(jobs["artifact-gates"], "artifact gates");
     const strategy = record(artifact["strategy"], "artifact strategy");
     const matrix = record(strategy["matrix"], "artifact matrix");
@@ -396,6 +397,7 @@ describe("single-run release workflow", () => {
       String(step["uses"] ?? "").startsWith("actions/setup-node@"),
     );
 
+    expect(record(root["env"], "release environment")["NODE_VERSION"]).toBe("24");
     expect(artifact["name"]).toBe("Artifact gates (Node ${{ matrix.node }})");
     expect(artifact["continue-on-error"]).toBeUndefined();
     expect(strategy["fail-fast"]).toBe(false);
