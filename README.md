@@ -321,7 +321,8 @@ on top of yours, but its error diagnostics can include error messages and do not
 meet the strict output allowlist below.
 
 Keep logs and diagnostics to aggregate counts, appropriate opaque object IDs,
-HTTP status, SDK error code, and request ID. Never output message content,
+HTTP status, SDK error code, request ID, and a webhook delivery attempt's
+status codes, `classification`, and `command`. Never output message content,
 subjects, recipients or other addresses, attachments, secrets, any whole objects
 (including client, request, response, event, and error objects), or `err.message`.
 Telemetry does not include expanded URLs, headers, or request bodies, but error
@@ -376,9 +377,13 @@ app.post(
       case "message.delivered":
         metrics.increment("ahasend.webhook.delivered");
         break;
-      case "message.bounced":
-        // ...
+      case "message.bounced": {
+        // Optional and often absent — see the replay-safety rule below before
+        // performing side effects from a redeliverable event.
+        const attempt = event.data.delivery_attempt;
+        await suppress(event.data.recipient, attempt?.classification);
         break;
+      }
     }
   }),
 );
@@ -432,8 +437,8 @@ accepted window. Your application must atomically commit each `webhook-id`
 with durable processing work, then perform side effects idempotently from that
 work. The
 [security and webhooks guide](https://github.com/AhaSend/ahasend-ts/blob/main/docs/security-and-webhooks.md)
-includes an Express 5.x integration pattern, body limits, adapter failure behavior, and safe replay
-handling.
+includes an Express 5.x integration pattern, body limits, adapter failure behavior, safe replay
+handling, and how to read delivery diagnostics off a bounce.
 
 Direct verification and every adapter enforce a fixed 30,000,000-byte webhook body ceiling.
 Adapter option `maxBodyBytes` is only a lower deployment cap; it cannot raise that fixed ceiling.

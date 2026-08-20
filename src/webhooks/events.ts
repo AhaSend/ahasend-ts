@@ -1,3 +1,4 @@
+import { KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS } from "../generated/webhook-types.js";
 import {
   isKnownWebhookEventType as isGeneratedKnownWebhookEventType,
   validateKnownWebhookEvent,
@@ -7,12 +8,18 @@ import type {
   CanonicalWebhookEventType,
   components,
   DeprecatedWebhookEventType,
+  KnownDeliveryAttemptClassification,
   UnknownWebhookEvent,
   WebhookEventType,
   webhookEvents,
 } from "../generated/webhook-types.js";
 
-export type { CanonicalWebhookEventType, DeprecatedWebhookEventType, WebhookEventType };
+export type {
+  CanonicalWebhookEventType,
+  DeprecatedWebhookEventType,
+  KnownDeliveryAttemptClassification,
+  WebhookEventType,
+};
 
 /**
  * Shape shared by the ten configured-webhook events. Routed messages are not
@@ -28,6 +35,42 @@ export interface WebhookEnvelope<
   webhook_id: string;
   data: TData;
 }
+
+/**
+ * Diagnostics from one delivery attempt, carried by `message.delivered`,
+ * `message.bounced`, and `message.transient_error` when an SMTP attempt was
+ * recorded.
+ *
+ * The wire schema also admits `null`, which means the same as the field being
+ * absent; this alias is the object alone, so it can be written down in a
+ * helper signature without dragging a null the caller already ruled out:
+ *
+ * ```ts
+ * function record(attempt: WebhookDeliveryAttempt): void {
+ *   // Codes, `classification`, and `command` are allow-listed. `response` and
+ *   // `description` are free-form text that can carry the recipient, so they
+ *   // do not belong in logs or metric labels.
+ *   metrics.increment("bounce", { code: attempt.smtp_code });
+ * }
+ *
+ * const attempt = event.data.delivery_attempt;
+ * if (attempt) record(attempt);
+ * ```
+ *
+ * To forward the field itself rather than a narrowed value, collapse the
+ * `null` first — the field is `WebhookDeliveryAttempt | null | undefined`:
+ *
+ * ```ts
+ * declare function store(attempt: WebhookDeliveryAttempt | undefined): void;
+ *
+ * store(event.data.delivery_attempt ?? undefined);
+ * ```
+ *
+ * Named `WebhookDeliveryAttempt` rather than `DeliveryAttempt` because the
+ * package root already exports an unrelated `DeliveryAttempt` — the per-hop
+ * log on `Message.delivery_attempts`.
+ */
+export type WebhookDeliveryAttempt = NonNullable<components["schemas"]["DeliveryAttempt"]>;
 
 export type MessageEventData = components["schemas"]["MessageWebhookData"];
 export type MessageClickedEventData = components["schemas"]["MessageClickedWebhookData"];
@@ -141,6 +184,44 @@ export type { UnknownWebhookEvent };
  * ```
  */
 export type AnyWebhookEvent = WebhookEvent | UnknownWebhookEvent;
+
+/**
+ * Narrow a `classification` to the buckets the bounce classifier emits today.
+ *
+ * `classification` is a plain `string` on purpose: the set of buckets is open
+ * and can grow, so a value outside this list is ordinary data, not a malformed
+ * event. Nothing in this SDK rejects one, and neither should you — use this to
+ * take a known branch and keep a fallback for everything else.
+ *
+ * Three cases, not two. An absent `classification` is not an unrecognized one:
+ * successful deliveries carry no classification at all, and neither does a
+ * failure the classifier declined to label. Folding those into the
+ * unrecognized branch turns every delivery into a false alarm on exactly the
+ * signal worth alerting on.
+ *
+ * ```ts
+ * const { classification } = attempt;
+ * if (classification === undefined) {
+ *   // nothing was classified — normal on a delivery
+ * } else if (isKnownDeliveryAttemptClassification(classification)) {
+ *   route(classification);
+ * } else {
+ *   routeUnrecognized(classification); // a bucket added after this release
+ * }
+ * ```
+ *
+ * This takes a `string` rather than `string | undefined` so that absence has
+ * to be handled deliberately rather than collapsing into "not known".
+ *
+ * TypeScript will not flag a `switch` over a plain `string` for missing a
+ * case, so the fallback branch is yours to remember; this guard is what makes
+ * one possible.
+ */
+export function isKnownDeliveryAttemptClassification(
+  classification: string,
+): classification is KnownDeliveryAttemptClassification {
+  return (KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS as readonly string[]).includes(classification);
+}
 
 export function isKnownWebhookEventType(type: string): type is WebhookEventType {
   return isGeneratedKnownWebhookEventType(type);

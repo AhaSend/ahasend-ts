@@ -4,7 +4,7 @@
 // against encoding/json so the fixture bodies carry Go's real
 // serialization semantics rather than a transcription of them.
 //
-// Extracted from server commit faa5f995f24d24bdb96236ff13b237e82628a790 (extracted files clean).
+// Extracted from server commit 67ab72634ad775e5bd5d6a2962836acea27f354d (extracted files clean).
 package main
 
 import (
@@ -57,15 +57,45 @@ type MessageWebhookPayload struct {
 	Data      MessageWebhookData `json:"data"`
 }
 type MessageWebhookData struct {
-	AccountID uuid.UUID `json:"account_id"`
-	Event     string    `json:"event"`
-	From      string    `json:"from"`
-	Recipient string    `json:"recipient"`
-	Subject   string    `json:"subject"`
-	MessageID string    `json:"message_id_header"`
-	UserAgent string    `json:"user_agent,omitempty"`
-	IP        string    `json:"ip,omitempty"`
-	IsBot     bool      `json:"is_bot"`
-	ID        string    `json:"id"`
+	AccountID       uuid.UUID        `json:"account_id"`
+	Event           string           `json:"event"`
+	From            string           `json:"from"`
+	Recipient       string           `json:"recipient"`
+	Subject         string           `json:"subject"`
+	MessageID       string           `json:"message_id_header"`
+	UserAgent       string           `json:"user_agent,omitempty"`
+	IP              string           `json:"ip,omitempty"`
+	IsBot           bool             `json:"is_bot"`
+	ID              string           `json:"id"`
+	DeliveryAttempt *DeliveryAttempt `json:"delivery_attempt,omitempty"`
+}
+type DeliveryAttempt struct {
+	Classification     string `json:"classification,omitempty"`
+	SMTPCode           int    `json:"smtp_code"`
+	EnhancedStatusCode string `json:"enhanced_status_code,omitempty"`
+	Response           string `json:"response,omitempty"`
+	Description        string `json:"description,omitempty"`
+	Command            string `json:"command,omitempty"`
+}
+
+// --- cmd/job-runner/jobs/webhooks/campaign_message.go ---
+type CampaignMessageWebhookPayload struct {
+	Type      string                     `json:"type"`
+	Timestamp time.Time                  `json:"timestamp"`
+	WebhookID uuid.UUID                  `json:"webhook_id"`
+	Data      CampaignMessageWebhookData `json:"data"`
+}
+type CampaignMessageWebhookData struct {
+	AccountID       uuid.UUID        `json:"account_id"`
+	Event           string           `json:"event"`
+	From            string           `json:"from"`
+	Recipient       string           `json:"recipient"`
+	Subject         string           `json:"subject"`
+	MessageID       string           `json:"message_id_header"`
+	UserAgent       string           `json:"user_agent,omitempty"`
+	IP              string           `json:"ip,omitempty"`
+	IsBot           bool             `json:"is_bot"`
+	ID              string           `json:"id"`
+	DeliveryAttempt *DeliveryAttempt `json:"delivery_attempt,omitempty"`
 }
 

@@ -29,7 +29,11 @@ export type {
   WebhookAdapterOptions,
 } from "./adapters.js";
 
-export { isKnownWebhookEvent, isKnownWebhookEventType } from "./events.js";
+export {
+  isKnownDeliveryAttemptClassification,
+  isKnownWebhookEvent,
+  isKnownWebhookEventType,
+} from "./events.js";
 export type {
   AnyWebhookEvent,
   DomainDNSErrorEvent,
@@ -53,6 +57,8 @@ export type {
   UnknownWebhookEvent,
   CanonicalWebhookEventType,
   DeprecatedWebhookEventType,
+  KnownDeliveryAttemptClassification,
+  WebhookDeliveryAttempt,
   WebhookEnvelope,
   WebhookEvent,
   WebhookEventType,

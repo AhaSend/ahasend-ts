@@ -18,9 +18,15 @@ import type {
   NextHandler,
   NodeStyleRequest,
   NodeStyleResponse,
+  WebhookDeliveryAttempt,
   WebhookRawBody,
 } from "@ahasend/sdk/webhooks";
-import { WebhookVerifier } from "@ahasend/sdk/webhooks";
+import { isKnownDeliveryAttemptClassification, WebhookVerifier } from "@ahasend/sdk/webhooks";
+
+declare const attemptWithoutNode: WebhookDeliveryAttempt;
+const attemptCodeWithoutNode: number = attemptWithoutNode.smtp_code;
+const attemptKnownWithoutNode: boolean = isKnownDeliveryAttemptClassification("Uncategorized");
+void [attemptCodeWithoutNode, attemptKnownWithoutNode];
 
 // `process` is not declared here, so nothing but the structural environment
 // type makes these two entry points reachable at all.

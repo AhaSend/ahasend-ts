@@ -10,10 +10,19 @@ upgrade to the latest 0.x release before reporting a result that may already be 
 | Latest published 0.x minor | Supported        |
 | Older 0.x minors           | Upgrade required |
 
-The supported production runtime is Node.js 22 or later. Node.js 22 and 24 are blocking CI
-targets; newer releases can be best-effort/experimental until they become a blocking target.
-Browsers, service workers, edge runtimes, Deno, Bun, and Node.js versions below 22 are outside the
-support boundary. A report that also reproduces on a supported Node.js release remains in scope.
+A report is in scope when it reproduces on a runtime in the maintained blocking inventory: Node.js
+at or above the package's `engines` floor of `>=22`, Deno, Bun, Cloudflare workerd without
+`nodejs_compat`, and Vercel Edge. The exact versions are listed once, in the README under
+[Supported runtimes](https://github.com/AhaSend/ahasend-ts/blob/main/README.md#supported-runtimes),
+where `tests/release/ci-policy.test.ts` pins them to the CI jobs that enforce them; restating them
+here would only add a second copy to go stale. Runtime versions exercised experimentally ahead of
+that inventory, and Node.js below the `engines` floor, are out of scope.
+
+Browsers and browser Service Worker scopes are outside the boundary for a different reason:
+`AhaSendClient` refuses to construct there so that a bearer API key cannot reach a client-side
+bundle. Re-exposing a key through the documented `dangerouslyAllowBrowser: true` escape hatch is
+that flag working as designed rather than a vulnerability, but a way to defeat the refusal without
+it is in scope.
 
 The package has two public runtime boundaries: `@ahasend/sdk` for the API client and
 `@ahasend/sdk/webhooks` for webhook verification. Both ESM and CommonJS consumers are supported

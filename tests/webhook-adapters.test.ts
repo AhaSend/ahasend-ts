@@ -50,6 +50,31 @@ const eventBody = JSON.stringify({
   },
 });
 
+// A bounced event whose attempt carries a classification this release has never
+// heard of and a negative status code. Both are values the SDK forwards
+// untouched, so both must reach the handler rather than 400 — a rejection here
+// would be dropped mail, and 100 of them disable the customer's webhook.
+const attemptBody = JSON.stringify({
+  type: "message.bounced",
+  webhook_id: "9aaf3ea1-b6f8-42c9-a930-5601b530bdd1",
+  timestamp: new Date().toISOString(),
+  data: {
+    account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+    event: "on_bounced",
+    from: "a@b.com",
+    recipient: "x@y.com",
+    subject: "hi",
+    message_id_header: "<x@y>",
+    id: "message-1",
+    delivery_attempt: {
+      classification: "SomeBucketAddedLater",
+      smtp_code: -1,
+      response: "nonsense the SDK still forwards",
+      future_field: "added after this release",
+    },
+  },
+});
+
 class MockExpressRes {
   statusCode = 0;
   writableEnded = false;
@@ -712,6 +737,71 @@ describe("nextRouteHandler", () => {
     expect(Object.keys(context)).toEqual(["adapter", "stage"]);
     expect(JSON.stringify(context)).not.toContain("private");
     expect(JSON.stringify(context)).not.toContain("secret");
+  });
+});
+
+describe("delivery_attempt through the adapters", () => {
+  const attemptOf = (event: AnyWebhookEvent): Record<string, unknown> =>
+    (event as { data: { delivery_attempt: Record<string, unknown> } }).data.delivery_attempt;
+
+  // Three genuinely different byte paths into the verifier: Express and Fastify
+  // hand over a preloaded `rawBody`, while nextRouteHandler reads a Request
+  // body. Each is checked separately so a regression names the adapter.
+  const expected = {
+    classification: "SomeBucketAddedLater",
+    smtp_code: -1,
+    response: "nonsense the SDK still forwards",
+    future_field: "added after this release",
+  };
+
+  it("reaches the express handler intact, unknown values and all", async () => {
+    const received: AnyWebhookEvent[] = [];
+    const res = new MockExpressRes();
+    const next = vi.fn();
+
+    await expressWebhookHandler(new WebhookVerifier(SECRET), async (event) => {
+      received.push(event);
+    })({ headers: signEnvelope(attemptBody), rawBody: attemptBody }, res, next);
+
+    expect(received).toHaveLength(1);
+    expect(received[0]!.type).toBe("message.bounced");
+    // Verbatim: no coercion, no dropped unknown key, and a negative smtp_code
+    // survives because `minimum` is deliberately not enforced at runtime.
+    expect(attemptOf(received[0]!)).toEqual(expected);
+    expect(res.statusCode).toBe(200);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("reaches the fastify handler intact", async () => {
+    const received: AnyWebhookEvent[] = [];
+    const reply = new MockFastifyReply();
+
+    await fastifyWebhookHandler(new WebhookVerifier(SECRET), async (event) => {
+      received.push(event);
+    })({ headers: signEnvelope(attemptBody), rawBody: attemptBody }, reply);
+
+    expect(received).toHaveLength(1);
+    expect(attemptOf(received[0]!)).toEqual(expected);
+    expect(reply.status).toBe(200);
+  });
+
+  it("reaches the fetch-style handler intact", async () => {
+    const received: AnyWebhookEvent[] = [];
+
+    const response = await nextRouteHandler(new WebhookVerifier(SECRET), async (event) => {
+      received.push(event);
+      return new Response(null, { status: 204 });
+    })(
+      new Request("https://example.test/webhooks", {
+        method: "POST",
+        headers: signEnvelope(attemptBody),
+        body: attemptBody,
+      }),
+    );
+
+    expect(received).toHaveLength(1);
+    expect(attemptOf(received[0]!)).toEqual(expected);
+    expect(response.status).toBe(204);
   });
 });
 

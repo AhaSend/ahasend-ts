@@ -161,8 +161,8 @@ Then confirm:
 ### 2. Tag
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 ### 3. What runs, in order
@@ -193,7 +193,7 @@ promotion.
 ### 4. If it fails
 
 - **Before `next-publish`** — nothing was published. Fix and re-tag (delete the
-  tag first: `git tag -d v0.2.0 && git push origin :refs/tags/v0.2.0`).
+  tag first: `git tag -d v0.2.1 && git push origin :refs/tags/v0.2.1`).
 - **After `next-publish`** — the version exists on npm under `next`. npm does
   not allow republishing a version, so the next attempt needs a new version
   number. Do not try to reuse it.

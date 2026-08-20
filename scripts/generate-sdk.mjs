@@ -16,7 +16,7 @@ const EXPECTED_OPERATION_COUNT = 56;
 const EXPECTED_SCHEMA_COUNT = 68;
 const EXPECTED_ITERATOR_COUNT = 9;
 const EXPECTED_WEBHOOK_COUNT = 11;
-const EXPECTED_WEBHOOK_SCHEMA_COUNT = 18;
+const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
 const JSON_CONTENT_TYPE = "application/json";
 
@@ -1222,6 +1222,22 @@ function commonWebhookEnvelopeSchema(webhooks, schemas) {
   };
 }
 
+// Reads a documented-but-unenforced value list off one property, the same way
+// `x-deprecated-values` is read off the event `type` properties above. The
+// runtime validator never sees these — `validationSchema()`'s whitelist drops
+// the extension — so they document what the producer emits today without
+// constraining what it may emit tomorrow.
+function knownValues(schemas, schemaName, propertyKey, extension) {
+  const schema = assertRecord(schemas[schemaName], `webhook schema ${schemaName}`);
+  const properties = assertRecord(schema.properties, `${schemaName}.properties`);
+  const property = assertRecord(properties[propertyKey], `${schemaName}.${propertyKey}`);
+  const values = property[extension];
+  if (!Array.isArray(values) || values.some((value) => typeof value !== "string")) {
+    throw new TypeError(`${schemaName}.${propertyKey} ${extension} must be a list of strings`);
+  }
+  return values;
+}
+
 function generateWebhookTypes(document, webhookDigest) {
   const webhooks = assertRecord(document.webhooks, "Webhook definitions");
   const schemas = assertRecord(
@@ -1248,6 +1264,12 @@ function generateWebhookTypes(document, webhookDigest) {
   ];
   const canonicalTypes = entries.map(([eventType]) => eventType);
   const knownTypes = [...canonicalTypes, ...deprecatedTypes];
+  const knownClassifications = knownValues(
+    schemas,
+    "DeliveryAttempt",
+    "classification",
+    "x-known-values",
+  );
   const lines = [
     `${GENERATED_HEADER.trimEnd()} Source webhooks.yaml SHA-256: ${webhookDigest}`,
     "",
@@ -1257,10 +1279,13 @@ function generateWebhookTypes(document, webhookDigest) {
     `export const CANONICAL_WEBHOOK_EVENT_TYPES = ${JSON.stringify(canonicalTypes)} as const;`,
     `export const DEPRECATED_WEBHOOK_EVENT_TYPES = ${JSON.stringify(deprecatedTypes)} as const;`,
     `export const KNOWN_WEBHOOK_EVENT_TYPES = ${JSON.stringify(knownTypes)} as const;`,
+    `export const KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS = ${JSON.stringify(knownClassifications)} as const;`,
     "",
     "export type CanonicalWebhookEventType = (typeof CANONICAL_WEBHOOK_EVENT_TYPES)[number];",
     "export type DeprecatedWebhookEventType = (typeof DEPRECATED_WEBHOOK_EVENT_TYPES)[number];",
     "export type WebhookEventType = (typeof KNOWN_WEBHOOK_EVENT_TYPES)[number];",
+    "export type KnownDeliveryAttemptClassification =",
+    "  (typeof KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS)[number];",
     "",
     "export interface components {",
     "  schemas: {",

@@ -243,6 +243,9 @@ const SCHEMAS = {
       is_bot: {
         type: "boolean",
       },
+      delivery_attempt: {
+        $ref: "#/components/schemas/DeliveryAttempt",
+      },
     },
   },
   MessageClickedWebhookData: {
@@ -293,6 +296,30 @@ const SCHEMAS = {
       },
       is_bot: {
         type: "boolean",
+      },
+    },
+  },
+  DeliveryAttempt: {
+    type: ["object", "null"],
+    required: ["smtp_code"],
+    properties: {
+      classification: {
+        type: "string",
+      },
+      smtp_code: {
+        type: "integer",
+      },
+      enhanced_status_code: {
+        type: "string",
+      },
+      response: {
+        type: "string",
+      },
+      description: {
+        type: "string",
+      },
+      command: {
+        type: "string",
       },
     },
   },

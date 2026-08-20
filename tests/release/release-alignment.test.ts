@@ -30,45 +30,41 @@ const rootApiReport = readFileSync(resolve(root, "etc/ahasend-sdk.api.md"), "utf
 const webhookApiReport = readFileSync(resolve(root, "etc/ahasend-sdk-webhooks.api.md"), "utf8");
 
 const releaseSection = changelog.slice(
+  changelog.indexOf("## [0.2.1]"),
   changelog.indexOf("## [0.2.0]"),
-  changelog.indexOf("## [0.1.0]"),
 );
-const beforeMigration = /Before:\s+```ts\n([\s\S]*?)\n```/u.exec(releaseSection)?.[1] ?? "";
-const afterMigration = /After:\s+```ts\n([\s\S]*?)\n```/u.exec(releaseSection)?.[1] ?? "";
 
-describe("v0.2.0 release source alignment", () => {
+describe("v0.2.1 release source alignment", () => {
   it("pins the package, lockfile, runtime, changelog, and root declaration report", () => {
     expect(packageManifest.name).toBe("@ahasend/sdk");
-    expect(packageManifest.version).toBe("0.2.0");
-    expect(packageLock.version).toBe("0.2.0");
-    expect(packageLock.packages[""]?.version).toBe("0.2.0");
-    expect(versionSource).toContain('export const SDK_VERSION = "0.2.0";');
-    expect(changelog).toContain("## [0.2.0] — 2026-08-07");
-    expect(changelog).not.toContain("## [0.2.0] — Unreleased");
-    expect(rootApiReport).toContain('export const SDK_VERSION = "0.2.0";');
+    expect(packageManifest.version).toBe("0.2.1");
+    expect(packageLock.version).toBe("0.2.1");
+    expect(packageLock.packages[""]?.version).toBe("0.2.1");
+    expect(versionSource).toContain('export const SDK_VERSION = "0.2.1";');
+    expect(changelog).toContain("## [0.2.1] — 2026-08-20");
+    expect(changelog).not.toContain("## [0.2.1] — Unreleased");
+    expect(rootApiReport).toContain('export const SDK_VERSION = "0.2.1";');
   });
 
-  it("documents the executable direct-verifier migration and supported runtimes", () => {
-    expect(releaseSection).toContain("### BREAKING");
-    expect(beforeMigration.split("\n")).toEqual([
-      "verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
-      "const event = verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
-    ]);
-    expect(afterMigration.split("\n")).toEqual([
-      "await verifier.verify(headersRecordOrHeaders, rawBodyStringOrBuffer);",
-      "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
-    ]);
-    for (const runtime of [
-      "Node.js 22, 24, and 26",
-      "Deno latest 2.x",
-      "Bun latest",
-      "Cloudflare workerd without `nodejs_compat`",
-      "Vercel Edge through `@edge-runtime/vm`",
+  it("documents the additive delivery_attempt surface and claims no breaking change", () => {
+    // A patch release must not carry a BREAKING section, and must say plainly
+    // that an older client is unaffected — that is the whole basis for shipping
+    // this as a patch.
+    expect(releaseSection).toContain("### Added");
+    expect(releaseSection).not.toContain("### BREAKING");
+    expect(releaseSection).toMatch(/a 0\.1\.0 or 0\.2\.0 client ignores the new field/u);
+
+    // The three public names the release announces. Anchored, because
+    // `KnownDeliveryAttemptClassification` is a substring of the guard's name
+    // and an unanchored check for it can never fail. The published surface is
+    // pinned in tests/package.test.ts; this only pins what the release claims.
+    for (const name of [
+      "WebhookDeliveryAttempt",
+      "KnownDeliveryAttemptClassification",
+      "isKnownDeliveryAttemptClassification",
     ]) {
-      expect(releaseSection).toContain(runtime);
+      expect(releaseSection, name).toContain("`" + name + "`");
     }
-    expect(releaseSection).toContain("Existing Express, Fastify, and `nextRouteHandler`");
-    expect(releaseSection).not.toMatch(/new .*adapter|adapter export|body limit|body-limit/iu);
   });
 
   it("uses runtime-neutral package wording without changing the Node engine or dependency policy", () => {
@@ -178,10 +174,13 @@ describe("v0.2.0 release source alignment", () => {
     expect(runbook).toContain('CANDIDATE_TARBALL="$(find "$RUNTIME_SMOKE_DIR"');
   });
 
-  it("uses the v0.2.0 tag in release and recovery commands", () => {
-    expect(runbook).toContain("git tag v0.2.0\ngit push origin v0.2.0");
-    expect(runbook).toContain("git tag -d v0.2.0 && git push origin :refs/tags/v0.2.0");
-    expect(runbook).not.toMatch(/git (?:tag|push origin(?::refs\/tags\/)?) v?0\.1\.0/u);
+  it("uses the v0.2.1 tag in release and recovery commands", () => {
+    expect(runbook).toContain("git tag v0.2.1\ngit push origin v0.2.1");
+    expect(runbook).toContain("git tag -d v0.2.1 && git push origin :refs/tags/v0.2.1");
+    // Any tag that is not this release's is stale, whichever release preceded
+    // it — and the push and delete forms count too, not just `git tag`.
+    expect(runbook).not.toMatch(/git tag (?:-d )?v(?!0\.2\.1\b)/u);
+    expect(runbook).not.toMatch(/git push origin (?::refs\/tags\/)?v(?!0\.2\.1\b)/u);
   });
 
   it("pins each artifact validator's usage line to the signature the runbook prints", () => {

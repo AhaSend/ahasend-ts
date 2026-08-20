@@ -84,6 +84,86 @@ failure then leaves retryable work instead of turning the sender's next delivery
 success. Do not include the webhook secret, signature, raw body, or event data in the deduplication
 key or diagnostic logs.
 
+## Reading delivery diagnostics
+
+`message.delivered`, `message.bounced`, and `message.transient_error` can carry a
+`delivery_attempt` object: the SMTP status code, the response text, and on failures the bucket the
+bounce classifier assigned. The response is usually the destination's own, but a failure raised
+inside AhaSend carries AhaSend's description of it instead.
+
+It is optional and frequently absent. The seven events that share the message data shape all
+declare it, so read what arrives rather than asserting an attempt cannot appear; `message.clicked`
+and `message.routing` have their own data shapes and never carry one.
+
+Even the three that do carry it omit it when no SMTP attempt was recorded: an out-of-band bounce
+that arrives after the destination already accepted the message, a message handled outside SMTP
+(sandbox sends excepted — see below), or a response with neither a code nor any text. That first
+case is what splits `message.bounced` in two: a destination rejecting the message outright normally
+brings an attempt with it, while an out-of-band notification arriving later does not describe one
+SMTP exchange and so brings none. An explicit `null` means the same as a missing field. Read it with
+optional chaining, or narrow it once with an early return as the example below does, and never treat
+its absence as an error.
+
+`smtp_code` is always present when the object is, and `0` is a real value: AhaSend recorded response
+text without an SMTP code. Do not test it for truthiness — `attempt.smtp_code || "none"` and
+`if (attempt.smtp_code)` both misread an internal-error attempt as having no code.
+
+Two consequences worth planning for:
+
+- **`message.failed` never carries an attempt.** It reports that retries were exhausted, which is
+  not a single SMTP attempt. The last thing the destination actually said arrives on the preceding
+  `message.transient_error` for that message — but only if an attempt was recorded, and only if you
+  subscribe to transient events. A message that expired without a single recorded attempt has
+  nothing to correlate. Retry exhaustion reports this way for every message,
+  campaign sends included; an immediate permanent rejection is not retry exhaustion and
+  arrives as `message.bounced` instead.
+- **`description` is display prose, not an identifier.** It is a human-readable translation of a
+  complex error, present only when that translation differs from `response`, and its wording changes
+  as the translations improve. Never compare it to a literal or parse it.
+
+Branch on `classification`, and treat it as an open set. The set of buckets can grow, so a
+delivery can carry one this release predates. The
+SDK deliberately accepts those: rejecting one would return 400 to AhaSend, and 100 consecutive
+errors disable the webhook. `isKnownDeliveryAttemptClassification` narrows to what the classifier
+emits today, leaving you to decide what the rest means:
+
+```ts
+import {
+  isKnownDeliveryAttemptClassification,
+  type MessageBouncedEvent,
+} from "@ahasend/sdk/webhooks";
+
+async function onBounced(event: MessageBouncedEvent): Promise<void> {
+  const attempt = event.data.delivery_attempt;
+  if (attempt === undefined || attempt === null) {
+    // No SMTP attempt was recorded. Normal — see the cases above.
+    return;
+  }
+  if (attempt.classification === undefined) {
+    // Status codes and `command` are allow-listed for logging. `response` and
+    // `description` are not: they are free-form text that routinely embeds the
+    // recipient. See Safe logging and diagnostics.
+    log.info({
+      smtp_code: attempt.smtp_code,
+      enhanced: attempt.enhanced_status_code,
+      command: attempt.command,
+    });
+  } else if (isKnownDeliveryAttemptClassification(attempt.classification)) {
+    await route(attempt.classification);
+  } else {
+    // A bucket added after this release. Data, not an error.
+    await routeUnrecognized(attempt.classification);
+  }
+}
+```
+
+Sandbox sends and dashboard test webhooks carry representative rather than observed codes and
+response text, and a sandbox send does carry one even though it never reaches SMTP.
+`classification` is synthesized along with the rest: a simulation can substitute the classification
+of the outcome it was asked to simulate, which may then not agree with the representative
+`smtp_code` and `response` beside it. Do not calibrate a `classification` branch against sandbox
+traffic.
+
 ## Adapter boundaries
 
 `nextRouteHandler` is the existing web-standard `Request` adapter. Use it in Request/Response

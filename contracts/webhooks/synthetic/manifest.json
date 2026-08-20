@@ -44,6 +44,94 @@
       "webhookTimestamp": "1700000003",
       "signature": "v1,68ZetmfMzuqtDNv/XAgdBtMIztHcG5ZLGRVoheFo06k=",
       "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-bounced-with-attempt",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-bounced-with-attempt.json",
+      "rawBodySha256": "e73746cc39919d6dea0cf4a5eab3f1194a6daabf673ad1185a6a9e265b62ee87",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_bounced_with_attempt",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,lfpkJ0RxunhUMsAX9WMzMvUG1J9J6CR/uwBVz/Cj+uE=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-transient-error-with-attempt",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-transient-error-with-attempt.json",
+      "rawBodySha256": "5ab789676593e2da470e8323eff65b1c6e93a704f8c16d0fb447bfc359d0d71c",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_transient_error_with_attempt",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,lms2GNzUas4xlmjyE0kpy1t6l1nnS2yMvs02wrXu14s=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-delivered-attempt-null",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-delivered-attempt-null.json",
+      "rawBodySha256": "8903881ce409cd16749517ac839f0d4bc23d0d283dedd646c8346e11fefa1929",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_delivered_attempt_null",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,+T/nGLd8hRs17d113faut+XUc6zj2CfZwszFYCapY3U=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-bounced-attempt-zero-code",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-bounced-attempt-zero-code.json",
+      "rawBodySha256": "9c3a5d83acade0c6652ba8a34ad9d2998f21546e138e6e92aa738cd0d83a98c2",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_bounced_attempt_zero_code",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,77//2EfnoYGb6gIJnBeGWn/8PS+xBltO9EHGnJ474Yk=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-bounced-attempt-uncategorized",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-bounced-attempt-uncategorized.json",
+      "rawBodySha256": "ef2c855378240598c3edbd21ec2cdb66b5403da4ef2a74b75e3cef62417d8e45",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_bounced_attempt_uncategorized",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,bzgMK7aqg2XpHHySltQAakBw6yJq7/aGER8ij6cPnmk=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-bounced-attempt-unknown-field",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-bounced-attempt-unknown-field.json",
+      "rawBodySha256": "2c2e088840fd30e11442fcf7383cb3556c1d5ad5245a205f2871c08d18a29e13",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_bounced_attempt_unknown_field",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,/Umvd8bnr5aoyIPwi3NRjGuXUMigq/hrR7TBH3TfKu8=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-delivered-attempt-code-only",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-delivered-attempt-code-only.json",
+      "rawBodySha256": "1d37741a251d312629546d046b3fd105182f4e0b72dd3181e5e7c4e455ef2c25",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_delivered_attempt_code_only",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,Qlxjgfd4QmVAmf0iblCIbSw9+nJeXYH7e0CqTDBR/IE=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-bounced-attempt-with-description",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-bounced-attempt-with-description.json",
+      "rawBodySha256": "ceb338baba3678d9066395577a115c08ef9b5c55472e0819ddea32f951d047f9",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_bounced_attempt_with_description",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,jAwB/poTWyO3SgF+1e53U8+0Y8daxZEeCVpEu2CMvDY=",
+      "expectedResult": "valid"
     }
   ]
 }

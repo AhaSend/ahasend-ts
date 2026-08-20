@@ -951,6 +951,11 @@ logger.error(output);`,
       "durable worker retry behavior",
       "A worker\nfailure then leaves retryable work instead of turning the sender's next delivery into a false\nsuccess.",
     ],
+    ["message.failed carries no delivery attempt", "`message.failed` never carries an attempt"],
+    [
+      "delivery attempt description is display prose",
+      "`description` is display prose, not an identifier",
+    ],
   ])("fails if the %s is removed", async (_label, requiredText) => {
     const documents = await loadDocumentation();
     const path = "docs/security-and-webhooks.md";
@@ -980,6 +985,16 @@ logger.error(output);`,
       "webhook recipient console output",
       "README.md",
       "        console.log(`delivered → ${event.data.recipient}`);\n",
+    ],
+    [
+      "delivery-attempt response console output",
+      "docs/security-and-webhooks.md",
+      "    log.info({ response: attempt.response });\n",
+    ],
+    [
+      "optional-chained delivery-attempt description output",
+      "docs/security-and-webhooks.md",
+      "    log.warn(attempt?.description);\n",
     ],
   ])("fails if the %s pattern is introduced", async (_label, path, unsafeText) => {
     const documents = await loadDocumentation();
