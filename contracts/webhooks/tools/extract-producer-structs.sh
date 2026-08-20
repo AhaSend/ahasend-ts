@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Extract, verbatim, the producer structs that the contract fixtures serialise.
 #
-# Only the types reachable from the two emitted fixtures are extracted. Pulling
-# in more (the campaign payloads, say) would make the manifest's
-# producerTreeClean flag depend on files that are never serialised.
+# Only the types reachable from the emitted fixtures are extracted, so the
+# manifest's producerTreeClean flag never depends on a file nothing serialises.
+#
+# The campaign payload is one of them: it has its own payload type rather
+# than sharing the transactional one, so the fixture corpus has to serialise
+# both or a difference between the two is invisible to it.
 #
 # The manifest's `serverCommit` and `producerTreeClean` attestations describe
 # the tree this script read. They used to be typed into the manifest by hand
@@ -13,7 +16,9 @@
 # itself is still edited by hand — copy the printed values.
 set -euo pipefail
 
-server="${1:?usage: extract-producer-structs.sh <path-to-ahasend-server-repo>}"
+usage="usage: extract-producer-structs.sh <path-to-ahasend-server-repo> <expected-commit-sha>"
+server="${1:?$usage}"
+expected_commit="${2:?$usage}"
 out="$(cd "$(dirname "$0")" && pwd)/producer-structs.go"
 
 # The single list both the guard and the extraction below iterate — a second
@@ -21,9 +26,45 @@ out="$(cd "$(dirname "$0")" && pwd)/producer-structs.go"
 extracted_files=(
   cmd/job-runner/jobs/routes/message_routing.go
   cmd/job-runner/jobs/webhooks/message.go
+  cmd/job-runner/jobs/webhooks/campaign_message.go
 )
 
+# The script stamps whatever HEAD it finds and accepts no ref, so without this
+# an extraction from a convenient local branch attests to a commit that may
+# never reach master. Squash merges make that concrete: a feature branch tip is
+# not an ancestor of master, so its SHA vanishes when the branch is pruned and
+# the attestation points at nothing. Refusing an unexpected HEAD is the same
+# guard as refusing a dirty tree, and putting it in the tool beats remembering.
+if [ "${#expected_commit}" -ne 40 ]; then
+  echo "refusing to extract: expected-commit-sha must be a full 40-character SHA" >&2
+  exit 1
+fi
 server_commit="$(git -C "$server" rev-parse HEAD)"
+if [ "$server_commit" != "$expected_commit" ]; then
+  echo "refusing to extract: $server is at $server_commit, expected $expected_commit" >&2
+  echo "check out the attested commit first — detached is fine, and a worktree" >&2
+  echo "inside either repository is not" >&2
+  exit 1
+fi
+# Matching HEAD only confirms what you typed; it does not make the commit
+# durable. Requiring it to be an ancestor of origin/master is what actually
+# rules out attesting to a branch tip, which is the case that bites: a squash
+# merge leaves the branch commit outside master's history, so the attestation
+# points at nothing once the branch is pruned.
+if ! git -C "$server" rev-parse --verify --quiet origin/master >/dev/null; then
+  echo "refusing to extract: $server has no origin/master to check reachability against" >&2
+  echo "use a normal clone rather than a shallow or ref-less one, and fetch it —" >&2
+  echo "a commit whose reachability cannot be checked cannot be attested to" >&2
+  exit 1
+fi
+if ! git -C "$server" merge-base --is-ancestor "$expected_commit" origin/master; then
+  echo "refusing to extract: $expected_commit is not an ancestor of origin/master" >&2
+  echo "origin/master here is $(git -C "$server" rev-parse origin/master)" >&2
+  echo "if that looks stale, run: git -C $server fetch origin master" >&2
+  echo "otherwise the commit is not on master — a branch tip will not do, since" >&2
+  echo "a squash merge leaves it outside master and it vanishes when pruned" >&2
+  exit 1
+fi
 for f in "${extracted_files[@]}"; do
   # `diff --quiet HEAD` reports nothing for a path HEAD does not know, so an
   # untracked working-tree file would otherwise extract "clean" while
@@ -57,7 +98,12 @@ fi
   echo
   for f in "${extracted_files[@]}"; do
     echo "// --- $f ---"
-    awk '/^type .*(Payload|Data|MessageAttachmentsPayload) struct \{/,/^\}/' \
+    # DeliveryAttempt is named for neither Payload nor Data, so it needs its
+    # own alternative: without it producer-structs.go references an undefined
+    # type and emit-fixtures.go does not compile. Anchored exactly, unlike the
+    # suffix alternatives above, so a similarly-named type cannot join the
+    # extraction by accident.
+    awk '/^type (.*(Payload|Data|MessageAttachmentsPayload)|DeliveryAttempt) struct \{/,/^\}/' \
       "$server/$f"
     echo
   done

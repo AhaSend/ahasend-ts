@@ -4,6 +4,44 @@ All notable changes to this package are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-08-20
+
+### Added
+
+- Message webhooks can carry `delivery_attempt`, the diagnostics for the delivery attempt an event
+  reports on: `smtp_code`, plus `classification`, `enhanced_status_code`, `response`, `description`,
+  and `command`. It is optional and frequently absent, and an explicit `null` means the same as a
+  missing field, so read it with optional chaining. When each field appears, which of them are safe
+  to branch on, and which must never be logged are documented in `docs/security-and-webhooks.md`
+  and `docs/safe-logging.md` — a release note is the wrong place for rules that have to stay in step
+  with the spec.
+- `WebhookDeliveryAttempt`, `KnownDeliveryAttemptClassification`, and
+  `isKnownDeliveryAttemptClassification` are exported from `@ahasend/sdk/webhooks`. The type is
+  prefixed because the package root already exports an unrelated `DeliveryAttempt` — the per-hop
+  log on `Message.delivery_attempts`.
+- `classification` is typed as a plain `string`, not an enum. The set of bounce buckets is open
+  and can grow, so a delivery can carry one this release predates, and a published SDK that
+  rejected one would return 400 to AhaSend until the webhook was disabled. Use
+  `isKnownDeliveryAttemptClassification` to narrow to what it emits today and keep a branch for
+  everything else.
+- A delivery attempt's `smtp_code`, `enhanced_status_code`, `classification`, and `command` are
+  allow-listed for logging; `response` and `description` are not, being free-form text that
+  routinely embeds the recipient address. `command` is a normalized command name and excludes the
+  command's arguments, so no envelope address rides along in it. See `docs/safe-logging.md`.
+- Which event carries an attempt follows the outcome, not the send type. Retry exhaustion arrives as
+  `message.failed` and never carries one — for every message, campaign sends included. An immediate
+  permanent rejection arrives as `message.bounced` and normally does carry one, while an
+  out-of-band bounce notification arriving later does not.
+
+Additive for existing users: a 0.1.0 or 0.2.0 client ignores the new field.
+
+### Changed
+
+- `SECURITY.md` now scopes vulnerability reports to the same maintained runtime inventory the README
+  and CI already agree on, instead of the narrower Node-22-and-24 boundary it still described after
+  0.2.0 widened it. It defers to that one list rather than restating it, and the documentation gate
+  now watches it for the obsolete claims it already watched for elsewhere.
+
 ## [0.2.0] — 2026-08-07
 
 ### BREAKING

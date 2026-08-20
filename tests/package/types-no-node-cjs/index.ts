@@ -12,8 +12,13 @@
 // reach, so naming one type per entry point is enough to put both .d.cts files
 // under the compiler. See the sibling types-no-node fixture for the ESM half.
 import type { AhaSendClient, ClientOptions, ProcessEnvLike } from "@ahasend/sdk";
-import { WebhookVerifier } from "@ahasend/sdk/webhooks";
-import type { AnyWebhookEvent, NodeStyleRequest, WebhookRawBody } from "@ahasend/sdk/webhooks";
+import { isKnownDeliveryAttemptClassification, WebhookVerifier } from "@ahasend/sdk/webhooks";
+import type {
+  AnyWebhookEvent,
+  NodeStyleRequest,
+  WebhookDeliveryAttempt,
+  WebhookRawBody,
+} from "@ahasend/sdk/webhooks";
 
 declare const client: AhaSendClient;
 declare const options: ClientOptions;
@@ -21,6 +26,12 @@ declare const env: ProcessEnvLike;
 declare const request: NodeStyleRequest;
 declare const rawBody: WebhookRawBody;
 declare const verifier: WebhookVerifier;
+// api-extractor only reads dist/webhooks/index.d.ts, so this fixture is the
+// sole cover for the .d.cts declarations.
+declare const cjsAttempt: WebhookDeliveryAttempt;
+const cjsAttemptCode: number = cjsAttempt.smtp_code;
+const cjsAttemptKnown: boolean = isKnownDeliveryAttemptClassification("Uncategorized");
+void [cjsAttemptCode, cjsAttemptKnown];
 const verification: Promise<void> = verifier.verify({}, rawBody);
 const parsed: Promise<AnyWebhookEvent> = verifier.parse({}, rawBody);
 

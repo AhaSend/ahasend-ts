@@ -79,7 +79,7 @@ describe("webhook public types", () => {
   });
 
   it("declares body webhook IDs and route IDs required", () => {
-    // Every producer declares `WebhookID uuid.UUID` with no omitempty, so the
+    // Every envelope always carries its webhook ID, so the
     // key is on the wire for all four envelopes. These were optional only
     // because the fixture they were aligned against omitted it, and that
     // fixture turned out to be generated rather than captured.

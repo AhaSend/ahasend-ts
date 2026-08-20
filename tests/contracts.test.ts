@@ -20,6 +20,7 @@ import {
   assertInventoryMatches,
   collectContractInventory,
   collectOperations,
+  documentedClassifications,
   injectNodeSamples,
   parseOpenApi,
   parseWebhookContract,
@@ -721,6 +722,164 @@ describe("webhook delivery contract", () => {
     }
   });
 
+  // Structure is enforced, values are tolerated. These pin both halves: a
+  // regression that made `delivery_attempt` required, or `classification` a
+  // closed enum, would still pass every happy-path fixture.
+  it("defines delivery_attempt as optional, and only where the shared data shape reaches", () => {
+    const messageData = webhookSchema("MessageWebhookData");
+    const properties = record(messageData.properties);
+    expect(record(properties.delivery_attempt).$ref).toBe("#/components/schemas/DeliveryAttempt");
+    expect(messageData.required).not.toContain("delivery_attempt");
+
+    // Clicked events come from link tracking, not an SMTP attempt.
+    expect(record(webhookSchema("MessageClickedWebhookData").properties)).not.toHaveProperty(
+      "delivery_attempt",
+    );
+  });
+
+  it("requires smtp_code, documents its range, and leaves everything else optional", () => {
+    const attempt = webhookSchema("DeliveryAttempt");
+    expect(attempt.required).toEqual(["smtp_code"]);
+    // `null` is as good as absent, and both spellings reach the wire, so
+    // rejecting `null` would 400 an attempt-less delivery and, repeated,
+    // disable the webhook.
+    expect(attempt.type).toEqual(["object", "null"]);
+
+    const smtpCode = record(record(attempt.properties).smtp_code);
+    expect(smtpCode.type).toBe("integer");
+    expect(smtpCode.minimum).toBe(0);
+  });
+
+  it("keeps classification an open string with its known values documented twice", () => {
+    const classification = record(
+      record(webhookSchema("DeliveryAttempt").properties).classification,
+    );
+    expect(classification.type).toBe("string");
+    expect(classification.enum).toBeUndefined();
+
+    const known = classification["x-known-values"];
+    expect(known).toEqual([
+      "InvalidRecipient",
+      "BadDomain",
+      "InactiveMailbox",
+      "InvalidSender",
+      "QuotaIssues",
+      "NoAnswerFromHost",
+      "BadConnection",
+      "DNSFailure",
+      "RoutingErrors",
+      "TransientFailure",
+      "MessageExpired",
+      "ProtocolErrors",
+      "AuthenticationFailed",
+      "PolicyRelated",
+      "Uncategorized",
+    ]);
+
+    // The machine-readable list and the rendered prose must agree in both
+    // directions, since only the second is what a reader on the docs site sees.
+    expect(documentedClassifications(classification.description)).toEqual(known);
+  });
+
+  it("rejects a spec that narrows any of the tolerances this schema deliberately keeps", () => {
+    const closedEnum = structuredClone(webhookDocument) as JsonRecord;
+    const schemas = record(record(closedEnum.components).schemas);
+    record(record(record(schemas.DeliveryAttempt).properties).classification).enum = [
+      "Uncategorized",
+    ];
+    expect(() => validateWebhookContract(closedEnum)).toThrow(/must not be an enum/);
+
+    const drifted = structuredClone(webhookDocument) as JsonRecord;
+    const driftedClassification = record(
+      record(record(record(record(drifted.components).schemas).DeliveryAttempt).properties)
+        .classification,
+    );
+    driftedClassification["x-known-values"] = ["Uncategorized"];
+    expect(() => validateWebhookContract(drifted)).toThrow(/must list exactly its x-known-values/);
+
+    const required = structuredClone(webhookDocument) as JsonRecord;
+    const messageData = record(record(record(required.components).schemas).MessageWebhookData);
+    messageData.required = [...(messageData.required as string[]), "delivery_attempt"];
+    expect(() => validateWebhookContract(required)).toThrow(/must stay optional/);
+
+    const closed = structuredClone(webhookDocument) as JsonRecord;
+    record(record(record(closed.components).schemas).DeliveryAttempt).additionalProperties = false;
+    expect(() => validateWebhookContract(closed)).toThrow(/additionalProperties: false/);
+
+    // The same guard has to reach outside components.schemas, or an inline
+    // request-body schema could close itself and every fixture would still pass.
+    const closedInline = structuredClone(webhookDocument) as JsonRecord;
+    record(
+      record(record(record(record(closedInline.webhooks)["message.delivered"]).post).requestBody)
+        .content,
+    )["application/json"] = { schema: { type: "object", additionalProperties: false } };
+    expect(() => validateWebhookContract(closedInline)).toThrow(/additionalProperties: false/);
+
+    // `unevaluatedProperties` closes an object just as effectively under
+    // JSON Schema 2020-12, which OpenAPI 3.1 uses.
+    const unevaluated = structuredClone(webhookDocument) as JsonRecord;
+    record(record(record(unevaluated.components).schemas).DeliveryAttempt).unevaluatedProperties =
+      false;
+    expect(() => validateWebhookContract(unevaluated)).toThrow(/unevaluatedProperties: false/);
+
+    const narrowed = structuredClone(webhookDocument) as JsonRecord;
+    record(record(record(narrowed.components).schemas).DeliveryAttempt).type = "object";
+    expect(() => validateWebhookContract(narrowed)).toThrow(/must accept null/);
+
+    const unbounded = structuredClone(webhookDocument) as JsonRecord;
+    delete record(
+      record(record(record(record(unbounded.components).schemas).DeliveryAttempt).properties)
+        .smtp_code,
+    ).minimum;
+    expect(() => validateWebhookContract(unbounded)).toThrow(/must document minimum: 0/);
+  });
+
+  it("shows a representative attempt on exactly the three events that carry one", () => {
+    const exampleFor = (eventType: string): JsonRecord =>
+      record(
+        record(
+          record(record(record(record(webhookDocument.webhooks)[eventType]).post).requestBody)
+            .content,
+        )["application/json"],
+      ).example as JsonRecord;
+
+    // Every one of these is byte-identical to the reference attempt published
+    // for its event, so a test webhook and the rendered docs show the same
+    // payload. Pinning all three rather than just the bounced one holds that.
+    const expected: Record<string, JsonRecord> = {
+      "message.delivered": {
+        smtp_code: 250,
+        enhanced_status_code: "2.0.0",
+        response: "OK: queued",
+        command: "DATA",
+      },
+      "message.bounced": {
+        classification: "InvalidRecipient",
+        smtp_code: 550,
+        enhanced_status_code: "5.1.1",
+        response: "The email account that you tried to reach does not exist",
+        command: "RCPT TO",
+      },
+      "message.transient_error": {
+        classification: "QuotaIssues",
+        smtp_code: 452,
+        enhanced_status_code: "4.2.2",
+        response: "The recipient's inbox is out of storage space",
+        command: "RCPT TO",
+      },
+    };
+
+    for (const eventType of Object.keys(record(webhookDocument.webhooks))) {
+      const data = record(exampleFor(eventType).data);
+      expect(Object.hasOwn(data, "delivery_attempt"), eventType).toBe(
+        Object.hasOwn(expected, eventType),
+      );
+      if (expected[eventType] !== undefined) {
+        expect(record(data.delivery_attempt), eventType).toEqual(expected[eventType]);
+      }
+    }
+  });
+
   it("documents the literal UTF-8 resource secret compatibility boundary", () => {
     const description = record(webhookDocument.info).description;
     expect(description).toMatch(/literal UTF-8 bytes/);
@@ -763,39 +922,159 @@ function ajvAcceptsManifest(manifest: unknown): boolean {
   return validate(manifest) === true;
 }
 
+const PRODUCER_STRUCTS_PATH = "contracts/webhooks/tools/producer-structs.go";
+
+const CAPTURED_PINS: Array<[string, string, string, string]> = [
+  [
+    "configured-webhook-message-delivered",
+    "b24657da186203f565784f68a312fe594bf202a1c79c1a75a30ae4382fe88742",
+    "v1,pa22fSjepUI4EE0Ddbskqb4zjMB20MltfsdIcNlISvo=",
+    "98a434a535d14d8a18ac31775fe0fffe3511b07bbb0ee8384f917fab1f16a88e",
+  ],
+  [
+    "configured-webhook-campaign-message-bounced",
+    "0b2d28410154fbf5e69084296b23514418f89c56e63b46ce2c5e3a77152d44eb",
+    "v1,U5He5NiwlaZJvhn/mR80lhm342elYcDxBBo1IY8YVu0=",
+    "73029592be4741ad6e21b68ba5f320a6f5034b95ab9ea95797a511a4861eef03",
+  ],
+  [
+    "route-message-routing",
+    "7018938444c1b7659dca80c8a1baa3f43fa72ee84fb8dd4233bf47660d95938a",
+    "v1,BrWwZEpT8u3aNWRMT7b4eqF9eFGtBHbnhPPCVY+e2MY=",
+    "e222158197441e03b7ddc67370de33ff39624c079e71757f0a7170c618ef33da",
+  ],
+];
+
+// By id, never by position: the corpus grows, and an index that quietly starts
+// pointing at a different capture turns a test into an assertion about whatever
+// happens to sit there.
+function capturedCapture(fixtureId: string): JsonRecord {
+  const found = (capturedManifest.captures as JsonRecord[]).find(
+    (entry) => entry.fixtureId === fixtureId,
+  );
+  if (found === undefined) throw new Error(`no capture ${fixtureId}`);
+  return found;
+}
+
 describe("captured webhook evidence", () => {
-  // Literal pins on BOTH captures. Everything else about a fixture is checked
+  // Literal pins on EVERY capture. Everything else about a fixture is checked
   // for self-consistency — body, signature, manifest, sidecars and lock are all
   // regenerated together — so without an out-of-band constant, editing a body
   // and re-running the generators passes silently. The route capture had no
-  // such pin, which made exactly that edit invisible.
-  it.each([
-    [
-      "configured-webhook-message-delivered",
-      "d70e21ceb9d893e6e31eed67e12ecabd07d3d490e2561d6502a7da286888c2c8",
-      "v1,QbYYSjbV2eqIxujTOS1zGfPbWvIfGjwcHynIsFhi/ec=",
-      "43ac342ee82651b36ed87c438e284e85c6edc7291a8bb062db1aa40dd557c1ff",
-    ],
-    [
-      "route-message-routing",
-      "7018938444c1b7659dca80c8a1baa3f43fa72ee84fb8dd4233bf47660d95938a",
-      "v1,BrWwZEpT8u3aNWRMT7b4eqF9eFGtBHbnhPPCVY+e2MY=",
-      "e222158197441e03b7ddc67370de33ff39624c079e71757f0a7170c618ef33da",
-    ],
-  ])("pins the %s capture to its body and header digests", (fixtureId, rawBody, sig, headers) => {
-    const capture = (capturedManifest.captures as JsonRecord[]).find(
-      (entry) => entry.fixtureId === fixtureId,
-    );
+  // such pin, which made exactly that edit invisible. A capture added without
+  // one inherits the same blind spot, so the count assertion below keeps this
+  // table complete.
+  it.each(CAPTURED_PINS)(
+    "pins the %s capture to its body and header digests",
+    (fixtureId, rawBody, sig, headers) => {
+      expect(capturedCapture(fixtureId)).toMatchObject({
+        rawBodySha256: rawBody,
+        signature: sig,
+        headersSha256: headers,
+      });
+    },
+  );
 
-    expect(capture).toMatchObject({
-      rawBodySha256: rawBody,
-      signature: sig,
-      headersSha256: headers,
+  it("leaves no capture without a literal pin", () => {
+    // Derived from the pin table itself. Asserting against a second literal
+    // list would let a new capture satisfy this by being appended there, while
+    // never gaining the pin the comment claims it has.
+    expect((capturedManifest.captures as JsonRecord[]).map((entry) => entry.fixtureId)).toEqual(
+      CAPTURED_PINS.map(([fixtureId]) => fixtureId),
+    );
+  });
+
+  it("pins the extracted producer structs themselves, not only their header", () => {
+    // The commit tie below compares one header line, so a hand edit to this
+    // DO-NOT-EDIT file that changes no serialization — a comment, or a field
+    // left at its zero value — passes every fixture digest and the tie itself.
+    // This makes re-extraction a deliberate change to a literal.
+    const digest = createHash("sha256")
+      .update(readFileSync(resolve(process.cwd(), PRODUCER_STRUCTS_PATH)))
+      .digest("hex");
+    expect(digest).toBe("7702c9ff0ec27195ff8e45ca48bb3ed3ea32053af24d60fe16eb31afad7213e8");
+  });
+
+  it("derives every capture from producer structs the extraction actually carries", () => {
+    // A capture can derive from more than one extracted file, so the record
+    // has to name every file its payload types come from. Checking only that
+    // the paths look plausible would let that list be trimmed to a file which
+    // does not declare the type, leaving
+    // the attestation quietly false.
+    const structs = readFileSync(resolve(process.cwd(), PRODUCER_STRUCTS_PATH), "utf8");
+    for (const capture of capturedManifest.captures as JsonRecord[]) {
+      const provenance = record(capture.provenance);
+      const producerStructs = provenance.producerStructs as string[];
+      expect(producerStructs.length, capture.fixtureId as string).toBeGreaterThan(0);
+      for (const file of producerStructs) {
+        expect(structs, `${capture.fixtureId as string} -> ${file}`).toContain(
+          `// --- ${file} ---`,
+        );
+      }
+    }
+
+    expect(
+      record(capturedCapture("configured-webhook-campaign-message-bounced").provenance)
+        .producerStructs,
+    ).toEqual([
+      "cmd/job-runner/jobs/webhooks/campaign_message.go",
+      "cmd/job-runner/jobs/webhooks/message.go",
+    ]);
+  });
+
+  // Content expectations, not just digests. The recipe tells a maintainer to
+  // paste new digests in after a re-derivation, so digests alone would let an
+  // emitter that quietly lost a field pass as "expected churn". These name what
+  // each captured body is here to prove.
+  it("keeps each captured body exercising what it was added for", () => {
+    const bodyFor = (fixtureId: string): JsonRecord =>
+      JSON.parse(
+        readFileSync(resolve(process.cwd(), capturedCapture(fixtureId).bodyPath as string), "utf8"),
+      ) as JsonRecord;
+
+    // A delivery records an attempt but never a classification.
+    const delivered = record(record(bodyFor("configured-webhook-message-delivered")).data);
+    expect(record(delivered.delivery_attempt)).toEqual({
+      smtp_code: 250,
+      enhanced_status_code: "2.0.0",
+      response: "OK: queued",
+      command: "DATA",
     });
+
+    // The published reference attempt for a bounce, verbatim. This body exists
+    // to cover the campaign payload's own serialisation, and the values are
+    // taken as given rather than derived here.
+    const campaign = record(record(bodyFor("configured-webhook-campaign-message-bounced")).data);
+    expect(record(campaign.delivery_attempt)).toEqual({
+      classification: "InvalidRecipient",
+      smtp_code: 550,
+      enhanced_status_code: "5.1.1",
+      response: "The email account that you tried to reach does not exist",
+      command: "RCPT TO",
+    });
+
+    // The routing body has no attempt: routed messages are not SMTP deliveries.
+    expect(record(record(bodyFor("route-message-routing")).data)).not.toHaveProperty(
+      "delivery_attempt",
+    );
+  });
+
+  it("attests to the commit the extracted producer structs actually came from", () => {
+    // The extractor stamps the SHA into producer-structs.go but only *prints*
+    // it for the manifest, so the two can drift silently: re-extract at a newer
+    // commit whose struct changes happen not to alter any fixture body, and
+    // every digest still matches while the manifest attests to the old one.
+    const structs = readFileSync(resolve(process.cwd(), PRODUCER_STRUCTS_PATH), "utf8");
+    expect(structs).toContain(`server commit ${capturedManifest.serverCommit as string}`);
   });
 
   it("pins the server revision the evidence corresponds to", () => {
-    expect(capturedManifest.serverCommit).toBe("faa5f995f24d24bdb96236ff13b237e82628a790");
+    // Full 40 characters because the manifest schema requires it, and the
+    // extractor refuses a revision that is not reachable from the default
+    // branch: a squash merge leaves a branch commit outside that history, so
+    // the attestation would point at a revision that disappears when the
+    // branch is pruned.
+    expect(capturedManifest.serverCommit).toBe("67ab72634ad775e5bd5d6a2962836acea27f354d");
   });
 
   it("records how each fixture's bytes were obtained, and does not overstate it", () => {
@@ -867,7 +1146,13 @@ describe("captured webhook evidence", () => {
     (_name, mutate: (p: JsonRecord) => JsonRecord, expected: boolean) => {
       const manifest = structuredClone(capturedManifest) as JsonRecord;
       const captures = manifest.captures as JsonRecord[];
-      captures[0]!.provenance = mutate(record(captures[0]!.provenance) as JsonRecord);
+      // Any capture works — this exercises the provenance validator, not a
+      // particular fixture — but name it so the choice is not mistaken for
+      // significance.
+      const target = captures.find(
+        (entry) => entry.fixtureId === "configured-webhook-message-delivered",
+      )!;
+      target.provenance = mutate(record(target.provenance) as JsonRecord);
 
       const bySchema = ajvAcceptsManifest(manifest);
       let byHand = true;
@@ -901,8 +1186,8 @@ describe("captured webhook evidence", () => {
     );
 
     await expect(validateWebhookEvidence(process.cwd())).resolves.toMatchObject({
-      captureCount: 2,
-      syntheticCount: 4,
+      captureCount: 3,
+      syntheticCount: 12,
     });
   });
 
@@ -1034,7 +1319,7 @@ describe("captured webhook evidence", () => {
   it("reproduces fixed signatures and exact three-header records from persisted values", () => {
     const captures = capturedManifest.captures as JsonRecord[];
     const headerRecordFormat = capturedManifest.headerRecordFormat as string;
-    expect(captures).toHaveLength(2);
+    expect(captures).toHaveLength(3);
     expect(headerRecordFormat).toContain("\n");
     expect(headerRecordFormat).not.toContain("\\n");
 
@@ -1079,8 +1364,10 @@ describe("captured webhook evidence", () => {
 
   it("rejects changed signed headers, reserialized bodies, swapped keys, and changed keys", () => {
     const captures = capturedManifest.captures as JsonRecord[];
-    const configuredCapture = structuredClone(captures[0]!);
-    const routeCapture = structuredClone(captures[1]!);
+    const configuredCapture = structuredClone(
+      capturedCapture("configured-webhook-message-delivered"),
+    );
+    const routeCapture = structuredClone(capturedCapture("route-message-routing"));
     const configuredResource = record(configuredCapture.signingResource);
     const routeResource = record(routeCapture.signingResource);
     const configuredBody = readFileSync(
@@ -1131,7 +1418,7 @@ describe("captured webhook evidence", () => {
   });
 
   it("rejects header-record and resource/key binding drift independently", () => {
-    const capture = structuredClone((capturedManifest.captures as JsonRecord[])[0]!);
+    const capture = structuredClone(capturedCapture("configured-webhook-message-delivered"));
     const resource = record(capture.signingResource);
     const body = readFileSync(resolve(process.cwd(), capture.bodyPath as string));
     const key = readFileSync(resolve(process.cwd(), resource.keyPath as string));
@@ -1141,7 +1428,7 @@ describe("captured webhook evidence", () => {
       /signed header record digest mismatch/,
     );
 
-    const changedBinding = structuredClone((capturedManifest.captures as JsonRecord[])[0]!);
+    const changedBinding = structuredClone(capturedCapture("configured-webhook-message-delivered"));
     record(changedBinding.signingResource).bindingSha256 = "0".repeat(64);
     expect(() => validateSignedFixture(changedBinding, body, key, capturedFixtureOptions)).toThrow(
       /resource\/key binding mismatch/,
@@ -1217,7 +1504,7 @@ describe("synthetic webhook fixtures", () => {
   it("validates independently and stays outside captured evidence", () => {
     const captures = capturedManifest.captures as JsonRecord[];
     const fixtures = syntheticManifest.fixtures as JsonRecord[];
-    expect(fixtures).toHaveLength(4);
+    expect(fixtures).toHaveLength(12);
     expect(captures.every((capture) => !(capture.bodyPath as string).includes("/synthetic/"))).toBe(
       true,
     );

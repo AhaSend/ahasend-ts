@@ -138,6 +138,21 @@ const REQUIREMENTS = Object.freeze([
     text: "const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer);",
   },
   {
+    label: "retry exhaustion covers campaign sends too",
+    path: "docs/security-and-webhooks.md",
+    text: "campaign sends included",
+  },
+  {
+    label: "message.failed carries no delivery attempt",
+    path: "docs/security-and-webhooks.md",
+    text: "`message.failed` never carries an attempt",
+  },
+  {
+    label: "delivery attempt description is display prose",
+    path: "docs/security-and-webhooks.md",
+    text: "`description` is display prose, not an identifier",
+  },
+  {
     label: "existing web-standard Request adapter",
     path: "README.md",
     text: "`nextRouteHandler` export is the web-standard `Request` adapter",
@@ -404,6 +419,11 @@ const REQUIREMENTS = Object.freeze([
     text: "latest published minor line",
   },
   {
+    label: "security runtime scope deferred to the maintained inventory",
+    path: "SECURITY.md",
+    text: "maintained blocking inventory",
+  },
+  {
     label: "security response targets",
     path: "SECURITY.md",
     text: "acknowledge a report within three business days",
@@ -422,10 +442,24 @@ const REQUIREMENTS = Object.freeze([
 
 const NODE_ONLY_SUPPORT_PATTERN =
   /(?:server-side\s+SDK\s+for\s+Node\.js|only\s+supports\s+Node\.js|SDK\s+requires\s+Node\.js|SDK\s+supports\s+Node\.js\s+only|Node\.js(?:\s*-\s*|\s+)only\s+SDK)/iu;
-const EDGE_UNSUPPORTED_PATTERN =
-  /(?:edge\s+runtimes?[^.]*\b(?:not\s+supported|unsupported)\b|(?:does\s+not|doesn['’]t)\s+support[^.]*\bedge\s+runtimes?\b)/iu;
+const SENTENCE_INTERIOR = String.raw`(?:[^.]|\.(?!\s|$))*`;
+const EDGE_UNSUPPORTED_VERDICT = String.raw`(?:not\s+supported|unsupported|out\s+of\s+scope|outside\s+the\s+(?:support(?:ed)?\s+)?boundary)`;
+const EDGE_UNSUPPORTED_PATTERN = new RegExp(
+  `(?:edge\\s+runtimes?${SENTENCE_INTERIOR}\\b${EDGE_UNSUPPORTED_VERDICT}\\b|(?:does\\s+not|doesn['’]t)\\s+support${SENTENCE_INTERIOR}\\bedge\\s+runtimes?\\b)`,
+  "iu",
+);
 
 const PROHIBITED_PATTERNS = Object.freeze([
+  {
+    // Campaign sends used to be exempt from message.failed, so a campaign
+    // message out of retries arrived as message.bounced with no attempt. That
+    // exemption is gone: every message that exhausts its retries now reports
+    // message.failed. The claim reads plausibly, so guard against it returning.
+    label: "an obsolete campaign message.failed exemption",
+    path: "docs/security-and-webhooks.md",
+    pattern:
+      /campaign[^.]*(?:never|not)\s+emit[^.]*`?message\.failed`?|`?message\.failed`?[^.]*(?:never|not)\s+emitted[^.]*campaign/iu,
+  },
   {
     label: "an obsolete Node-only support claim",
     path: "README.md",
@@ -449,6 +483,16 @@ const PROHIBITED_PATTERNS = Object.freeze([
   {
     label: "an obsolete edge-unsupported claim",
     path: "docs/security-and-webhooks.md",
+    pattern: EDGE_UNSUPPORTED_PATTERN,
+  },
+  {
+    label: "an obsolete Node-only support claim",
+    path: "SECURITY.md",
+    pattern: NODE_ONLY_SUPPORT_PATTERN,
+  },
+  {
+    label: "an obsolete edge-unsupported claim",
+    path: "SECURITY.md",
     pattern: EDGE_UNSUPPORTED_PATTERN,
   },
   {
@@ -476,6 +520,22 @@ const PROHIBITED_PATTERNS = Object.freeze([
     path: "README.md",
     pattern:
       /(?:console|log|logger)\.(?:log|debug|info|warn|error)\s*\([^;\n]*event\.data\.recipient/u,
+  },
+  {
+    // A delivery attempt's `response` and `description` are free-form text that
+    // routinely embeds the recipient address, so neither belongs in a log line.
+    // The worked example in this guide logged `response` until review caught it;
+    // this is what stops it coming back.
+    label: "untrusted delivery-attempt text sent to console output",
+    path: "docs/security-and-webhooks.md",
+    pattern:
+      /(?:console|log|logger)\.(?:log|debug|info|warn|error)\s*\([^;\n]*attempt\??\.(?:response|description)/u,
+  },
+  {
+    label: "untrusted delivery-attempt text in the README example",
+    path: "README.md",
+    pattern:
+      /(?:console|log|logger)\.(?:log|debug|info|warn|error)\s*\([^;\n]*attempt\??\.(?:response|description)/u,
   },
 ]);
 
@@ -2339,7 +2399,12 @@ declare global {
   const orderId: string;
   const rawBodyStringOrBuffer: string | Buffer;
   const reportLocalFailure: (value: unknown) => void;
+  const route: (
+    value: import("@ahasend/sdk/webhooks").KnownDeliveryAttemptClassification,
+  ) => Promise<void>;
+  const routeUnrecognized: (value: string) => Promise<void>;
   const secretStore: any;
+  const suppress: (recipient: string, reason?: string) => Promise<void>;
   const traceId: string;
   const webhookDeliveries: any;
 }

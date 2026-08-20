@@ -45,6 +45,7 @@ const webhookRuntimeExports = [
   "WebhookVerifier",
   "expressWebhookHandler",
   "fastifyWebhookHandler",
+  "isKnownDeliveryAttemptClassification",
   "isKnownWebhookEvent",
   "isKnownWebhookEventType",
   "nextRouteHandler",
@@ -309,6 +310,15 @@ describe("built package topology", () => {
     }
     expect(webhookReport).not.toContain("fetchWebhookHandler");
     expect(webhookReport).not.toContain("FetchHandler");
+
+    // Decision 8: the package root exports an unrelated `DeliveryAttempt`, so
+    // the webhooks entry must never export that bare name. The compile-time
+    // guard in tests/webhooks.test.ts catches the source; this catches the
+    // published surface, where a re-export added anywhere in the graph lands.
+    expect(webhookReport).toMatch(/^export type WebhookDeliveryAttempt\b/mu);
+    expect(webhookReport).not.toMatch(
+      /^export (?:declare )?(?:type|interface|class|const|enum|function|namespace) DeliveryAttempt\b/mu,
+    );
   });
 
   it("copies the operation profile and detached digest byte-for-byte", () => {

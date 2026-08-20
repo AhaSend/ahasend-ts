@@ -1,8 +1,12 @@
 # Safe logging and diagnostics
 
 Use a strict output allowlist: aggregate counts, appropriate opaque object IDs that do not embed
-customer data, HTTP status, SDK error code, and request ID. These are the only AhaSend values that
-belong in logs, metrics labels, traces, or exception tags.
+customer data, HTTP status, SDK error code, request ID, and a webhook delivery attempt's
+`smtp_code`, `enhanced_status_code`, `classification`, and `command`. These are the only AhaSend
+values that belong in logs, metrics labels, traces, or exception tags. `command` is a normalized
+command name — `RCPT TO`, `DATA` — and excludes the command's arguments, which is what keeps the
+envelope addresses out of it. A delivery attempt's `response` and `description` are **not**
+allow-listed: both are free-form text that routinely embeds the recipient address.
 
 Forbid message content, subjects, recipients and other addresses, attachments, API keys, webhook
 secrets, SMTP passwords, one-time `secret_key` values, authorization and signature headers,

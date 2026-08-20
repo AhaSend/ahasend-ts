@@ -411,8 +411,8 @@ export function validateSignedFixture(
     `${capture.fixtureId} body`,
   );
 
-  // Every non-routing payload carries webhook_id: the producers declare it
-  // `uuid.UUID` with no omitempty, so it is on the wire unconditionally.
+  // Every non-routing payload carries webhook_id unconditionally: it is
+  // always serialized rather than omitted when empty.
   //
   // This was previously skipped for manifest evidence, on the reasoning that
   // captures are immutable transport bytes that may predate the pinned schema.
@@ -635,6 +635,138 @@ export function parseWebhookContract(source) {
   return root;
 }
 
+// The `delivery_attempt` object draws the line this contract keeps everywhere:
+// structure is enforced, values are tolerated. A missing required field is a
+// malformed event and is rejected; an unfamiliar value inside a well-formed
+// event is data the SDK passes through. A generator or extractor regression
+// could otherwise weaken the schema in either direction while every happy-path
+// fixture still passed.
+function validateDeliveryAttemptContract(schemas) {
+  const messageData = assertRecord(schemas.MessageWebhookData, "MessageWebhookData");
+  const messageProperties = assertRecord(messageData.properties, "MessageWebhookData.properties");
+  const deliveryAttempt = assertRecord(
+    messageProperties.delivery_attempt,
+    "MessageWebhookData.properties.delivery_attempt",
+  );
+  if (deliveryAttempt.$ref !== "#/components/schemas/DeliveryAttempt") {
+    throw new TypeError("MessageWebhookData.delivery_attempt must reference DeliveryAttempt");
+  }
+  if (Array.isArray(messageData.required) && messageData.required.includes("delivery_attempt")) {
+    throw new TypeError("MessageWebhookData.delivery_attempt must stay optional");
+  }
+
+  const attempt = assertRecord(schemas.DeliveryAttempt, "DeliveryAttempt");
+  const properties = assertRecord(attempt.properties, "DeliveryAttempt.properties");
+  // `null` and absent mean the same thing here, so rejecting `null` would only
+  // ever disable a customer's webhook over a distinction without a difference.
+  // Both spellings reach the wire, so both have to validate.
+  if (JSON.stringify(attempt.type) !== JSON.stringify(["object", "null"])) {
+    throw new TypeError("DeliveryAttempt must accept null alongside the object");
+  }
+  // `smtp_code` is required and that requirement DOES reach the runtime
+  // validator, unlike `minimum` below. The two are treated differently on
+  // purpose: an attempt that carries no code at all is structurally not an
+  // attempt, whereas an out-of-range value is a well-formed attempt carrying a
+  // surprising number. Structure is enforced, values are tolerated.
+  if (JSON.stringify(attempt.required) !== JSON.stringify(["smtp_code"])) {
+    throw new TypeError("DeliveryAttempt must require exactly smtp_code");
+  }
+
+  const smtpCode = assertRecord(properties.smtp_code, "DeliveryAttempt.properties.smtp_code");
+  if (smtpCode.type !== "integer") {
+    throw new TypeError("DeliveryAttempt.smtp_code must be an integer");
+  }
+  // Documented range, deliberately not enforced by the runtime validator:
+  // `validationSchema()` drops `minimum`, so a malformed code parses rather
+  // than turning a producer change into 400s and a disabled webhook. Asserting
+  // it here keeps the documentation from being dropped by accident.
+  if (smtpCode.minimum !== 0) {
+    throw new TypeError("DeliveryAttempt.smtp_code must document minimum: 0");
+  }
+
+  const classification = assertRecord(
+    properties.classification,
+    "DeliveryAttempt.properties.classification",
+  );
+  if (classification.type !== "string") {
+    throw new TypeError("DeliveryAttempt.classification must be a string");
+  }
+  if (classification.enum !== undefined) {
+    throw new TypeError(
+      "DeliveryAttempt.classification must not be an enum: the bucket set is open, and a closed set would make already-published SDKs reject future buckets",
+    );
+  }
+  const knownValues = classification["x-known-values"];
+  if (
+    !Array.isArray(knownValues) ||
+    knownValues.length === 0 ||
+    knownValues.some((value) => typeof value !== "string")
+  ) {
+    throw new TypeError("DeliveryAttempt.classification must list x-known-values as strings");
+  }
+  if (new Set(knownValues).size !== knownValues.length) {
+    throw new TypeError("DeliveryAttempt.classification x-known-values must not repeat a value");
+  }
+  // The values are carried twice on purpose: `x-known-values` is what the
+  // generator reads, and the description is what renders on the docs site.
+  // Assert both directions so neither copy can drift.
+  const documented = documentedClassifications(classification.description);
+  if (JSON.stringify(documented) !== JSON.stringify(knownValues)) {
+    throw new TypeError(
+      "DeliveryAttempt.classification description must list exactly its x-known-values, in order",
+    );
+  }
+}
+
+const KNOWN_VALUES_PATTERN = /^Known values: (.+)\.$/m;
+
+export function documentedClassifications(descriptionValue) {
+  if (typeof descriptionValue !== "string") {
+    throw new TypeError("DeliveryAttempt.classification must carry a description");
+  }
+  const match = KNOWN_VALUES_PATTERN.exec(descriptionValue);
+  if (match === null) {
+    throw new TypeError(
+      "DeliveryAttempt.classification description must carry one `Known values: ...` line",
+    );
+  }
+  return match[1].split(", ").map((entry) => {
+    const value = /^`([^`]+)`$/.exec(entry);
+    if (value === null) {
+      throw new TypeError(`Known values entry ${JSON.stringify(entry)} must be backticked`);
+    }
+    return value[1];
+  });
+}
+
+// Closing an object anywhere in this document would turn every additive
+// producer change into a rejected delivery — which is how a field like
+// `delivery_attempt` reaches an older SDK safely today. This catches the two
+// spellings that appear in practice; exotic encodings of "closed"
+// (`additionalProperties: { not: {} }`) are not chased, since the runtime
+// validator drops every one of them anyway and the blast radius is the
+// rendered docs and the sibling Go SDK, not a delivery outage.
+// Segments that already contain a dot or a slash are bracketed, so a reported
+// path cannot be misread as deeper nesting than it is: webhook keys and media
+// types are both dotted.
+function joinPath(path, key) {
+  return /[./]/.test(key) ? `${path}[${JSON.stringify(key)}]` : `${path}.${key}`;
+}
+
+function assertNoClosedObjects(value, path) {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertNoClosedObjects(entry, `${path}[${index}]`));
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  for (const [key, entry] of Object.entries(value)) {
+    if ((key === "additionalProperties" || key === "unevaluatedProperties") && entry === false) {
+      throw new TypeError(`${path} must not set ${key}: false`);
+    }
+    assertNoClosedObjects(entry, joinPath(path, key));
+  }
+}
+
 export function validateWebhookContract(document) {
   const root = assertRecord(document, "Webhook document");
   const webhooks = assertRecord(root.webhooks, "Webhook definitions");
@@ -671,6 +803,9 @@ export function validateWebhookContract(document) {
       throw new TypeError(`${schemaName}.is_bot must be optional`);
     }
   }
+
+  validateDeliveryAttemptContract(schemas);
+  assertNoClosedObjects(root, "webhooks.yaml");
 
   const description = assertRecord(root.info, "Webhook info").description;
   if (

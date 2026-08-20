@@ -23,13 +23,19 @@ import type {
   AnyWebhookEvent,
   ExpressHandler,
   FastifyHandler,
+  KnownDeliveryAttemptClassification,
   NextHandler,
   NodeStyleRequest,
   NodeStyleResponse,
   WebhookAdapterOptions,
+  WebhookDeliveryAttempt,
   WebhookRawBody,
 } from "@ahasend/sdk/webhooks";
-import { AhaSendWebhookVerificationError, WebhookVerifier } from "@ahasend/sdk/webhooks";
+import {
+  AhaSendWebhookVerificationError,
+  isKnownDeliveryAttemptClassification,
+  WebhookVerifier,
+} from "@ahasend/sdk/webhooks";
 
 declare const client: SDK.AhaSendClient;
 declare function result<T>(): SDK.AhaSendPromise<T>;
@@ -499,6 +505,15 @@ const nextHandler: NextHandler = (event, request) => {
 };
 
 void [expressHandler, fastifyHandler, nextHandler, new WebhookVerifier("whsec_dGVzdA==")];
+
+// The delivery-attempt surface, exercised through the packed declarations the
+// same way a consumer would reach it.
+declare const packedAttempt: WebhookDeliveryAttempt;
+const packedSmtpCode: number = packedAttempt.smtp_code;
+const packedClassification: string | undefined = packedAttempt.classification;
+const packedKnown: KnownDeliveryAttemptClassification = "Uncategorized";
+const packedNarrowed: boolean = isKnownDeliveryAttemptClassification(packedKnown);
+void [packedSmtpCode, packedClassification, packedNarrowed];
 
 declare const webhookVerifier: WebhookVerifier;
 const verificationResult: Promise<void> = webhookVerifier.verify({}, "{}");

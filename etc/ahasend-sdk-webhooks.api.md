@@ -94,6 +94,7 @@ interface components {
             user_agent?: string;
             ip?: string;
             is_bot?: boolean;
+            delivery_attempt?: components["schemas"]["DeliveryAttempt"];
         };
         MessageClickedWebhookData: {
             account_id: string;
@@ -108,6 +109,14 @@ interface components {
             id: string;
             is_bot?: boolean;
         };
+        DeliveryAttempt: {
+            classification?: string;
+            smtp_code: number;
+            enhanced_status_code?: string;
+            response?: string;
+            description?: string;
+            command?: string;
+        } | null;
         SuppressionWebhookPayload: {
             type: "suppression.created";
             webhook_id: string;
@@ -218,6 +227,9 @@ export interface FastifyStyleReply {
 // @public
 export function fastifyWebhookHandler(verifier: WebhookVerifier, handler: FastifyHandler, options?: WebhookAdapterOptions): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void>;
 
+// @public
+export function isKnownDeliveryAttemptClassification(classification: string): classification is KnownDeliveryAttemptClassification;
+
 // Warning: (ae-forgotten-export) The symbol "AnyWebhookEvent$1" needs to be exported by the entry point index.d.ts
 //
 // @public
@@ -227,7 +239,15 @@ export function isKnownWebhookEvent(event: AnyWebhookEvent$1): event is WebhookE
 export function isKnownWebhookEventType(type: string): type is WebhookEventType;
 
 // @public (undocumented)
+const KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS: readonly ["InvalidRecipient", "BadDomain", "InactiveMailbox", "InvalidSender", "QuotaIssues", "NoAnswerFromHost", "BadConnection", "DNSFailure", "RoutingErrors", "TransientFailure", "MessageExpired", "ProtocolErrors", "AuthenticationFailed", "PolicyRelated", "Uncategorized"];
+
+// @public (undocumented)
 const KNOWN_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "suppression.created", "domain.dns_error", "message.routing", "route.message"];
+
+// Warning: (ae-forgotten-export) The symbol "KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS" needs to be exported by the entry point index.d.ts
+//
+// @public (undocumented)
+export type KnownDeliveryAttemptClassification = (typeof KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS)[number];
 
 // @public (undocumented)
 type KnownWebhookEvent = webhookEvents[keyof webhookEvents];
@@ -388,6 +408,9 @@ export interface WebhookAdapterOptions {
     maxBodyBytes?: number | undefined;
     onError?: ((error: unknown, context: WebhookAdapterErrorContext) => void | Promise<void>) | undefined;
 }
+
+// @public
+export type WebhookDeliveryAttempt = NonNullable<components["schemas"]["DeliveryAttempt"]>;
 
 // @public
 export interface WebhookEnvelope<TType extends Exclude<WebhookEventType, "message.routing" | "route.message">, TData> {

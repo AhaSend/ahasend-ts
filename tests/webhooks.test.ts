@@ -11,6 +11,7 @@ import type { components as WebhookComponents } from "../src/generated/webhook-t
 import {
   CANONICAL_WEBHOOK_EVENT_TYPES,
   DEPRECATED_WEBHOOK_EVENT_TYPES,
+  KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS,
   WEBHOOK_CONTRACT_SHA256,
   WEBHOOK_SCHEMA_NAMES,
 } from "../src/generated/webhook-types.js";
@@ -20,6 +21,20 @@ import {
   validateWebhookEvent,
 } from "../src/generated/webhook-validators.js";
 import { isKnownWebhookEvent } from "../src/webhooks/events.js";
+import {
+  isKnownDeliveryAttemptClassification,
+  type KnownDeliveryAttemptClassification,
+  type MessageBouncedEvent,
+  type MessageClickedEventData,
+  type MessageDeliveredEvent,
+  type MessageEventData,
+  type MessageFailedEvent,
+  type MessageOpenedEvent,
+  type MessageReceptionEvent,
+  type MessageSuppressedEvent,
+  type MessageTransientErrorEvent,
+  type WebhookDeliveryAttempt,
+} from "../src/webhooks/index.js";
 import { AhaSendConfigurationError } from "../src/errors.js";
 import {
   AhaSendWebhookVerificationError,
@@ -45,6 +60,132 @@ const IS_BOT_FIXTURE_EXPECTATIONS = new Map<string, boolean | "absent">([
   ["message-opened-bot-true", true],
   ["message-clicked-bot-false", false],
   ["message-opened-bot-absent", "absent"],
+]);
+
+// Literal body digests, held outside the corpus. `resign-fixtures.mjs rewrite`
+// re-signs whatever bytes it finds, so a signature proves only that the body
+// and the manifest agree — not that the body still says what it was written to
+// say. Before the resigner learned this manifest, forging that agreement meant
+// hand-computing a SHA-256 and an HMAC; now the documented recipe does it for
+// you. These are what make a stray edit visible: change any synthetic body and
+// this table goes red, naming the fixture.
+//
+// The content expectations below cover `delivery_attempt` and `is_bot`. These
+// cover everything else — type, event, addresses, subject, ids, timestamps.
+const SYNTHETIC_BODY_DIGESTS = new Map<string, string>([
+  [
+    "synthetic-message-delivered",
+    "e716664557239cadf9addafa559f2de152af789e21a10bd6978276db3a64fce9",
+  ],
+  ["message-opened-bot-true", "e4f24352138738976fa72fc09a320b0d2c523b8ef69056157d1bd1bcbfb30b66"],
+  ["message-clicked-bot-false", "72eaf192f091a89f5f6a6948e2b29ec83d1ec6d14d906ffea8462a9ce014673f"],
+  ["message-opened-bot-absent", "848b754d6e4c964c3acb4d5b5f780377f11a44cd09a847d98e72084cf6603974"],
+  [
+    "message-bounced-with-attempt",
+    "e73746cc39919d6dea0cf4a5eab3f1194a6daabf673ad1185a6a9e265b62ee87",
+  ],
+  [
+    "message-transient-error-with-attempt",
+    "5ab789676593e2da470e8323eff65b1c6e93a704f8c16d0fb447bfc359d0d71c",
+  ],
+  [
+    "message-delivered-attempt-null",
+    "8903881ce409cd16749517ac839f0d4bc23d0d283dedd646c8346e11fefa1929",
+  ],
+  [
+    "message-bounced-attempt-zero-code",
+    "9c3a5d83acade0c6652ba8a34ad9d2998f21546e138e6e92aa738cd0d83a98c2",
+  ],
+  [
+    "message-bounced-attempt-uncategorized",
+    "ef2c855378240598c3edbd21ec2cdb66b5403da4ef2a74b75e3cef62417d8e45",
+  ],
+  [
+    "message-bounced-attempt-unknown-field",
+    "2c2e088840fd30e11442fcf7383cb3556c1d5ad5245a205f2871c08d18a29e13",
+  ],
+  [
+    "message-delivered-attempt-code-only",
+    "1d37741a251d312629546d046b3fd105182f4e0b72dd3181e5e7c4e455ef2c25",
+  ],
+  [
+    "message-bounced-attempt-with-description",
+    "ceb338baba3678d9066395577a115c08ef9b5c55472e0819ddea32f951d047f9",
+  ],
+]);
+
+// A fixture id is a claim, and self-consistent evidence cannot check a claim:
+// body, signature, and manifest are all regenerated together, so a fixture
+// edited to drop the very field it is named for stays green through every
+// digest assertion in this file. These are the out-of-band constants that make
+// the names mean something — one per tolerance the corpus exists to pin.
+const DELIVERY_ATTEMPT_FIXTURE_EXPECTATIONS = new Map<string, unknown>([
+  ["synthetic-message-delivered", "absent"],
+  // The is_bot fixtures predate this field and must stay free of it: they are
+  // the corpus's evidence that an event carrying no attempt is ordinary.
+  ["message-opened-bot-true", "absent"],
+  ["message-clicked-bot-false", "absent"],
+  ["message-opened-bot-absent", "absent"],
+  [
+    "message-bounced-with-attempt",
+    {
+      classification: "InvalidRecipient",
+      smtp_code: 550,
+      enhanced_status_code: "5.1.1",
+      response: "The email account that you tried to reach does not exist",
+      command: "RCPT TO",
+    },
+  ],
+  [
+    "message-transient-error-with-attempt",
+    {
+      classification: "QuotaIssues",
+      smtp_code: 452,
+      enhanced_status_code: "4.2.2",
+      response: "The recipient's inbox is out of storage space",
+      command: "RCPT TO",
+    },
+  ],
+  ["message-delivered-attempt-null", null],
+  [
+    "message-bounced-attempt-zero-code",
+    {
+      classification: "RoutingErrors",
+      smtp_code: 0,
+      response: "internal: no route to host",
+    },
+  ],
+  [
+    "message-bounced-attempt-uncategorized",
+    {
+      classification: "Uncategorized",
+      smtp_code: 550,
+      response: "Message rejected",
+    },
+  ],
+  [
+    "message-bounced-attempt-unknown-field",
+    {
+      classification: "BadDomain",
+      smtp_code: 550,
+      response: "Domain not found",
+      diagnostic_source: "future-producer-field",
+    },
+  ],
+  // The structurally minimal attempt: a code and nothing else.
+  ["message-delivered-attempt-code-only", { smtp_code: 250 }],
+  // `description` lives here rather than in the captured corpus: the SDK
+  // forwards it untouched, so what matters is that it parses, not that some
+  // exact producer state emits it.
+  [
+    "message-bounced-attempt-with-description",
+    {
+      classification: "RoutingErrors",
+      smtp_code: 451,
+      response: "internal: no route to host",
+      description: "A temporary problem inside AhaSend prevented delivery.",
+    },
+  ],
 ]);
 const CONFIGURED_WEBHOOK_BODIES = [
   {
@@ -179,13 +320,65 @@ describe("generated webhook schema", () => {
     }>().toExtend<WebhookComponents["schemas"]["RouteWebhookPayload"]>();
   });
 
+  it("tolerates the values it forwards and rejects what is not an attempt", () => {
+    const base = {
+      type: "message.bounced",
+      webhook_id: "abe11757-2886-4b55-96f1-0e0afc95795a",
+      timestamp: "2024-05-06T10:05:16.687031577Z",
+      data: {
+        account_id: "4cdd7bdd-294e-4762-892f-83d40abf5a87",
+        event: "on_bounced",
+        from: "sender@example.com",
+        recipient: "recipient@example.com",
+        subject: "Welcome to our service",
+        message_id_header: "<message-id-12345@localhost>",
+        id: "407926766d2711f09b30960002cafe7c",
+      },
+    };
+    const withAttempt = (delivery_attempt: unknown): unknown => ({
+      ...base,
+      data: { ...base.data, delivery_attempt },
+    });
+
+    // Structure is enforced, values are tolerated. Everything on the left is a
+    // value the SDK forwards untouched, so rejecting any of it would drop mail
+    // and — past 100 consecutive 400s — disable the customer's webhook.
+    const tolerated: Array<[string, unknown]> = [
+      ["absent", base],
+      ["explicit null", withAttempt(null)],
+      ["smtp_code 0", withAttempt({ smtp_code: 0 })],
+      ["negative smtp_code", withAttempt({ smtp_code: -1 })],
+      [
+        "unknown classification",
+        withAttempt({ classification: "BucketAddedLater", smtp_code: 550 }),
+      ],
+      ["unknown extra field", withAttempt({ smtp_code: 550, future_field: "added later" })],
+    ];
+    for (const [label, event] of tolerated) {
+      expect(validateKnownWebhookEvent(event), label).toBe(true);
+    }
+
+    // Everything here is malformed rather than surprising: an attempt always
+    // carries a code, so one without a code is not an attempt at all.
+    const rejected: Array<[string, unknown]> = [
+      ["missing smtp_code", withAttempt({ classification: "BadDomain" })],
+      ["string smtp_code", withAttempt({ smtp_code: "550" })],
+      ["fractional smtp_code", withAttempt({ smtp_code: 550.5 })],
+      ["attempt is a string", withAttempt("not-an-object")],
+      ["attempt is an array", withAttempt([])],
+    ];
+    for (const [label, event] of rejected) {
+      expect(validateKnownWebhookEvent(event), label).toBe(false);
+    }
+  });
+
   it("covers every declared webhook schema and canonical event example", async () => {
     const document = parseWebhookContract(WEBHOOK_SOURCE);
     const schemas = record(record(document["components"])["schemas"]);
     const webhooks = record(document["webhooks"]);
 
     expect(WEBHOOK_SCHEMA_NAMES).toEqual(Object.keys(schemas));
-    expect(WEBHOOK_SCHEMA_NAMES).toHaveLength(18);
+    expect(WEBHOOK_SCHEMA_NAMES).toHaveLength(19);
     expect(CANONICAL_WEBHOOK_EVENT_TYPES).toEqual(Object.keys(webhooks));
     expect(CANONICAL_WEBHOOK_EVENT_TYPES).toHaveLength(11);
 
@@ -234,7 +427,7 @@ describe("generated webhook schema", () => {
   });
 
   it("requires webhook_id on every configured-webhook envelope", async () => {
-    // All six producers declare `WebhookID uuid.UUID` with no omitempty, so
+    // All six configured-webhook envelopes always carry webhook_id, so
     // the key is always on the wire. It was optional only because the fixture
     // it was aligned against omitted it, and that fixture was generated rather
     // than captured. Routed messages are the exception and carry route_id.
@@ -442,6 +635,122 @@ describe("generated webhook schema", () => {
   });
 });
 
+// Decision 8: the package root already exports an unrelated `DeliveryAttempt`
+// (the per-hop log on `Message.delivery_attempts`), so two different shapes
+// must never be reachable under one name.
+//
+// This has to be a compile-time assertion. A type export leaves no trace in
+// the module namespace, so no amount of `Object.keys()` on the entry can see
+// one. The suppression directive below IS the assertion: the import fails
+// today, and the moment the entry exports that name in any form — type,
+// interface, class, const, or namespace re-export — the import succeeds, the
+// suppression becomes unnecessary, and TypeScript reports TS2578. Nothing else
+// here is load-bearing; do not add a second construct that only looks like one.
+//
+// Do not spell the directive's own token in this prose: TypeScript honours it
+// in any comment, which would move the assertion to whatever line follows.
+// @ts-expect-error the webhooks entry must not export a bare DeliveryAttempt
+import type { DeliveryAttempt as ReservedCollisionName } from "../src/webhooks/index.js";
+
+describe("delivery attempt public surface", () => {
+  it("exports the classification guard as a callable from the entry point", () => {
+    // The two type exports are asserted by this file's own type imports under
+    // `npm run typecheck`; only the guard has a runtime identity to check.
+    expect(typeof isKnownDeliveryAttemptClassification).toBe("function");
+  });
+
+  it("narrows every classification the classifier emits today, and nothing else", () => {
+    for (const classification of KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS) {
+      expect(isKnownDeliveryAttemptClassification(classification), classification).toBe(true);
+    }
+
+    // A bucket added after this release is ordinary data, not an error. This is
+    // the guard's whole reason for existing: it lets a caller branch on what it
+    // knows without rejecting what it does not.
+    for (const unknown of ["BrandNewBucket", "", "uncategorized", "Uncategorized "]) {
+      expect(isKnownDeliveryAttemptClassification(unknown), unknown).toBe(false);
+    }
+  });
+
+  it("narrows at the type level without closing the value space", () => {
+    const classification: string = "InvalidRecipient";
+    if (isKnownDeliveryAttemptClassification(classification)) {
+      expectTypeOf(classification).toEqualTypeOf<KnownDeliveryAttemptClassification>();
+    }
+
+    // The union documents; it does not constrain. An attempt carrying a value
+    // outside it is still a well-formed attempt.
+    expectTypeOf<WebhookDeliveryAttempt["classification"]>().toEqualTypeOf<string | undefined>();
+
+    // NonNullable is the point of the alias: the wire type admits null, the
+    // public name does not, so it can be written in a helper signature.
+    expectTypeOf<WebhookDeliveryAttempt>().not.toEqualTypeOf<
+      WebhookComponents["schemas"]["DeliveryAttempt"]
+    >();
+    expectTypeOf<
+      NonNullable<WebhookComponents["schemas"]["DeliveryAttempt"]>
+    >().toEqualTypeOf<WebhookDeliveryAttempt>();
+    expectTypeOf<WebhookDeliveryAttempt["smtp_code"]>().toEqualTypeOf<number>();
+  });
+
+  it("attaches the attempt to the shared message data and nowhere else", () => {
+    expectTypeOf<MessageEventData["delivery_attempt"]>().toEqualTypeOf<
+      WebhookDeliveryAttempt | null | undefined
+    >();
+
+    // Assert each of the seven separately rather than trusting that they all
+    // still funnel through one alias: decision 1 explicitly contemplates
+    // per-event data schemas, and the day one event gets its own, an
+    // assertion on the shared alias would stay green while that event
+    // quietly lost the field.
+    expectTypeOf<MessageReceptionEvent["data"]["delivery_attempt"]>().toEqualTypeOf<
+      WebhookDeliveryAttempt | null | undefined
+    >();
+    expectTypeOf<MessageDeliveredEvent["data"]["delivery_attempt"]>().toEqualTypeOf<
+      WebhookDeliveryAttempt | null | undefined
+    >();
+    expectTypeOf<MessageTransientErrorEvent["data"]["delivery_attempt"]>().toEqualTypeOf<
+      WebhookDeliveryAttempt | null | undefined
+    >();
+    expectTypeOf<MessageFailedEvent["data"]["delivery_attempt"]>().toEqualTypeOf<
+      WebhookDeliveryAttempt | null | undefined
+    >();
+    expectTypeOf<MessageBouncedEvent["data"]["delivery_attempt"]>().toEqualTypeOf<
+      WebhookDeliveryAttempt | null | undefined
+    >();
+    expectTypeOf<MessageSuppressedEvent["data"]["delivery_attempt"]>().toEqualTypeOf<
+      WebhookDeliveryAttempt | null | undefined
+    >();
+    expectTypeOf<MessageOpenedEvent["data"]["delivery_attempt"]>().toEqualTypeOf<
+      WebhookDeliveryAttempt | null | undefined
+    >();
+
+    // Clicked, suppression, domain, and routing events have their own data
+    // shapes and never carry one.
+    expectTypeOf<MessageClickedEventData>().not.toHaveProperty("delivery_attempt");
+    expectTypeOf<WebhookComponents["schemas"]["SuppressionWebhookData"]>().not.toHaveProperty(
+      "delivery_attempt",
+    );
+    expectTypeOf<WebhookComponents["schemas"]["DomainWebhookData"]>().not.toHaveProperty(
+      "delivery_attempt",
+    );
+    expectTypeOf<WebhookComponents["schemas"]["RouteWebhookData"]>().not.toHaveProperty(
+      "delivery_attempt",
+    );
+  });
+
+  it("generates the classification tuple from the contract rather than a hand-written list", () => {
+    const document = parseWebhookContract(WEBHOOK_SOURCE);
+    const schemas = record(record(document["components"])["schemas"]);
+    const classification = record(
+      record(record(schemas["DeliveryAttempt"])["properties"])["classification"],
+    );
+
+    expect(KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS).toEqual(classification["x-known-values"]);
+    expect(classification["enum"]).toBeUndefined();
+  });
+});
+
 describe("captured TypeScript verification results", () => {
   const manifest = JSON.parse(readFileSync(resolve(CAPTURED_PATH, "manifest.json"), "utf8")) as {
     headerRecordFormat: string;
@@ -537,11 +846,18 @@ describe("captured TypeScript verification results", () => {
   });
 
   it("rejects altered exact headers, reserialized bodies, and swapped resource keys", async () => {
-    for (const [index, capture] of manifest.captures.entries()) {
+    for (const capture of manifest.captures) {
       const rawBody = readFileSync(resolve(ROOT, capture.bodyPath));
       const keyFile = readFileSync(resolve(ROOT, capture.signingResource.keyPath));
       const key = keyFile.subarray(0, keyFile.length - 1).toString("utf8");
-      const otherCapture = manifest.captures[(index + 1) % manifest.captures.length]!;
+      // Pick a capture whose key genuinely differs rather than the next one in
+      // order: two captures can share one signing resource — the transactional
+      // and campaign deliveries to the same configured webhook do — and
+      // "swapping" a key for itself asserts nothing.
+      const otherCapture = manifest.captures.find(
+        (candidate) => candidate.signingResource.keyPath !== capture.signingResource.keyPath,
+      );
+      if (otherCapture === undefined) throw new Error("corpus has only one signing key");
       const otherKeyFile = readFileSync(resolve(ROOT, otherCapture.signingResource.keyPath));
       const otherKey = otherKeyFile.subarray(0, otherKeyFile.length - 1).toString("utf8");
       const verifier = createWebhookVerifierWithClock(
@@ -787,6 +1103,15 @@ describe("WebhookVerifier", () => {
         .filter((fixtureId) => IS_BOT_FIXTURE_EXPECTATIONS.has(fixtureId)),
     ).toEqual([...IS_BOT_FIXTURE_EXPECTATIONS.keys()]);
 
+    // Every fixture carries both an expectation and a digest, so a new one
+    // cannot join the corpus with nothing but self-consistent evidence behind
+    // it. Compared as sets: the order these tables are written in is not a
+    // requirement, and pinning it would mean reordering two tables to insert a
+    // fixture anywhere but the end.
+    const fixtureIds = manifest.fixtures.map(({ fixtureId }) => fixtureId).sort();
+    expect([...DELIVERY_ATTEMPT_FIXTURE_EXPECTATIONS.keys()].sort()).toEqual(fixtureIds);
+    expect([...SYNTHETIC_BODY_DIGESTS.keys()].sort()).toEqual(fixtureIds);
+
     for (const fixture of manifest.fixtures) {
       const rawBody = readFileSync(resolve(ROOT, fixture.bodyPath));
       const keyFile = readFileSync(resolve(ROOT, fixture.keyPath));
@@ -794,6 +1119,10 @@ describe("WebhookVerifier", () => {
       const payload = JSON.parse(rawBody.toString("utf8")) as unknown;
 
       expect(sha256Hex(rawBody), fixture.fixtureId).toBe(fixture.rawBodySha256);
+      // Against the literal, not just against the manifest the same run wrote.
+      expect(fixture.rawBodySha256, fixture.fixtureId).toBe(
+        SYNTHETIC_BODY_DIGESTS.get(fixture.fixtureId),
+      );
       expect(sha256Hex(key), fixture.fixtureId).toBe(fixture.keySha256);
       expect(
         sign(key.toString("utf8"), fixture.webhookId, fixture.webhookTimestamp, rawBody),
@@ -813,6 +1142,14 @@ describe("WebhookVerifier", () => {
         rawBody,
       );
       expect(event, fixture.fixtureId).toEqual(payload);
+
+      const expectedAttempt = DELIVERY_ATTEMPT_FIXTURE_EXPECTATIONS.get(fixture.fixtureId);
+      const eventData = record(event.data);
+      if (expectedAttempt === "absent") {
+        expect(Object.hasOwn(eventData, "delivery_attempt"), fixture.fixtureId).toBe(false);
+      } else {
+        expect(eventData["delivery_attempt"], fixture.fixtureId).toEqual(expectedAttempt);
+      }
 
       const expectedIsBot = IS_BOT_FIXTURE_EXPECTATIONS.get(fixture.fixtureId);
       if (expectedIsBot !== undefined) {
@@ -1244,8 +1581,7 @@ describe("WebhookVerifier", () => {
     // filename-bearing parts with no Content-Disposition header. Without
     // `disposition` a receiver cannot tell an embedded image from a real
     // attachment, and the field was present on the wire but absent from the
-    // type. The producer sends it without omitempty
-    // (ahasend/cmd/job-runner/jobs/routes/message_routing.go:78).
+    // type. The field is always serialized, even when empty.
     const payload = routeEventWithAttachments([
       {
         filename: "logo.png",
@@ -1284,11 +1620,9 @@ describe("WebhookVerifier", () => {
   it("separates a Content-Disposition-less embedded image from a real attachment", async () => {
     // The shape Gmail and Outlook actually produce: a multipart/related part
     // with a Content-ID and NO Content-Disposition header. Verified against
-    // enmime v1.1.0 (the revision ahasend/go.mod pins) driving the
-    // producer's own routeAttachments(), which emits
-    // it as disposition "" with a populated content_id. `content_id` is ""
-    // rather than absent when there is no Content-ID, because the producer
-    // struct has no omitempty.
+    // the MIME parser the sender uses, which emits it as disposition "" with a
+    // populated content_id. `content_id` is "" rather than absent when there is
+    // no Content-ID, because the field is always serialized.
     //
     // This is why the documented split keys off content_id: a
     // `disposition === "inline"` filter files this embedded image under real

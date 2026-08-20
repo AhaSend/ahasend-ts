@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { digestJsonArtifact } from "../scripts/digest-artifact.mjs";
-import { collectOperations, parseOpenApi } from "../scripts/generate-contracts.mjs";
+import {
+  collectOperations,
+  parseOpenApi,
+  parseWebhookContract,
+} from "../scripts/generate-contracts.mjs";
 import {
   AUTHORIZATION_REGISTRY,
   dereferenceResponse,
@@ -184,6 +188,33 @@ describe("SDK artifact generation", () => {
     // real deliveries carry display-name mailboxes and arbitrary external
     // senders, and rejecting one returns 400, which disables the webhook after
     // 100 consecutive errors. Formats that discriminate the envelope stay on.
+    // `minimum` and `x-known-values` never reach the runtime validator for the
+    // same reason: `delivery_attempt.smtp_code` documents a range and
+    // `classification` documents the buckets the classifier emits today, but
+    // enforcing either would turn a benign producer change into a 400. Run the
+    // real schema through, not a synthetic stand-in, so this fails if the
+    // shipped `DeliveryAttempt` ever starts constraining values.
+    const webhookSchemas = (parseWebhookContract(webhookSource).components as JsonRecord)
+      .schemas as JsonRecord;
+    const deliveryAttempt = webhookSchemas.DeliveryAttempt as JsonRecord;
+    const attemptProperties = deliveryAttempt.properties as JsonRecord;
+    expect((attemptProperties.smtp_code as JsonRecord).minimum).toBe(0);
+    expect((attemptProperties.classification as JsonRecord)["x-known-values"]).toContain(
+      "Uncategorized",
+    );
+    expect(validationSchema(deliveryAttempt)).toEqual({
+      type: ["object", "null"],
+      required: ["smtp_code"],
+      properties: {
+        classification: { type: "string" },
+        smtp_code: { type: "integer" },
+        enhanced_status_code: { type: "string" },
+        response: { type: "string" },
+        description: { type: "string" },
+        command: { type: "string" },
+      },
+    });
+
     expect(validationSchema({ type: "string", format: "email" })).toEqual({ type: "string" });
     expect(validationSchema({ type: "string", format: "uuid" })).toEqual({
       type: "string",

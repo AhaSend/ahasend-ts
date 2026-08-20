@@ -21,6 +21,7 @@ export interface ContractInventory extends OpenApiRecord {
 export function parseOpenApi(source: string): OpenApiRecord;
 export function parseWebhookContract(source: string): OpenApiRecord;
 export function validateWebhookContract(document: unknown): void;
+export function documentedClassifications(description: unknown): string[];
 export function validateCapturedManifestSchema(schema: unknown): OpenApiRecord;
 export function validateCapturedManifest(manifest: unknown, schema: unknown): OpenApiRecord[];
 export function validateSignedFixture(
