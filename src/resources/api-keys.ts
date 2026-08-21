@@ -18,7 +18,8 @@ import {
 
 /**
  * Scope identifier as written in requests — a plain string like
- * `"messages:send:all"` or `"messages:send:example.com"`.
+ * `"messages:send:all"` or `"messages:send:{example.com}"` — the curly
+ * braces around the domain are part of the scope string.
  */
 export type APIKeyScopeName = string;
 
@@ -83,7 +84,8 @@ export type UpdateAPIKeyRequest = {
 /**
  * Manage API keys and their scopes. Scope strings follow
  * `resource:action:target`, e.g. `messages:send:all` or
- * `messages:send:example.com` (domain-scoped).
+ * `messages:send:{example.com}` (domain-scoped; the curly braces are part
+ * of the scope string).
  */
 export interface APIKeysClient {
   /** List API keys for the account using cursor pagination. */
