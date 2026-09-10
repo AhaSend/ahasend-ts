@@ -109,7 +109,7 @@
     "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
-    "@vitest/coverage-v8": "^3.2.6",
+    "@vitest/coverage-v8": "^5.0.0",
     "ajv": "^6.14.0",
     "eslint": "^9.0.0",
     "esbuild": "0.28.1",
@@ -121,7 +121,7 @@
     "tsup": "^8.3.0",
     "typescript": "5.6.3",
     "typescript-current": "npm:typescript@7.0.2",
-    "vitest": "^3.2.6",
+    "vitest": "^5.0.0",
     "workerd": "1.20260801.1",
     "wrangler": "4.120.0"
   },
