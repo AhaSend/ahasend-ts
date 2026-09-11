@@ -123,7 +123,7 @@
     "typescript-current": "npm:typescript@7.0.2",
     "vitest": "^3.2.6",
     "workerd": "1.20260801.1",
-    "wrangler": "4.120.0"
+    "wrangler": "4.131.0"
   },
   "overrides": {
     "esbuild": "0.28.1",
