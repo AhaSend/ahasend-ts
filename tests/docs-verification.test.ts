@@ -417,14 +417,39 @@ describe("operational documentation verification", () => {
   }, 120_000);
 
   it(
-    "strict-checks all 56 SDK samples against the packed declarations",
+    "strict-checks every shipped sample against the public client",
     { timeout: 120_000 },
     async () => {
-      expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(56);
+      expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(62);
 
       await expect(
         verifyPackagedJavaScript(packedSdkTarball, packedSdkChecksum),
       ).resolves.toBeUndefined();
+    },
+  );
+
+  it(
+    "rejects a contact sample outside the public facade declarations",
+    { timeout: 120_000 },
+    async () => {
+      const getContactSample = NODE_CODE_SAMPLES.getContact;
+      expect(getContactSample).toBeDefined();
+      const invalidSamples = {
+        ...NODE_CODE_SAMPLES,
+        getContact: {
+          ...getContactSample!,
+          source: getContactSample!.source.replace("client.contacts.get", "client.contacts.find"),
+        },
+      };
+
+      await expect(
+        verifyPackagedJavaScript(
+          packedSdkTarball,
+          packedSdkChecksum,
+          repositoryRoot,
+          invalidSamples,
+        ),
+      ).rejects.toThrow(/Property 'find' does not exist on type/u);
     },
   );
 
@@ -473,8 +498,8 @@ describe("operational documentation verification", () => {
       expect(index.supportingExamples.map(({ path }) => path)).toEqual([
         "examples/next-webhook-route/create-webhook-route.mjs",
       ]);
-      expect(Object.keys(index.nodeSamples)).toHaveLength(56);
-      expect(index.profileSummary).toEqual({ operations: 56, iterators: 9 });
+      expect(Object.keys(index.nodeSamples)).toHaveLength(62);
+      expect(index.profileSummary).toEqual({ operations: 62, iterators: 10 });
       await expect(verifyDocumentationIndex(index)).resolves.toBeUndefined();
     },
   );

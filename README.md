@@ -592,6 +592,26 @@ privately according to the
 [security policy](https://github.com/AhaSend/ahasend-ts/blob/main/SECURITY.md); do not include
 credentials, message content, or webhook payloads in a public issue.
 
+## Contact management contract
+
+Contact operations require `contacts:read`, `contacts:write`, or `contacts:delete` as documented
+for each operation. Writable attribute keys and their canonical types come from contact-attribute
+definitions managed in the AhaSend dashboard; the API intentionally exposes neither definition
+CRUD nor list membership. A contact created through the API is account-global and has no list
+membership, so it cannot be targeted by campaigns until a future Lists API adds one.
+
+Pass a UUID or a raw email such as `User+Tag@Example.COM` to contact lookup, update, and delete
+operations. The SDK percent-encodes that value exactly once as a URL path segment; do not pre-encode
+it. Prefer setting `unsubscribed: true` over deleting a contact when the goal is to stop marketing
+mail: unsubscribe is reversible and preserves history, while hard delete permanently removes the
+contact, its unsubscribe record, memberships, campaign-recipient records, opens, and clicks.
+Suppressions remain independent in either case.
+
+Batch upsert accepts at most 1,000 contacts, but that cap is not a throughput target. Measure
+end-to-end latency with representative data, wait for each synchronous batch response before
+submitting the next, reduce batch size or pace requests when latency grows, and honor `429`
+responses. The API makes no fixed throughput guarantee.
+
 ## License
 
 [MIT](https://github.com/AhaSend/ahasend-ts/blob/main/LICENSE)

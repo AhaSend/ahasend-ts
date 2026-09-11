@@ -785,7 +785,8 @@ describe("single-run release workflow", () => {
     expect(liveCommands).toContain("/tmp/gate-report/live-report.sha256");
     expect(liveCommands).toContain("liveReportSha256");
     expect(liveRunnerSource).toContain("validateLiveReportArtifacts");
-    expect(liveRunnerSource.match(/await run[A-Z][A-Za-z]+LiveScenarios/gu)).toHaveLength(10);
+    expect(liveRunnerSource.match(/await run[A-Z][A-Za-z]+LiveScenarios/gu)).toHaveLength(11);
+    expect(liveRunnerSource).toContain("await runContactLiveScenarios");
     expect(liveRunnerSource).toContain("combined.subAccounts.operationResults");
     expect(liveRunnerSource).toContain("combined.subAccountAPIKeys.operationResults");
     expect(liveRunnerSource).toContain(

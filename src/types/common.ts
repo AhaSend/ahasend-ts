@@ -31,8 +31,8 @@ export type PaginationParams = Readonly<
 
 export interface PaginationMeta {
   has_more: boolean;
-  next_cursor?: string;
-  previous_cursor?: string;
+  next_cursor?: string | null;
+  previous_cursor?: string | null;
 }
 
 export interface PaginatedResponse<T> {

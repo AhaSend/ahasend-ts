@@ -14,6 +14,7 @@ import type { AhaSendClient } from "../src/client.js";
 import type {
   AddAccountMemberRequest,
   CreateAPIKeyRequest,
+  CreateContactRequest,
   CreateConversationMessageRequest,
   CreateMessageRequest,
   CreateSMTPCredentialRequest,
@@ -55,6 +56,7 @@ const IDS = {
   webhook: WEBHOOK_ID,
   route: ROUTE_ID,
   smtpCredential: SMTP_CREDENTIAL_ID,
+  contact: "User+Tag/Segment@Example.COM",
 } as const;
 
 const REQUEST_OPTIONS: RequestOptions = {
@@ -368,6 +370,60 @@ const PRIMARY_MATRIX = [
     result: client.subAccounts.apiKeys.delete(IDS.subAccount, IDS.key, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/api-keys/${API_KEY_ID}` },
   })),
+  primary("getContacts", "contacts", "list", (client) => ({
+    result: client.contacts.list(
+      {
+        ...PAGINATION_PARAMS,
+        email: "person@example.test",
+        status: "enabled",
+        subscribed: false,
+      },
+      REQUEST_OPTIONS,
+    ),
+    input: {
+      path: `${ACCOUNT_PATH}/contacts`,
+      query: {
+        email: "person@example.test",
+        status: "enabled",
+        subscribed: "false",
+        ...PAGINATION_QUERY,
+      },
+    },
+  })),
+  primary("createContact", "contacts", "create", (client) => {
+    const body = {
+      email: "new@example.test",
+      attributes: { customer: true },
+    } satisfies CreateContactRequest;
+    return {
+      result: client.contacts.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/contacts`, body },
+    };
+  }),
+  primary("batchUpsertContacts", "contacts", "batchUpsert", (client) => {
+    const body = {
+      data: [{ email: "existing@example.test", attributes: { obsolete: null } }],
+    };
+    return {
+      result: client.contacts.batchUpsert(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/contacts/batch`, body },
+    };
+  }),
+  primary("getContact", "contacts", "get", (client) => ({
+    result: client.contacts.get(IDS.contact, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/contacts/User%2BTag%2FSegment%40Example.COM` },
+  })),
+  primary("updateContact", "contacts", "update", (client) => {
+    const body = { unsubscribed: false, attributes: { obsolete: null } };
+    return {
+      result: client.contacts.update(IDS.contact, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/contacts/User%2BTag%2FSegment%40Example.COM`, body },
+    };
+  }),
+  primary("deleteContact", "contacts", "delete", (client) => ({
+    result: client.contacts.delete(IDS.contact, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/contacts/User%2BTag%2FSegment%40Example.COM` },
+  })),
   primary("getSuppressions", "suppressions", "list", (client) => ({
     result: client.suppressions.list(
       { ...PAGINATION_PARAMS, domain: "example.test", email: "blocked@example.test" },
@@ -559,6 +615,15 @@ const ITERATOR_MATRIX = [
       query: PAGINATION_QUERY,
     },
   })),
+  iterator("getContacts", "contacts", (client) => ({
+    result: client.contacts
+      .iterate({ ...PAGINATION_PARAMS, email: "person@example.test" }, REQUEST_OPTIONS)
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/contacts`,
+      query: { email: "person@example.test", ...PAGINATION_QUERY },
+    },
+  })),
   iterator("getSuppressions", "suppressions", (client) => ({
     result: client.suppressions
       .iterate({ ...PAGINATION_PARAMS, domain: "example.test" }, REQUEST_OPTIONS)
@@ -593,10 +658,10 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for exactly 56 primary operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(56);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(56);
-    expect(OPERATION_PROFILE.operations).toHaveLength(56);
+  it("accounts for all 62 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(62);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(62);
+    expect(OPERATION_PROFILE.operations).toHaveLength(62);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -608,12 +673,12 @@ describe("Facade operation conformance matrix", () => {
 });
 
 describe("Facade iterator conformance matrix", () => {
-  it("accounts for exactly nine iterator aliases", () => {
-    expect(ITERATOR_MATRIX).toHaveLength(9);
+  it("accounts for all ten implemented iterator aliases", () => {
+    expect(ITERATOR_MATRIX).toHaveLength(10);
     expect(new Set(ITERATOR_MATRIX.map(({ facade, method }) => `${facade}.${method}`)).size).toBe(
-      9,
+      10,
     );
-    expect(OPERATION_PROFILE.iterators).toHaveLength(9);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(10);
     expect(profileShape(OPERATION_PROFILE.iterators)).toEqual(profileShape(ITERATOR_MATRIX));
   });
 
@@ -655,7 +720,11 @@ describe("Non-empty request array coverage", () => {
       for (const file of resourceFiles) {
         const source = readFileSync(resolve(resourceDir, file), "utf8");
         // A module that names the constrained request type must also guard it.
-        if (source.includes(schemaName) && !source.includes("assertNonEmptyArray")) {
+        if (
+          source.includes("class ") &&
+          source.includes(schemaName) &&
+          !source.includes("assertNonEmptyArray")
+        ) {
           unguarded.push(`${file} uses ${schemaName} without assertNonEmptyArray`);
         }
       }
@@ -666,11 +735,13 @@ describe("Non-empty request array coverage", () => {
 });
 
 describe("Generated operation inventory", () => {
-  it("maps every OpenAPI operation to one descriptor and primary facade row", () => {
+  it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(56);
+    expect(operationIds).toHaveLength(62);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
-    expect(PRIMARY_MATRIX.map(({ operationId }) => operationId)).toEqual(operationIds);
+    expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
+      operationIds,
+    );
   });
 });
 

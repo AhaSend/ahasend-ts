@@ -65,7 +65,7 @@ describe("generated API reference", () => {
   });
 
   it(
-    "accounts for all 56 methods and nine iterators exactly once",
+    "accounts for all 62 methods and ten iterators exactly once",
     { timeout: 120_000 },
     async () => {
       const reference = await generateApiReference();
@@ -82,8 +82,8 @@ describe("generated API reference", () => {
       expect(iteratorMarkers).toEqual(
         OPERATION_PROFILE.iterators.map(({ operationId }) => operationId),
       );
-      expect(new Set(methodMarkers)).toHaveLength(56);
-      expect(new Set(iteratorMarkers)).toHaveLength(9);
+      expect(new Set(methodMarkers)).toHaveLength(62);
+      expect(new Set(iteratorMarkers)).toHaveLength(10);
 
       for (const mapping of [...OPERATION_PROFILE.operations, ...OPERATION_PROFILE.iterators]) {
         const kind = OPERATION_PROFILE.iterators.includes(mapping) ? "iterator" : "operation";
@@ -198,6 +198,23 @@ describe("generated API reference", () => {
     }
   });
 
+  it("documents the complete contact safety and lifecycle boundary", async () => {
+    const reference = await generateApiReference();
+
+    for (const phrase of [
+      "`contacts:read`, `contacts:write`, and `contacts:delete` permissions",
+      "definitions managed in the AhaSend dashboard",
+      "neither definition CRUD nor list membership",
+      "percent-encodes the value exactly once",
+      "Prefer unsubscribe over delete",
+      "hard delete permanently removes contact history",
+      "measure end-to-end latency",
+      "no fixed throughput guarantee",
+    ]) {
+      expect(reference).toContain(phrase);
+    }
+  });
+
   it("keeps every public model link resolvable", async () => {
     const reference = await generateApiReference();
     const links = [...reference.matchAll(/\[[A-Za-z][A-Za-z0-9_]*\]\((\.\.\/src\/[^)]+)\)/g)].map(
@@ -305,7 +322,7 @@ describe("generated API reference", () => {
         openApiSource,
         profileSource: JSON.stringify(missingIterator),
       }),
-    ).rejects.toThrow(/must contain 9 iterator mappings/);
+    ).rejects.toThrow(/must contain 10 iterator mappings/);
 
     const duplicateAlias = structuredClone(OPERATION_PROFILE) as {
       version: 1;

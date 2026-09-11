@@ -24,8 +24,8 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 56;
-export const EXPECTED_LIVE_ITERATOR_COUNT = 9;
+export const EXPECTED_LIVE_OPERATION_COUNT = 62;
+export const EXPECTED_LIVE_ITERATOR_COUNT = 10;
 
 const packageName = "@ahasend/sdk";
 const domainOperationIds = Object.freeze([
@@ -48,6 +48,14 @@ const statisticsOperationIds = Object.freeze([
   "getDeliverabilityStatistics",
   "getBounceStatistics",
   "getDeliveryTimeStatistics",
+]);
+const contactOperationIds = Object.freeze([
+  "getContacts",
+  "createContact",
+  "getContact",
+  "updateContact",
+  "batchUpsertContacts",
+  "deleteContact",
 ]);
 const apiKeyOperationIds = Object.freeze([
   "getAPIKeys",
@@ -1398,7 +1406,7 @@ async function runStatisticsAuthorizationCase({
     // the lookup — but this suite runs the broad release key, which passes
     // the permission check for any domain, and a domain that is not on the
     // account then fails the lookup as 400 `invalid sender_domain`. The 403
-    // branch is unreachable with a key broad enough to run all 56
+    // branch is unreachable with a key broad enough to run all 62
     // operations; 400 is the rejection this probe can actually observe.
     if (failure.status !== 400) {
       throw new TypeError(`${label} must fail with HTTP 400.`);
@@ -1501,6 +1509,266 @@ export function createStatisticsScenarioRegistry({
 /** Execute the three statistics scenarios in packaged operation order. */
 export function runStatisticsLiveScenarios(registry) {
   return runLiveScenarios(registry, statisticsOperationIds, null, "Statistics");
+}
+
+function requireContactRequest(value, label, requireEmail = false) {
+  const request = requireObject(value, label);
+  if (requireEmail) requireString(request.email, `${label} email`);
+  return Object.freeze({ ...request });
+}
+
+function requireContactResult(value, expectedEmail, label) {
+  const result = requireObject(value, label);
+  if (result.object !== "contact") {
+    throw new TypeError(`${label} object must be contact.`);
+  }
+  requireString(result.id, `${label} id`);
+  if (result.email !== expectedEmail) {
+    throw new TypeError(`${label} returned the wrong contact.`);
+  }
+  for (const field of ["created_at", "updated_at", "first_name", "last_name", "status_reason"]) {
+    if (typeof result[field] !== "string") {
+      throw new TypeError(`${label} ${field} must be a string.`);
+    }
+  }
+  if (!["enabled", "disabled", "blocked"].includes(result.status)) {
+    throw new TypeError(`${label} status is invalid.`);
+  }
+  if (!["unvalidated", "valid", "invalid", "risky", "unknown"].includes(result.validation_status)) {
+    throw new TypeError(`${label} validation_status is invalid.`);
+  }
+  if (typeof result.unsubscribed !== "boolean") {
+    throw new TypeError(`${label} unsubscribed must be a boolean.`);
+  }
+  for (const field of ["unsubscribed_at", "last_validated_at"]) {
+    if (result[field] !== null && typeof result[field] !== "string") {
+      throw new TypeError(`${label} ${field} must be a string or null.`);
+    }
+  }
+  requireObject(result.attributes, `${label} attributes`);
+  return result;
+}
+
+function requireContactBatchRequest(value, primaryEmail) {
+  const request = requireObject(value, "Contact live batch request");
+  if (!Array.isArray(request.data) || request.data.length !== 2) {
+    throw new TypeError("Contact live batch request data must contain exactly two contacts.");
+  }
+  const data = request.data.map((entry, index) =>
+    requireContactRequest(entry, `Contact live batch request item ${index}`, true),
+  );
+  if (data[0].email !== primaryEmail || data[1].email === primaryEmail) {
+    throw new TypeError(
+      "Contact live batch request must update the primary contact first and create a distinct contact second.",
+    );
+  }
+  return Object.freeze({ ...request, data: Object.freeze(data) });
+}
+
+function requireMixedContactBatchResult(value, batchRequest) {
+  const result = requireObject(value, "Contact batch-upsert scenario response");
+  if (
+    result.object !== "list" ||
+    result.created !== 1 ||
+    result.updated !== 1 ||
+    result.failed !== 0
+  ) {
+    throw new TypeError(
+      "Contact batch-upsert scenario must report one created, one updated, and zero failed contacts.",
+    );
+  }
+  if (!Array.isArray(result.data) || result.data.length !== batchRequest.data.length) {
+    throw new TypeError(
+      "Contact batch-upsert scenario response must preserve the input cardinality.",
+    );
+  }
+  const expectedOutcomes = ["updated", "created"];
+  result.data.forEach((entry, index) => {
+    const outcome = requireObject(entry, `Contact batch-upsert scenario result ${index}`);
+    const request = batchRequest.data[index];
+    if (
+      outcome.position !== index ||
+      outcome.email !== request.email ||
+      outcome.outcome !== expectedOutcomes[index]
+    ) {
+      throw new TypeError("Contact batch-upsert scenario response must preserve ordered outcomes.");
+    }
+    requireContactResult(
+      outcome.contact,
+      request.email,
+      `Contact batch-upsert scenario result ${index} contact`,
+    );
+  });
+  return result;
+}
+
+/**
+ * Build a disposable contact lifecycle. The batch deliberately updates the
+ * primary fixture and creates a second fixture so both successful outcomes
+ * are represented in the live report.
+ */
+export function createContactScenarioRegistry({
+  profile,
+  client,
+  createRequest,
+  updateRequest,
+  batchRequest,
+  pagination = { limit: 1 },
+}) {
+  const mappings = requireLifecycleMappings(
+    profile,
+    contactOperationIds,
+    "contacts",
+    "getContacts",
+    "contact",
+  );
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Contact ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("getContacts"),
+    iterate: requireMappedClientMethod(client, mappings.iterator, "Contact iterator scenario"),
+    create: mappedOperation("createContact"),
+    get: mappedOperation("getContact"),
+    update: mappedOperation("updateContact"),
+    batchUpsert: mappedOperation("batchUpsertContacts"),
+    delete: mappedOperation("deleteContact"),
+  });
+  const createBody = requireContactRequest(createRequest, "Contact live create request", true);
+  const updateBody = requireContactRequest(updateRequest, "Contact live update request");
+  const batchBody = requireContactBatchRequest(batchRequest, createBody.email);
+  const pageParams = requireLivePagination(pagination, "Contact");
+  const primaryEmail = createBody.email;
+  const batchCreatedEmail = batchBody.data[1].email;
+  const registerCleanup = (cleanup, email, label) => {
+    cleanup.register(label, async () => {
+      try {
+        await methods.delete(email);
+      } catch (error) {
+        if (!isNotFoundError(error)) throw error;
+      }
+      await requireResourceAbsent(methods.get, email, "Contact cleanup verification", "contact");
+    });
+  };
+
+  const scenarios = new Map([
+    [
+      "getContacts",
+      {
+        operationId: "getContacts",
+        async run() {
+          return runListIteratorScenario(
+            methods.list,
+            methods.iterate,
+            pageParams,
+            "Contact",
+            (entry, label) => {
+              const contact = requireObject(entry, label);
+              requireString(contact.email, `${label} email`);
+            },
+          );
+        },
+      },
+    ],
+    [
+      "createContact",
+      {
+        operationId: "createContact",
+        async run({ cleanup }) {
+          const result = await methods.create(createBody);
+          registerCleanup(cleanup, primaryEmail, "delete and verify primary contact fixture");
+          requireContactResult(result, primaryEmail, "Contact create scenario response");
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupRegistered: true, created: true }),
+          });
+        },
+      },
+    ],
+    [
+      "getContact",
+      {
+        operationId: "getContact",
+        async run() {
+          requireContactResult(
+            await methods.get(primaryEmail),
+            primaryEmail,
+            "Contact get scenario response",
+          );
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "updateContact",
+      {
+        operationId: "updateContact",
+        async run() {
+          requireContactResult(
+            await methods.update(primaryEmail, updateBody),
+            primaryEmail,
+            "Contact update scenario response",
+          );
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "batchUpsertContacts",
+      {
+        operationId: "batchUpsertContacts",
+        async run({ cleanup }) {
+          registerCleanup(
+            cleanup,
+            batchCreatedEmail,
+            "delete and verify batch-created contact fixture",
+          );
+          const result = requireMixedContactBatchResult(
+            await methods.batchUpsert(batchBody),
+            batchBody,
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              created: result.created,
+              updated: result.updated,
+              failed: result.failed,
+              fullSuccessObjects: result.data.length,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteContact",
+      {
+        operationId: "deleteContact",
+        async run() {
+          await methods.delete(primaryEmail);
+          await requireResourceAbsent(
+            methods.get,
+            primaryEmail,
+            "Contact delete scenario verification",
+            "contact",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupVerified: true, deleted: true }),
+          });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute contact scenarios in lifecycle order and always drain cleanup. */
+export function runContactLiveScenarios(registry) {
+  return runLiveScenarios(registry, contactOperationIds, "getContacts", "Contact");
 }
 
 function requireAPIKeyCreateRequest(value, label) {
@@ -4449,6 +4717,19 @@ function requireSandboxOutcomes(operations) {
   ]);
 }
 
+function requireContactOutcomes(operations) {
+  requireOperationOutcomes(operations, "batchUpsertContacts", [
+    ["created", 1],
+    ["updated", 1],
+    ["failed", 0],
+    ["fullSuccessObjects", 2],
+  ]);
+  requireOperationOutcomes(operations, "deleteContact", [
+    ["cleanupVerified", true],
+    ["deleted", true],
+  ]);
+}
+
 const requiredAuthorizationOutcomes = Object.freeze([
   ["createConversationMessage", [["senderAuthorization.source", "body.from.email"]]],
   [
@@ -4715,6 +4996,7 @@ function validateLiveReportArtifactContract(
     requirePassedResults(report.iterators, "Iterator inventory");
     validateReportIteratorLinks(report.operations, report.iterators);
     requireSandboxOutcomes(report.operations);
+    requireContactOutcomes(report.operations);
     requireAuthorizationOutcomes(report.operations);
   }
   if (!Array.isArray(report.cleanup)) {

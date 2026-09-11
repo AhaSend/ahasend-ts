@@ -177,6 +177,36 @@
       "method": "delete"
     },
     {
+      "operationId": "getContacts",
+      "facade": "contacts",
+      "method": "list"
+    },
+    {
+      "operationId": "createContact",
+      "facade": "contacts",
+      "method": "create"
+    },
+    {
+      "operationId": "batchUpsertContacts",
+      "facade": "contacts",
+      "method": "batchUpsert"
+    },
+    {
+      "operationId": "getContact",
+      "facade": "contacts",
+      "method": "get"
+    },
+    {
+      "operationId": "updateContact",
+      "facade": "contacts",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteContact",
+      "facade": "contacts",
+      "method": "delete"
+    },
+    {
       "operationId": "getSuppressions",
       "facade": "suppressions",
       "method": "list"
@@ -306,6 +336,11 @@
     {
       "operationId": "listSubAccountAPIKeys",
       "facade": "subAccounts.apiKeys",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getContacts",
+      "facade": "contacts",
       "method": "iterate"
     },
     {

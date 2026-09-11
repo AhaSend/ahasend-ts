@@ -1,5 +1,13 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type {
+  BatchUpsertContactInput,
+  Contact,
+  ContactJSONValue,
+  CreateContactRequest,
+  ListContactsParams,
+  UpdateContactRequest,
+} from "../src/resources/contacts.js";
+import type {
   CreatedRoute,
   CreateRouteRequest,
   ListRoutesParams,
@@ -529,6 +537,276 @@ describe("SuppressionsClient", () => {
     await client.suppressions.wipe({ domain: "example.com" });
     expect(new URL(calls[0]!.url).searchParams.get("domain")).toBe("example.com");
     expect(calls[0]!.operationId).toBe("deleteAllSuppressions");
+  });
+});
+
+const CONTACT_RESPONSE = {
+  object: "contact",
+  id: "88888888-8888-4888-8888-888888888888",
+  created_at: "2026-09-10T10:00:00Z",
+  updated_at: "2026-09-10T11:00:00Z",
+  email: "User+Tag/Segment@Example.COM",
+  first_name: "Pat",
+  last_name: "Example",
+  status: "enabled",
+  status_reason: "",
+  unsubscribed: false,
+  unsubscribed_at: null,
+  attributes: { legacy: { nested: [true, 12.5, null] } },
+  validation_status: "unvalidated",
+  last_validated_at: null,
+} as const;
+
+describe("ContactsClient", () => {
+  it("keeps recursive response attributes broader than create attributes", () => {
+    const recursive: ContactJSONValue = {
+      nested: [null, true, 12.5, "legacy", { deeper: false }],
+    };
+    const contact: Contact = { ...CONTACT_RESPONSE, attributes: { recursive } };
+    const create: CreateContactRequest = {
+      email: "new@example.com",
+      attributes: { string: "value", number: 12.5, boolean: false },
+    };
+    const update: UpdateContactRequest = { attributes: { obsolete: null } };
+    const batch: BatchUpsertContactInput = {
+      email: "existing@example.com",
+      attributes: { obsolete: null },
+    };
+    const invalidCreate: CreateContactRequest = {
+      email: "new@example.com",
+      attributes: {
+        // @ts-expect-error Null attribute members are mutation semantics, not create values.
+        obsolete: null,
+      },
+    };
+
+    expect(contact.attributes.recursive).toEqual(recursive);
+    expect(create.attributes).toEqual({ string: "value", number: 12.5, boolean: false });
+    expect(update.attributes).toEqual({ obsolete: null });
+    expect(batch.attributes).toEqual({ obsolete: null });
+    void invalidCreate;
+  });
+
+  it("list() forwards all filters and returns recursive contact values", async () => {
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [CONTACT_RESPONSE],
+            pagination: {
+              has_more: true,
+              next_cursor: "next-contact",
+              previous_cursor: "previous-contact",
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = makeClient(fetch);
+    const params: ListContactsParams = {
+      limit: 25,
+      before: "previous",
+      email: "person+filter@example.com",
+      status: "enabled",
+      subscribed: false,
+      from_time: "2026-09-01T00:00:00Z",
+      to_time: "2026-09-11T00:00:00Z",
+    };
+
+    const page = await client.contacts.list(params, {
+      headers: { "x-trace-id": "contact-list-1" },
+    });
+
+    const url = new URL(calls[0]!.url);
+    expect(calls[0]!.operationId).toBe("getContacts");
+    expect(calls[0]!.method).toBe("GET");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/contacts`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      limit: "25",
+      before: "previous",
+      email: "person+filter@example.com",
+      status: "enabled",
+      subscribed: "false",
+      from_time: "2026-09-01T00:00:00Z",
+      to_time: "2026-09-11T00:00:00Z",
+    });
+    expect(calls[0]!.headers["x-trace-id"]).toBe("contact-list-1");
+    expect(page.data[0]!.attributes).toEqual({ legacy: { nested: [true, 12.5, null] } });
+    expect(page.pagination).toEqual({
+      has_more: true,
+      next_cursor: "next-contact",
+      previous_cursor: "previous-contact",
+    });
+  });
+
+  it("iterate() uses the shared cursor paginator and preserves filters and options", async () => {
+    const { fetch, calls } = captureFetch((_call, index) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [{ ...CONTACT_RESPONSE, email: `contact-${index}@example.com` }],
+            pagination:
+              index === 0
+                ? { has_more: true, next_cursor: "second-page", previous_cursor: null }
+                : { has_more: false, next_cursor: null, previous_cursor: null },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    const client = makeClient(fetch);
+
+    const contacts: Contact[] = [];
+    for await (const contact of client.contacts.iterate(
+      { limit: 1, email: "contact@example.com" },
+      { headers: { "x-trace-id": "contact-iterator-1" } },
+    )) {
+      contacts.push(contact);
+    }
+
+    expect(contacts.map(({ email }) => email)).toEqual([
+      "contact-0@example.com",
+      "contact-1@example.com",
+    ]);
+    expect(calls).toHaveLength(2);
+    expect(calls.map(({ operationId }) => operationId)).toEqual(["getContacts", "getContacts"]);
+    expect(calls.map(({ headers }) => headers["x-trace-id"])).toEqual([
+      "contact-iterator-1",
+      "contact-iterator-1",
+    ]);
+    expect(new URL(calls[1]!.url).searchParams.get("after")).toBe("second-page");
+    expect(new URL(calls[1]!.url).searchParams.get("email")).toBe("contact@example.com");
+  });
+
+  it.each([
+    {
+      name: "get",
+      method: "GET",
+      operationId: "getContact",
+      call: async (client: ReturnType<typeof makeClient>, rawEmail: string) =>
+        await client.contacts.get(rawEmail, { headers: { "x-contact-option": "get" } }),
+      expectedBody: undefined,
+    },
+    {
+      name: "update",
+      method: "PUT",
+      operationId: "updateContact",
+      call: async (client: ReturnType<typeof makeClient>, rawEmail: string) =>
+        await client.contacts.update(
+          rawEmail,
+          { unsubscribed: false, attributes: { obsolete: null } },
+          { headers: { "x-contact-option": "update" } },
+        ),
+      expectedBody: '{"unsubscribed":false,"attributes":{"obsolete":null}}',
+    },
+    {
+      name: "delete",
+      method: "DELETE",
+      operationId: "deleteContact",
+      call: async (client: ReturnType<typeof makeClient>, rawEmail: string) =>
+        await client.contacts.delete(rawEmail, { headers: { "x-contact-option": "delete" } }),
+      expectedBody: undefined,
+    },
+  ])("$name() passes raw path emails to generated one-time encoding", async (testCase) => {
+    const { fetch, calls } = captureFetch(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(CONTACT_RESPONSE), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    const client = makeClient(fetch);
+    const rawEmail = "User+Tag/Segment@Example.COM";
+
+    await testCase.call(client, rawEmail);
+
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/contacts/User%2BTag%2FSegment%40Example.COM`,
+    );
+    expect(calls[0]!.method).toBe(testCase.method);
+    expect(calls[0]!.operationId).toBe(testCase.operationId);
+    expect(calls[0]!.headers["x-contact-option"]).toBe(testCase.name);
+    expect(calls[0]!.body).toBe(testCase.expectedBody);
+  });
+
+  it("create() and batchUpsert() forward idempotency and preserve complete batch results", async () => {
+    const batchResponse = {
+      object: "list",
+      created: 1,
+      updated: 1,
+      failed: 1,
+      data: [
+        { position: 0, email: "new@example.com", outcome: "created", contact: CONTACT_RESPONSE },
+        {
+          position: 1,
+          email: "existing@example.com",
+          outcome: "updated",
+          contact: { ...CONTACT_RESPONSE, email: "existing@example.com" },
+        },
+        { position: 2, email: "bad@example.com", outcome: "failed", reason: "invalid attribute" },
+      ],
+    };
+    const { fetch, calls } = captureFetch((_call, index) =>
+      Promise.resolve(
+        new Response(JSON.stringify(index === 0 ? CONTACT_RESPONSE : batchResponse), {
+          status: index === 0 ? 201 : 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    const client = makeClient(fetch);
+
+    await client.contacts.create(
+      {
+        email: "new@example.com",
+        unsubscribed: false,
+        attributes: { customer: true },
+      },
+      { idempotencyKey: "contact-create-1" },
+    );
+    const batch = await client.contacts.batchUpsert(
+      {
+        data: [
+          {
+            email: "existing@example.com",
+            unsubscribed: false,
+            attributes: { obsolete: null },
+          },
+        ],
+      },
+      { idempotencyKey: "contact-batch-1" },
+    );
+
+    expect(calls.map(({ operationId }) => operationId)).toEqual([
+      "createContact",
+      "batchUpsertContacts",
+    ]);
+    expect(calls.map(({ headers }) => headers["idempotency-key"])).toEqual([
+      "contact-create-1",
+      "contact-batch-1",
+    ]);
+    expect(calls[0]!.body).toBe(
+      '{"email":"new@example.com","unsubscribed":false,"attributes":{"customer":true}}',
+    );
+    expect(calls[1]!.body).toBe(
+      '{"data":[{"email":"existing@example.com","unsubscribed":false,"attributes":{"obsolete":null}}]}',
+    );
+    expect(batch).toEqual(batchResponse);
+    expect(batch.data[0]!.contact?.attributes).toEqual({
+      legacy: { nested: [true, 12.5, null] },
+    });
+  });
+
+  it("batchUpsert() rejects an empty data array before dispatch", () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() => client.contacts.batchUpsert({ data: [] })).toThrow(
+      /`data` must contain at least one item/,
+    );
+    expect(calls).toHaveLength(0);
   });
 });
 

@@ -359,6 +359,26 @@ const OPERATION_CASES = [
     RESOURCE_ID,
     RESOURCE_ID,
   ]),
+  operation("getContacts", ["contacts"], "list", [
+    {
+      email: `person@${DOMAIN}`,
+      status: "enabled",
+      subscribed: false,
+      ...PAGINATION,
+    },
+  ]),
+  operation("createContact", ["contacts"], "create", [
+    { email: `new@${DOMAIN}`, attributes: { customer: true } },
+  ]),
+  operation("batchUpsertContacts", ["contacts"], "batchUpsert", [
+    { data: [{ email: `existing@${DOMAIN}`, attributes: { obsolete: null } }] },
+  ]),
+  operation("getContact", ["contacts"], "get", [RESOURCE_ID]),
+  operation("updateContact", ["contacts"], "update", [
+    RESOURCE_ID,
+    { unsubscribed: false, attributes: { obsolete: null } },
+  ]),
+  operation("deleteContact", ["contacts"], "delete", [RESOURCE_ID]),
   operation("getSuppressions", ["suppressions"], "list", [
     { domain: DOMAIN, email: `blocked@${DOMAIN}`, ...PAGINATION },
   ]),
@@ -904,14 +924,13 @@ describe("packed guarded mutation examples", () => {
 });
 
 describe("packed SDK operation contract", () => {
-  it("covers every operation declared by openapi.yaml exactly once", () => {
+  it("covers every implemented operation", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
+    const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
-    expect(OPERATION_CASES).toHaveLength(56);
-    expect(new Set(OPERATION_CASES.map(({ operationId }) => operationId)).size).toBe(56);
-    expect(OPERATION_CASES.map(({ operationId }) => operationId).sort()).toEqual(
-      operationIds.sort(),
-    );
+    expect(OPERATION_CASES).toHaveLength(62);
+    expect(new Set(implementedOperationIds).size).toBe(62);
+    expect([...implementedOperationIds].sort()).toEqual(operationIds.sort());
   });
 
   it.each(OPERATION_CASES)("$operationId", async ({ operationId, target, method, args = [] }) => {

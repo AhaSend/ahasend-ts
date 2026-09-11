@@ -1,6 +1,7 @@
 import type * as SDK from "../src/index.js";
 import type { components } from "../src/generated/rest-types.js";
 import type { OperationExecutor } from "../src/operations.js";
+import type { paginate } from "../src/pagination.js";
 import type * as WebhookSDK from "../src/webhooks/index.js";
 
 // @ts-expect-error DomainRequestOptions was intentionally removed from the public API.
@@ -68,6 +69,15 @@ interface PublicSchemaContracts {
   UserAccount: SDK.UserAccount;
   AccountMembersResponse: SDK.ListAccountMembersResponse;
   AddMemberRequest: SDK.AddAccountMemberRequest;
+  JSONValue: SDK.ContactJSONValue;
+  CreateContactRequest: SDK.CreateContactRequest;
+  BatchUpsertContactInput: SDK.BatchUpsertContactInput;
+  BatchUpsertContactsRequest: SDK.BatchUpsertContactsRequest;
+  BatchContactResult: SDK.BatchContactResult;
+  BatchUpsertContactsResponse: SDK.BatchUpsertContactsResponse;
+  Contact: SDK.Contact;
+  UpdateContactRequest: SDK.UpdateContactRequest;
+  PaginatedContactsResponse: Awaited<ReturnType<SDK.ContactsClient["list"]>>;
   Suppression: SDK.Suppression;
   CreateSuppressionResponse: SDK.CreateSuppressionResponse;
   CreateSuppressionRequest: SDK.CreateSuppressionRequest;
@@ -123,9 +133,18 @@ type ReadonlyArrays<Value> = Value extends readonly unknown[]
     ? { [Key in keyof Value]: ReadonlyArrays<Value[Key]> }
     : Value;
 
+/**
+ * The shared pagination envelope accepts both the optional cursors used by
+ * PaginationInfo and the required nullable cursors used by contacts.
+ */
+type PaginationSchema = Extract<
+  keyof PublicSchemaContracts,
+  "PaginationInfo" | `Paginated${string}Response`
+>;
+
 type BidirectionalSchema = Exclude<
   keyof PublicSchemaContracts,
-  keyof ReadonlyPublicSchemaRefinements
+  keyof ReadonlyPublicSchemaRefinements | PaginationSchema
 >;
 
 type PublicSchemasAssignableToWire = Expect<
@@ -140,9 +159,19 @@ type PublicSchemasAssignableToWire = Expect<
 type WireSchemasAssignableToPublic = Expect<
   Equal<
     {
-      [Schema in BidirectionalSchema]: Extends<WireSchemas[Schema], PublicSchemaContracts[Schema]>;
+      [Schema in keyof PublicSchemaContracts]: Extends<
+        WireSchemas[Schema],
+        PublicSchemaContracts[Schema]
+      >;
     },
-    { [Schema in BidirectionalSchema]: true }
+    { [Schema in keyof PublicSchemaContracts]: true }
+  >
+>;
+
+type ContactPageFetcherAcceptedBySharedPaginator = Expect<
+  Extends<
+    (params: SDK.ListContactsParams) => ReturnType<SDK.ContactsClient["list"]>,
+    Parameters<typeof paginate<SDK.Contact, SDK.ListContactsParams>>[0]
   >
 >;
 
@@ -203,6 +232,7 @@ type ClientSignatures = [
   Expect<Equal<SDK.AhaSendClient["apiKeys"], Readonly<SDK.APIKeysClient>>>,
   Expect<Equal<SDK.AhaSendClient["webhooks"], Readonly<SDK.WebhooksClient>>>,
   Expect<Equal<SDK.AhaSendClient["statistics"], Readonly<SDK.StatisticsClient>>>,
+  Expect<Equal<SDK.AhaSendClient["contacts"], Readonly<SDK.ContactsClient>>>,
   Expect<Equal<SDK.AhaSendClient["suppressions"], Readonly<SDK.SuppressionsClient>>>,
   Expect<Equal<SDK.AhaSendClient["routes"], Readonly<SDK.RoutesClient>>>,
   Expect<Equal<SDK.AhaSendClient["accounts"], Readonly<SDK.AccountsClient>>>,
@@ -581,6 +611,83 @@ const structuralStatisticsMock: SDK.StatisticsClient = {
   deliverability: () => deliverabilityStatisticsResult,
   bounces: () => bounceStatisticsResult,
   deliveryTimes: () => deliveryTimeStatisticsResult,
+};
+
+type ContactSignatures = [
+  Expect<
+    Equal<
+      SDK.ContactsClient["list"],
+      (
+        params?: SDK.ListContactsParams,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Contact>>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactsClient["iterate"],
+      (
+        params?: SDK.ListContactsParams,
+        options?: SDK.RequestOptions,
+      ) => AsyncGenerator<SDK.Contact, void, undefined>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactsClient["get"],
+      (idOrEmail: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.Contact>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactsClient["create"],
+      (
+        body: SDK.CreateContactRequest,
+        options?: SDK.IdempotencyRequestOptions,
+      ) => SDK.AhaSendPromise<SDK.Contact>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactsClient["update"],
+      (
+        idOrEmail: string,
+        body: SDK.UpdateContactRequest,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.Contact>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactsClient["delete"],
+      (idOrEmail: string, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactsClient["batchUpsert"],
+      (
+        body: SDK.BatchUpsertContactsRequest,
+        options?: SDK.IdempotencyRequestOptions,
+      ) => SDK.AhaSendPromise<SDK.BatchUpsertContactsResponse>
+    >
+  >,
+];
+
+declare const contactListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Contact>>;
+declare const contactIteratorResult: AsyncGenerator<SDK.Contact, void, undefined>;
+declare const contactResult: SDK.AhaSendPromise<SDK.Contact>;
+declare const contactDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+declare const contactBatchResult: SDK.AhaSendPromise<SDK.BatchUpsertContactsResponse>;
+
+const structuralContactMock: SDK.ContactsClient = {
+  list: () => contactListResult,
+  iterate: () => contactIteratorResult,
+  get: () => contactResult,
+  create: () => contactResult,
+  update: () => contactResult,
+  delete: () => contactDeleteResult,
+  batchUpsert: () => contactBatchResult,
 };
 
 type SuppressionSignatures = [
@@ -1009,6 +1116,7 @@ type ClientResourceSurface = Pick<
   | "apiKeys"
   | "webhooks"
   | "statistics"
+  | "contacts"
   | "suppressions"
   | "routes"
   | "accounts"
@@ -1022,6 +1130,7 @@ const structuralClientMock: ClientResourceSurface = {
   apiKeys: structuralAPIKeyMock,
   webhooks: structuralWebhookMock,
   statistics: structuralStatisticsMock,
+  contacts: structuralContactMock,
   suppressions: structuralSuppressionMock,
   routes: structuralRouteMock,
   accounts: structuralAccountMock,
@@ -1306,6 +1415,7 @@ export type DeclarationContracts = [
   WebhookSignatures,
   WebhookHandlerSignatures,
   StatisticsSignatures,
+  ContactSignatures,
   SuppressionSignatures,
   RouteSignatures,
   AccountSignatures,
@@ -1319,6 +1429,7 @@ export type DeclarationContracts = [
   typeof structuralRouteMock,
   typeof structuralAccountMock,
   typeof structuralStatisticsMock,
+  typeof structuralContactMock,
   typeof structuralSubAccountMock,
   typeof structuralSubAccountAPIKeyMock,
   typeof structuralClientMock,
@@ -1399,6 +1510,7 @@ type OptionalUndefinedContracts = [
 ];
 
 export type TypeSurfaceContracts = [
+  ContactPageFetcherAcceptedBySharedPaginator,
   OptionalUndefinedContracts,
   typeof explicitlyUndefinedBody,
   typeof explicitlyUndefinedOptions,
