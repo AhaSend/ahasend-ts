@@ -12,9 +12,9 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 56;
-const EXPECTED_SCHEMA_COUNT = 68;
-const EXPECTED_ITERATOR_COUNT = 9;
+const EXPECTED_OPERATION_COUNT = 62;
+const EXPECTED_SCHEMA_COUNT = 77;
+const EXPECTED_ITERATOR_COUNT = 10;
 const EXPECTED_WEBHOOK_COUNT = 11;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
@@ -132,6 +132,12 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["getSubAccountAPIKey", "subAccounts.apiKeys", "get"],
   ["updateSubAccountAPIKey", "subAccounts.apiKeys", "update"],
   ["deleteSubAccountAPIKey", "subAccounts.apiKeys", "delete"],
+  ["getContacts", "contacts", "list"],
+  ["createContact", "contacts", "create"],
+  ["batchUpsertContacts", "contacts", "batchUpsert"],
+  ["getContact", "contacts", "get"],
+  ["updateContact", "contacts", "update"],
+  ["deleteContact", "contacts", "delete"],
   ["getSuppressions", "suppressions", "list"],
   ["createSuppression", "suppressions", "create"],
   ["deleteSuppression", "suppressions", "delete"],
@@ -161,6 +167,7 @@ export const ITERATOR_MAPPINGS = Object.freeze([
   ["getMessages", "messages", "iterate"],
   ["listSubAccounts", "subAccounts", "iterate"],
   ["listSubAccountAPIKeys", "subAccounts.apiKeys", "iterate"],
+  ["getContacts", "contacts", "iterate"],
   ["getSuppressions", "suppressions", "iterate"],
   ["getRoutes", "routes", "iterate"],
   ["getWebhooks", "webhooks", "iterate"],
@@ -859,6 +866,7 @@ export function schemaType(
               key === "allOf" ? [base, ...parts.filter((_, partIndex) => partIndex !== index)] : [],
             )})`,
         )
+        .filter((value, index, values) => values.indexOf(value) === index)
         .join(separator);
       if (
         schema.type === "object" ||
@@ -1033,7 +1041,20 @@ function operationType(document, entry, componentSchemas) {
 
 function generateRestTypes(document, operations) {
   const schemas = assertRecord(assertRecord(document.components, "components").schemas, "schemas");
-  const lines = [GENERATED_HEADER.trimEnd(), "export interface paths {"];
+  const recursiveJsonSchema = schemas.JSONValue;
+  if (recursiveJsonSchema === undefined) {
+    throw new TypeError("Contact contract must define JSONValue");
+  }
+  const recursiveJsonType = schemaType(recursiveJsonSchema, 0, undefined, schemas).replaceAll(
+    'components["schemas"]["JSONValue"]',
+    "ContactJSONValue",
+  );
+  const lines = [
+    GENERATED_HEADER.trimEnd(),
+    `export type ContactJSONValue = ${recursiveJsonType};`,
+    "",
+    "export interface paths {",
+  ];
   const paths = new Map();
   for (const entry of operations) {
     const pathOperations = paths.get(entry.path) ?? [];
@@ -1050,7 +1071,11 @@ function generateRestTypes(document, operations) {
   const inputSchemas = requestSideSchemaNames(document, schemas);
   for (const [name, schema] of Object.entries(schemas)) {
     emittingInputSchema = inputSchemas.has(name);
-    lines.push(`    ${propertyName(name)}: ${schemaType(schema, 2, undefined, schemas)};`);
+    lines.push(
+      `    ${propertyName(name)}: ${
+        name === "JSONValue" ? "ContactJSONValue" : schemaType(schema, 2, undefined, schemas)
+      };`,
+    );
     emittingInputSchema = false;
   }
   lines.push("  };", "}", "", "export interface operations {");

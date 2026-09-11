@@ -180,10 +180,10 @@ describe("REST contract normalization", () => {
   it("matches the pinned operation, schema, idempotency, subaccount, and role inventories", () => {
     const inventory = collectContractInventory(document);
 
-    expect(inventory.operationIds).toHaveLength(56);
-    expect(new Set(inventory.operationIds)).toHaveLength(56);
-    expect(inventory.schemaNames).toHaveLength(68);
-    expect(inventory.idempotencyOperationIds).toHaveLength(11);
+    expect(inventory.operationIds).toHaveLength(62);
+    expect(new Set(inventory.operationIds)).toHaveLength(62);
+    expect(inventory.schemaNames).toHaveLength(77);
+    expect(inventory.idempotencyOperationIds).toHaveLength(13);
     expect(inventory.subAccountOperationIds).toHaveLength(13);
     expect(inventory.subAccountSchemaNames).toHaveLength(7);
     expect(inventory.roleAlternativeOperationIds).toHaveLength(23);
@@ -220,7 +220,7 @@ describe("REST contract normalization", () => {
     }
 
     expect(shellSamples).toBe(1);
-    expect(NODE_SAMPLE_REGISTRY).toHaveLength(56);
+    expect(NODE_SAMPLE_REGISTRY).toHaveLength(62);
     expect(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId)).toEqual(
       lock.inventories.operationIds,
     );
@@ -323,7 +323,7 @@ describe("REST contract rejection checks", () => {
     expect(collectOperations(changed)).toContainEqual(
       expect.objectContaining({ method: "head", path: "/v2/ping", operationId: "headPing" }),
     );
-    expect(collectContractInventory(changed).operationIds).toHaveLength(57);
+    expect(collectContractInventory(changed).operationIds).toHaveLength(63);
     expect(() =>
       assertInventoryMatches(collectContractInventory(changed), lock.inventories),
     ).toThrow(/inventory drift/);

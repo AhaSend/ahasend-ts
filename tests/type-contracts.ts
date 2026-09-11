@@ -68,6 +68,15 @@ interface PublicSchemaContracts {
   UserAccount: SDK.UserAccount;
   AccountMembersResponse: SDK.ListAccountMembersResponse;
   AddMemberRequest: SDK.AddAccountMemberRequest;
+  JSONValue: SDK.ContactJSONValue;
+  CreateContactRequest: SDK.CreateContactRequest;
+  BatchUpsertContactInput: SDK.BatchUpsertContactInput;
+  BatchUpsertContactsRequest: SDK.BatchUpsertContactsRequest;
+  BatchContactResult: SDK.BatchContactResult;
+  BatchUpsertContactsResponse: SDK.BatchUpsertContactsResponse;
+  Contact: SDK.Contact;
+  UpdateContactRequest: SDK.UpdateContactRequest;
+  PaginatedContactsResponse: Awaited<ReturnType<SDK.ContactsClient["list"]>>;
   Suppression: SDK.Suppression;
   CreateSuppressionResponse: SDK.CreateSuppressionResponse;
   CreateSuppressionRequest: SDK.CreateSuppressionRequest;

@@ -11,6 +11,7 @@ import { createAPIKeysClient } from "./resources/api-keys.js";
 import type { APIKeysClient } from "./resources/api-keys.js";
 import { createDomainsClient } from "./resources/domains.js";
 import type { DomainsClient } from "./resources/domains.js";
+import type { ContactsClient } from "./resources/contacts.js";
 import { createMessagesClient } from "./resources/messages.js";
 import type { MessagesClient } from "./resources/messages.js";
 import { createRoutesClient } from "./resources/routes.js";
@@ -69,6 +70,13 @@ export interface PingResponse {
  * configurable via {@link AhaSendClientOptions}.
  */
 export class AhaSendClient {
+  /**
+   * Type contract for the staged contact facade.
+   *
+   * Contact transport methods are added in the follow-up facade implementation.
+   */
+  declare readonly contacts: Readonly<ContactsClient>;
+
   readonly #accountId: UUID;
   readonly #http: HttpClient;
   readonly #operations: OperationExecutor;

@@ -593,11 +593,16 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for exactly 56 primary operations", () => {
+  it("accounts for 56 implemented and six staged contact operations", () => {
     expect(PRIMARY_MATRIX).toHaveLength(56);
     expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(56);
-    expect(OPERATION_PROFILE.operations).toHaveLength(56);
-    expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
+    expect(OPERATION_PROFILE.operations).toHaveLength(62);
+    expect(
+      profileShape(OPERATION_PROFILE.operations.filter(({ facade }) => facade !== "contacts")),
+    ).toEqual(profileShape(PRIMARY_MATRIX));
+    expect(OPERATION_PROFILE.operations.filter(({ facade }) => facade === "contacts")).toHaveLength(
+      6,
+    );
   });
 
   for (const row of PRIMARY_MATRIX) {
@@ -608,13 +613,18 @@ describe("Facade operation conformance matrix", () => {
 });
 
 describe("Facade iterator conformance matrix", () => {
-  it("accounts for exactly nine iterator aliases", () => {
+  it("accounts for nine implemented and one staged contact iterator alias", () => {
     expect(ITERATOR_MATRIX).toHaveLength(9);
     expect(new Set(ITERATOR_MATRIX.map(({ facade, method }) => `${facade}.${method}`)).size).toBe(
       9,
     );
-    expect(OPERATION_PROFILE.iterators).toHaveLength(9);
-    expect(profileShape(OPERATION_PROFILE.iterators)).toEqual(profileShape(ITERATOR_MATRIX));
+    expect(OPERATION_PROFILE.iterators).toHaveLength(10);
+    expect(
+      profileShape(OPERATION_PROFILE.iterators.filter(({ facade }) => facade !== "contacts")),
+    ).toEqual(profileShape(ITERATOR_MATRIX));
+    expect(OPERATION_PROFILE.iterators.filter(({ facade }) => facade === "contacts")).toHaveLength(
+      1,
+    );
   });
 
   for (const row of ITERATOR_MATRIX) {
@@ -655,7 +665,11 @@ describe("Non-empty request array coverage", () => {
       for (const file of resourceFiles) {
         const source = readFileSync(resolve(resourceDir, file), "utf8");
         // A module that names the constrained request type must also guard it.
-        if (source.includes(schemaName) && !source.includes("assertNonEmptyArray")) {
+        if (
+          source.includes("class ") &&
+          source.includes(schemaName) &&
+          !source.includes("assertNonEmptyArray")
+        ) {
           unguarded.push(`${file} uses ${schemaName} without assertNonEmptyArray`);
         }
       }
@@ -666,11 +680,13 @@ describe("Non-empty request array coverage", () => {
 });
 
 describe("Generated operation inventory", () => {
-  it("maps every OpenAPI operation to one descriptor and primary facade row", () => {
+  it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(56);
+    expect(operationIds).toHaveLength(62);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
-    expect(PRIMARY_MATRIX.map(({ operationId }) => operationId)).toEqual(operationIds);
+    expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
+      operationIds,
+    );
   });
 });
 

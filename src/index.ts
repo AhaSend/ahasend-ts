@@ -181,4 +181,17 @@ export type {
 } from "./resources/sub-accounts.js";
 export type { SubAccountAPIKeysClient } from "./resources/sub-account-api-keys.js";
 
+export type {
+  BatchContactResult,
+  BatchUpsertContactInput,
+  BatchUpsertContactsRequest,
+  BatchUpsertContactsResponse,
+  Contact,
+  ContactJSONValue,
+  ContactsClient,
+  CreateContactRequest,
+  ListContactsParams,
+  UpdateContactRequest,
+} from "./resources/contacts.js";
+
 export { SDK_VERSION } from "./version.js";

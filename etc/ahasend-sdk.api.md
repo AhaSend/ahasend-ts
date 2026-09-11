@@ -124,6 +124,7 @@ export class AhaSendClient {
     get accountId(): UUID;
     get accounts(): Readonly<AccountsClient>;
     get apiKeys(): Readonly<APIKeysClient>;
+    readonly contacts: Readonly<ContactsClient>;
     get domains(): Readonly<DomainsClient>;
     static fromEnv(env?: ProcessEnvLike): AhaSendClient;
     get messages(): Readonly<MessagesClient>;
@@ -396,6 +397,46 @@ export interface Attachment {
     file_name: string;
 }
 
+// @public
+export interface BatchContactResult {
+    // (undocumented)
+    contact?: Contact;
+    // (undocumented)
+    email: string;
+    // (undocumented)
+    outcome: "created" | "updated" | "failed";
+    // (undocumented)
+    position: number;
+    // (undocumented)
+    reason?: string;
+}
+
+// @public
+export interface BatchUpsertContactInput extends UpdateContactRequest {
+    // (undocumented)
+    email: string;
+}
+
+// @public
+export interface BatchUpsertContactsRequest {
+    // (undocumented)
+    data: ReadonlyArray<BatchUpsertContactInput>;
+}
+
+// @public
+export interface BatchUpsertContactsResponse {
+    // (undocumented)
+    created: number;
+    // (undocumented)
+    data: BatchContactResult[];
+    // (undocumented)
+    failed: number;
+    // (undocumented)
+    object: "list";
+    // (undocumented)
+    updated: number;
+}
+
 // @public (undocumented)
 export interface BounceClassificationCount {
     // (undocumented)
@@ -460,6 +501,62 @@ export interface ClientOptions {
     userAgent?: string | undefined;
 }
 
+// @public
+export interface Contact {
+    // (undocumented)
+    attributes: Record<string, ContactJSONValue>;
+    // (undocumented)
+    created_at: ISODateTime;
+    // (undocumented)
+    email: string;
+    // (undocumented)
+    first_name: string;
+    // (undocumented)
+    id: string;
+    // (undocumented)
+    last_name: string;
+    // (undocumented)
+    last_validated_at: ISODateTime | null;
+    // (undocumented)
+    object: "contact";
+    // (undocumented)
+    status: "enabled" | "disabled" | "blocked";
+    // (undocumented)
+    status_reason: string;
+    // (undocumented)
+    unsubscribed: boolean;
+    // (undocumented)
+    unsubscribed_at: ISODateTime | null;
+    // (undocumented)
+    updated_at: ISODateTime;
+    // (undocumented)
+    validation_status: "unvalidated" | "valid" | "invalid" | "risky" | "unknown";
+}
+
+// @public
+export type ContactJSONValue = null | boolean | number | string | ContactJSONValue[] | {
+    [key: string]: ContactJSONValue;
+};
+
+// @public
+export interface ContactsClient {
+    batchUpsert(body: BatchUpsertContactsRequest, options?: IdempotencyRequestOptions): AhaSendPromise<BatchUpsertContactsResponse>;
+    create(body: CreateContactRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Contact>;
+    delete(idOrEmail: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(idOrEmail: string, options?: RequestOptions): AhaSendPromise<Contact>;
+    iterate(params?: ListContactsParams, options?: RequestOptions): AsyncGenerator<Contact, void, undefined>;
+    list(params?: ListContactsParams, options?: RequestOptions): AhaSendPromise<{
+        object: "list";
+        data: Contact[];
+        pagination: {
+            has_more: boolean;
+            next_cursor: string | null;
+            previous_cursor: string | null;
+        };
+    }>;
+    update(idOrEmail: string, body: UpdateContactRequest, options?: RequestOptions): AhaSendPromise<Contact>;
+}
+
 // @public (undocumented)
 export interface CreateAPIKeyRequest {
     // (undocumented)
@@ -467,6 +564,24 @@ export interface CreateAPIKeyRequest {
     // (undocumented)
     label: string;
     scopes: readonly APIKeyScopeName[];
+}
+
+// @public
+export interface CreateContactRequest {
+    // (undocumented)
+    attributes?: Record<string, string | number | boolean> | null | undefined;
+    // (undocumented)
+    email: string;
+    // (undocumented)
+    first_name?: string | null | undefined;
+    // (undocumented)
+    last_name?: string | null | undefined;
+    // (undocumented)
+    status?: "enabled" | "disabled" | "blocked" | null | undefined;
+    // (undocumented)
+    status_reason?: string | null | undefined;
+    // (undocumented)
+    unsubscribed?: boolean | null | undefined;
 }
 
 // @public (undocumented)
@@ -857,6 +972,15 @@ export interface ListAccountMembersResponse {
     // (undocumented)
     object: "list";
 }
+
+// @public
+export type ListContactsParams = PaginationParams & {
+    email?: string | undefined;
+    status?: "enabled" | "disabled" | "blocked" | undefined;
+    subscribed?: boolean | undefined;
+    from_time?: ISODateTime | undefined;
+    to_time?: ISODateTime | undefined;
+};
 
 // @public (undocumented)
 export type ListDomainsParams = PaginationParams & {
@@ -1516,6 +1640,24 @@ export type UpdateAPIKeyRequest = {
 } | {
     ip_allow_list: readonly string[];
 });
+
+// @public
+export interface UpdateContactRequest {
+    // (undocumented)
+    attributes?: Record<string, string | number | boolean | null> | null | undefined;
+    // (undocumented)
+    email?: string | null | undefined;
+    // (undocumented)
+    first_name?: string | null | undefined;
+    // (undocumented)
+    last_name?: string | null | undefined;
+    // (undocumented)
+    status?: "enabled" | "disabled" | "blocked" | null | undefined;
+    // (undocumented)
+    status_reason?: string | null | undefined;
+    // (undocumented)
+    unsubscribed?: boolean | null | undefined;
+}
 
 // @public (undocumented)
 export interface UpdateDomainRequest {
