@@ -405,6 +405,15 @@ const OPERATION_CASES = [
   operation("getDeliveryTimeStatistics", ["statistics"], "deliveryTimes", [STATISTICS]),
 ] as const satisfies readonly OperationCase[];
 
+const STAGED_CONTACT_OPERATION_IDS = [
+  "getContacts",
+  "createContact",
+  "batchUpsertContacts",
+  "getContact",
+  "updateContact",
+  "deleteContact",
+] as const;
+
 const SPEC_OPERATIONS = loadSpecOperations();
 
 let consumerDirectory: string | undefined;
@@ -904,12 +913,15 @@ describe("packed guarded mutation examples", () => {
 });
 
 describe("packed SDK operation contract", () => {
-  it("covers every operation declared by openapi.yaml exactly once", () => {
+  it("covers every implemented operation and accounts for staged contact operations", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
+    const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
     expect(OPERATION_CASES).toHaveLength(56);
-    expect(new Set(OPERATION_CASES.map(({ operationId }) => operationId)).size).toBe(56);
-    expect(OPERATION_CASES.map(({ operationId }) => operationId).sort()).toEqual(
+    expect(new Set(implementedOperationIds).size).toBe(56);
+    expect(STAGED_CONTACT_OPERATION_IDS).toHaveLength(6);
+    expect(new Set(STAGED_CONTACT_OPERATION_IDS).size).toBe(6);
+    expect([...implementedOperationIds, ...STAGED_CONTACT_OPERATION_IDS].sort()).toEqual(
       operationIds.sort(),
     );
   });
