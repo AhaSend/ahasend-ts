@@ -38,6 +38,20 @@ describe("paginate", () => {
     expect(fetchPage).toHaveBeenCalledOnce();
   });
 
+  it("stops when next_cursor is null even if has_more is true", async () => {
+    const fetchPage = vi.fn(async () => ({
+      object: "list" as const,
+      data: [1],
+      pagination: { has_more: true, next_cursor: null, previous_cursor: null },
+    }));
+
+    const out: number[] = [];
+    for await (const item of paginate(fetchPage, {})) out.push(item);
+
+    expect(out).toEqual([1]);
+    expect(fetchPage).toHaveBeenCalledOnce();
+  });
+
   it("stops when has_more is false even if a stale cursor is present", async () => {
     const fetchPage = vi.fn(async () => ({
       object: "list" as const,

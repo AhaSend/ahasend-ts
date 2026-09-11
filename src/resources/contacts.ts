@@ -2,6 +2,7 @@ import type {
   AhaSendPromise,
   IdempotencyRequestOptions,
   ISODateTime,
+  PaginatedResponse,
   PaginationParams,
   RequestOptions,
   SuccessResponse,
@@ -104,15 +105,7 @@ export interface ContactsClient {
   list(
     params?: ListContactsParams,
     options?: RequestOptions,
-  ): AhaSendPromise<{
-    object: "list";
-    data: Contact[];
-    pagination: {
-      has_more: boolean;
-      next_cursor: string | null;
-      previous_cursor: string | null;
-    };
-  }>;
+  ): AhaSendPromise<PaginatedResponse<Contact>>;
 
   /** Iterate through every matching contact, fetching cursor pages lazily. */
   iterate(

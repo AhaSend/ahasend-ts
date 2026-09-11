@@ -1,6 +1,7 @@
 import type * as SDK from "../src/index.js";
 import type { components } from "../src/generated/rest-types.js";
 import type { OperationExecutor } from "../src/operations.js";
+import type { paginate } from "../src/pagination.js";
 import type * as WebhookSDK from "../src/webhooks/index.js";
 
 // @ts-expect-error DomainRequestOptions was intentionally removed from the public API.
@@ -132,9 +133,18 @@ type ReadonlyArrays<Value> = Value extends readonly unknown[]
     ? { [Key in keyof Value]: ReadonlyArrays<Value[Key]> }
     : Value;
 
+/**
+ * The shared pagination envelope accepts both the optional cursors used by
+ * PaginationInfo and the required nullable cursors used by contacts.
+ */
+type PaginationSchema = Extract<
+  keyof PublicSchemaContracts,
+  "PaginationInfo" | `Paginated${string}Response`
+>;
+
 type BidirectionalSchema = Exclude<
   keyof PublicSchemaContracts,
-  keyof ReadonlyPublicSchemaRefinements
+  keyof ReadonlyPublicSchemaRefinements | PaginationSchema
 >;
 
 type PublicSchemasAssignableToWire = Expect<
@@ -149,9 +159,19 @@ type PublicSchemasAssignableToWire = Expect<
 type WireSchemasAssignableToPublic = Expect<
   Equal<
     {
-      [Schema in BidirectionalSchema]: Extends<WireSchemas[Schema], PublicSchemaContracts[Schema]>;
+      [Schema in keyof PublicSchemaContracts]: Extends<
+        WireSchemas[Schema],
+        PublicSchemaContracts[Schema]
+      >;
     },
-    { [Schema in BidirectionalSchema]: true }
+    { [Schema in keyof PublicSchemaContracts]: true }
+  >
+>;
+
+type ContactPageFetcherAcceptedBySharedPaginator = Expect<
+  Extends<
+    (params: SDK.ListContactsParams) => ReturnType<SDK.ContactsClient["list"]>,
+    Parameters<typeof paginate<SDK.Contact, SDK.ListContactsParams>>[0]
   >
 >;
 
@@ -1408,6 +1428,7 @@ type OptionalUndefinedContracts = [
 ];
 
 export type TypeSurfaceContracts = [
+  ContactPageFetcherAcceptedBySharedPaginator,
   OptionalUndefinedContracts,
   typeof explicitlyUndefinedBody,
   typeof explicitlyUndefinedOptions,

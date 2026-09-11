@@ -1142,20 +1142,12 @@ console.log("Sub-account API key deleted.", { message: result.message });
 ### contacts.list
 
 ```ts
-client.contacts.list(params?: ListContactsParams, options?: RequestOptions): AhaSendPromise<{
-    object: "list";
-    data: Contact[];
-    pagination: {
-      has_more: boolean;
-      next_cursor: string | null;
-      previous_cursor: string | null;
-    };
-  }>
+client.contacts.list(params?: ListContactsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Contact>>
 ```
 
 - **Operation ID:** `getContacts`
 - **HTTP:** `GET /v2/accounts/{account_id}/contacts`
-- **Models:** [ListContactsParams](../src/resources/contacts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Contact](../src/resources/contacts.ts)
+- **Models:** [ListContactsParams](../src/resources/contacts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Contact](../src/resources/contacts.ts)
 - **OpenAPI models:** `200: PaginatedContactsResponse`
 - **Scopes:** `contacts:read`
 - **Security alternatives:** `BearerAuth: contacts:read`

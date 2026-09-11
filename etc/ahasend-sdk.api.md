@@ -544,15 +544,7 @@ export interface ContactsClient {
     delete(idOrEmail: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
     get(idOrEmail: string, options?: RequestOptions): AhaSendPromise<Contact>;
     iterate(params?: ListContactsParams, options?: RequestOptions): AsyncGenerator<Contact, void, undefined>;
-    list(params?: ListContactsParams, options?: RequestOptions): AhaSendPromise<{
-        object: "list";
-        data: Contact[];
-        pagination: {
-            has_more: boolean;
-            next_cursor: string | null;
-            previous_cursor: string | null;
-        };
-    }>;
+    list(params?: ListContactsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Contact>>;
     update(idOrEmail: string, body: UpdateContactRequest, options?: RequestOptions): AhaSendPromise<Contact>;
 }
 
@@ -1151,9 +1143,9 @@ export interface PaginationMeta {
     // (undocumented)
     has_more: boolean;
     // (undocumented)
-    next_cursor?: string;
+    next_cursor?: string | null;
     // (undocumented)
-    previous_cursor?: string;
+    previous_cursor?: string | null;
 }
 
 // @public

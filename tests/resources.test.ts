@@ -77,7 +77,7 @@ describe("Pagination parameter declarations", () => {
     expect([limitOnly, after, before, both]).toHaveLength(4);
   });
 
-  it("round-trips optional response cursors without nullable request values", () => {
+  it("round-trips present response cursors and accepts nullable terminal cursors", () => {
     const omitted: PaginationMeta = { has_more: false };
     const pagination: PaginationMeta = {
       has_more: true,
@@ -86,21 +86,19 @@ describe("Pagination parameter declarations", () => {
     };
     const requests: PaginationParams[] = [];
 
-    if (pagination.next_cursor !== undefined) {
+    if (typeof pagination.next_cursor === "string") {
       requests.push({ after: pagination.next_cursor });
     }
-    if (pagination.previous_cursor !== undefined) {
+    if (typeof pagination.previous_cursor === "string") {
       requests.push({ before: pagination.previous_cursor });
     }
 
-    // @ts-expect-error Response cursors cannot be null when present.
     const nullableNext: PaginationMeta = { has_more: true, next_cursor: null };
-    // @ts-expect-error Response cursors cannot be null when present.
     const nullablePrevious: PaginationMeta = { has_more: true, previous_cursor: null };
 
     expect(omitted).toEqual({ has_more: false });
     expect(requests).toEqual([{ after: "next" }, { before: "previous" }]);
-    void [nullableNext, nullablePrevious];
+    expect([nullableNext.next_cursor, nullablePrevious.previous_cursor]).toEqual([null, null]);
   });
 
   it("retains filters on named list parameter aliases", () => {
