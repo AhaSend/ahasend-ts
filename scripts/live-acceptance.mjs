@@ -24,8 +24,8 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 56;
-export const EXPECTED_LIVE_ITERATOR_COUNT = 9;
+export const EXPECTED_LIVE_OPERATION_COUNT = 62;
+export const EXPECTED_LIVE_ITERATOR_COUNT = 10;
 
 const packageName = "@ahasend/sdk";
 const domainOperationIds = Object.freeze([
@@ -1398,7 +1398,7 @@ async function runStatisticsAuthorizationCase({
     // the lookup — but this suite runs the broad release key, which passes
     // the permission check for any domain, and a domain that is not on the
     // account then fails the lookup as 400 `invalid sender_domain`. The 403
-    // branch is unreachable with a key broad enough to run all 56
+    // branch is unreachable with a key broad enough to run all 62
     // operations; 400 is the rejection this probe can actually observe.
     if (failure.status !== 400) {
       throw new TypeError(`${label} must fail with HTTP 400.`);
