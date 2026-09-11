@@ -409,6 +409,16 @@ const statisticsMock: SDK.StatisticsClient = {
   deliveryTimes: () => result<SDK.DeliveryTimeStatisticsResponse>(),
 };
 
+const contactsMock: SDK.ContactsClient = {
+  list: () => result<SDK.PaginatedResponse<SDK.Contact>>(),
+  iterate: () => iterator<SDK.Contact>(),
+  get: () => result<SDK.Contact>(),
+  create: () => result<SDK.Contact>(),
+  update: () => result<SDK.Contact>(),
+  delete: () => result<SDK.SuccessResponse>(),
+  batchUpsert: () => result<SDK.BatchUpsertContactsResponse>(),
+};
+
 const suppressionsMock: SDK.SuppressionsClient = {
   list: () => result<SDK.PaginatedResponse<SDK.Suppression>>(),
   iterate: () => iterator<SDK.Suppression>(),
@@ -471,6 +481,7 @@ type ClientResourceSurface = Pick<
   | "apiKeys"
   | "webhooks"
   | "statistics"
+  | "contacts"
   | "suppressions"
   | "routes"
   | "accounts"
@@ -484,6 +495,7 @@ const clientMock: ClientResourceSurface = {
   apiKeys: apiKeysMock,
   webhooks: webhooksMock,
   statistics: statisticsMock,
+  contacts: contactsMock,
   suppressions: suppressionsMock,
   routes: routesMock,
   accounts: accountsMock,

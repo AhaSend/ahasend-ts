@@ -16,6 +16,7 @@ import type {
   AhaSendResponse,
   CategoryRateLimit,
   ClientOptions,
+  ContactsClient,
   DomainsClient,
   IdempotencyConfig,
   IdempotencyRequestOptions,
@@ -109,7 +110,7 @@ describe("AhaSendClient", () => {
     expect(rendered).not.toContain(secret);
   });
 
-  it("exposes messages, domains, and apiKeys resource clients", () => {
+  it("exposes messages, domains, apiKeys, and contacts resource clients", () => {
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
       accountId: "11111111-1111-4111-8111-111111111111",
@@ -118,6 +119,7 @@ describe("AhaSendClient", () => {
     expect(client.messages).toBeDefined();
     expect(client.domains).toBeDefined();
     expect(client.apiKeys).toBeDefined();
+    expect(client.contacts).toBeDefined();
     expect(client.accountId).toBe("11111111-1111-4111-8111-111111111111");
   });
 
@@ -209,6 +211,7 @@ describe("AhaSendClient", () => {
       client.apiKeys,
       client.webhooks,
       client.statistics,
+      client.contacts,
       client.suppressions,
       client.routes,
       client.accounts,
@@ -393,6 +396,39 @@ describe("AhaSendClient", () => {
       "create",
       "delete",
       "wipe",
+    ]);
+    expect(Object.getOwnPropertySymbols(facade)).toEqual([]);
+    expect(JSON.stringify(facade)).toBe("{}");
+
+    for (const rendered of [inspect(facade), inspect(facade, { showHidden: true })]) {
+      expect(rendered).not.toContain(apiKey);
+      expect(rendered).not.toContain("OperationExecutor");
+      expect(rendered).not.toContain("HttpClient");
+      expect(rendered).not.toContain("transport");
+      expect(rendered).not.toContain("#operations");
+    }
+  });
+
+  it("exposes exactly seven contact methods without leaking executor state", () => {
+    const apiKey = "aha-sk-contact-facade-secret";
+    const transport = mockFetch(() => new Response("{}", { status: 200 }));
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: transport,
+    });
+    const facade = client.contacts;
+
+    expect(client.contacts).toBe(facade);
+    expect(Object.isFrozen(facade)).toBe(true);
+    expect(Object.getOwnPropertyNames(facade)).toEqual([
+      "list",
+      "iterate",
+      "get",
+      "create",
+      "update",
+      "delete",
+      "batchUpsert",
     ]);
     expect(Object.getOwnPropertySymbols(facade)).toEqual([]);
     expect(JSON.stringify(facade)).toBe("{}");
@@ -614,6 +650,7 @@ describe("root public exports", () => {
       "HttpClient",
       "AccountsClient",
       "APIKeysClient",
+      "ContactsClient",
       "DomainsClient",
       "MessagesClient",
       "RoutesClient",
@@ -664,6 +701,7 @@ describe("root public exports", () => {
     expectTypeOf<AhaSendClient["accounts"]>().toEqualTypeOf<Readonly<AccountsClient>>();
     expectTypeOf<AhaSendClient["apiKeys"]>().toEqualTypeOf<Readonly<APIKeysClient>>();
     expectTypeOf<AhaSendClient["domains"]>().toEqualTypeOf<Readonly<DomainsClient>>();
+    expectTypeOf<AhaSendClient["contacts"]>().toEqualTypeOf<Readonly<ContactsClient>>();
     expectTypeOf<AhaSendClient["messages"]>().toEqualTypeOf<Readonly<MessagesClient>>();
     expectTypeOf<AhaSendClient["routes"]>().toEqualTypeOf<Readonly<RoutesClient>>();
     expectTypeOf<AhaSendClient["smtpCredentials"]>().toEqualTypeOf<

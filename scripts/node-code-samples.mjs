@@ -22,19 +22,6 @@ function entry(operationId, operationKey, facade, body) {
 export const NODE_SAMPLE_LANGUAGE = "javascript";
 export const NODE_SAMPLE_LABEL = "Node.js 22+ (AhaSend SDK)";
 
-// Contact samples are synchronized with the contract before the runtime facade
-// lands. Documentation verification checks these calls against the exported
-// ContactsClient interface without adding a nonexistent property to
-// AhaSendClient's published declarations.
-export const STAGED_NODE_SAMPLE_OPERATION_IDS = Object.freeze([
-  "getContacts",
-  "createContact",
-  "batchUpsertContacts",
-  "getContact",
-  "updateContact",
-  "deleteContact",
-]);
-
 export const NODE_SAMPLE_REGISTRY = Object.freeze([
   entry(
     "ping",

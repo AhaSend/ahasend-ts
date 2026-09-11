@@ -1,3 +1,5 @@
+import type { OperationExecutor } from "../operations.js";
+import { paginate } from "../pagination.js";
 import type {
   AhaSendPromise,
   IdempotencyRequestOptions,
@@ -6,7 +8,9 @@ import type {
   PaginationParams,
   RequestOptions,
   SuccessResponse,
+  UUID,
 } from "../types/common.js";
+import { assertNonEmptyArray, forwardOptions, forwardWithIdempotency } from "./_helpers.js";
 
 /** A recursively nested JSON value returned from a legacy contact attribute. */
 export type ContactJSONValue =
@@ -94,12 +98,7 @@ export type ListContactsParams = PaginationParams & {
   to_time?: ISODateTime | undefined;
 };
 
-/**
- * Type contract for account-global contact management.
- *
- * The runtime `client.contacts` facade is delivered separately; this interface
- * pins its generated request and response contract without adding transport.
- */
+/** Manage account-global contacts and their subscription state. */
 export interface ContactsClient {
   /** Fetch one newest-first page of contacts using mutually exclusive cursors. */
   list(
@@ -134,4 +133,101 @@ export interface ContactsClient {
     body: BatchUpsertContactsRequest,
     options?: IdempotencyRequestOptions,
   ): AhaSendPromise<BatchUpsertContactsResponse>;
+}
+
+class ContactsClientImplementation implements ContactsClient {
+  readonly #operations: OperationExecutor;
+  readonly #accountId: UUID;
+
+  constructor(operations: OperationExecutor, accountId: UUID) {
+    this.#operations = operations;
+    this.#accountId = accountId;
+  }
+
+  list(
+    params: ListContactsParams = {},
+    options: RequestOptions = {},
+  ): AhaSendPromise<PaginatedResponse<Contact>> {
+    return this.#operations.execute(
+      "getContacts",
+      {
+        path: { account_id: this.#accountId },
+        query: params,
+      },
+      forwardOptions(options),
+    );
+  }
+
+  iterate(
+    params: ListContactsParams = {},
+    options: RequestOptions = {},
+  ): AsyncGenerator<Contact, void, undefined> {
+    return paginate<Contact, ListContactsParams>((page) => this.list(page, options), params);
+  }
+
+  get(idOrEmail: string, options: RequestOptions = {}): AhaSendPromise<Contact> {
+    return this.#operations.execute(
+      "getContact",
+      {
+        path: { account_id: this.#accountId, id_or_email: idOrEmail },
+      },
+      forwardOptions(options),
+    );
+  }
+
+  create(
+    body: CreateContactRequest,
+    options: IdempotencyRequestOptions = {},
+  ): AhaSendPromise<Contact> {
+    return this.#operations.execute(
+      "createContact",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
+    );
+  }
+
+  update(
+    idOrEmail: string,
+    body: UpdateContactRequest,
+    options: RequestOptions = {},
+  ): AhaSendPromise<Contact> {
+    return this.#operations.execute(
+      "updateContact",
+      {
+        path: { account_id: this.#accountId, id_or_email: idOrEmail },
+        body,
+      },
+      forwardOptions(options),
+    );
+  }
+
+  delete(idOrEmail: string, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
+    return this.#operations.execute(
+      "deleteContact",
+      {
+        path: { account_id: this.#accountId, id_or_email: idOrEmail },
+      },
+      forwardOptions(options),
+    );
+  }
+
+  batchUpsert(
+    body: BatchUpsertContactsRequest,
+    options: IdempotencyRequestOptions = {},
+  ): AhaSendPromise<BatchUpsertContactsResponse> {
+    assertNonEmptyArray(body?.data, "data");
+    return this.#operations.execute(
+      "batchUpsertContacts",
+      { path: { account_id: this.#accountId }, body },
+      forwardWithIdempotency(options),
+    );
+  }
+}
+
+/** @internal Construct the contacts resource implementation for the root client. */
+export function createContactsClient(
+  operations: OperationExecutor,
+  accountId: UUID,
+): ContactsClient {
+  return new ContactsClientImplementation(operations, accountId);
 }

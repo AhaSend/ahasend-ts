@@ -13,7 +13,6 @@ export interface NodeSampleRegistryEntry {
 
 export const NODE_SAMPLE_LANGUAGE: "javascript";
 export const NODE_SAMPLE_LABEL: string;
-export const STAGED_NODE_SAMPLE_OPERATION_IDS: readonly string[];
 export const NODE_SAMPLE_REGISTRY: readonly NodeSampleRegistryEntry[];
 export const NODE_OPERATION_KEYS: Readonly<Record<string, string>>;
 export const NODE_CODE_SAMPLES: Readonly<Record<string, NodeCodeSample>>;

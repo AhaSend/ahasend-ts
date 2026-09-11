@@ -7,10 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  NODE_CODE_SAMPLES,
-  STAGED_NODE_SAMPLE_OPERATION_IDS,
-} from "../scripts/node-code-samples.mjs";
+import { NODE_CODE_SAMPLES } from "../scripts/node-code-samples.mjs";
 import {
   INSTALLED_EXTERNAL_URLS,
   buildDocumentationIndex,
@@ -420,18 +417,10 @@ describe("operational documentation verification", () => {
   }, 120_000);
 
   it(
-    "strict-checks shipped samples against the client and staged contacts against their interface",
+    "strict-checks every shipped sample against the public client",
     { timeout: 120_000 },
     async () => {
       expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(62);
-      expect(STAGED_NODE_SAMPLE_OPERATION_IDS).toEqual([
-        "getContacts",
-        "createContact",
-        "batchUpsertContacts",
-        "getContact",
-        "updateContact",
-        "deleteContact",
-      ]);
 
       await expect(
         verifyPackagedJavaScript(packedSdkTarball, packedSdkChecksum),
@@ -440,7 +429,7 @@ describe("operational documentation verification", () => {
   );
 
   it(
-    "rejects a staged contact sample outside the exported contact interface",
+    "rejects a contact sample outside the public facade declarations",
     { timeout: 120_000 },
     async () => {
       const getContactSample = NODE_CODE_SAMPLES.getContact;
@@ -460,7 +449,7 @@ describe("operational documentation verification", () => {
           repositoryRoot,
           invalidSamples,
         ),
-      ).rejects.toThrow(/Property 'find' does not exist on type 'ContactsClient'/u);
+      ).rejects.toThrow(/Property 'find' does not exist on type/u);
     },
   );
 

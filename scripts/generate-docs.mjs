@@ -216,7 +216,6 @@ function createTypeScriptContext(clientSourceText) {
   const indexSymbol = checker.getSymbolAtLocation(indexSource);
   if (indexSymbol === undefined) throw new TypeError("Unable to inspect src/index.ts exports");
   const publicModels = new Map();
-  const stagedFacades = new Map();
   for (const exported of checker.getExportsOfModule(indexSymbol)) {
     let symbol = exported;
     if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) symbol = checker.getAliasedSymbol(symbol);
@@ -225,9 +224,6 @@ function createTypeScriptContext(clientSourceText) {
     );
     if (declaration !== undefined) {
       publicModels.set(exported.name, declaration.getSourceFile().fileName);
-      if (exported.name === "ContactsClient") {
-        stagedFacades.set("contacts", checker.getDeclaredTypeOfSymbol(symbol));
-      }
     }
   }
 
@@ -236,7 +232,6 @@ function createTypeScriptContext(clientSourceText) {
     clientClass,
     clientType: checker.getTypeAtLocation(clientClass),
     publicModels,
-    stagedFacades,
   };
 }
 
@@ -246,11 +241,6 @@ function methodSignature(context, mapping) {
     for (const segment of mapping.facade.split(".")) {
       const property = owner.getProperty(segment);
       if (property === undefined) {
-        const staged = context.stagedFacades.get(segment);
-        if (owner === context.clientType && staged !== undefined) {
-          owner = staged;
-          continue;
-        }
         throw new TypeError(`Profile facade ${mapping.facade} is not exposed by AhaSendClient`);
       }
       owner = context.checker.getTypeOfSymbolAtLocation(
