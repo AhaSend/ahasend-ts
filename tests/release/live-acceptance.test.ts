@@ -11,6 +11,7 @@ import {
   createAccountScenarioRegistry,
   createAPIKeyScenarioRegistry,
   createCleanupRegistry,
+  createContactScenarioRegistry,
   createDomainScenarioRegistry,
   createLiveReport,
   createMessageScenarioRegistry,
@@ -26,6 +27,7 @@ import {
   installLiveCandidate,
   loadLiveCandidate,
   runAccountLiveScenarios,
+  runContactLiveScenarios,
   runDomainLiveScenarios,
   runAPIKeyLiveScenarios,
   runMessageLiveScenarios,
@@ -43,6 +45,7 @@ import {
   writeLiveReport,
   type APIKeyLiveClient,
   type AccountLiveClient,
+  type ContactLiveClient,
   type DomainLiveClient,
   type LiveCandidate,
   type LiveCandidateManifest,
@@ -161,6 +164,13 @@ function completeLiveResults(candidate: LiveCandidate) {
   byId.get("createConversationMessage")!.evidence = {
     senderAuthorization: { source: "body.from.email" },
   };
+  byId.get("batchUpsertContacts")!.evidence = {
+    created: 1,
+    updated: 1,
+    failed: 0,
+    fullSuccessObjects: 2,
+  };
+  byId.get("deleteContact")!.evidence = { cleanupVerified: true, deleted: true };
   for (const operationId of [
     "getDeliverabilityStatistics",
     "getBounceStatistics",
@@ -462,6 +472,190 @@ function statisticsClientFixture(options: { checkEveryDomain?: boolean } = {}) {
       authorized: firstDomain,
       unauthorized: secondDomain,
     },
+  };
+}
+
+function contactClientFixture(
+  options: { cleanupFailure?: unknown; omitBatchContact?: boolean } = {},
+) {
+  interface ContactRecord {
+    object: "contact";
+    id: string;
+    created_at: string;
+    updated_at: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    status: "enabled";
+    status_reason: string;
+    unsubscribed: boolean;
+    unsubscribed_at: string | null;
+    attributes: Record<string, string | number | boolean>;
+    validation_status: "unvalidated";
+    last_validated_at: null;
+  }
+
+  const calls: Array<{ method: string; args: unknown[] }> = [];
+  const primaryEmail = "sdk+primary@example.com";
+  const batchEmail = "sdk+batch@example.com";
+  const records = new Map<string, ContactRecord>();
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const createRecord = (
+    email: string,
+    request: {
+      first_name?: string | null;
+      last_name?: string | null;
+      unsubscribed?: boolean | null;
+    },
+  ): ContactRecord => ({
+    object: "contact",
+    id:
+      email === primaryEmail
+        ? "11111111-1111-4111-8111-111111111111"
+        : "22222222-2222-4222-8222-222222222222",
+    created_at: "2026-09-11T00:00:00Z",
+    updated_at: "2026-09-11T00:00:00Z",
+    email,
+    first_name: request.first_name ?? "",
+    last_name: request.last_name ?? "",
+    status: "enabled",
+    status_reason: "",
+    unsubscribed: request.unsubscribed ?? false,
+    unsubscribed_at: request.unsubscribed === true ? "2026-09-11T00:00:00Z" : null,
+    attributes: {},
+    validation_status: "unvalidated",
+    last_validated_at: null,
+  });
+  const applyUpdate = (
+    record: ContactRecord,
+    request: {
+      first_name?: string | null;
+      last_name?: string | null;
+      unsubscribed?: boolean | null;
+    },
+  ) => {
+    if (request.first_name !== undefined && request.first_name !== null) {
+      record.first_name = request.first_name;
+    }
+    if (request.last_name !== undefined && request.last_name !== null) {
+      record.last_name = request.last_name;
+    }
+    if (request.unsubscribed !== undefined && request.unsubscribed !== null) {
+      record.unsubscribed = request.unsubscribed;
+      record.unsubscribed_at = request.unsubscribed ? "2026-09-11T00:00:00Z" : null;
+    }
+    return { ...record };
+  };
+  const client: ContactLiveClient = {
+    contacts: {
+      list: vi.fn(async (params) => {
+        calls.push({ method: "list", args: [params] });
+        return {
+          object: "list",
+          data: [...records.values()].map((record) => ({ ...record })),
+          pagination: { has_more: false },
+        };
+      }),
+      iterate: vi.fn(async function* (params) {
+        calls.push({ method: "iterate", args: [params] });
+        for (const record of records.values()) yield { ...record };
+      }),
+      create: vi.fn(
+        async (request: {
+          email: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          unsubscribed?: boolean | null;
+        }) => {
+          calls.push({ method: "create", args: [request] });
+          const record = createRecord(request.email, request);
+          records.set(request.email, record);
+          return { ...record };
+        },
+      ),
+      get: vi.fn(async (email: string) => {
+        calls.push({ method: "get", args: [email] });
+        const record = records.get(email);
+        if (record === undefined) {
+          if (email === batchEmail && Object.hasOwn(options, "cleanupFailure")) {
+            throw options.cleanupFailure;
+          }
+          throw notFound();
+        }
+        return { ...record };
+      }),
+      update: vi.fn(
+        async (
+          email: string,
+          request: {
+            first_name?: string | null;
+            last_name?: string | null;
+            unsubscribed?: boolean | null;
+          },
+        ) => {
+          calls.push({ method: "update", args: [email, request] });
+          const record = records.get(email);
+          if (record === undefined) throw notFound();
+          return applyUpdate(record, request);
+        },
+      ),
+      batchUpsert: vi.fn(
+        async (request: {
+          data: Array<{
+            email: string;
+            first_name?: string | null;
+            last_name?: string | null;
+            unsubscribed?: boolean | null;
+          }>;
+        }) => {
+          calls.push({ method: "batchUpsert", args: [request] });
+          let created = 0;
+          let updated = 0;
+          const data = request.data.map((input, position) => {
+            const existing = records.get(input.email);
+            const outcome = existing === undefined ? "created" : "updated";
+            const contact =
+              existing === undefined
+                ? createRecord(input.email, input)
+                : applyUpdate(existing, input);
+            if (existing === undefined) {
+              created += 1;
+              records.set(input.email, contact);
+            } else {
+              updated += 1;
+            }
+            return {
+              position,
+              email: input.email,
+              outcome,
+              ...(options.omitBatchContact === true && position === 1 ? {} : { contact }),
+            };
+          });
+          return { object: "list", created, updated, failed: 0, data };
+        },
+      ),
+      delete: vi.fn(async (email: string) => {
+        calls.push({ method: "delete", args: [email] });
+        if (!records.has(email)) throw notFound();
+        records.delete(email);
+        return { message: "deleted" };
+      }),
+    },
+  };
+  return {
+    batchEmail,
+    batchRequest: {
+      data: [
+        { email: primaryEmail, last_name: "Batch updated" },
+        { email: batchEmail, first_name: "Batch created" },
+      ] as const,
+    },
+    calls,
+    client,
+    createRequest: { email: primaryEmail, first_name: "Primary" },
+    primaryEmail,
+    records,
+    updateRequest: { first_name: "Updated", unsubscribed: true },
   };
 }
 
@@ -1796,6 +1990,156 @@ describe("live scenario inventory", () => {
     expect(fixture.client.domains.list).not.toHaveBeenCalledWith(
       expect.objectContaining({ before: expect.anything() }),
     );
+  });
+
+  it("registers every contact primary and links its iterator to the packaged list mapping", () => {
+    const fixture = contactClientFixture();
+    const registry = createContactScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      createRequest: fixture.createRequest,
+      updateRequest: fixture.updateRequest,
+      batchRequest: fixture.batchRequest,
+    });
+    const contactEntries = [...registry.primary.values()].filter(
+      ({ facade }) => facade === "contacts",
+    );
+
+    expect(contactEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      [
+        "batchUpsertContacts",
+        "createContact",
+        "deleteContact",
+        "getContact",
+        "getContacts",
+        "updateContact",
+      ].sort(),
+    );
+    expect(contactEntries).toHaveLength(6);
+    expect(contactEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.iterators.filter(({ facade }) => facade === "contacts")).toHaveLength(1);
+    expect(registry.primary.get("getContacts")?.iterator).toMatchObject({
+      operationId: "getContacts",
+      method: "iterate",
+    });
+    expect(registry.primary.size).toBe(62);
+    expectTypeOf<IsAssignable<AhaSendClient, ContactLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("runs the disposable contact lifecycle in order and records mixed batch evidence", async () => {
+    const fixture = contactClientFixture();
+    const result = await runContactLiveScenarios(
+      createContactScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        batchRequest: fixture.batchRequest,
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(result.operationResults.map(({ operationId }) => operationId)).toEqual([
+      "getContacts",
+      "createContact",
+      "getContact",
+      "updateContact",
+      "batchUpsertContacts",
+      "deleteContact",
+    ]);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getContacts",
+        status: "passed",
+        evidence: { direction: "forward", items: 0, limit: 1 },
+      },
+    ]);
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "batchUpsertContacts"),
+    ).toMatchObject({
+      status: "passed",
+      evidence: { created: 1, updated: 1, failed: 0, fullSuccessObjects: 2 },
+    });
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "deleteContact"),
+    ).toMatchObject({
+      status: "passed",
+      evidence: { cleanupVerified: true, deleted: true },
+    });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify batch-created contact fixture", status: "passed" },
+      { label: "delete and verify primary contact fixture", status: "passed" },
+    ]);
+    expect(fixture.records.size).toBe(0);
+    expect(fixture.calls.map(({ method }) => method)).toEqual([
+      "list",
+      "iterate",
+      "create",
+      "get",
+      "update",
+      "batchUpsert",
+      "delete",
+      "get",
+      "delete",
+      "get",
+      "delete",
+      "get",
+    ]);
+    const pathEmails = fixture.calls
+      .filter(({ method }) => ["get", "update", "delete"].includes(method))
+      .flatMap(({ args }) => args.slice(0, 1));
+    expect(pathEmails).toContain(fixture.primaryEmail);
+    expect(pathEmails).toContain(fixture.batchEmail);
+    expect(pathEmails.some((email) => String(email).includes("%2B"))).toBe(false);
+    expect(fixture.primaryEmail).toContain("+");
+  });
+
+  it("rejects partial batch success objects while still cleaning both disposable contacts", async () => {
+    const fixture = contactClientFixture({ omitBatchContact: true });
+    const result = await runContactLiveScenarios(
+      createContactScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        batchRequest: fixture.batchRequest,
+      }),
+    );
+
+    expect(result.failure).toEqual({
+      phase: "operation",
+      operationId: "batchUpsertContacts",
+    });
+    expect(result.operationResults.at(-1)).toEqual({
+      operationId: "batchUpsertContacts",
+      status: "failed",
+    });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify batch-created contact fixture", status: "passed" },
+      { label: "delete and verify primary contact fixture", status: "passed" },
+    ]);
+    expect(fixture.records.size).toBe(0);
+  });
+
+  it("reports contact cleanup verification failures after completing the lifecycle", async () => {
+    const cleanupFailure = Object.assign(new Error("cleanup lookup failed"), { status: 500 });
+    const fixture = contactClientFixture({ cleanupFailure });
+    const result = await runContactLiveScenarios(
+      createContactScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        batchRequest: fixture.batchRequest,
+      }),
+    );
+
+    expect(result.operationResults).toHaveLength(6);
+    expect(result.failure).toEqual({ phase: "cleanup" });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify batch-created contact fixture", status: "failed" },
+      { label: "delete and verify primary contact fixture", status: "passed" },
+    ]);
   });
 
   it("registers exactly one executable scenario for ping and every message primary", () => {
@@ -5019,6 +5363,22 @@ describe("live cleanup and reporting", () => {
     delete (statistics.evidence as { senderAuthorization: Record<string, unknown> })
       .senderAuthorization.multiDomain;
     expect(() => validate(missingMultiDomain)).toThrow("senderAuthorization.multiDomain");
+
+    const incompleteBatchEvidence = structuredClone(baseReport);
+    const contactBatch = incompleteBatchEvidence.operations.find(
+      ({ operationId }) => operationId === "batchUpsertContacts",
+    )!;
+    delete (contactBatch.evidence as Record<string, unknown>).fullSuccessObjects;
+    expect(() => validate(incompleteBatchEvidence)).toThrow(
+      "batchUpsertContacts fullSuccessObjects",
+    );
+
+    const missingDeleteVerification = structuredClone(baseReport);
+    const contactDelete = missingDeleteVerification.operations.find(
+      ({ operationId }) => operationId === "deleteContact",
+    )!;
+    delete (contactDelete.evidence as Record<string, unknown>).cleanupVerified;
+    expect(() => validate(missingDeleteVerification)).toThrow("deleteContact cleanupVerified");
   });
 
   it("rejects altered sidecars, duplicate IDs, detached iterators, and extra package fields", () => {

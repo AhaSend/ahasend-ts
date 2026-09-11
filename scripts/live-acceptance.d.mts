@@ -291,6 +291,65 @@ export type StatisticsLiveRun = DomainLiveRun;
 
 export function runStatisticsLiveScenarios(registry: ScenarioRegistry): Promise<StatisticsLiveRun>;
 
+export interface ContactLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly update: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+  readonly batchUpsert: (...args: never[]) => unknown;
+}
+
+export interface ContactLiveClient {
+  readonly contacts: ContactLiveFacade;
+}
+
+export interface ContactLiveCreateRequest {
+  readonly email: string;
+  readonly first_name?: string | null;
+  readonly last_name?: string | null;
+  readonly status?: "enabled" | "disabled" | "blocked" | null;
+  readonly status_reason?: string | null;
+  readonly unsubscribed?: boolean | null;
+  readonly attributes?: Readonly<Record<string, string | number | boolean>> | null;
+}
+
+export interface ContactLiveUpdateRequest {
+  readonly email?: string | null;
+  readonly first_name?: string | null;
+  readonly last_name?: string | null;
+  readonly status?: "enabled" | "disabled" | "blocked" | null;
+  readonly status_reason?: string | null;
+  readonly unsubscribed?: boolean | null;
+  readonly attributes?: Readonly<Record<string, string | number | boolean | null>> | null;
+}
+
+export interface ContactLiveBatchInput extends ContactLiveUpdateRequest {
+  readonly email: string;
+}
+
+export interface ContactLiveBatchRequest {
+  readonly data: readonly [ContactLiveBatchInput, ContactLiveBatchInput];
+}
+
+export interface CreateContactScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: ContactLiveClient;
+  readonly createRequest: ContactLiveCreateRequest;
+  readonly updateRequest: ContactLiveUpdateRequest;
+  readonly batchRequest: ContactLiveBatchRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createContactScenarioRegistry(
+  options: CreateContactScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type ContactLiveRun = DomainLiveRun;
+
+export function runContactLiveScenarios(registry: ScenarioRegistry): Promise<ContactLiveRun>;
+
 export interface APIKeyLiveFacade {
   readonly list: (...args: never[]) => unknown;
   readonly iterate: (...args: never[]) => unknown;

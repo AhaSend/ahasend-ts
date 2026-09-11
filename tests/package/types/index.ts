@@ -162,6 +162,20 @@ const subAccountBody: SDK.CreateSubAccountRequest = {
 };
 const subAccountUpdate: SDK.UpdateSubAccountRequest = { monthly_credit: 1_000 };
 const suspendBody: SDK.SuspendSubAccountRequest = { reason: "Package contract" };
+const contactBody: SDK.CreateContactRequest = {
+  email: "package+contact@example.com",
+  attributes: { customer: true },
+};
+const contactUpdate: SDK.UpdateContactRequest = {
+  unsubscribed: true,
+  attributes: { obsolete: null },
+};
+const contactBatch: SDK.BatchUpsertContactsRequest = {
+  data: [
+    { email: "package+contact@example.com", first_name: "Updated" },
+    { email: "package+batch@example.com", first_name: "Created" },
+  ],
+};
 
 const direct: SDK.PaginationParams = { limit: 25, after: "direct-cursor" };
 const domains: SDK.ListDomainsParams = { limit: 25, after: "domain-cursor", dns_valid: true };
@@ -189,6 +203,12 @@ const suppressions: SDK.ListSuppressionsParams = {
   email: "recipient@example.com",
   from_time: "2026-01-01T00:00:00Z",
   to_time: "2026-01-02T00:00:00Z",
+};
+const contacts: SDK.ListContactsParams = {
+  limit: 25,
+  before: "contact-cursor",
+  status: "enabled",
+  subscribed: true,
 };
 const webhooks: SDK.ListWebhooksParams = {
   limit: 25,
@@ -328,6 +348,13 @@ void client.webhooks.delete(uuid).withResponse();
 void client.statistics.deliverability(statistics).withResponse();
 void client.statistics.bounces(statistics).withResponse();
 void client.statistics.deliveryTimes(statistics).withResponse();
+
+void client.contacts.list(contacts).withResponse();
+void client.contacts.create(contactBody).withResponse();
+void client.contacts.batchUpsert(contactBatch).withResponse();
+void client.contacts.get("package+contact@example.com").withResponse();
+void client.contacts.update("package+contact@example.com", contactUpdate).withResponse();
+void client.contacts.delete("package+contact@example.com").withResponse();
 
 void client.suppressions.list(suppressions).withResponse();
 void client.suppressions.create(suppressionBody).withResponse();
@@ -649,6 +676,8 @@ void client.domains.list({ dns_valid: true, after: "after", before: "before" });
 void client.messages.list({ status: "delivered", after: "after", before: "before" });
 // @ts-expect-error Filtered list parameters retain the cursor XOR.
 void client.routes.list({ domain: "example.com", after: "after", before: "before" });
+// @ts-expect-error Filtered list parameters retain the cursor XOR.
+void client.contacts.list({ status: "enabled", after: "after", before: "before" });
 void client.suppressions.list({
   email: "recipient@example.com",
   after: "after",
