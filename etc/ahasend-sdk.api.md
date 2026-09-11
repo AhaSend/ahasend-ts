@@ -124,7 +124,6 @@ export class AhaSendClient {
     get accountId(): UUID;
     get accounts(): Readonly<AccountsClient>;
     get apiKeys(): Readonly<APIKeysClient>;
-    readonly contacts: Readonly<ContactsClient>;
     get domains(): Readonly<DomainsClient>;
     static fromEnv(env?: ProcessEnvLike): AhaSendClient;
     get messages(): Readonly<MessagesClient>;

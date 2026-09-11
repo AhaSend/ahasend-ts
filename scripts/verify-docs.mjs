@@ -11,7 +11,11 @@ import tsParser from "@typescript-eslint/parser";
 import { ESLint } from "eslint";
 import { format, resolveConfig } from "prettier";
 import ts from "typescript";
-import { NODE_CODE_SAMPLES, NODE_OPERATION_KEYS } from "./node-code-samples.mjs";
+import {
+  NODE_CODE_SAMPLES,
+  NODE_OPERATION_KEYS,
+  STAGED_NODE_SAMPLE_OPERATION_IDS,
+} from "./node-code-samples.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -2312,6 +2316,11 @@ export async function verifyPackagedJavaScript(
   if (Object.keys(nodeSamples).length !== EXPECTED_NODE_SAMPLE_COUNT) {
     throw new TypeError(`Expected ${EXPECTED_NODE_SAMPLE_COUNT} packaged Node samples.`);
   }
+  for (const operationId of STAGED_NODE_SAMPLE_OPERATION_IDS) {
+    if (nodeSamples[operationId] === undefined) {
+      throw new TypeError(`Missing staged Node sample: ${operationId}.`);
+    }
+  }
   const index = await buildDocumentationIndex(root);
   const temporaryRoot = await mkdtemp(join(tmpdir(), "ahasend-sdk-docs-"));
   try {
@@ -2349,8 +2358,10 @@ export async function verifyPackagedJavaScript(
 
     const examplesDirectory = resolve(temporaryRoot, "examples");
     const samplesDirectory = resolve(temporaryRoot, "node-samples");
+    const stagedSamplesDirectory = resolve(temporaryRoot, "staged-node-samples");
     const snippetsDirectory = resolve(temporaryRoot, "snippets");
     await mkdir(samplesDirectory);
+    await mkdir(stagedSamplesDirectory);
     await mkdir(snippetsDirectory);
     await cp(resolve(root, "examples"), examplesDirectory, { recursive: true });
     for (const name of await readdir(examplesDirectory)) {
@@ -2363,10 +2374,27 @@ export async function verifyPackagedJavaScript(
       run(process.execPath, ["--check", path], temporaryRoot);
     }
     for (const [operationId, sample] of Object.entries(nodeSamples)) {
-      const path = resolve(samplesDirectory, `${operationId}.mjs`);
-      await writeFile(path, sample.source);
-      run(process.execPath, ["--check", path], temporaryRoot);
+      const sourcePath = resolve(samplesDirectory, `${operationId}.mjs`);
+      await writeFile(sourcePath, sample.source);
+      run(process.execPath, ["--check", sourcePath], temporaryRoot);
+
+      if (STAGED_NODE_SAMPLE_OPERATION_IDS.includes(operationId)) {
+        const stagedSource = sample.source.replaceAll("client.contacts", "contacts");
+        if (stagedSource === sample.source) {
+          throw new TypeError(`Staged Node sample ${operationId} does not call client.contacts.`);
+        }
+        await rm(sourcePath);
+        await writeFile(resolve(stagedSamplesDirectory, `${operationId}.mjs`), stagedSource);
+      }
     }
+    await writeFile(
+      resolve(stagedSamplesDirectory, "contacts.d.ts"),
+      `export {};
+declare global {
+  const contacts: import("@ahasend/sdk").ContactsClient;
+}
+`,
+    );
     const runnableSnippets = index.snippets.filter(({ path }) => path !== "docs/api-reference.md");
     for (const [snippetIndex, snippet] of runnableSnippets.entries()) {
       const isTypeScript = snippet.language === "ts" || snippet.language === "typescript";
@@ -2450,7 +2478,7 @@ declare global {
             strict: true,
             skipLibCheck: true,
           },
-          include: ["node-samples/**/*.mjs"],
+          include: ["node-samples/**/*.mjs", "staged-node-samples/**/*"],
         },
         null,
         2,
