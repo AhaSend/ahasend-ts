@@ -111,19 +111,19 @@ describe("dependency audit policy", () => {
     expect(packageJson.engines.node).toBe(">=22");
     expect(packageJson.devDependencies["@edge-runtime/vm"]).toBe("5.0.0");
     expect(packageJson.devDependencies["esbuild"]).toBe("0.28.1");
-    expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.1");
-    expect(packageJson.devDependencies["@stoplight/prism-cli"]).toBe("5.14.2");
+    expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.2");
+    expect(packageJson.devDependencies["@stoplight/prism-cli"]).toBe("5.16.0");
     expect(packageJson.devDependencies["workerd"]).toBe("1.20260801.1");
-    expect(packageJson.devDependencies["wrangler"]).toBe("4.120.0");
+    expect(packageJson.devDependencies["wrangler"]).toBe("4.131.1");
 
     const rootPackage = lockfilePackage("");
     expect(rootPackage.dependencies ?? {}).toEqual({});
     expect(rootPackage.devDependencies?.["@edge-runtime/vm"]).toBe("5.0.0");
     expect(rootPackage.devDependencies?.["esbuild"]).toBe("0.28.1");
-    expect(rootPackage.devDependencies?.["js-yaml"]).toBe("4.3.1");
-    expect(rootPackage.devDependencies?.["@stoplight/prism-cli"]).toBe("5.14.2");
+    expect(rootPackage.devDependencies?.["js-yaml"]).toBe("4.3.2");
+    expect(rootPackage.devDependencies?.["@stoplight/prism-cli"]).toBe("5.16.0");
     expect(rootPackage.devDependencies?.["workerd"]).toBe("1.20260801.1");
-    expect(rootPackage.devDependencies?.["wrangler"]).toBe("4.120.0");
+    expect(rootPackage.devDependencies?.["wrangler"]).toBe("4.131.1");
     for (const path of ["node_modules/@edge-runtime/vm", "node_modules/@edge-runtime/primitives"]) {
       expect(lockfilePackage(path)).toMatchObject({
         dev: true,
@@ -142,7 +142,7 @@ describe("dependency audit policy", () => {
       dev: true,
     });
     expect(lockfilePackage("node_modules/js-yaml")).toMatchObject({
-      version: "4.3.1",
+      version: "4.3.2",
       dev: true,
     });
     expect(lockfilePackage("node_modules/workerd")).toMatchObject({
@@ -151,19 +151,16 @@ describe("dependency audit policy", () => {
       engines: { node: ">=16" },
     });
     expect(lockfilePackage("node_modules/wrangler")).toMatchObject({
-      version: "4.120.0",
+      version: "4.131.1",
       dev: true,
       engines: { node: ">=22.0.0" },
-      dependencies: { workerd: "1.20260801.1" },
+      dependencies: { workerd: "1.20260911.1" },
     });
-    // prism-core and prism-http-server were advanced by the audit
-    // remediation that cleared the lodash/uuid advisories; they now declare a
-    // newer engines floor than the CLI that depends on them.
     for (const [path, version, nodeEngine] of [
-      ["node_modules/@stoplight/prism-cli", "5.14.2", ">=18.20.1"],
-      ["node_modules/@stoplight/prism-core", "5.15.11", ">=24.14.0"],
-      ["node_modules/@stoplight/prism-http", "5.12.0", ">=18.20.1"],
-      ["node_modules/@stoplight/prism-http-server", "5.15.11", ">=24.14.0"],
+      ["node_modules/@stoplight/prism-cli", "5.16.0", ">=24.18.0"],
+      ["node_modules/@stoplight/prism-core", "5.16.0", ">=24.18.0"],
+      ["node_modules/@stoplight/prism-http", "5.16.0", ">=24.18.0"],
+      ["node_modules/@stoplight/prism-http-server", "5.16.0", ">=24.18.0"],
     ] as const) {
       expect(lockfilePackage(path)).toMatchObject({
         version,
