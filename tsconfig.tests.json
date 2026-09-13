@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",
-    "skipLibCheck": false,
+    "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
       "@ahasend/sdk": ["./src/index.ts"],
