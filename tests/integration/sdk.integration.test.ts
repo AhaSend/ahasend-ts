@@ -582,7 +582,11 @@ describe("local process orchestration", () => {
     const exit = await disposablePrism.exited;
     expect(exit.exitCode !== null || exit.signal !== null).toBe(true);
     await expect(fetch(`http://127.0.0.1:${port}/v2/ping`)).rejects.toThrow();
-  });
+    // Starts a second Prism, so it needs the budget beforeAll gets for the same
+    // work rather than the suite default. The default is shorter than this
+    // test's own 60s readiness allowance, which means a slow start is reported
+    // as an unexplained test timeout instead of the readiness failure it is.
+  }, 120_000);
 
   it("escalates teardown to KILL when a local child ignores TERM", async () => {
     const stubbornProcess = spawnCapturedProcess(process.execPath, [
