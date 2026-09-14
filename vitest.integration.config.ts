@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/integration/**/*.test.ts"],
+    globalSetup: ["./tests/integration/global-setup.ts"],
     allowOnly: false,
     reporters: ["default", new CommittedTestPolicyReporter()],
     testTimeout: 30_000,

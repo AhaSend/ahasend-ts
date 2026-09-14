@@ -1,5 +1,5 @@
 import { relative, sep } from "node:path";
-import type { Reporter } from "vitest/reporters";
+import type { Reporter } from "vitest/node";
 
 type OnTestRunEnd = Exclude<Reporter["onTestRunEnd"], undefined>;
 type TestModule = Parameters<OnTestRunEnd>[0][number];

@@ -21,6 +21,7 @@ import { pathToFileURL } from "node:url";
 import { format } from "node:util";
 import yaml from "js-yaml";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { installPrism } from "../../scripts/ensure-prism.mjs";
 import {
   allocateLoopbackPort,
   spawnCapturedProcess,
@@ -601,7 +602,11 @@ describe("local process orchestration", () => {
     const exit = await disposablePrism.exited;
     expect(exit.exitCode !== null || exit.signal !== null).toBe(true);
     await expect(fetch(`http://127.0.0.1:${port}/v2/ping`)).rejects.toThrow();
-  });
+    // Starts a second Prism, so it needs the budget beforeAll gets for the same
+    // work rather than the suite default. The default is shorter than this
+    // test's own 60s readiness allowance, which means a slow start is reported
+    // as an unexplained test timeout instead of the readiness failure it is.
+  }, 120_000);
 
   it("escalates teardown to KILL when a local child ignores TERM", async () => {
     const stubbornProcess = spawnCapturedProcess(process.execPath, [
@@ -1713,20 +1718,15 @@ function writePrismCanaryDocument(directory: string): string {
 }
 
 function startPrism(port: number, documentPath: string): CapturedLocalProcess {
-  const prismPackage = requireFromRepository.resolve("@stoplight/prism-cli/package.json");
-  const manifest = JSON.parse(readFileSync(prismPackage, "utf8")) as {
-    readonly bin?: string | Readonly<Record<string, string>>;
-  };
-  const relativeBin =
-    typeof manifest.bin === "string" ? manifest.bin : (manifest.bin?.["prism"] ?? undefined);
-  if (relativeBin === undefined) {
-    throw new Error("@stoplight/prism-cli does not declare its prism executable.");
-  }
-
+  // Spawned as the process itself, not through npx. stopProcess signals the
+  // direct child only, and under npx that child is the wrapper: Prism would
+  // survive teardown still holding the port, which is the very thing the
+  // teardown tests below assert against. installPrism is idempotent and the
+  // global setup has already paid for the install.
   return spawnCapturedProcess(
     process.execPath,
     [
-      resolve(dirname(prismPackage), relativeBin),
+      installPrism(),
       "mock",
       documentPath,
       "--host",
