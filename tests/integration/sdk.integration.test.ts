@@ -21,6 +21,7 @@ import { pathToFileURL } from "node:url";
 import { format } from "node:util";
 import yaml from "js-yaml";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { PRISM_PACKAGE } from "../../scripts/ensure-prism.mjs";
 import {
   allocateLoopbackPort,
   spawnCapturedProcess,
@@ -1692,12 +1693,6 @@ function writePrismCanaryDocument(directory: string): string {
   writeFileSync(path, yaml.dump(document, { noRefs: true }));
   return path;
 }
-
-// Prism is not a development dependency — see the mock-server note in the audit
-// policy test — so it is fetched at the same pinned version the documented
-// workflow uses. The first run populates the npx cache and is slower than the
-// suite's usual startup budget allows for.
-const PRISM_PACKAGE = "@stoplight/prism-cli@5.16.0";
 
 function startPrism(port: number, documentPath: string): CapturedLocalProcess {
   return spawnCapturedProcess(

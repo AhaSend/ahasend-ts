@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterAll, describe, expect, it } from "vitest";
 import { canonicalizeJson, sha256Hex } from "../scripts/digest-artifact.mjs";
+import { PRISM_PACKAGE } from "../scripts/ensure-prism.mjs";
 import { buildDocumentationIndex } from "../scripts/verify-docs.mjs";
 import {
   createDocumentationWorkflowEvidence,
@@ -112,18 +113,14 @@ describe("documented workflow registry", () => {
       executable: "npm",
       args: ["run", "typecheck:registry-fixture"],
     });
+    // The documented command spells the version literally so it is
+    // copy-pasteable; PRISM_PACKAGE is what the suites warm and spawn. This is
+    // the assertion that stops the two drifting apart.
     expect(plan.prism).toEqual({
       executable: "npx",
-      args: [
-        "--yes",
-        "@stoplight/prism-cli@5.16.0",
-        "mock",
-        "openapi.yaml",
-        "-p",
-        "4010",
-        "--errors",
-      ],
+      args: ["--yes", PRISM_PACKAGE, "mock", "openapi.yaml", "-p", "4010", "--errors"],
     });
+    expect(PRISM_PACKAGE).toBe("@stoplight/prism-cli@5.16.0");
   });
 
   it.each([

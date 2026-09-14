@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { canonicalizeJson } from "./digest-artifact.mjs";
+import { PRISM_PACKAGE, ensurePrism } from "./ensure-prism.mjs";
 import {
   parseCanonicalJson,
   parseSha256Sidecar,
@@ -408,20 +409,13 @@ export function createDocumentedWorkflowExecutionPlan(registry = DOCUMENTED_WORK
   }));
   // Prism is fetched rather than installed, so the documented command pins the
   // version it is fetched at; an unpinned npx would silently change what the
-  // examples are mocked against.
+  // examples are mocked against. Checking against PRISM_PACKAGE is what keeps
+  // the documented version and the version the suites warm in step.
   const prism = uniqueOwnerInvocation(registry, "interactive:prism");
   if (
     prism?.executable !== "npx" ||
     prism.args.join("\0") !==
-      [
-        "--yes",
-        "@stoplight/prism-cli@5.16.0",
-        "mock",
-        "openapi.yaml",
-        "-p",
-        "4010",
-        "--errors",
-      ].join("\0")
+      ["--yes", PRISM_PACKAGE, "mock", "openapi.yaml", "-p", "4010", "--errors"].join("\0")
   ) {
     throw new TypeError(
       "Documentation Prism workflow must mock committed openapi.yaml on port 4010 with --errors, at a pinned @stoplight/prism-cli version.",
@@ -764,6 +758,9 @@ export async function runSourceDocumentationWorkflows(root = repositoryRoot) {
       }
     }
 
+    // Outside the readiness budget below, which measures how long the mock takes
+    // to answer rather than how long it takes to download.
+    ensurePrism();
     const prism = runnableInvocation(plan.prism, temporary.target);
     await runBoundedInteractive({
       label: "Documented Prism workflow",
