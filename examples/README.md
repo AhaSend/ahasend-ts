@@ -126,11 +126,11 @@ bootstrap.
 
 ## Testing without real credentials — Prism mock server
 
-From the repository root after `npm ci`, use the lockfile-pinned local Prism executable and the
-committed `openapi.yaml`:
+From the repository root, run version-pinned Prism against the committed `openapi.yaml`. It is
+fetched on demand rather than installed, to keep its dependency chain out of the lockfile:
 
 ```bash
-./node_modules/.bin/prism mock openapi.yaml -p 4010 --errors
+npx --yes @stoplight/prism-cli@5.16.0 mock openapi.yaml -p 4010 --errors
 ```
 
 Then point the SDK at the mock:
