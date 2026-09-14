@@ -1693,21 +1693,18 @@ function writePrismCanaryDocument(directory: string): string {
   return path;
 }
 
-function startPrism(port: number, documentPath: string): CapturedLocalProcess {
-  const prismPackage = requireFromRepository.resolve("@stoplight/prism-cli/package.json");
-  const manifest = JSON.parse(readFileSync(prismPackage, "utf8")) as {
-    readonly bin?: string | Readonly<Record<string, string>>;
-  };
-  const relativeBin =
-    typeof manifest.bin === "string" ? manifest.bin : (manifest.bin?.["prism"] ?? undefined);
-  if (relativeBin === undefined) {
-    throw new Error("@stoplight/prism-cli does not declare its prism executable.");
-  }
+// Prism is not a development dependency — see the mock-server note in the audit
+// policy test — so it is fetched at the same pinned version the documented
+// workflow uses. The first run populates the npx cache and is slower than the
+// suite's usual startup budget allows for.
+const PRISM_PACKAGE = "@stoplight/prism-cli@5.16.0";
 
+function startPrism(port: number, documentPath: string): CapturedLocalProcess {
   return spawnCapturedProcess(
-    process.execPath,
+    "npx",
     [
-      resolve(dirname(prismPackage), relativeBin),
+      "--yes",
+      PRISM_PACKAGE,
       "mock",
       documentPath,
       "--host",

@@ -102,7 +102,7 @@ export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
   {
     path: "README.md",
     line: 566,
-    command: "./node_modules/.bin/prism mock openapi.yaml -p 4010 --errors",
+    command: "npx --yes @stoplight/prism-cli@5.16.0 mock openapi.yaml -p 4010 --errors",
     owner: "interactive:prism",
   },
   {
@@ -282,7 +282,7 @@ export const DOCUMENTED_WORKFLOW_REGISTRY = Object.freeze([
   {
     path: "examples/README.md",
     line: 133,
-    command: "./node_modules/.bin/prism mock openapi.yaml -p 4010 --errors",
+    command: "npx --yes @stoplight/prism-cli@5.16.0 mock openapi.yaml -p 4010 --errors",
     owner: "interactive:prism",
   },
   {
@@ -406,13 +406,25 @@ export function createDocumentedWorkflowExecutionPlan(registry = DOCUMENTED_WORK
     owner,
     invocation: requireNpmInvocation(uniqueOwnerInvocation(registry, owner), owner),
   }));
+  // Prism is fetched rather than installed, so the documented command pins the
+  // version it is fetched at; an unpinned npx would silently change what the
+  // examples are mocked against.
   const prism = uniqueOwnerInvocation(registry, "interactive:prism");
   if (
-    prism?.executable !== "./node_modules/.bin/prism" ||
-    prism.args.join("\0") !== ["mock", "openapi.yaml", "-p", "4010", "--errors"].join("\0")
+    prism?.executable !== "npx" ||
+    prism.args.join("\0") !==
+      [
+        "--yes",
+        "@stoplight/prism-cli@5.16.0",
+        "mock",
+        "openapi.yaml",
+        "-p",
+        "4010",
+        "--errors",
+      ].join("\0")
   ) {
     throw new TypeError(
-      "Documentation Prism workflow must mock committed openapi.yaml on port 4010 with --errors.",
+      "Documentation Prism workflow must mock committed openapi.yaml on port 4010 with --errors, at a pinned @stoplight/prism-cli version.",
     );
   }
   const dev = requireNpmInvocation(

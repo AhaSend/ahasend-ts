@@ -563,7 +563,7 @@ To exercise the examples without credentials, run a Prism mock from the
 local spec:
 
 ```bash
-./node_modules/.bin/prism mock openapi.yaml -p 4010 --errors
+npx --yes @stoplight/prism-cli@5.16.0 mock openapi.yaml -p 4010 --errors
 # in another terminal:
 export AHASEND_API_KEY="anything"
 export AHASEND_ACCOUNT_ID="00000000-0000-0000-0000-000000000000"

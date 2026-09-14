@@ -113,8 +113,16 @@ describe("documented workflow registry", () => {
       args: ["run", "typecheck:registry-fixture"],
     });
     expect(plan.prism).toEqual({
-      executable: "./node_modules/.bin/prism",
-      args: ["mock", "openapi.yaml", "-p", "4010", "--errors"],
+      executable: "npx",
+      args: [
+        "--yes",
+        "@stoplight/prism-cli@5.16.0",
+        "mock",
+        "openapi.yaml",
+        "-p",
+        "4010",
+        "--errors",
+      ],
     });
   });
 

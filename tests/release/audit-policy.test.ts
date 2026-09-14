@@ -76,34 +76,39 @@ describe("dependency audit policy", () => {
     });
   }
 
-  it("pins the dependency overrides that keep the audit surface clean", () => {
-    // These overrides are the only thing holding the audit gate green: without
-    // them json-schema-ref-parser pulls vulnerable js-yaml 3.15.0, while
-    // postman-collection pulls lodash 4.17.21 (high: _.template code injection)
-    // and uuid 8.3.2. Those findings re-flag the DIRECT devDependency
-    // @stoplight/prism-cli — a class the policy forbids with no exception path.
-    // npm does not record overrides in the lockfile, and package.json is not
-    // hashed into the release evidence, so deleting this block is otherwise
-    // undetectable until someone regenerates the lockfile.
-    expect(packageJson.overrides).toEqual({
-      esbuild: "0.28.1",
-      "json-schema-ref-parser": { "js-yaml": "3.15.1" },
-      "postman-collection": { lodash: "^4.18.1", uuid: "^11.1.1" },
+  it("keeps the Prism mock server out of the dependency tree", () => {
+    // Prism is fetched through npx by the documented workflow rather than
+    // installed. Its chain reaches postman-collection, which pins an
+    // @faker-js/faker release covered by GHSA-qxc2-j82w-r537 in every version
+    // it has ever published, and the advisory covers every faker at or below
+    // 10.4.0 — so no patched release exists on the API postman-collection
+    // calls, and forcing one makes postman-collection throw on require.
+    // Installing Prism therefore re-flags it as a DIRECT devDependency
+    // advisory, which the policy forbids outright with no exception path.
+    // Nothing else would catch a reinstatement: package.json is not hashed
+    // into the release evidence, and the finding only appears once someone
+    // regenerates the lockfile.
+    expect("@stoplight/prism-cli" in packageJson.devDependencies).toBe(false);
+    for (const path of [
+      "node_modules/@stoplight/prism-cli",
+      "node_modules/@stoplight/prism-http",
+      "node_modules/@stoplight/prism-http-server",
+      "node_modules/@stoplight/http-spec",
+      "node_modules/postman-collection",
+      "node_modules/@faker-js/faker",
+      "node_modules/json-schema-ref-parser",
+    ]) {
+      expect(packageLock.packages[path]).toBeUndefined();
+    }
+
+    // esbuild is the one override left: it holds the bundler at the version the
+    // packed-output tests assert, and npm does not record overrides in the
+    // lockfile, so deleting it is otherwise undetectable.
+    expect(packageJson.overrides).toEqual({ esbuild: "0.28.1" });
+    expect(lockfilePackage("node_modules/esbuild")).toMatchObject({
+      version: "0.28.1",
+      dev: true,
     });
-
-    expect(
-      lockfilePackage("node_modules/json-schema-ref-parser/node_modules/js-yaml"),
-    ).toMatchObject({ version: "3.15.1", dev: true });
-    expect(lockfilePackage("node_modules/lodash")).toMatchObject({ version: "4.18.1", dev: true });
-    expect(lockfilePackage("node_modules/uuid")).toMatchObject({ version: "11.1.1", dev: true });
-
-    // The nested copies are exactly what the overrides removed.
-    expect(
-      packageLock.packages["node_modules/postman-collection/node_modules/lodash"],
-    ).toBeUndefined();
-    expect(
-      packageLock.packages["node_modules/postman-collection/node_modules/uuid"],
-    ).toBeUndefined();
   });
 
   it("pins the corrected development tools without adding production dependencies", () => {
@@ -112,7 +117,6 @@ describe("dependency audit policy", () => {
     expect(packageJson.devDependencies["@edge-runtime/vm"]).toBe("5.0.0");
     expect(packageJson.devDependencies["esbuild"]).toBe("0.28.1");
     expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.2");
-    expect(packageJson.devDependencies["@stoplight/prism-cli"]).toBe("5.16.0");
     expect(packageJson.devDependencies["workerd"]).toBe("1.20260801.1");
     expect(packageJson.devDependencies["wrangler"]).toBe("4.131.1");
 
@@ -121,7 +125,6 @@ describe("dependency audit policy", () => {
     expect(rootPackage.devDependencies?.["@edge-runtime/vm"]).toBe("5.0.0");
     expect(rootPackage.devDependencies?.["esbuild"]).toBe("0.28.1");
     expect(rootPackage.devDependencies?.["js-yaml"]).toBe("4.3.2");
-    expect(rootPackage.devDependencies?.["@stoplight/prism-cli"]).toBe("5.16.0");
     expect(rootPackage.devDependencies?.["workerd"]).toBe("1.20260801.1");
     expect(rootPackage.devDependencies?.["wrangler"]).toBe("4.131.1");
     for (const path of ["node_modules/@edge-runtime/vm", "node_modules/@edge-runtime/primitives"]) {
@@ -156,18 +159,6 @@ describe("dependency audit policy", () => {
       engines: { node: ">=22.0.0" },
       dependencies: { workerd: "1.20260911.1" },
     });
-    for (const [path, version, nodeEngine] of [
-      ["node_modules/@stoplight/prism-cli", "5.16.0", ">=24.18.0"],
-      ["node_modules/@stoplight/prism-core", "5.16.0", ">=24.18.0"],
-      ["node_modules/@stoplight/prism-http", "5.16.0", ">=24.18.0"],
-      ["node_modules/@stoplight/prism-http-server", "5.16.0", ">=24.18.0"],
-    ] as const) {
-      expect(lockfilePackage(path)).toMatchObject({
-        version,
-        dev: true,
-        engines: { node: nodeEngine },
-      });
-    }
   });
 
   it("keeps the committed exception register empty while the dependency graph is clean", () => {
