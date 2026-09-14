@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { canonicalizeJson } from "./digest-artifact.mjs";
-import { PRISM_PACKAGE, ensurePrism } from "./ensure-prism.mjs";
+import { PRISM_PACKAGE, warmPrismCache } from "./ensure-prism.mjs";
 import {
   parseCanonicalJson,
   parseSha256Sidecar,
@@ -760,7 +760,7 @@ export async function runSourceDocumentationWorkflows(root = repositoryRoot) {
 
     // Outside the readiness budget below, which measures how long the mock takes
     // to answer rather than how long it takes to download.
-    ensurePrism();
+    warmPrismCache();
     const prism = runnableInvocation(plan.prism, temporary.target);
     await runBoundedInteractive({
       label: "Documented Prism workflow",

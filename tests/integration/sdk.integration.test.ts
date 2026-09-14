@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import { format } from "node:util";
 import yaml from "js-yaml";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { PRISM_PACKAGE } from "../../scripts/ensure-prism.mjs";
+import { installPrism } from "../../scripts/ensure-prism.mjs";
 import {
   allocateLoopbackPort,
   spawnCapturedProcess,
@@ -1699,11 +1699,15 @@ function writePrismCanaryDocument(directory: string): string {
 }
 
 function startPrism(port: number, documentPath: string): CapturedLocalProcess {
+  // Spawned as the process itself, not through npx. stopProcess signals the
+  // direct child only, and under npx that child is the wrapper: Prism would
+  // survive teardown still holding the port, which is the very thing the
+  // teardown tests below assert against. installPrism is idempotent and the
+  // global setup has already paid for the install.
   return spawnCapturedProcess(
-    "npx",
+    process.execPath,
     [
-      "--yes",
-      PRISM_PACKAGE,
+      installPrism(),
       "mock",
       documentPath,
       "--host",
