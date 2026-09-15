@@ -335,6 +335,69 @@ const result = await client.subAccounts.apiKeys.delete(subAccountId, keyId);
 console.log("Sub-account API key deleted.", { message: result.message });`,
   ),
   entry(
+    "getContacts",
+    "GET /v2/accounts/{account_id}/contacts",
+    "client.contacts.list",
+    `const page = await client.contacts.list({ status: "enabled", subscribed: true, limit: 20 });
+console.log("Contacts listed.", { count: page.data.length });`,
+  ),
+  entry(
+    "createContact",
+    "POST /v2/accounts/{account_id}/contacts",
+    "client.contacts.create",
+    `const contact = await client.contacts.create(
+  {
+    email: "person@example.com",
+    first_name: "Pat",
+    attributes: { customer: true },
+  },
+  { idempotencyKey: "sdk-sample-create-contact" },
+);
+console.log("Contact created.", { id: contact.id, status: contact.status });`,
+  ),
+  entry(
+    "batchUpsertContacts",
+    "POST /v2/accounts/{account_id}/contacts/batch",
+    "client.contacts.batchUpsert",
+    `const result = await client.contacts.batchUpsert(
+  {
+    data: [
+      { email: "new@example.com", attributes: { customer: true } },
+      { email: "existing@example.com", attributes: { obsolete: null } },
+    ],
+  },
+  { idempotencyKey: "sdk-sample-batch-upsert-contacts" },
+);
+console.log("Contact batch completed.", { created: result.created, updated: result.updated });`,
+  ),
+  entry(
+    "getContact",
+    "GET /v2/accounts/{account_id}/contacts/{id_or_email}",
+    "client.contacts.get",
+    `const idOrEmail = "User+Tag@Example.COM";
+const contact = await client.contacts.get(idOrEmail);
+console.log("Contact found.", { id: contact.id, status: contact.status });`,
+  ),
+  entry(
+    "updateContact",
+    "PUT /v2/accounts/{account_id}/contacts/{id_or_email}",
+    "client.contacts.update",
+    `const idOrEmail = "User+Tag@Example.COM";
+const contact = await client.contacts.update(idOrEmail, {
+  unsubscribed: true,
+  attributes: { obsolete: null },
+});
+console.log("Contact updated.", { id: contact.id, unsubscribed: contact.unsubscribed });`,
+  ),
+  entry(
+    "deleteContact",
+    "DELETE /v2/accounts/{account_id}/contacts/{id_or_email}",
+    "client.contacts.delete",
+    `const idOrEmail = "User+Tag@Example.COM";
+const result = await client.contacts.delete(idOrEmail);
+console.log("Contact deleted.", { message: result.message });`,
+  ),
+  entry(
     "getSuppressions",
     "GET /v2/accounts/{account_id}/suppressions",
     "client.suppressions.list",

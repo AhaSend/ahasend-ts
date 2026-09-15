@@ -7,6 +7,7 @@ import { canonicalizeJson, sha256Hex } from "./digest-artifact.mjs";
 import {
   createAccountScenarioRegistry,
   createAPIKeyScenarioRegistry,
+  createContactScenarioRegistry,
   createDomainScenarioRegistry,
   createLiveReport,
   createMessageScenarioRegistry,
@@ -21,6 +22,7 @@ import {
   redactLiveValue,
   runAccountLiveScenarios,
   runAPIKeyLiveScenarios,
+  runContactLiveScenarios,
   runDomainLiveScenarios,
   runMessageLiveScenarios,
   runRouteLiveScenarios,
@@ -396,6 +398,34 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
             authorized: config.verifiedDomain,
             unauthorized: config.neverRegisteredDomain,
           },
+        }),
+      ),
+    ),
+  );
+  const primaryContactEmail = `sdk-live-contact+${suffix}@${config.suppressionDomain}`;
+  const batchContactEmail = `sdk-live-contact-batch+${suffix}@${config.suppressionDomain}`;
+  runs.push(
+    collectRun(
+      "contact scenarios",
+      await runContactLiveScenarios(
+        createContactScenarioRegistry({
+          profile,
+          client,
+          createRequest: {
+            email: primaryContactEmail,
+            first_name: "SDK live primary",
+          },
+          updateRequest: {
+            first_name: "SDK live updated",
+            unsubscribed: true,
+          },
+          batchRequest: {
+            data: [
+              { email: primaryContactEmail, last_name: "SDK batch updated" },
+              { email: batchContactEmail, first_name: "SDK batch created" },
+            ],
+          },
+          pagination,
         }),
       ),
     ),

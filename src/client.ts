@@ -11,6 +11,8 @@ import { createAPIKeysClient } from "./resources/api-keys.js";
 import type { APIKeysClient } from "./resources/api-keys.js";
 import { createDomainsClient } from "./resources/domains.js";
 import type { DomainsClient } from "./resources/domains.js";
+import { createContactsClient } from "./resources/contacts.js";
+import type { ContactsClient } from "./resources/contacts.js";
 import { createMessagesClient } from "./resources/messages.js";
 import type { MessagesClient } from "./resources/messages.js";
 import { createRoutesClient } from "./resources/routes.js";
@@ -60,7 +62,7 @@ export interface PingResponse {
  * one account; instantiate multiple clients for multi-account tooling.
  *
  * The client exposes readonly structural facades for messages, domains,
- * API keys, outbound webhooks, statistics, suppressions, routes, accounts,
+ * API keys, outbound webhooks, statistics, contacts, suppressions, routes, accounts,
  * SMTP credentials, and sub-accounts. Child-account API keys are available
  * through `client.subAccounts.apiKeys`.
  *
@@ -77,6 +79,7 @@ export class AhaSendClient {
   readonly #apiKeys: Readonly<APIKeysClient>;
   readonly #webhooks: Readonly<WebhooksClient>;
   readonly #statistics: Readonly<StatisticsClient>;
+  readonly #contacts: Readonly<ContactsClient>;
   readonly #suppressions: Readonly<SuppressionsClient>;
   readonly #routes: Readonly<RoutesClient>;
   readonly #accounts: Readonly<AccountsClient>;
@@ -120,6 +123,7 @@ export class AhaSendClient {
     this.#apiKeys = createFrozenFacade(createAPIKeysClient(this.#operations, accountId));
     this.#webhooks = createFrozenFacade(createWebhooksClient(this.#operations, accountId));
     this.#statistics = createFrozenFacade(createStatisticsClient(this.#operations, accountId));
+    this.#contacts = createFrozenFacade(createContactsClient(this.#operations, accountId));
     this.#suppressions = createFrozenFacade(createSuppressionsClient(this.#operations, accountId));
     this.#routes = createFrozenFacade(createRoutesClient(this.#operations, accountId));
     this.#accounts = createFrozenFacade(createAccountsClient(this.#operations, accountId));
@@ -158,6 +162,11 @@ export class AhaSendClient {
   /** Query deliverability, bounce, and delivery-time statistics. */
   get statistics(): Readonly<StatisticsClient> {
     return this.#statistics;
+  }
+
+  /** Create, inspect, list, update, and delete account-global contacts. */
+  get contacts(): Readonly<ContactsClient> {
+    return this.#contacts;
   }
 
   /** Create, list, delete, and wipe address suppressions. */

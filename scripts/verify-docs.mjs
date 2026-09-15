@@ -11,13 +11,16 @@ import tsParser from "@typescript-eslint/parser";
 import { ESLint } from "eslint";
 import { format, resolveConfig } from "prettier";
 import ts from "typescript";
-import { NODE_CODE_SAMPLES, NODE_OPERATION_KEYS } from "./node-code-samples.mjs";
+import {
+  NODE_CODE_SAMPLES,
+  NODE_OPERATION_KEYS,
+} from "./node-code-samples.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
-const EXPECTED_NODE_SAMPLE_COUNT = 56;
-const EXPECTED_ITERATOR_COUNT = 9;
+const EXPECTED_NODE_SAMPLE_COUNT = 62;
+const EXPECTED_ITERATOR_COUNT = 10;
 const SUPPORTING_EXAMPLE_PATHS = Object.freeze([
   "examples/next-webhook-route/create-webhook-route.mjs",
 ]);
@@ -2363,9 +2366,9 @@ export async function verifyPackagedJavaScript(
       run(process.execPath, ["--check", path], temporaryRoot);
     }
     for (const [operationId, sample] of Object.entries(nodeSamples)) {
-      const path = resolve(samplesDirectory, `${operationId}.mjs`);
-      await writeFile(path, sample.source);
-      run(process.execPath, ["--check", path], temporaryRoot);
+      const sourcePath = resolve(samplesDirectory, `${operationId}.mjs`);
+      await writeFile(sourcePath, sample.source);
+      run(process.execPath, ["--check", sourcePath], temporaryRoot);
     }
     const runnableSnippets = index.snippets.filter(({ path }) => path !== "docs/api-reference.md");
     for (const [snippetIndex, snippet] of runnableSnippets.entries()) {

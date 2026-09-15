@@ -1509,6 +1509,209 @@ export const OPERATION_DESCRIPTORS = {
     security: [["sub-account-api-keys:delete"]],
     resourceAuthorization: null,
   },
+  getContacts: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/contacts",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+      {
+        name: "email",
+        required: false,
+        format: "email",
+      },
+      {
+        name: "status",
+        required: false,
+        format: null,
+      },
+      {
+        name: "subscribed",
+        required: false,
+        format: null,
+      },
+      {
+        name: "from_time",
+        required: false,
+        format: "date-time",
+      },
+      {
+        name: "to_time",
+        required: false,
+        format: "date-time",
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedContactsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["contacts:read"]],
+    resourceAuthorization: null,
+  },
+  createContact: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/contacts",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "CreateContactRequest",
+    },
+    success: [
+      {
+        status: 201,
+        schema: "Contact",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["contacts:write"]],
+    resourceAuthorization: null,
+  },
+  batchUpsertContacts: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/contacts/batch",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "BatchUpsertContactsRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "BatchUpsertContactsResponse",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["contacts:write"]],
+    resourceAuthorization: null,
+  },
+  getContact: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/contacts/{id_or_email}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "id_or_email",
+        required: true,
+        format: null,
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "Contact",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["contacts:read"]],
+    resourceAuthorization: null,
+  },
+  updateContact: {
+    method: "PUT",
+    path: "/v2/accounts/{account_id}/contacts/{id_or_email}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "id_or_email",
+        required: true,
+        format: null,
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "UpdateContactRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "Contact",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["contacts:write"]],
+    resourceAuthorization: null,
+  },
+  deleteContact: {
+    method: "DELETE",
+    path: "/v2/accounts/{account_id}/contacts/{id_or_email}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "id_or_email",
+        required: true,
+        format: null,
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "SuccessResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["contacts:delete"]],
+    resourceAuthorization: null,
+  },
   getSuppressions: {
     method: "GET",
     path: "/v2/accounts/{account_id}/suppressions",

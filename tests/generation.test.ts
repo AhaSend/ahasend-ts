@@ -80,14 +80,14 @@ describe("SDK artifact generation", () => {
     expect(OPERATION_PROFILE).toEqual(profile);
   });
 
-  it("pins 68 wire schemas and validates complete profile parity", () => {
+  it("pins 77 wire schemas and validates complete profile parity", () => {
     const components = document["components"] as JsonRecord;
     const schemas = components["schemas"] as JsonRecord;
 
-    expect(Object.keys(schemas)).toHaveLength(68);
+    expect(Object.keys(schemas)).toHaveLength(77);
     expect(() => validateOperationProfile(document, profile)).not.toThrow();
-    expect(OPERATION_PROFILE.operations).toHaveLength(56);
-    expect(OPERATION_PROFILE.iterators).toHaveLength(9);
+    expect(OPERATION_PROFILE.operations).toHaveLength(62);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(10);
   });
 
   it("preserves hostname metadata for every domain path parameter", () => {
@@ -140,6 +140,22 @@ describe("SDK artifact generation", () => {
     expectTypeOf<
       WireSchemas["SubAccountUsageResponse"]["sub_accounts"][number]["name"]
     >().toEqualTypeOf<string>();
+  });
+
+  it("generates recursive contact values and distinct attribute mutation contracts", () => {
+    type CreateAttribute = NonNullable<WireSchemas["CreateContactRequest"]["attributes"]>[string];
+    type UpdateAttribute = NonNullable<WireSchemas["UpdateContactRequest"]["attributes"]>[string];
+    type BatchAttribute = NonNullable<WireSchemas["BatchUpsertContactInput"]["attributes"]>[string];
+
+    expectTypeOf<null>().not.toExtend<CreateAttribute>();
+    expectTypeOf<null>().toExtend<UpdateAttribute>();
+    expectTypeOf<null>().toExtend<BatchAttribute>();
+    expectTypeOf<{ nested: Array<{ active: boolean } | null> }>().toExtend<
+      WireSchemas["JSONValue"]
+    >();
+    expectTypeOf<WireSchemas["Contact"]["attributes"][string]>().toEqualTypeOf<
+      WireSchemas["JSONValue"]
+    >();
   });
 
   it("requires domains for scoped webhook and SMTP credential requests", () => {
@@ -238,8 +254,8 @@ describe("SDK artifact generation", () => {
     expectTypeOf<readonly []>().toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
   });
 
-  it("indexes parameters, request bodies, inputs, and successes for all 56 operations", () => {
-    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(56);
+  it("indexes parameters, request bodies, inputs, and successes for all 62 operations", () => {
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(62);
     expectTypeOf<keyof OperationParametersById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationRequestBodyById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationInputById>().toEqualTypeOf<OperationId>();
