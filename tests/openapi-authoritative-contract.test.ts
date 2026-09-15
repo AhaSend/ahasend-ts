@@ -194,11 +194,7 @@ describe("authoritative OpenAPI model contracts", () => {
       items: { $ref: "#/components/schemas/TemplateVariable" },
     });
 
-    expect(schema("PaginatedTemplatesResponse").required).toEqual([
-      "object",
-      "data",
-      "pagination",
-    ]);
+    expect(schema("PaginatedTemplatesResponse").required).toEqual(["object", "data", "pagination"]);
     expect(property("PaginatedTemplatesResponse", "data")).toMatchObject({
       type: "array",
       items: { $ref: "#/components/schemas/Template" },
@@ -217,11 +213,7 @@ describe("authoritative OpenAPI model contracts", () => {
     expect(property("CreateMessageRequest", "template_id").description).toContain(
       "Cannot be combined with `text_content`, `html_content` or `amp_content`",
     );
-    expect(schema("CreateConversationMessageRequest").required).toEqual([
-      "from",
-      "to",
-      "subject",
-    ]);
+    expect(schema("CreateConversationMessageRequest").required).toEqual(["from", "to", "subject"]);
     expect(properties("CreateConversationMessageRequest")).not.toHaveProperty("template_id");
   });
 

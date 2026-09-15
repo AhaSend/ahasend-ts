@@ -1029,10 +1029,7 @@ describe("TemplatesClient", () => {
 
     expect(new URL(calls[0]!.url).search).toBe("?before=previous-page");
     expect(new URL(calls[1]!.url).search).toBe("");
-    expect(calls.map(({ operationId }) => operationId)).toEqual([
-      "listTemplates",
-      "listTemplates",
-    ]);
+    expect(calls.map(({ operationId }) => operationId)).toEqual(["listTemplates", "listTemplates"]);
   });
 
   it("get() addresses the template path segment exactly once", async () => {
@@ -1085,10 +1082,7 @@ describe("TemplatesClient", () => {
 
     expect(templates.map(({ name }) => name)).toEqual(["template-0", "template-1"]);
     expect(calls).toHaveLength(2);
-    expect(calls.map(({ operationId }) => operationId)).toEqual([
-      "listTemplates",
-      "listTemplates",
-    ]);
+    expect(calls.map(({ operationId }) => operationId)).toEqual(["listTemplates", "listTemplates"]);
     expect(calls.map(({ headers }) => headers["x-trace-id"])).toEqual([
       "template-iterator-1",
       "template-iterator-1",
@@ -1103,12 +1097,10 @@ describe("TemplatesClient", () => {
     );
     const client = makeClient(fetch);
 
-    const rejection = await client.templates
-      .get(TEMPLATE_ID)
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      );
+    const rejection = await client.templates.get(TEMPLATE_ID).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
 
     expect(rejection).toBeInstanceOf(AhaSendNotFoundError);
     expect((rejection as AhaSendNotFoundError).status).toBe(404);

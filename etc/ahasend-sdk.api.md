@@ -672,10 +672,10 @@ export interface CreateMessageRequest {
     sandbox_result?: SandboxResult | undefined;
     // (undocumented)
     schedule?: MessageSchedule | undefined;
-    // (undocumented)
-    subject: string;
+    subject?: string | undefined;
     substitutions?: Record<string, SubstitutionValue> | undefined;
     tags?: readonly string[] | undefined;
+    template_id?: string | undefined;
     text_content?: string | undefined;
     tracking?: Tracking | undefined;
 }
