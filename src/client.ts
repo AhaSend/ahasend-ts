@@ -25,6 +25,8 @@ import { createSubAccountsClient } from "./resources/sub-accounts.js";
 import type { SubAccountsClient } from "./resources/sub-accounts.js";
 import { createSuppressionsClient } from "./resources/suppressions.js";
 import type { SuppressionsClient } from "./resources/suppressions.js";
+import { createTemplatesClient } from "./resources/templates.js";
+import type { TemplatesClient } from "./resources/templates.js";
 import { createWebhooksClient } from "./resources/webhooks.js";
 import type { WebhooksClient } from "./resources/webhooks.js";
 import { createFrozenFacade, forwardOptions } from "./resources/_helpers.js";
@@ -61,10 +63,10 @@ export interface PingResponse {
  * to keep the bearer key out of front-end bundles. One client maps to
  * one account; instantiate multiple clients for multi-account tooling.
  *
- * The client exposes readonly structural facades for messages, domains,
- * API keys, outbound webhooks, statistics, contacts, suppressions, routes, accounts,
- * SMTP credentials, and sub-accounts. Child-account API keys are available
- * through `client.subAccounts.apiKeys`.
+ * The client exposes readonly structural facades for messages, transactional
+ * templates, domains, API keys, outbound webhooks, statistics, contacts,
+ * suppressions, routes, accounts, SMTP credentials, and sub-accounts.
+ * Child-account API keys are available through `client.subAccounts.apiKeys`.
  *
  * Retries (with backoff + `Retry-After`), opt-in two-bucket rate limiting,
  * and automatic idempotency keys on create operations are built in and
@@ -75,6 +77,7 @@ export class AhaSendClient {
   readonly #http: HttpClient;
   readonly #operations: OperationExecutor;
   readonly #messages: Readonly<MessagesClient>;
+  readonly #templates: Readonly<TemplatesClient>;
   readonly #domains: Readonly<DomainsClient>;
   readonly #apiKeys: Readonly<APIKeysClient>;
   readonly #webhooks: Readonly<WebhooksClient>;
@@ -119,6 +122,7 @@ export class AhaSendClient {
     this.#accountId = accountId;
 
     this.#messages = createFrozenFacade(createMessagesClient(this.#operations, accountId));
+    this.#templates = createFrozenFacade(createTemplatesClient(this.#operations, accountId));
     this.#domains = createFrozenFacade(createDomainsClient(this.#operations, accountId));
     this.#apiKeys = createFrozenFacade(createAPIKeysClient(this.#operations, accountId));
     this.#webhooks = createFrozenFacade(createWebhooksClient(this.#operations, accountId));
@@ -142,6 +146,11 @@ export class AhaSendClient {
   /** Send, inspect, list, and cancel transactional messages. */
   get messages(): Readonly<MessagesClient> {
     return this.#messages;
+  }
+
+  /** List and inspect the account's transactional templates. */
+  get templates(): Readonly<TemplatesClient> {
+    return this.#templates;
   }
 
   /** Create, verify, inspect, update, and delete sending domains. */

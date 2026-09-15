@@ -110,13 +110,14 @@ describe("AhaSendClient", () => {
     expect(rendered).not.toContain(secret);
   });
 
-  it("exposes messages, domains, apiKeys, and contacts resource clients", () => {
+  it("exposes messages, templates, domains, apiKeys, and contacts resource clients", () => {
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
       accountId: "11111111-1111-4111-8111-111111111111",
       fetch: mockFetch(() => new Response("{}", { status: 200 })),
     });
     expect(client.messages).toBeDefined();
+    expect(client.templates).toBeDefined();
     expect(client.domains).toBeDefined();
     expect(client.apiKeys).toBeDefined();
     expect(client.contacts).toBeDefined();
@@ -207,6 +208,7 @@ describe("AhaSendClient", () => {
     });
     const facades = [
       client.messages,
+      client.templates,
       client.domains,
       client.apiKeys,
       client.webhooks,
@@ -221,6 +223,7 @@ describe("AhaSendClient", () => {
     ];
 
     expect(client.messages).toBe(client.messages);
+    expect(client.templates).toBe(client.templates);
     for (const facade of facades) {
       expect(Object.isFrozen(facade)).toBe(true);
       expect(Object.getOwnPropertyNames(facade)).not.toContain("http");

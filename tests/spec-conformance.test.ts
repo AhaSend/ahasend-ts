@@ -35,6 +35,7 @@ import {
   ROUTE_ID,
   SMTP_CREDENTIAL_ID,
   SUB_ACCOUNT_ID,
+  TEMPLATE_ID,
   USER_ID,
   WEBHOOK_ID,
 } from "./helpers/resource-call.js";
@@ -57,6 +58,7 @@ const IDS = {
   route: ROUTE_ID,
   smtpCredential: SMTP_CREDENTIAL_ID,
   contact: "User+Tag/Segment@Example.COM",
+  template: TEMPLATE_ID,
 } as const;
 
 const REQUEST_OPTIONS: RequestOptions = {
@@ -264,6 +266,14 @@ const PRIMARY_MATRIX = [
   primary("cancelMessage", "messages", "cancel", (client) => ({
     result: client.messages.cancel(IDS.message, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/messages/0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e/cancel` },
+  })),
+  primary("listTemplates", "templates", "list", (client) => ({
+    result: client.templates.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates`, query: PAGINATION_QUERY },
+  })),
+  primary("getTemplate", "templates", "get", (client) => ({
+    result: client.templates.get(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}` },
   })),
   primary("getAccount", "accounts", "get", (client) => ({
     result: client.accounts.get(REQUEST_OPTIONS),
@@ -602,6 +612,10 @@ const ITERATOR_MATRIX = [
       query: { status: "Delivered", ...PAGINATION_QUERY },
     },
   })),
+  iterator("listTemplates", "templates", (client) => ({
+    result: client.templates.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
+    input: { path: `${ACCOUNT_PATH}/templates`, query: PAGINATION_QUERY },
+  })),
   iterator("listSubAccounts", "subAccounts", (client) => ({
     result: client.subAccounts.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
     input: { path: `${ACCOUNT_PATH}/sub-accounts`, query: PAGINATION_QUERY },
@@ -658,10 +672,10 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for all 62 implemented operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(62);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(62);
-    expect(OPERATION_PROFILE.operations).toHaveLength(62);
+  it("accounts for all 64 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(64);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(64);
+    expect(OPERATION_PROFILE.operations).toHaveLength(64);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -673,12 +687,12 @@ describe("Facade operation conformance matrix", () => {
 });
 
 describe("Facade iterator conformance matrix", () => {
-  it("accounts for all ten implemented iterator aliases", () => {
-    expect(ITERATOR_MATRIX).toHaveLength(10);
+  it("accounts for all eleven implemented iterator aliases", () => {
+    expect(ITERATOR_MATRIX).toHaveLength(11);
     expect(new Set(ITERATOR_MATRIX.map(({ facade, method }) => `${facade}.${method}`)).size).toBe(
-      10,
+      11,
     );
-    expect(OPERATION_PROFILE.iterators).toHaveLength(10);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(11);
     expect(profileShape(OPERATION_PROFILE.iterators)).toEqual(profileShape(ITERATOR_MATRIX));
   });
 
@@ -737,7 +751,7 @@ describe("Non-empty request array coverage", () => {
 describe("Generated operation inventory", () => {
   it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(62);
+    expect(operationIds).toHaveLength(64);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
     expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
       operationIds,

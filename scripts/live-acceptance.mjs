@@ -24,8 +24,8 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 62;
-export const EXPECTED_LIVE_ITERATOR_COUNT = 10;
+export const EXPECTED_LIVE_OPERATION_COUNT = 64;
+export const EXPECTED_LIVE_ITERATOR_COUNT = 11;
 
 const packageName = "@ahasend/sdk";
 const domainOperationIds = Object.freeze([
