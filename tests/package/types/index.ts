@@ -204,6 +204,10 @@ const suppressions: SDK.ListSuppressionsParams = {
   from_time: "2026-01-01T00:00:00Z",
   to_time: "2026-01-02T00:00:00Z",
 };
+const templates: SDK.ListTemplatesParams = {
+  limit: 25,
+  before: "template-cursor",
+};
 const contacts: SDK.ListContactsParams = {
   limit: 25,
   before: "contact-cursor",
@@ -349,6 +353,9 @@ void client.statistics.deliverability(statistics).withResponse();
 void client.statistics.bounces(statistics).withResponse();
 void client.statistics.deliveryTimes(statistics).withResponse();
 
+void client.templates.list(templates).withResponse();
+void client.templates.get(uuid).withResponse();
+
 void client.contacts.list(contacts).withResponse();
 void client.contacts.create(contactBody).withResponse();
 void client.contacts.batchUpsert(contactBatch).withResponse();
@@ -436,6 +443,12 @@ const statisticsMock: SDK.StatisticsClient = {
   deliveryTimes: () => result<SDK.DeliveryTimeStatisticsResponse>(),
 };
 
+const templatesMock: SDK.TemplatesClient = {
+  list: () => result<SDK.PaginatedResponse<SDK.Template>>(),
+  iterate: () => iterator<SDK.Template>(),
+  get: () => result<SDK.Template>(),
+};
+
 const contactsMock: SDK.ContactsClient = {
   list: () => result<SDK.PaginatedResponse<SDK.Contact>>(),
   iterate: () => iterator<SDK.Contact>(),
@@ -504,6 +517,7 @@ const subAccountsMock: SDK.SubAccountsClient = {
 type ClientResourceSurface = Pick<
   SDK.AhaSendClient,
   | "messages"
+  | "templates"
   | "domains"
   | "apiKeys"
   | "webhooks"
@@ -518,6 +532,7 @@ type ClientResourceSurface = Pick<
 
 const clientMock: ClientResourceSurface = {
   messages: messagesMock,
+  templates: templatesMock,
   domains: domainsMock,
   apiKeys: apiKeysMock,
   webhooks: webhooksMock,
