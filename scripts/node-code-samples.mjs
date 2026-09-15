@@ -176,6 +176,21 @@ const result = await client.messages.cancel(messageId);
 console.log("Message cancellation requested.", { message: result.message });`,
   ),
   entry(
+    "listTemplates",
+    "GET /v2/accounts/{account_id}/templates",
+    "client.templates.list",
+    `const page = await client.templates.list({ limit: 20 });
+console.log("Templates listed.", { count: page.data.length });`,
+  ),
+  entry(
+    "getTemplate",
+    "GET /v2/accounts/{account_id}/templates/{template_id}",
+    "client.templates.get",
+    `const templateId = "00000000-0000-4000-8000-000000000009";
+const template = await client.templates.get(templateId);
+console.log("Template found.", { id: template.id, name: template.name });`,
+  ),
+  entry(
     "getAccount",
     "GET /v2/accounts/{account_id}",
     "client.accounts.get",

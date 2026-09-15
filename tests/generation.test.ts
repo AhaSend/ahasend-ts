@@ -80,14 +80,53 @@ describe("SDK artifact generation", () => {
     expect(OPERATION_PROFILE).toEqual(profile);
   });
 
-  it("pins 77 wire schemas and validates complete profile parity", () => {
+  it("pins 80 wire schemas and validates complete profile parity", () => {
     const components = document["components"] as JsonRecord;
     const schemas = components["schemas"] as JsonRecord;
 
-    expect(Object.keys(schemas)).toHaveLength(77);
+    expect(Object.keys(schemas)).toHaveLength(80);
     expect(() => validateOperationProfile(document, profile)).not.toThrow();
-    expect(OPERATION_PROFILE.operations).toHaveLength(62);
-    expect(OPERATION_PROFILE.iterators).toHaveLength(10);
+    expect(OPERATION_PROFILE.operations).toHaveLength(64);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(11);
+  });
+
+  it("carries the read-only template scope onto both template descriptors", () => {
+    expect(OPERATION_DESCRIPTORS.listTemplates).toMatchObject({
+      method: "GET",
+      path: "/v2/accounts/{account_id}/templates",
+      query: [
+        { name: "limit", required: false, format: null },
+        { name: "after", required: false, format: null },
+        { name: "before", required: false, format: null },
+      ],
+      body: null,
+      success: [{ status: 200, schema: "PaginatedTemplatesResponse" }],
+      idempotency: false,
+      security: [["templates:read"]],
+    });
+    expect(OPERATION_DESCRIPTORS.getTemplate).toMatchObject({
+      method: "GET",
+      path: "/v2/accounts/{account_id}/templates/{template_id}",
+      pathParameters: [
+        { name: "account_id", required: true, format: "uuid" },
+        { name: "template_id", required: true, format: "uuid" },
+      ],
+      body: null,
+      success: [{ status: 200, schema: "Template" }],
+      idempotency: false,
+      security: [["templates:read"]],
+    });
+    expect(OPERATION_PROFILE.operations).toEqual(
+      expect.arrayContaining([
+        { operationId: "listTemplates", facade: "templates", method: "list" },
+        { operationId: "getTemplate", facade: "templates", method: "get" },
+      ]),
+    );
+    expect(OPERATION_PROFILE.iterators).toEqual(
+      expect.arrayContaining([
+        { operationId: "listTemplates", facade: "templates", method: "iterate" },
+      ]),
+    );
   });
 
   it("preserves hostname metadata for every domain path parameter", () => {
@@ -254,8 +293,8 @@ describe("SDK artifact generation", () => {
     expectTypeOf<readonly []>().toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
   });
 
-  it("indexes parameters, request bodies, inputs, and successes for all 62 operations", () => {
-    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(62);
+  it("indexes parameters, request bodies, inputs, and successes for all 64 operations", () => {
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(64);
     expectTypeOf<keyof OperationParametersById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationRequestBodyById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationInputById>().toEqualTypeOf<OperationId>();

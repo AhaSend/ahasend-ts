@@ -12,9 +12,9 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 62;
-const EXPECTED_SCHEMA_COUNT = 77;
-const EXPECTED_ITERATOR_COUNT = 10;
+const EXPECTED_OPERATION_COUNT = 64;
+const EXPECTED_SCHEMA_COUNT = 80;
+const EXPECTED_ITERATOR_COUNT = 11;
 const EXPECTED_WEBHOOK_COUNT = 11;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
@@ -114,6 +114,8 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["createConversationMessage", "messages", "sendConversation"],
   ["getMessage", "messages", "get"],
   ["cancelMessage", "messages", "cancel"],
+  ["listTemplates", "templates", "list"],
+  ["getTemplate", "templates", "get"],
   ["getAccount", "accounts", "get"],
   ["updateAccount", "accounts", "update"],
   ["getAccountMembers", "accounts", "listMembers"],
@@ -165,6 +167,7 @@ export const ITERATOR_MAPPINGS = Object.freeze([
   ["getAPIKeys", "apiKeys", "iterate"],
   ["getDomains", "domains", "iterate"],
   ["getMessages", "messages", "iterate"],
+  ["listTemplates", "templates", "iterate"],
   ["listSubAccounts", "subAccounts", "iterate"],
   ["listSubAccountAPIKeys", "subAccounts.apiKeys", "iterate"],
   ["getContacts", "contacts", "iterate"],

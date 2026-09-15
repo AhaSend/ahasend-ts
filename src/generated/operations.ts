@@ -972,6 +972,73 @@ export const OPERATION_DESCRIPTORS = {
         "Authorization requires `messages:cancel:all` or `messages:cancel:{domain}` matching the message's `sender` domain.",
     },
   },
+  listTemplates: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/templates",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedTemplatesResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["templates:read"]],
+    resourceAuthorization: null,
+  },
+  getTemplate: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/templates/{template_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "Template",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["templates:read"]],
+    resourceAuthorization: null,
+  },
   getAccount: {
     method: "GET",
     path: "/v2/accounts/{account_id}",
