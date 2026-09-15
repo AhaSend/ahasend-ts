@@ -193,6 +193,7 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 | Resource                 | Methods                                                                                                         |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `client.messages`        | `send`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                  |
+| `client.templates`       | `list`, `iterate`, `get` (read-only transactional templates)                                                    |
 | `client.domains`         | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                              |
 | `client.apiKeys`         | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                          |
 | `client.webhooks`        | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`) |
