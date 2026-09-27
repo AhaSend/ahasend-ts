@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const SPEC_REPOSITORY = "AhaSend/AhaSend";
-export const DEFAULT_SPEC_REF = "devel";
+export const DEFAULT_SPEC_REF = "master";
 
 /**
  * The server repository owns everything in openapi.yaml except the code

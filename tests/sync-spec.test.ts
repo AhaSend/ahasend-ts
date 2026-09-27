@@ -26,11 +26,11 @@ function paths(value: JsonRecord): Record<string, JsonRecord> {
 }
 
 describe("spec sync", () => {
-  it("downloads the API repository's devel spec unless another ref is named", () => {
+  it("downloads the API repository's master spec unless another ref is named", () => {
     expect(SPEC_REPOSITORY).toBe("AhaSend/AhaSend");
     expect(parseSyncArguments([])).toEqual({ ref: DEFAULT_SPEC_REF });
-    expect(DEFAULT_SPEC_REF).toBe("devel");
-    expect(parseSyncArguments(["--ref", "fix/branch"])).toEqual({ ref: "fix/branch" });
+    expect(DEFAULT_SPEC_REF).toBe("master");
+    expect(parseSyncArguments(["--ref", "devel"])).toEqual({ ref: "devel" });
     for (const invalid of [["--ref"], ["--ref", " "], ["devel"], ["--ref", "a", "b"]]) {
       expect(() => parseSyncArguments(invalid), JSON.stringify(invalid)).toThrow(/Usage/);
     }
