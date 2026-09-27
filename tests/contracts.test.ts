@@ -795,6 +795,11 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
       ...lines.slice(javascript.end),
     ];
 
+    // The entry lands past the block's last non-blank line, however many blank
+    // lines separated the previous entry from the one that was removed.
+    let lastContent = javascript.start;
+    while (withoutNode[lastContent - 1] === "") lastContent -= 1;
+
     const injected = injectNodeSamples(
       withoutNode.join("\n"),
       parseOpenApi(withoutNode.join("\n")),
@@ -802,9 +807,9 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
 
     expect(injected).toBe(
       [
-        ...withoutNode.slice(0, javascript.start),
+        ...withoutNode.slice(0, lastContent),
         ...nodeSampleLines("getContactLists"),
-        ...withoutNode.slice(javascript.start),
+        ...withoutNode.slice(lastContent),
       ].join("\n"),
     );
   });
