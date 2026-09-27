@@ -83,6 +83,18 @@ interface PublicSchemaContracts {
   UpdateContactRequest: SDK.UpdateContactRequest;
   ContactPagination: SDK.PaginationMeta;
   PaginatedContactsResponse: Awaited<ReturnType<SDK.ContactsClient["list"]>>;
+  ContactList: SDK.ContactList;
+  EmbeddedContactList: SDK.EmbeddedContactList;
+  CreateContactListRequest: SDK.CreateContactListRequest;
+  UpdateContactListRequest: SDK.UpdateContactListRequest;
+  ListContact: SDK.ListContact;
+  UpsertListContactRequest: SDK.UpsertListContactRequest;
+  BatchAddListContactInput: SDK.BatchAddListContactInput;
+  BatchAddListContactsRequest: SDK.BatchAddListContactsRequest;
+  BatchListContactResult: SDK.BatchListContactResult;
+  BatchAddListContactsResponse: SDK.BatchAddListContactsResponse;
+  PaginatedContactListsResponse: Awaited<ReturnType<SDK.ListsClient["list"]>>;
+  PaginatedListContactsResponse: Awaited<ReturnType<SDK.ListContactsClient["list"]>>;
   Suppression: SDK.Suppression;
   CreateSuppressionResponse: SDK.CreateSuppressionResponse;
   CreateSuppressionRequest: SDK.CreateSuppressionRequest;
@@ -128,6 +140,8 @@ interface ReadonlyPublicSchemaRefinements {
   CreateWebhookRequest: "global webhook domains are readonly in the public request model";
   UpdateWebhookRequest: "domains is readonly in the public request model";
   CreateSMTPCredentialRequest: "global credential domains are readonly in the public request model";
+  CreateContactListRequest: "tags is readonly in the public request model";
+  UpdateContactListRequest: "tags is readonly in the public request model";
 }
 
 type ReadonlyArrays<Value> = Value extends readonly unknown[]
@@ -179,6 +193,27 @@ type ContactPageFetcherAcceptedBySharedPaginator = Expect<
     Parameters<typeof paginate<SDK.Contact, SDK.ListContactsParams>>[0]
   >
 >;
+
+type ListPageFetchersAcceptedBySharedPaginator = [
+  Expect<
+    Extends<
+      (params: SDK.ListListsParams) => ReturnType<SDK.ListsClient["list"]>,
+      Parameters<typeof paginate<SDK.ContactList, SDK.ListListsParams>>[0]
+    >
+  >,
+  Expect<
+    Extends<
+      (params: SDK.ListListContactsParams) => ReturnType<SDK.ListContactsClient["list"]>,
+      Parameters<typeof paginate<SDK.ListContact, SDK.ListListContactsParams>>[0]
+    >
+  >,
+  Expect<
+    Extends<
+      (params: SDK.ListContactListsParams) => ReturnType<SDK.ContactListsClient["list"]>,
+      Parameters<typeof paginate<SDK.ListContact, SDK.ListContactListsParams>>[0]
+    >
+  >,
+];
 
 type RefinedPublicSchemasAssignableToWire = Expect<
   Equal<
@@ -238,6 +273,7 @@ type ClientSignatures = [
   Expect<Equal<SDK.AhaSendClient["webhooks"], Readonly<SDK.WebhooksClient>>>,
   Expect<Equal<SDK.AhaSendClient["statistics"], Readonly<SDK.StatisticsClient>>>,
   Expect<Equal<SDK.AhaSendClient["contacts"], Readonly<SDK.ContactsClient>>>,
+  Expect<Equal<SDK.AhaSendClient["lists"], Readonly<SDK.ListsClient>>>,
   Expect<Equal<SDK.AhaSendClient["suppressions"], Readonly<SDK.SuppressionsClient>>>,
   Expect<Equal<SDK.AhaSendClient["routes"], Readonly<SDK.RoutesClient>>>,
   Expect<Equal<SDK.AhaSendClient["accounts"], Readonly<SDK.AccountsClient>>>,
@@ -684,6 +720,13 @@ declare const contactIteratorResult: AsyncGenerator<SDK.Contact, void, undefined
 declare const contactResult: SDK.AhaSendPromise<SDK.Contact>;
 declare const contactDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
 declare const contactBatchResult: SDK.AhaSendPromise<SDK.BatchUpsertContactsResponse>;
+declare const contactListsPageResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.ListContact>>;
+declare const contactListsIteratorResult: AsyncGenerator<SDK.ListContact, void, undefined>;
+
+const structuralContactListsMock: SDK.ContactListsClient = {
+  list: () => contactListsPageResult,
+  iterate: () => contactListsIteratorResult,
+};
 
 const structuralContactMock: SDK.ContactsClient = {
   list: () => contactListResult,
@@ -693,6 +736,159 @@ const structuralContactMock: SDK.ContactsClient = {
   update: () => contactResult,
   delete: () => contactDeleteResult,
   batchUpsert: () => contactBatchResult,
+  lists: structuralContactListsMock,
+};
+
+type ListSignatures = [
+  Expect<
+    Equal<
+      SDK.ListsClient["list"],
+      (
+        params?: SDK.ListListsParams,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.ContactList>>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListsClient["iterate"],
+      (
+        params?: SDK.ListListsParams,
+        options?: SDK.RequestOptions,
+      ) => AsyncGenerator<SDK.ContactList, void, undefined>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListsClient["get"],
+      (listId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.ContactList>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListsClient["create"],
+      (
+        body: SDK.CreateContactListRequest,
+        options?: SDK.IdempotencyRequestOptions,
+      ) => SDK.AhaSendPromise<SDK.ContactList>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListsClient["update"],
+      (
+        listId: SDK.UUID,
+        body: SDK.UpdateContactListRequest,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.ContactList>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListsClient["delete"],
+      (listId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactListsClient["list"],
+      (
+        idOrEmail: string,
+        params?: SDK.ListContactListsParams,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.ListContact>>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactListsClient["iterate"],
+      (
+        idOrEmail: string,
+        params?: SDK.ListContactListsParams,
+        options?: SDK.RequestOptions,
+      ) => AsyncGenerator<SDK.ListContact, void, undefined>
+    >
+  >,
+  Expect<Equal<SDK.ListsClient["contacts"], Readonly<SDK.ListContactsClient>>>,
+  Expect<Equal<SDK.ContactsClient["lists"], Readonly<SDK.ContactListsClient>>>,
+  Expect<
+    Equal<
+      SDK.ListContactsClient["list"],
+      (
+        listId: SDK.UUID,
+        params?: SDK.ListListContactsParams,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.ListContact>>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListContactsClient["iterate"],
+      (
+        listId: SDK.UUID,
+        params?: SDK.ListListContactsParams,
+        options?: SDK.RequestOptions,
+      ) => AsyncGenerator<SDK.ListContact, void, undefined>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListContactsClient["upsert"],
+      (
+        listId: SDK.UUID,
+        idOrEmail: string,
+        body?: SDK.UpsertListContactRequest,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.ListContact>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListContactsClient["delete"],
+      (
+        listId: SDK.UUID,
+        idOrEmail: string,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.SuccessResponse>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListContactsClient["batchAdd"],
+      (
+        listId: SDK.UUID,
+        body: SDK.BatchAddListContactsRequest,
+        options?: SDK.IdempotencyRequestOptions,
+      ) => SDK.AhaSendPromise<SDK.BatchAddListContactsResponse>
+    >
+  >,
+];
+
+declare const listPageResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.ContactList>>;
+declare const listIteratorResult: AsyncGenerator<SDK.ContactList, void, undefined>;
+declare const listResult: SDK.AhaSendPromise<SDK.ContactList>;
+declare const listDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+declare const listContactPageResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.ListContact>>;
+declare const listContactIteratorResult: AsyncGenerator<SDK.ListContact, void, undefined>;
+declare const listContactResult: SDK.AhaSendPromise<SDK.ListContact>;
+declare const listContactBatchResult: SDK.AhaSendPromise<SDK.BatchAddListContactsResponse>;
+
+const structuralListContactMock: SDK.ListContactsClient = {
+  list: () => listContactPageResult,
+  iterate: () => listContactIteratorResult,
+  upsert: () => listContactResult,
+  delete: () => listDeleteResult,
+  batchAdd: () => listContactBatchResult,
+};
+
+const structuralListMock: SDK.ListsClient = {
+  list: () => listPageResult,
+  iterate: () => listIteratorResult,
+  get: () => listResult,
+  create: () => listResult,
+  update: () => listResult,
+  delete: () => listDeleteResult,
+  contacts: structuralListContactMock,
 };
 
 type SuppressionSignatures = [
@@ -1122,6 +1318,7 @@ type ClientResourceSurface = Pick<
   | "webhooks"
   | "statistics"
   | "contacts"
+  | "lists"
   | "suppressions"
   | "routes"
   | "accounts"
@@ -1136,6 +1333,7 @@ const structuralClientMock: ClientResourceSurface = {
   webhooks: structuralWebhookMock,
   statistics: structuralStatisticsMock,
   contacts: structuralContactMock,
+  lists: structuralListMock,
   suppressions: structuralSuppressionMock,
   routes: structuralRouteMock,
   accounts: structuralAccountMock,
@@ -1215,6 +1413,45 @@ type RefinementContracts = [
   Expect<
     Equal<Awaited<ReturnType<SDK.SMTPCredentialsClient["create"]>>, SDK.CreatedSMTPCredential>
   >,
+  Expect<Equal<{} extends SDK.UpdateContactListRequest ? true : false, true>>,
+  Expect<
+    Equal<
+      { name: null; description: null; tags: null } extends SDK.UpdateContactListRequest
+        ? true
+        : false,
+      true
+    >
+  >,
+  Expect<Extends<{ description: ""; tags: readonly [] }, SDK.UpdateContactListRequest>>,
+  Expect<Equal<SDK.CreateContactListRequest["tags"], readonly string[] | null | undefined>>,
+  Expect<Equal<{} extends SDK.CreateContactListRequest ? true : false, false>>,
+  Expect<
+    Equal<Parameters<SDK.ListContactsClient["upsert"]>[2], SDK.UpsertListContactRequest | undefined>
+  >,
+  Expect<Equal<{} extends SDK.UpsertListContactRequest ? true : false, true>>,
+  Expect<
+    Equal<
+      { subscription_status: "complained" } extends SDK.UpsertListContactRequest ? true : false,
+      false
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ListContact["subscription_status"],
+      "unconfirmed" | "confirmed" | "unsubscribed" | "complained"
+    >
+  >,
+  Expect<Equal<SDK.ContactList["contact_count"], number>>,
+  Expect<Equal<"contact_count" extends keyof SDK.EmbeddedContactList ? true : false, false>>,
+  Expect<Equal<SDK.ListContact["list"], SDK.EmbeddedContactList | undefined>>,
+  Expect<Equal<SDK.ListContact["contact"], SDK.Contact | undefined>>,
+  Expect<
+    Equal<
+      SDK.BatchListContactResult["outcome"],
+      "added" | "already_member" | "not_found" | "invalid"
+    >
+  >,
+  Expect<Equal<SDK.ListListContactsParams["include_contacts"], boolean | undefined>>,
   Expect<Equal<"secret_key" extends keyof SDK.APIKey ? true : false, false>>,
   Expect<Equal<"secret" extends keyof SDK.Route ? true : false, false>>,
   Expect<Equal<"secret" extends keyof SDK.Webhook ? true : false, false>>,
@@ -1421,6 +1658,7 @@ export type DeclarationContracts = [
   WebhookHandlerSignatures,
   StatisticsSignatures,
   ContactSignatures,
+  ListSignatures,
   SuppressionSignatures,
   RouteSignatures,
   AccountSignatures,
@@ -1435,6 +1673,7 @@ export type DeclarationContracts = [
   typeof structuralAccountMock,
   typeof structuralStatisticsMock,
   typeof structuralContactMock,
+  typeof structuralListMock,
   typeof structuralSubAccountMock,
   typeof structuralSubAccountAPIKeyMock,
   typeof structuralClientMock,
@@ -1516,6 +1755,7 @@ type OptionalUndefinedContracts = [
 
 export type TypeSurfaceContracts = [
   ContactPageFetcherAcceptedBySharedPaginator,
+  ListPageFetchersAcceptedBySharedPaginator,
   OptionalUndefinedContracts,
   typeof explicitlyUndefinedBody,
   typeof explicitlyUndefinedOptions,

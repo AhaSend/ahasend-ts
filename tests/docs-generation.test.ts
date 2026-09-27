@@ -204,12 +204,29 @@ describe("generated API reference", () => {
     for (const phrase of [
       "`contacts:read`, `contacts:write`, and `contacts:delete` permissions",
       "definitions managed in the AhaSend dashboard",
-      "neither definition CRUD nor list membership",
+      "this API exposes no definition CRUD",
+      "joins no list on its own",
       "percent-encodes the value exactly once",
       "Prefer unsubscribe over delete",
       "hard delete permanently removes contact history",
       "measure end-to-end latency",
       "no fixed throughput guarantee",
+    ]) {
+      expect(reference).toContain(phrase);
+    }
+  });
+
+  it("documents the list permission, count, batch, and removal contract", async () => {
+    const reference = await generateApiReference();
+
+    for (const phrase of [
+      "`lists:read`, `lists:write`, and `lists:delete` permissions",
+      "removing a list's members all use `lists:write`",
+      "`include_contacts: true` also needs `contacts:read`",
+      "the members a campaign to it would reach",
+      "both changing and removing it answer `409`",
+      "answers `200` with one outcome per entry",
+      "percent-encodes it exactly once",
     ]) {
       expect(reference).toContain(phrase);
     }

@@ -10,7 +10,14 @@ import type {
   SuccessResponse,
   UUID,
 } from "../types/common.js";
-import { assertNonEmptyArray, forwardOptions, forwardWithIdempotency } from "./_helpers.js";
+import {
+  assertNonEmptyArray,
+  createFrozenFacade,
+  forwardOptions,
+  forwardWithIdempotency,
+} from "./_helpers.js";
+import { createContactListsClient } from "./contact-lists.js";
+import type { ContactListsClient } from "./contact-lists.js";
 
 /** A recursively nested JSON value returned from a legacy contact attribute. */
 export type ContactJSONValue =
@@ -140,15 +147,20 @@ export interface ContactsClient {
     body: BatchUpsertContactsRequest,
     options?: IdempotencyRequestOptions,
   ): AhaSendPromise<BatchUpsertContactsResponse>;
+
+  /** Read the lists one contact is on. Authorization requires `lists:read`. */
+  readonly lists: Readonly<ContactListsClient>;
 }
 
 class ContactsClientImplementation implements ContactsClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
+  readonly #lists: Readonly<ContactListsClient>;
 
   constructor(operations: OperationExecutor, accountId: UUID) {
     this.#operations = operations;
     this.#accountId = accountId;
+    this.#lists = createFrozenFacade(createContactListsClient(operations, accountId));
   }
 
   list(
@@ -228,6 +240,11 @@ class ContactsClientImplementation implements ContactsClient {
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
     );
+  }
+
+  /** Read the lists one contact is on. Authorization requires `lists:read`. */
+  get lists(): Readonly<ContactListsClient> {
+    return this.#lists;
   }
 }
 

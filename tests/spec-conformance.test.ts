@@ -14,6 +14,8 @@ import type { AhaSendClient } from "../src/client.js";
 import type {
   AddAccountMemberRequest,
   CreateAPIKeyRequest,
+  BatchAddListContactsRequest,
+  CreateContactListRequest,
   CreateContactRequest,
   CreateConversationMessageRequest,
   CreateMessageRequest,
@@ -31,6 +33,7 @@ import {
   API_KEY_ID,
   captureFetch,
   HOSTNAME,
+  LIST_ID,
   makeClient,
   ROUTE_ID,
   SMTP_CREDENTIAL_ID,
@@ -58,6 +61,7 @@ const IDS = {
   route: ROUTE_ID,
   smtpCredential: SMTP_CREDENTIAL_ID,
   contact: "User+Tag/Segment@Example.COM",
+  list: LIST_ID,
   template: TEMPLATE_ID,
 } as const;
 
@@ -434,6 +438,93 @@ const PRIMARY_MATRIX = [
     result: client.contacts.delete(IDS.contact, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/contacts/User%2BTag%2FSegment%40Example.COM` },
   })),
+  primary("getLists", "lists", "list", (client) => ({
+    result: client.lists.list({ ...PAGINATION_PARAMS, name: "news" }, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/lists`, query: { name: "news", ...PAGINATION_QUERY } },
+  })),
+  primary("createList", "lists", "create", (client) => {
+    const body = {
+      name: "Matrix list",
+      description: "Matrix description",
+      tags: ["matrix"],
+    } satisfies CreateContactListRequest;
+    return {
+      result: client.lists.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/lists`, body },
+    };
+  }),
+  primary("getList", "lists", "get", (client) => ({
+    result: client.lists.get(IDS.list, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/lists/${LIST_ID}` },
+  })),
+  primary("updateList", "lists", "update", (client) => {
+    const body = { description: "", tags: [] };
+    return {
+      result: client.lists.update(IDS.list, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/lists/${LIST_ID}`, body },
+    };
+  }),
+  primary("deleteList", "lists", "delete", (client) => ({
+    result: client.lists.delete(IDS.list, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/lists/${LIST_ID}` },
+  })),
+  primary("getListContacts", "lists.contacts", "list", (client) => ({
+    result: client.lists.contacts.list(
+      IDS.list,
+      {
+        ...PAGINATION_PARAMS,
+        subscription_status: "complained",
+        email: "person@example.test",
+        include_contacts: false,
+      },
+      REQUEST_OPTIONS,
+    ),
+    input: {
+      path: `${ACCOUNT_PATH}/lists/${LIST_ID}/contacts`,
+      query: {
+        subscription_status: "complained",
+        email: "person@example.test",
+        include_contacts: "false",
+        ...PAGINATION_QUERY,
+      },
+    },
+  })),
+  primary("batchAddListContacts", "lists.contacts", "batchAdd", (client) => {
+    const body = {
+      data: [{ email: "person@example.test" }, { id: SUB_ACCOUNT_ID }],
+    } satisfies BatchAddListContactsRequest;
+    return {
+      result: client.lists.contacts.batchAdd(IDS.list, body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/lists/${LIST_ID}/contacts/batch`, body },
+    };
+  }),
+  primary("upsertListContact", "lists.contacts", "upsert", (client) => {
+    const body = { subscription_status: "unsubscribed" as const };
+    return {
+      result: client.lists.contacts.upsert(IDS.list, IDS.contact, body, REQUEST_OPTIONS),
+      input: {
+        path: `${ACCOUNT_PATH}/lists/${LIST_ID}/contacts/User%2BTag%2FSegment%40Example.COM`,
+        body,
+      },
+    };
+  }),
+  primary("deleteListContact", "lists.contacts", "delete", (client) => ({
+    result: client.lists.contacts.delete(IDS.list, IDS.contact, REQUEST_OPTIONS),
+    input: {
+      path: `${ACCOUNT_PATH}/lists/${LIST_ID}/contacts/User%2BTag%2FSegment%40Example.COM`,
+    },
+  })),
+  primary("getContactLists", "contacts.lists", "list", (client) => ({
+    result: client.contacts.lists.list(
+      IDS.contact,
+      { ...PAGINATION_PARAMS, subscription_status: "confirmed" },
+      REQUEST_OPTIONS,
+    ),
+    input: {
+      path: `${ACCOUNT_PATH}/contacts/User%2BTag%2FSegment%40Example.COM/lists`,
+      query: { subscription_status: "confirmed", ...PAGINATION_QUERY },
+    },
+  })),
   primary("getSuppressions", "suppressions", "list", (client) => ({
     result: client.suppressions.list(
       { ...PAGINATION_PARAMS, domain: "example.test", email: "blocked@example.test" },
@@ -636,6 +727,26 @@ const ITERATOR_MATRIX = [
     input: {
       path: `${ACCOUNT_PATH}/contacts`,
       query: { email: "person@example.test", ...PAGINATION_QUERY },
+    },
+  })),
+  iterator("getLists", "lists", (client) => ({
+    result: client.lists.iterate({ ...PAGINATION_PARAMS, name: "news" }, REQUEST_OPTIONS).next(),
+    input: { path: `${ACCOUNT_PATH}/lists`, query: { name: "news", ...PAGINATION_QUERY } },
+  })),
+  iterator("getListContacts", "lists.contacts", (client) => ({
+    result: client.lists.contacts
+      .iterate(IDS.list, { ...PAGINATION_PARAMS, include_contacts: true }, REQUEST_OPTIONS)
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/lists/${LIST_ID}/contacts`,
+      query: { include_contacts: "true", ...PAGINATION_QUERY },
+    },
+  })),
+  iterator("getContactLists", "contacts.lists", (client) => ({
+    result: client.contacts.lists.iterate(IDS.contact, PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
+    input: {
+      path: `${ACCOUNT_PATH}/contacts/User%2BTag%2FSegment%40Example.COM/lists`,
+      query: PAGINATION_QUERY,
     },
   })),
   iterator("getSuppressions", "suppressions", (client) => ({

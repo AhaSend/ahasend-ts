@@ -382,6 +382,34 @@ const OPERATION_CASES = [
     { unsubscribed: false, attributes: { obsolete: null } },
   ]),
   operation("deleteContact", ["contacts"], "delete", [RESOURCE_ID]),
+  operation("getLists", ["lists"], "list", [{ name: "Integration", ...PAGINATION }]),
+  operation("createList", ["lists"], "create", [
+    { name: "Integration list", description: "Packed SDK", tags: ["integration"] },
+  ]),
+  operation("getList", ["lists"], "get", [RESOURCE_ID]),
+  operation("updateList", ["lists"], "update", [RESOURCE_ID, { description: "", tags: [] }]),
+  operation("deleteList", ["lists"], "delete", [RESOURCE_ID]),
+  operation("getListContacts", ["lists", "contacts"], "list", [
+    RESOURCE_ID,
+    { subscription_status: "confirmed", include_contacts: true, ...PAGINATION },
+  ]),
+  operation("batchAddListContacts", ["lists", "contacts"], "batchAdd", [
+    RESOURCE_ID,
+    { data: [{ email: `member@${DOMAIN}` }, { id: RESOURCE_ID }] },
+  ]),
+  operation("upsertListContact", ["lists", "contacts"], "upsert", [
+    RESOURCE_ID,
+    `member+tag@${DOMAIN}`,
+    { subscription_status: "unsubscribed" },
+  ]),
+  operation("deleteListContact", ["lists", "contacts"], "delete", [
+    RESOURCE_ID,
+    `member+tag@${DOMAIN}`,
+  ]),
+  operation("getContactLists", ["contacts", "lists"], "list", [
+    `member+tag@${DOMAIN}`,
+    { subscription_status: "confirmed", ...PAGINATION },
+  ]),
   operation("getSuppressions", ["suppressions"], "list", [
     { domain: DOMAIN, email: `blocked@${DOMAIN}`, ...PAGINATION },
   ]),
