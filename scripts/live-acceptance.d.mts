@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
-export const EXPECTED_LIVE_OPERATION_COUNT: 64;
-export const EXPECTED_LIVE_ITERATOR_COUNT: 11;
+export const EXPECTED_LIVE_OPERATION_COUNT: 74;
+export const EXPECTED_LIVE_ITERATOR_COUNT: 14;
 
 export interface LiveMapping {
   readonly operationId: string;

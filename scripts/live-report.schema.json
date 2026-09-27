@@ -47,14 +47,14 @@
     "tarballSha256": { "$ref": "#/definitions/sha256" },
     "operations": {
       "type": "array",
-      "minItems": 64,
-      "maxItems": 64,
+      "minItems": 74,
+      "maxItems": 74,
       "items": { "$ref": "#/definitions/result" }
     },
     "iterators": {
       "type": "array",
-      "minItems": 11,
-      "maxItems": 11,
+      "minItems": 14,
+      "maxItems": 14,
       "items": {
         "allOf": [
           { "$ref": "#/definitions/result" },

@@ -193,6 +193,7 @@ export type {
   BatchUpsertContactInput,
   BatchUpsertContactsRequest,
   BatchUpsertContactsResponse,
+  CanonicalContactAttributeValue,
   Contact,
   ContactJSONValue,
   ContactsClient,

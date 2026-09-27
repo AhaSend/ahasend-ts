@@ -21,6 +21,13 @@ export type ContactJSONValue =
   | ContactJSONValue[]
   | { [key: string]: ContactJSONValue };
 
+/**
+ * A non-null value written to a contact attribute. The account's attribute
+ * definition picks the accepted form: a string, a finite number, a boolean, a
+ * strict `YYYY-MM-DD` date string, or an RFC3339 timestamp string.
+ */
+export type CanonicalContactAttributeValue = string | number | boolean;
+
 /** An account-global contact and its subscription, validation, and attribute state. */
 export interface Contact {
   object: "contact";
@@ -47,7 +54,7 @@ export interface CreateContactRequest {
   status?: "enabled" | "disabled" | "blocked" | null | undefined;
   status_reason?: string | null | undefined;
   unsubscribed?: boolean | null | undefined;
-  attributes?: Record<string, string | number | boolean> | null | undefined;
+  attributes?: Record<string, CanonicalContactAttributeValue> | null | undefined;
 }
 
 /** Partial contact changes. A null attribute member removes the stored attribute. */
@@ -58,7 +65,7 @@ export interface UpdateContactRequest {
   status?: "enabled" | "disabled" | "blocked" | null | undefined;
   status_reason?: string | null | undefined;
   unsubscribed?: boolean | null | undefined;
-  attributes?: Record<string, string | number | boolean | null> | null | undefined;
+  attributes?: Record<string, CanonicalContactAttributeValue | null> | null | undefined;
 }
 
 /** One ordered create-or-update input in a synchronous contact batch. */

@@ -417,6 +417,7 @@ describe("SuppressionsClient", () => {
       email: string;
       domain: string;
       reason: string;
+      protected: boolean;
       expires_at: string;
     }>();
   });

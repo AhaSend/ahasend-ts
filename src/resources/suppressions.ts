@@ -19,6 +19,13 @@ export interface Suppression {
   email: string;
   domain: string;
   reason: string;
+  /**
+   * Whether a bulk wipe keeps this suppression. True when AhaSend recorded the
+   * recipient's own decision (an unsubscribe or a spam report); suppressions
+   * created through the API are never protected. It does not say whether the
+   * address can be mailed, which `expires_at` alone answers.
+   */
+  protected: boolean;
   expires_at: ISODateTime;
 }
 

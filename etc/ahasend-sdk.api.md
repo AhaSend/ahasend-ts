@@ -34,7 +34,6 @@ export interface Account {
     track_opens: boolean;
     // (undocumented)
     updated_at: ISODateTime;
-    // (undocumented)
     website: string;
 }
 
@@ -464,6 +463,9 @@ export interface BounceStatisticsResponse {
     object: "list";
 }
 
+// @public
+export type CanonicalContactAttributeValue = string | number | boolean;
+
 // @public (undocumented)
 export interface CategoryRateLimit {
     // (undocumented)
@@ -562,7 +564,7 @@ export interface CreateAPIKeyRequest {
 // @public
 export interface CreateContactRequest {
     // (undocumented)
-    attributes?: Record<string, string | number | boolean> | null | undefined;
+    attributes?: Record<string, CanonicalContactAttributeValue> | null | undefined;
     // (undocumented)
     email: string;
     // (undocumented)
@@ -1476,7 +1478,6 @@ export interface SubAccount {
     parent_account_id: UUID;
     // (undocumented)
     status: SubAccountStatus;
-    // (undocumented)
     website: string;
 }
 
@@ -1569,6 +1570,7 @@ export interface Suppression {
     id: UUID;
     // (undocumented)
     object: "suppression";
+    protected: boolean;
     // (undocumented)
     reason: string;
 }
@@ -1652,7 +1654,6 @@ export interface UpdateAccountRequest {
     track_clicks?: boolean | undefined;
     // (undocumented)
     track_opens?: boolean | undefined;
-    // (undocumented)
     website?: string | undefined;
 }
 
@@ -1672,7 +1673,7 @@ export type UpdateAPIKeyRequest = {
 // @public
 export interface UpdateContactRequest {
     // (undocumented)
-    attributes?: Record<string, string | number | boolean | null> | null | undefined;
+    attributes?: Record<string, CanonicalContactAttributeValue | null> | null | undefined;
     // (undocumented)
     email?: string | null | undefined;
     // (undocumented)

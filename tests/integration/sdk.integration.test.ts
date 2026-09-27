@@ -935,8 +935,8 @@ describe("packed SDK operation contract", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
     const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
-    expect(OPERATION_CASES).toHaveLength(64);
-    expect(new Set(implementedOperationIds).size).toBe(64);
+    expect(OPERATION_CASES).toHaveLength(74);
+    expect(new Set(implementedOperationIds).size).toBe(74);
     expect([...implementedOperationIds].sort()).toEqual(operationIds.sort());
   });
 

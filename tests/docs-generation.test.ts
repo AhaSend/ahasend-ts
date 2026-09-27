@@ -65,7 +65,7 @@ describe("generated API reference", () => {
   });
 
   it(
-    "accounts for all 64 methods and eleven iterators exactly once",
+    "accounts for all 74 methods and fourteen iterators exactly once",
     { timeout: 120_000 },
     async () => {
       const reference = await generateApiReference();
@@ -82,8 +82,8 @@ describe("generated API reference", () => {
       expect(iteratorMarkers).toEqual(
         OPERATION_PROFILE.iterators.map(({ operationId }) => operationId),
       );
-      expect(new Set(methodMarkers)).toHaveLength(64);
-      expect(new Set(iteratorMarkers)).toHaveLength(11);
+      expect(new Set(methodMarkers)).toHaveLength(74);
+      expect(new Set(iteratorMarkers)).toHaveLength(14);
 
       for (const mapping of [...OPERATION_PROFILE.operations, ...OPERATION_PROFILE.iterators]) {
         const kind = OPERATION_PROFILE.iterators.includes(mapping) ? "iterator" : "operation";
@@ -322,7 +322,7 @@ describe("generated API reference", () => {
         openApiSource,
         profileSource: JSON.stringify(missingIterator),
       }),
-    ).rejects.toThrow(/must contain 11 iterator mappings/);
+    ).rejects.toThrow(/must contain 14 iterator mappings/);
 
     const duplicateAlias = structuredClone(OPERATION_PROFILE) as {
       version: 1;

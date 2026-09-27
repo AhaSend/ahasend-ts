@@ -82,6 +82,24 @@ export interface paths {
     put: operations["updateContact"];
     delete: operations["deleteContact"];
   };
+  "/v2/accounts/{account_id}/lists": {
+    get: operations["getLists"];
+    post: operations["createList"];
+  };
+  "/v2/accounts/{account_id}/lists/{list_id}": {
+    get: operations["getList"];
+    put: operations["updateList"];
+    delete: operations["deleteList"];
+  };
+  "/v2/accounts/{account_id}/lists/{list_id}/contacts": { get: operations["getListContacts"] };
+  "/v2/accounts/{account_id}/lists/{list_id}/contacts/batch": {
+    post: operations["batchAddListContacts"];
+  };
+  "/v2/accounts/{account_id}/lists/{list_id}/contacts/{id_or_email}": {
+    put: operations["upsertListContact"];
+    delete: operations["deleteListContact"];
+  };
+  "/v2/accounts/{account_id}/contacts/{id_or_email}/lists": { get: operations["getContactLists"] };
   "/v2/accounts/{account_id}/suppressions": {
     get: operations["getSuppressions"];
     post: operations["createSuppression"];
@@ -517,6 +535,7 @@ export interface components {
       role: "Administrator" | "Developer" | "Analyst" | "Billing Manager";
     };
     JSONValue: ContactJSONValue;
+    CanonicalContactAttributeValue: string | number | boolean;
     CreateContactRequest: {
       email: string;
       first_name?: string | null | undefined;
@@ -526,7 +545,7 @@ export interface components {
       unsubscribed?: boolean | null | undefined;
       attributes?:
         | {
-            [key: string]: string | number | boolean;
+            [key: string]: components["schemas"]["CanonicalContactAttributeValue"];
           }
         | null
         | undefined;
@@ -540,7 +559,7 @@ export interface components {
       unsubscribed?: boolean | null | undefined;
       attributes?:
         | {
-            [key: string]: (string | number | boolean) | null;
+            [key: string]: components["schemas"]["CanonicalContactAttributeValue"] | null;
           }
         | null
         | undefined;
@@ -589,19 +608,97 @@ export interface components {
       unsubscribed?: boolean | null | undefined;
       attributes?:
         | {
-            [key: string]: (string | number | boolean) | null;
+            [key: string]: components["schemas"]["CanonicalContactAttributeValue"] | null;
           }
         | null
         | undefined;
     };
+    ContactPagination: {
+      has_more: boolean;
+      next_cursor: string | null;
+      previous_cursor: string | null;
+    };
     PaginatedContactsResponse: {
       object: "list";
       data: Array<components["schemas"]["Contact"]>;
-      pagination: {
-        has_more: boolean;
-        next_cursor: string | null;
-        previous_cursor: string | null;
-      };
+      pagination: components["schemas"]["ContactPagination"];
+    };
+    ContactList: {
+      object: "contact_list";
+      id: string;
+      created_at: string;
+      updated_at: string;
+      name: string;
+      description: string;
+      tags: Array<string>;
+      contact_count: number;
+    };
+    EmbeddedContactList: {
+      object: "contact_list";
+      id: string;
+      created_at: string;
+      updated_at: string;
+      name: string;
+      description: string;
+      tags: Array<string>;
+    };
+    CreateContactListRequest: {
+      name: string;
+      description?: string | null | undefined;
+      tags?: Array<string> | null | undefined;
+    };
+    UpdateContactListRequest: {
+      name?: string | null | undefined;
+      description?: string | null | undefined;
+      tags?: Array<string> | null | undefined;
+    };
+    ListContact: {
+      object: "list_contact";
+      list_id: string;
+      contact_id: string;
+      email: string;
+      subscription_status: "unconfirmed" | "confirmed" | "unsubscribed" | "complained";
+      subscribed_at: string | null;
+      unsubscribed_at: string | null;
+      created_at: string;
+      updated_at: string;
+      contact?: components["schemas"]["Contact"];
+      list?: components["schemas"]["EmbeddedContactList"];
+    };
+    UpsertListContactRequest: {
+      subscription_status?: "confirmed" | "unconfirmed" | "unsubscribed" | null | undefined;
+    };
+    BatchAddListContactInput: {
+      email?: string | null | undefined;
+      id?: string | null | undefined;
+    };
+    BatchAddListContactsRequest: {
+      data: ReadonlyArray<components["schemas"]["BatchAddListContactInput"]>;
+    };
+    BatchListContactResult: {
+      position: number;
+      email?: string;
+      id?: string;
+      outcome: "added" | "already_member" | "not_found" | "invalid";
+      membership?: components["schemas"]["ListContact"];
+      reason?: string;
+    };
+    BatchAddListContactsResponse: {
+      object: "list";
+      added: number;
+      skipped: number;
+      failed: number;
+      data: Array<components["schemas"]["BatchListContactResult"]>;
+    };
+    PaginatedContactListsResponse: {
+      object: "list";
+      data: Array<components["schemas"]["ContactList"]>;
+      pagination: components["schemas"]["ContactPagination"];
+    };
+    PaginatedListContactsResponse: {
+      object: "list";
+      data: Array<components["schemas"]["ListContact"]>;
+      pagination: components["schemas"]["ContactPagination"];
     };
     Suppression: {
       object: "suppression";
@@ -610,6 +707,7 @@ export interface components {
       email: string;
       domain: string;
       reason: string;
+      protected: boolean;
       expires_at: string;
     };
     CreateSuppressionResponse: {
@@ -1605,6 +1703,231 @@ export interface operations {
     };
     responses: {
       "200": { content: { "application/json": components["schemas"]["SuccessResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getLists: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+      query: {
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+        name?: string | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: { "application/json": components["schemas"]["PaginatedContactListsResponse"] };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  createList: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["CreateContactListRequest"] };
+    };
+    responses: {
+      "201": { content: { "application/json": components["schemas"]["ContactList"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getList: {
+    parameters: {
+      path: {
+        account_id: string;
+        list_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["ContactList"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  updateList: {
+    parameters: {
+      path: {
+        account_id: string;
+        list_id: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["UpdateContactListRequest"] };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["ContactList"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  deleteList: {
+    parameters: {
+      path: {
+        account_id: string;
+        list_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["SuccessResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getListContacts: {
+    parameters: {
+      path: {
+        account_id: string;
+        list_id: string;
+      };
+      query: {
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+        subscription_status?:
+          | "unconfirmed"
+          | "confirmed"
+          | "unsubscribed"
+          | "complained"
+          | undefined;
+        email?: string | undefined;
+        include_contacts?: boolean | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: { "application/json": components["schemas"]["PaginatedListContactsResponse"] };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  batchAddListContacts: {
+    parameters: {
+      path: {
+        account_id: string;
+        list_id: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["BatchAddListContactsRequest"] };
+    };
+    responses: {
+      "200": {
+        content: { "application/json": components["schemas"]["BatchAddListContactsResponse"] };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  upsertListContact: {
+    parameters: {
+      path: {
+        account_id: string;
+        list_id: string;
+        id_or_email: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["UpsertListContactRequest"] };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["ListContact"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  deleteListContact: {
+    parameters: {
+      path: {
+        account_id: string;
+        list_id: string;
+        id_or_email: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["SuccessResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getContactLists: {
+    parameters: {
+      path: {
+        account_id: string;
+        id_or_email: string;
+      };
+      query: {
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+        subscription_status?:
+          | "unconfirmed"
+          | "confirmed"
+          | "unsubscribed"
+          | "complained"
+          | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: { "application/json": components["schemas"]["PaginatedListContactsResponse"] };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };

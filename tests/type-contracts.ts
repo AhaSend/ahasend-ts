@@ -73,6 +73,7 @@ interface PublicSchemaContracts {
   AccountMembersResponse: SDK.ListAccountMembersResponse;
   AddMemberRequest: SDK.AddAccountMemberRequest;
   JSONValue: SDK.ContactJSONValue;
+  CanonicalContactAttributeValue: SDK.CanonicalContactAttributeValue;
   CreateContactRequest: SDK.CreateContactRequest;
   BatchUpsertContactInput: SDK.BatchUpsertContactInput;
   BatchUpsertContactsRequest: SDK.BatchUpsertContactsRequest;
@@ -80,6 +81,7 @@ interface PublicSchemaContracts {
   BatchUpsertContactsResponse: SDK.BatchUpsertContactsResponse;
   Contact: SDK.Contact;
   UpdateContactRequest: SDK.UpdateContactRequest;
+  ContactPagination: SDK.PaginationMeta;
   PaginatedContactsResponse: Awaited<ReturnType<SDK.ContactsClient["list"]>>;
   Suppression: SDK.Suppression;
   CreateSuppressionResponse: SDK.CreateSuppressionResponse;
@@ -142,7 +144,7 @@ type ReadonlyArrays<Value> = Value extends readonly unknown[]
  */
 type PaginationSchema = Extract<
   keyof PublicSchemaContracts,
-  "PaginationInfo" | `Paginated${string}Response`
+  "PaginationInfo" | "ContactPagination" | `Paginated${string}Response`
 >;
 
 type BidirectionalSchema = Exclude<

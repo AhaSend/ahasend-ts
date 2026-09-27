@@ -672,10 +672,10 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for all 64 implemented operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(64);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(64);
-    expect(OPERATION_PROFILE.operations).toHaveLength(64);
+  it("accounts for all 74 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(74);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(74);
+    expect(OPERATION_PROFILE.operations).toHaveLength(74);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -687,12 +687,12 @@ describe("Facade operation conformance matrix", () => {
 });
 
 describe("Facade iterator conformance matrix", () => {
-  it("accounts for all eleven implemented iterator aliases", () => {
-    expect(ITERATOR_MATRIX).toHaveLength(11);
+  it("accounts for all fourteen implemented iterator aliases", () => {
+    expect(ITERATOR_MATRIX).toHaveLength(14);
     expect(new Set(ITERATOR_MATRIX.map(({ facade, method }) => `${facade}.${method}`)).size).toBe(
-      11,
+      14,
     );
-    expect(OPERATION_PROFILE.iterators).toHaveLength(11);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(14);
     expect(profileShape(OPERATION_PROFILE.iterators)).toEqual(profileShape(ITERATOR_MATRIX));
   });
 
@@ -751,7 +751,7 @@ describe("Non-empty request array coverage", () => {
 describe("Generated operation inventory", () => {
   it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(64);
+    expect(operationIds).toHaveLength(74);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
     expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
       operationIds,

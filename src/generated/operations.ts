@@ -1779,6 +1779,371 @@ export const OPERATION_DESCRIPTORS = {
     security: [["contacts:delete"]],
     resourceAuthorization: null,
   },
+  getLists: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/lists",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+      {
+        name: "name",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedContactListsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["lists:read"]],
+    resourceAuthorization: null,
+  },
+  createList: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/lists",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "CreateContactListRequest",
+    },
+    success: [
+      {
+        status: 201,
+        schema: "ContactList",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["lists:write"]],
+    resourceAuthorization: null,
+  },
+  getList: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/lists/{list_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "list_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "ContactList",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["lists:read"]],
+    resourceAuthorization: null,
+  },
+  updateList: {
+    method: "PUT",
+    path: "/v2/accounts/{account_id}/lists/{list_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "list_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "UpdateContactListRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "ContactList",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["lists:write"]],
+    resourceAuthorization: null,
+  },
+  deleteList: {
+    method: "DELETE",
+    path: "/v2/accounts/{account_id}/lists/{list_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "list_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "SuccessResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["lists:delete"]],
+    resourceAuthorization: null,
+  },
+  getListContacts: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/lists/{list_id}/contacts",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "list_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+      {
+        name: "subscription_status",
+        required: false,
+        format: null,
+      },
+      {
+        name: "email",
+        required: false,
+        format: "email",
+      },
+      {
+        name: "include_contacts",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedListContactsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["lists:read"]],
+    resourceAuthorization: null,
+  },
+  batchAddListContacts: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/lists/{list_id}/contacts/batch",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "list_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "BatchAddListContactsRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "BatchAddListContactsResponse",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["lists:write"]],
+    resourceAuthorization: null,
+  },
+  upsertListContact: {
+    method: "PUT",
+    path: "/v2/accounts/{account_id}/lists/{list_id}/contacts/{id_or_email}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "list_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "id_or_email",
+        required: true,
+        format: null,
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "UpsertListContactRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "ListContact",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["lists:write"]],
+    resourceAuthorization: null,
+  },
+  deleteListContact: {
+    method: "DELETE",
+    path: "/v2/accounts/{account_id}/lists/{list_id}/contacts/{id_or_email}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "list_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "id_or_email",
+        required: true,
+        format: null,
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "SuccessResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["lists:write"]],
+    resourceAuthorization: null,
+  },
+  getContactLists: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/contacts/{id_or_email}/lists",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "id_or_email",
+        required: true,
+        format: null,
+      },
+    ],
+    query: [
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+      {
+        name: "subscription_status",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedListContactsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["lists:read"]],
+    resourceAuthorization: null,
+  },
   getSuppressions: {
     method: "GET",
     path: "/v2/accounts/{account_id}/suppressions",
