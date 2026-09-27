@@ -701,6 +701,145 @@ describe("REST contract rejection checks", () => {
   });
 });
 
+function indentOf(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+function endOfBlock(lines: string[], start: number, depth: number): number {
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (lines[index]!.trim() !== "" && indentOf(lines[index]!) <= depth) return index;
+  }
+  return lines.length;
+}
+
+/** Line ranges of one operation in the raw spec: the operation, its samples block, and one item. */
+function operationLines(lines: string[], operationId: string) {
+  const idLine = lines.indexOf(`      operationId: ${operationId}`);
+  expect(idLine, operationId).toBeGreaterThan(0);
+  let start = idLine;
+  while (indentOf(lines[start]!) > 4) start -= 1;
+  const end = endOfBlock(lines, start, 4);
+  const samples = lines.findIndex(
+    (line, index) => index > start && index < end && line === "      x-code-samples:",
+  );
+  const samplesEnd = endOfBlock(lines, samples, 6);
+  const item = (lang: string) => {
+    const itemStart = lines.findIndex(
+      (line, index) => index > samples && index < samplesEnd && line === `        - lang: ${lang}`,
+    );
+    const next = lines.findIndex(
+      (line, index) => index > itemStart && index < samplesEnd && line.startsWith("        - "),
+    );
+    return { start: itemStart, end: next < 0 ? samplesEnd : next };
+  };
+  return { start, end, samples, samplesEnd, item };
+}
+
+function nodeSampleLines(operationId: string): string[] {
+  const sample = NODE_CODE_SAMPLES[operationId]!;
+  return [
+    `        - lang: ${sample.lang}`,
+    `          label: ${sample.label}`,
+    "          source: |",
+    ...sample.source.split("\n").map((line) => (line === "" ? "" : `            ${line}`)),
+  ];
+}
+
+describe("Node sample placement for operations the Go SDK has not reached", () => {
+  const lines = source.split("\n");
+
+  it("opens a samples block after the operation's last line, before its trailing blank lines", () => {
+    // An operation followed by a blank line before the next path.
+    const operationId = collectOperations(document)
+      .map((entry) => entry.operationId)
+      .find((id) => {
+        const { end } = operationLines(lines, id);
+        return lines[end - 1] === "" && end < lines.length;
+      })!;
+    expect(operationId).toBeDefined();
+    const range = operationLines(lines, operationId);
+    const withoutBlock = [...lines.slice(0, range.samples), ...lines.slice(range.samplesEnd)];
+    const bare = withoutBlock.join("\n");
+    const bareDocument = parseOpenApi(bare);
+    const bareRange = operationLines(withoutBlock, operationId);
+    let lastContent = bareRange.end;
+    while (withoutBlock[lastContent - 1] === "") lastContent -= 1;
+    expect(lastContent).toBeLessThan(bareRange.end);
+
+    const injected = injectNodeSamples(bare, bareDocument);
+
+    expect(injected).toBe(
+      [
+        ...withoutBlock.slice(0, lastContent),
+        "      x-code-samples:",
+        ...nodeSampleLines(operationId),
+        ...withoutBlock.slice(lastContent),
+      ].join("\n"),
+    );
+    const samples = samplesFor(
+      collectOperations(parseOpenApi(injected)).find((entry) => entry.operationId === operationId)!
+        .operation,
+    );
+    expect(samples).toEqual([NODE_CODE_SAMPLES[operationId]]);
+    expect(() => validateCodeSamples(parseOpenApi(injected))).not.toThrow();
+  });
+
+  it("appends a missing Node sample after the block's last line, before trailing blank lines", () => {
+    const range = operationLines(lines, "getContactLists");
+    const javascript = range.item("javascript");
+    expect(javascript.end).toBe(range.samplesEnd);
+    const withoutNode = [
+      ...lines.slice(0, javascript.start),
+      "",
+      "",
+      ...lines.slice(javascript.end),
+    ];
+
+    const injected = injectNodeSamples(
+      withoutNode.join("\n"),
+      parseOpenApi(withoutNode.join("\n")),
+    );
+
+    expect(injected).toBe(
+      [
+        ...withoutNode.slice(0, javascript.start),
+        ...nodeSampleLines("getContactLists"),
+        ...withoutNode.slice(javascript.start),
+      ].join("\n"),
+    );
+  });
+
+  it("accepts an operation with no Go sample and still rejects two", () => {
+    const range = operationLines(lines, "getContactLists");
+    const go = range.item("go");
+    const withoutGo = [...lines.slice(0, go.start), ...lines.slice(go.end)].join("\n");
+    const withoutGoDocument = parseOpenApi(withoutGo);
+
+    expect(() => validateCodeSamples(withoutGoDocument)).not.toThrow();
+    expect(injectNodeSamples(withoutGo, withoutGoDocument)).toBe(withoutGo);
+
+    const twoGo = structuredClone(document);
+    const operation = collectOperations(twoGo).find(
+      (entry) => entry.operationId === "getContactLists",
+    )!.operation;
+    const goSample = samplesFor(operation).find(({ lang }) => lang === "go")!;
+    samplesFor(operation).push({ ...goSample, lang: "Go" });
+    expect(() => validateCodeSamples(twoGo)).toThrow(
+      /getContactLists must have at most one Go sample; received 2/,
+    );
+  });
+
+  it("replaces a Node sample whose lang differs only in case instead of adding another", () => {
+    const range = operationLines(lines, "getContactLists");
+    const javascript = range.item("javascript");
+    const recased = [...lines];
+    recased[javascript.start] = "        - lang: JavaScript";
+    const recasedSource = recased.join("\n");
+
+    expect(injectNodeSamples(recasedSource, parseOpenApi(recasedSource))).toBe(source);
+  });
+});
+
 describe("webhook delivery contract", () => {
   it("is versioned, internally valid, and matches its detached YAML hash", () => {
     expect(record(webhookDocument.info).version).toBe("2.0.0");

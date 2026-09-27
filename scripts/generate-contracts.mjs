@@ -1474,10 +1474,12 @@ export function validateCodeSamples(
 
   let shellSampleCount = 0;
   for (const { operationId, operation } of operations) {
-    if (!Array.isArray(operation["x-code-samples"])) {
-      throw new TypeError(`${operationId} has no x-code-samples array`);
+    // An operation new to the spec may carry no samples yet; injection adds the
+    // Node one, and the strict check below still requires it.
+    const samples = operation["x-code-samples"] ?? [];
+    if (!Array.isArray(samples)) {
+      throw new TypeError(`${operationId} x-code-samples must be an array`);
     }
-    const samples = operation["x-code-samples"];
     const goSamples = samples.filter((sample) => normalizeLanguage(sample?.lang) === "go");
     const nodeCodeSamples = samples.filter((sample) =>
       NODE_LANGUAGES.has(normalizeLanguage(sample?.lang)),
@@ -1486,9 +1488,10 @@ export function validateCodeSamples(
       (sample) => normalizeLanguage(sample?.lang) === "shell",
     ).length;
 
-    if (goSamples.length !== 1) {
+    // The Go SDK owns the Go sample, so a new operation may not have one yet.
+    if (goSamples.length > 1) {
       throw new TypeError(
-        `${operationId} must have exactly one Go sample; received ${goSamples.length}`,
+        `${operationId} must have at most one Go sample; received ${goSamples.length}`,
       );
     }
     if (nodeCodeSamples.length > 1 || (!allowMissingNodeSamples && nodeCodeSamples.length !== 1)) {
@@ -1537,39 +1540,44 @@ function unquoteYamlScalar(value) {
   return trimmed;
 }
 
+function indentation(line) {
+  return line.match(/^ */)[0].length;
+}
+
+/** The first non-blank line after `start` indented `depth` or less, or the end of the file. */
+function blockEnd(lines, start, depth) {
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (lines[index].trim() !== "" && indentation(lines[index]) <= depth) return index;
+  }
+  return lines.length;
+}
+
+/** The index just after the last non-blank line before `end`, so trailing blank lines stay put. */
+function afterLastContent(lines, start, end) {
+  let index = end;
+  while (index > start + 1 && lines[index - 1].trim() === "") index -= 1;
+  return index;
+}
+
 function locateSampleBlock(lines, operationId) {
-  const operationLine = lines.findIndex(
+  const operationIdLine = lines.findIndex(
     (line) => line.match(/^ {6}operationId:\s*(.+?)\s*$/)?.[1] === operationId,
   );
-  if (operationLine < 0)
+  if (operationIdLine < 0)
     throw new TypeError(`Cannot locate operationId ${operationId} in YAML source`);
 
-  let operationEnd = lines.length;
-  for (let index = operationLine + 1; index < lines.length; index += 1) {
-    if (
-      /^ {4}(?:get|put|post|delete|options|head|patch|trace):\s*$/.test(lines[index]) ||
-      /^ {2}\//.test(lines[index])
-    ) {
-      operationEnd = index;
-      break;
-    }
-  }
+  let operationLine = operationIdLine;
+  while (operationLine > 0 && indentation(lines[operationLine]) > 4) operationLine -= 1;
+  const operationEnd = blockEnd(lines, operationLine, 4);
 
   const samplesLine = lines.findIndex(
     (line, index) =>
       index > operationLine && index < operationEnd && /^ {6}x-code-samples:\s*$/.test(line),
   );
-  if (samplesLine < 0) throw new TypeError(`${operationId} has no source x-code-samples block`);
-
-  let samplesEnd = operationEnd;
-  for (let index = samplesLine + 1; index < operationEnd; index += 1) {
-    const line = lines[index];
-    if (line.trim() !== "" && line.match(/^ */)[0].length <= 6) {
-      samplesEnd = index;
-      break;
-    }
+  if (samplesLine < 0) {
+    return { samplesLine, samplesEnd: afterLastContent(lines, operationLine, operationEnd) };
   }
-  return { samplesLine, samplesEnd };
+  return { samplesLine, samplesEnd: blockEnd(lines, samplesLine, 6) };
 }
 
 export function injectNodeSamples(source, document, nodeSamples = NODE_CODE_SAMPLES) {
@@ -1584,6 +1592,13 @@ export function injectNodeSamples(source, document, nodeSamples = NODE_CODE_SAMP
 
   for (const operationId of operationIds) {
     const { samplesLine, samplesEnd } = locateSampleBlock(lines, operationId);
+    const replacement = yamlSampleLines(nodeSamples[operationId]);
+    if (samplesLine < 0) {
+      // No block yet: open one at the end of the operation, after its last
+      // non-blank line.
+      lines.splice(samplesEnd, 0, "      x-code-samples:", ...replacement);
+      continue;
+    }
     const itemStarts = [];
     for (let index = samplesLine + 1; index < samplesEnd; index += 1) {
       const match = lines[index].match(/^ {8}- lang:\s*(.+?)\s*$/);
@@ -1595,9 +1610,9 @@ export function injectNodeSamples(source, document, nodeSamples = NODE_CODE_SAMP
       throw new TypeError(`${operationId} has duplicate Node samples`);
     }
 
-    const replacement = yamlSampleLines(nodeSamples[operationId]);
     if (nodeItems.length === 0) {
-      lines.splice(samplesEnd, 0, ...replacement);
+      // Last in the block, after its last non-blank line.
+      lines.splice(afterLastContent(lines, samplesLine, samplesEnd), 0, ...replacement);
       continue;
     }
 
