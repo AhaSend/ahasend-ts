@@ -4,15 +4,23 @@
 
 This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
-It contains exactly 64 API methods and 11 async iterators.
+It contains exactly 74 API methods and 14 async iterators.
 
 ## Contact management
 
-Contact operations use the `contacts:read`, `contacts:write`, and `contacts:delete` permissions shown below. Writable attribute keys and canonical types come from definitions managed in the AhaSend dashboard; this API exposes neither definition CRUD nor list membership, and API-created contacts have no list membership.
+Contact operations use the `contacts:read`, `contacts:write`, and `contacts:delete` permissions shown below. Writable attribute keys and canonical types come from definitions managed in the AhaSend dashboard, and this API exposes no definition CRUD. A contact created here joins no list on its own; add it to one with the list methods before a campaign can reach it.
 
 Pass a UUID or raw email to lookup, update, and delete methods. The SDK percent-encodes the value exactly once as a path segment, so callers must not pre-encode it. Prefer unsubscribe over delete when the goal is to stop marketing mail: unsubscribe is reversible and preserves history, while hard delete permanently removes contact history. Suppressions remain independent.
 
 For synchronous batch upserts, measure end-to-end latency with representative data, wait for each response, reduce batch size or pace requests when latency grows, and honor `429` responses. The 1,000-contact cap is not a throughput target, and the API makes no fixed throughput guarantee.
+
+## List management
+
+List operations use the `lists:read`, `lists:write`, and `lists:delete` permissions shown below. Adding, changing, and removing a list's members all use `lists:write`; expanding members with `include_contacts: true` also needs `contacts:read`.
+
+A list's `contact_count` is the members a campaign to it would reach: confirmed memberships whose contact is enabled, not unsubscribed account-wide, and not found invalid. Each membership carries its own `subscription_status`. Prefer upserting `subscription_status: "unsubscribed"` over removing a member: removal deletes the membership and the unsubscribe it recorded. A `complained` membership is frozen, and both changing and removing it answer `409`.
+
+A batch add answers `200` with one outcome per entry (`added`, `already_member`, `not_found`, or `invalid`) and never changes an existing membership. Pass a UUID or raw email wherever a contact is named; the SDK percent-encodes it exactly once.
 
 ## Methods
 
@@ -1401,6 +1409,334 @@ const result = await client.contacts.delete(idOrEmail);
 console.log("Contact deleted.", { message: result.message });
 ```
 
+<!-- operation: getLists -->
+
+### lists.list
+
+```ts
+client.lists.list(params?: ListListsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<ContactList>>
+```
+
+- **Operation ID:** `getLists`
+- **HTTP:** `GET /v2/accounts/{account_id}/lists`
+- **Models:** [ListListsParams](../src/resources/lists.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [ContactList](../src/resources/lists.ts)
+- **OpenAPI models:** `200: PaginatedContactListsResponse`
+- **Scopes:** `lists:read`
+- **Security alternatives:** `BearerAuth: lists:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: getLists -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.lists.list({ name: "newsletter", limit: 20 });
+console.log("Lists listed.", { count: page.data.length });
+```
+
+<!-- operation: createList -->
+
+### lists.create
+
+```ts
+client.lists.create(body: CreateContactListRequest, options?: IdempotencyRequestOptions): AhaSendPromise<ContactList>
+```
+
+- **Operation ID:** `createList`
+- **HTTP:** `POST /v2/accounts/{account_id}/lists`
+- **Models:** [CreateContactListRequest](../src/resources/lists.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [ContactList](../src/resources/lists.ts)
+- **OpenAPI models:** `request: CreateContactListRequest`, `201: ContactList`
+- **Scopes:** `lists:write`
+- **Security alternatives:** `BearerAuth: lists:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: createList -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const list = await client.lists.create(
+  { name: "Product updates", description: "Monthly release notes", tags: ["product"] },
+  { idempotencyKey: "sdk-sample-create-list" },
+);
+console.log("List created.", { id: list.id, contactCount: list.contact_count });
+```
+
+<!-- operation: getList -->
+
+### lists.get
+
+```ts
+client.lists.get(listId: UUID, options?: RequestOptions): AhaSendPromise<ContactList>
+```
+
+- **Operation ID:** `getList`
+- **HTTP:** `GET /v2/accounts/{account_id}/lists/{list_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [ContactList](../src/resources/lists.ts)
+- **OpenAPI models:** `200: ContactList`
+- **Scopes:** `lists:read`
+- **Security alternatives:** `BearerAuth: lists:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getList -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const listId = "00000000-0000-4000-8000-000000000010";
+const list = await client.lists.get(listId);
+console.log("List found.", { id: list.id, contactCount: list.contact_count });
+```
+
+<!-- operation: updateList -->
+
+### lists.update
+
+```ts
+client.lists.update(listId: UUID, body: UpdateContactListRequest, options?: RequestOptions): AhaSendPromise<ContactList>
+```
+
+- **Operation ID:** `updateList`
+- **HTTP:** `PUT /v2/accounts/{account_id}/lists/{list_id}`
+- **Models:** [UUID](../src/types/common.ts), [UpdateContactListRequest](../src/resources/lists.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [ContactList](../src/resources/lists.ts)
+- **OpenAPI models:** `request: UpdateContactListRequest`, `200: ContactList`
+- **Scopes:** `lists:write`
+- **Security alternatives:** `BearerAuth: lists:write`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: updateList -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const listId = "00000000-0000-4000-8000-000000000010";
+const list = await client.lists.update(listId, { name: "Product news", tags: [] });
+console.log("List updated.", { id: list.id, name: list.name });
+```
+
+<!-- operation: deleteList -->
+
+### lists.delete
+
+```ts
+client.lists.delete(listId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
+```
+
+- **Operation ID:** `deleteList`
+- **HTTP:** `DELETE /v2/accounts/{account_id}/lists/{list_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **OpenAPI models:** `200: SuccessResponse`
+- **Scopes:** `lists:delete`
+- **Security alternatives:** `BearerAuth: lists:delete`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteList -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const listId = "00000000-0000-4000-8000-000000000010";
+const result = await client.lists.delete(listId);
+console.log("List deleted.", { message: result.message });
+```
+
+<!-- operation: getListContacts -->
+
+### lists.contacts.list
+
+```ts
+client.lists.contacts.list(listId: UUID, params?: ListListContactsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<ListContact>>
+```
+
+- **Operation ID:** `getListContacts`
+- **HTTP:** `GET /v2/accounts/{account_id}/lists/{list_id}/contacts`
+- **Models:** [UUID](../src/types/common.ts), [ListListContactsParams](../src/resources/list-contacts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [ListContact](../src/resources/list-contacts.ts)
+- **OpenAPI models:** `200: PaginatedListContactsResponse`
+- **Scopes:** `lists:read`
+- **Security alternatives:** `BearerAuth: lists:read`
+- **Conditional scope:** also requires `contacts:read` when `include_contacts` is `true`; without it the API answers `403`.
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: getListContacts -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const listId = "00000000-0000-4000-8000-000000000010";
+const page = await client.lists.contacts.list(listId, {
+  subscription_status: "confirmed",
+  limit: 20,
+});
+console.log("List members listed.", { count: page.data.length });
+```
+
+<!-- operation: batchAddListContacts -->
+
+### lists.contacts.batchAdd
+
+```ts
+client.lists.contacts.batchAdd(listId: UUID, body: BatchAddListContactsRequest, options?: IdempotencyRequestOptions): AhaSendPromise<BatchAddListContactsResponse>
+```
+
+- **Operation ID:** `batchAddListContacts`
+- **HTTP:** `POST /v2/accounts/{account_id}/lists/{list_id}/contacts/batch`
+- **Models:** [UUID](../src/types/common.ts), [BatchAddListContactsRequest](../src/resources/list-contacts.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [BatchAddListContactsResponse](../src/resources/list-contacts.ts)
+- **OpenAPI models:** `request: BatchAddListContactsRequest`, `200: BatchAddListContactsResponse`
+- **Scopes:** `lists:write`
+- **Security alternatives:** `BearerAuth: lists:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: batchAddListContacts -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const listId = "00000000-0000-4000-8000-000000000010";
+const result = await client.lists.contacts.batchAdd(
+  listId,
+  {
+    data: [{ email: "one@example.com" }, { id: "00000000-0000-4000-8000-000000000011" }],
+  },
+  { idempotencyKey: "sdk-sample-batch-add-list-contacts" },
+);
+console.log("List batch completed.", { added: result.added, failed: result.failed });
+```
+
+<!-- operation: upsertListContact -->
+
+### lists.contacts.upsert
+
+```ts
+client.lists.contacts.upsert(listId: UUID, idOrEmail: string, body?: UpsertListContactRequest, options?: RequestOptions): AhaSendPromise<ListContact>
+```
+
+- **Operation ID:** `upsertListContact`
+- **HTTP:** `PUT /v2/accounts/{account_id}/lists/{list_id}/contacts/{id_or_email}`
+- **Models:** [UUID](../src/types/common.ts), [UpsertListContactRequest](../src/resources/list-contacts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [ListContact](../src/resources/list-contacts.ts)
+- **OpenAPI models:** `request: UpsertListContactRequest`, `200: ListContact`
+- **Scopes:** `lists:write`
+- **Security alternatives:** `BearerAuth: lists:write`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: upsertListContact -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const listId = "00000000-0000-4000-8000-000000000010";
+const idOrEmail = "User+Tag@Example.COM";
+const membership = await client.lists.contacts.upsert(listId, idOrEmail, {
+  subscription_status: "unsubscribed",
+});
+console.log("List membership saved.", { status: membership.subscription_status });
+```
+
+<!-- operation: deleteListContact -->
+
+### lists.contacts.delete
+
+```ts
+client.lists.contacts.delete(listId: UUID, idOrEmail: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>
+```
+
+- **Operation ID:** `deleteListContact`
+- **HTTP:** `DELETE /v2/accounts/{account_id}/lists/{list_id}/contacts/{id_or_email}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **OpenAPI models:** `200: SuccessResponse`
+- **Scopes:** `lists:write`
+- **Security alternatives:** `BearerAuth: lists:write`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteListContact -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const listId = "00000000-0000-4000-8000-000000000010";
+const idOrEmail = "User+Tag@Example.COM";
+const result = await client.lists.contacts.delete(listId, idOrEmail);
+console.log("Contact removed from list.", { message: result.message });
+```
+
+<!-- operation: getContactLists -->
+
+### contacts.lists.list
+
+```ts
+client.contacts.lists.list(idOrEmail: string, params?: ListContactListsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<ListContact>>
+```
+
+- **Operation ID:** `getContactLists`
+- **HTTP:** `GET /v2/accounts/{account_id}/contacts/{id_or_email}/lists`
+- **Models:** [ListContactListsParams](../src/resources/contact-lists.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [ListContact](../src/resources/list-contacts.ts)
+- **OpenAPI models:** `200: PaginatedListContactsResponse`
+- **Scopes:** `lists:read`
+- **Security alternatives:** `BearerAuth: lists:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: getContactLists -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const idOrEmail = "User+Tag@Example.COM";
+const page = await client.contacts.lists.list(idOrEmail, { subscription_status: "confirmed" });
+console.log("Contact lists listed.", { count: page.data.length });
+```
+
 <!-- operation: getSuppressions -->
 
 ### suppressions.list
@@ -2165,6 +2501,43 @@ client.contacts.iterate(params?: ListContactsParams, options?: RequestOptions): 
 
 - **Operation ID:** `getContacts`
 - **Models:** [ListContactsParams](../src/resources/contacts.ts), [RequestOptions](../src/types/common.ts), [Contact](../src/resources/contacts.ts)
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: getLists -->
+
+### lists.iterate
+
+```ts
+client.lists.iterate(params?: ListListsParams, options?: RequestOptions): AsyncGenerator<ContactList, void, undefined>
+```
+
+- **Operation ID:** `getLists`
+- **Models:** [ListListsParams](../src/resources/lists.ts), [RequestOptions](../src/types/common.ts), [ContactList](../src/resources/lists.ts)
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: getListContacts -->
+
+### lists.contacts.iterate
+
+```ts
+client.lists.contacts.iterate(listId: UUID, params?: ListListContactsParams, options?: RequestOptions): AsyncGenerator<ListContact, void, undefined>
+```
+
+- **Operation ID:** `getListContacts`
+- **Models:** [UUID](../src/types/common.ts), [ListListContactsParams](../src/resources/list-contacts.ts), [RequestOptions](../src/types/common.ts), [ListContact](../src/resources/list-contacts.ts)
+- **Conditional scope:** also requires `contacts:read` when `include_contacts` is `true`; without it the API answers `403`.
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: getContactLists -->
+
+### contacts.lists.iterate
+
+```ts
+client.contacts.lists.iterate(idOrEmail: string, params?: ListContactListsParams, options?: RequestOptions): AsyncGenerator<ListContact, void, undefined>
+```
+
+- **Operation ID:** `getContactLists`
+- **Models:** [ListContactListsParams](../src/resources/contact-lists.ts), [RequestOptions](../src/types/common.ts), [ListContact](../src/resources/list-contacts.ts)
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
 <!-- iterator: getSuppressions -->

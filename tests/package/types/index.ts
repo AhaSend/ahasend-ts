@@ -177,6 +177,24 @@ const contactBatch: SDK.BatchUpsertContactsRequest = {
   ],
 };
 
+const listBody: SDK.CreateContactListRequest = {
+  name: "Package list",
+  description: null,
+  tags: ["package"] as const,
+};
+const listUpdate: SDK.UpdateContactListRequest = { description: "", tags: [] };
+const listFilter: SDK.ListListsParams = { name: "Package", after: "list-cursor" };
+const memberFilter: SDK.ListListContactsParams = {
+  subscription_status: "complained",
+  include_contacts: true,
+  before: "member-cursor",
+};
+const contactListFilter: SDK.ListContactListsParams = { subscription_status: "unsubscribed" };
+const membership: SDK.UpsertListContactRequest = { subscription_status: "unsubscribed" };
+const listBatch: SDK.BatchAddListContactsRequest = {
+  data: [{ email: "package+member@example.com" }, { id: "22222222-2222-4222-8222-222222222222" }],
+};
+
 const direct: SDK.PaginationParams = { limit: 25, after: "direct-cursor" };
 const domains: SDK.ListDomainsParams = { limit: 25, after: "domain-cursor", dns_valid: true };
 const messages: SDK.ListMessagesParams = {
@@ -363,6 +381,24 @@ void client.contacts.get("package+contact@example.com").withResponse();
 void client.contacts.update("package+contact@example.com", contactUpdate).withResponse();
 void client.contacts.delete("package+contact@example.com").withResponse();
 
+void client.lists.list(listFilter).withResponse();
+void client.lists.create(listBody, { idempotencyKey: "package-list" }).withResponse();
+void client.lists.get(uuid).withResponse();
+void client.lists.update(uuid, listUpdate).withResponse();
+void client.lists.delete(uuid).withResponse();
+void client.contacts.lists.list("package+member@example.com", contactListFilter).withResponse();
+void client.contacts.lists.iterate("package+member@example.com").next();
+void client.lists.contacts.list(uuid, memberFilter).withResponse();
+void client.lists.contacts.iterate(uuid).next();
+void client.lists.contacts.upsert(uuid, "package+member@example.com").withResponse();
+void client.lists.contacts.upsert(uuid, "package+member@example.com", membership).withResponse();
+void client.lists.contacts.delete(uuid, "package+member@example.com").withResponse();
+void client.lists.contacts.batchAdd(uuid, listBatch, { idempotencyKey: "package-batch" });
+// @ts-expect-error A complained status is the mailbox provider's verdict and is never writable.
+void client.lists.contacts.upsert(uuid, "x@example.com", { subscription_status: "complained" });
+// @ts-expect-error Only list creation and batch add accept an idempotency key.
+void client.lists.update(uuid, listUpdate, { idempotencyKey: "not-accepted" });
+
 void client.suppressions.list(suppressions).withResponse();
 void client.suppressions.create(suppressionBody).withResponse();
 void client.suppressions.delete({ email: "recipient@example.com" }).withResponse();
@@ -457,6 +493,28 @@ const contactsMock: SDK.ContactsClient = {
   update: () => result<SDK.Contact>(),
   delete: () => result<SDK.SuccessResponse>(),
   batchUpsert: () => result<SDK.BatchUpsertContactsResponse>(),
+  lists: {
+    list: () => result<SDK.PaginatedResponse<SDK.ListContact>>(),
+    iterate: () => iterator<SDK.ListContact>(),
+  },
+};
+
+const listContactsMock: SDK.ListContactsClient = {
+  list: () => result<SDK.PaginatedResponse<SDK.ListContact>>(),
+  iterate: () => iterator<SDK.ListContact>(),
+  upsert: () => result<SDK.ListContact>(),
+  delete: () => result<SDK.SuccessResponse>(),
+  batchAdd: () => result<SDK.BatchAddListContactsResponse>(),
+};
+
+const listsMock: SDK.ListsClient = {
+  list: () => result<SDK.PaginatedResponse<SDK.ContactList>>(),
+  iterate: () => iterator<SDK.ContactList>(),
+  get: () => result<SDK.ContactList>(),
+  create: () => result<SDK.ContactList>(),
+  update: () => result<SDK.ContactList>(),
+  delete: () => result<SDK.SuccessResponse>(),
+  contacts: listContactsMock,
 };
 
 const suppressionsMock: SDK.SuppressionsClient = {
@@ -523,6 +581,7 @@ type ClientResourceSurface = Pick<
   | "webhooks"
   | "statistics"
   | "contacts"
+  | "lists"
   | "suppressions"
   | "routes"
   | "accounts"
@@ -538,6 +597,7 @@ const clientMock: ClientResourceSurface = {
   webhooks: webhooksMock,
   statistics: statisticsMock,
   contacts: contactsMock,
+  lists: listsMock,
   suppressions: suppressionsMock,
   routes: routesMock,
   accounts: accountsMock,
@@ -693,6 +753,8 @@ void client.messages.list({ status: "delivered", after: "after", before: "before
 void client.routes.list({ domain: "example.com", after: "after", before: "before" });
 // @ts-expect-error Filtered list parameters retain the cursor XOR.
 void client.contacts.list({ status: "enabled", after: "after", before: "before" });
+// @ts-expect-error Filtered list parameters retain the cursor XOR.
+void client.lists.contacts.list(uuid, { email: "x@example.com", after: "after", before: "before" });
 void client.suppressions.list({
   email: "recipient@example.com",
   after: "after",

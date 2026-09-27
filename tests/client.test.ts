@@ -110,7 +110,7 @@ describe("AhaSendClient", () => {
     expect(rendered).not.toContain(secret);
   });
 
-  it("exposes messages, templates, domains, apiKeys, and contacts resource clients", () => {
+  it("exposes messages, templates, domains, apiKeys, contacts, and lists resource clients", () => {
     const client = new AhaSendClient({
       apiKey: "aha-sk-test",
       accountId: "11111111-1111-4111-8111-111111111111",
@@ -121,6 +121,8 @@ describe("AhaSendClient", () => {
     expect(client.domains).toBeDefined();
     expect(client.apiKeys).toBeDefined();
     expect(client.contacts).toBeDefined();
+    expect(client.lists).toBeDefined();
+    expect(client.lists.contacts).toBeDefined();
     expect(client.accountId).toBe("11111111-1111-4111-8111-111111111111");
   });
 
@@ -214,6 +216,8 @@ describe("AhaSendClient", () => {
       client.webhooks,
       client.statistics,
       client.contacts,
+      client.lists,
+      client.lists.contacts,
       client.suppressions,
       client.routes,
       client.accounts,
@@ -224,6 +228,8 @@ describe("AhaSendClient", () => {
 
     expect(client.messages).toBe(client.messages);
     expect(client.templates).toBe(client.templates);
+    expect(client.lists).toBe(client.lists);
+    expect(client.lists.contacts).toBe(client.lists.contacts);
     for (const facade of facades) {
       expect(Object.isFrozen(facade)).toBe(true);
       expect(Object.getOwnPropertyNames(facade)).not.toContain("http");
@@ -412,7 +418,7 @@ describe("AhaSendClient", () => {
     }
   });
 
-  it("exposes exactly seven contact methods without leaking executor state", () => {
+  it("exposes exactly seven contact methods and the lists facade without leaking executor state", () => {
     const apiKey = "aha-sk-contact-facade-secret";
     const transport = mockFetch(() => new Response("{}", { status: 200 }));
     const client = new AhaSendClient({
@@ -432,7 +438,9 @@ describe("AhaSendClient", () => {
       "update",
       "delete",
       "batchUpsert",
+      "lists",
     ]);
+    expect(Object.getOwnPropertyNames(facade.lists)).toEqual(["list", "iterate"]);
     expect(Object.getOwnPropertySymbols(facade)).toEqual([]);
     expect(JSON.stringify(facade)).toBe("{}");
 
@@ -441,6 +449,42 @@ describe("AhaSendClient", () => {
       expect(rendered).not.toContain("OperationExecutor");
       expect(rendered).not.toContain("HttpClient");
       expect(rendered).not.toContain("transport");
+      expect(rendered).not.toContain("#operations");
+    }
+  });
+
+  it("exposes the list methods and the members facade without leaking executor state", () => {
+    const apiKey = "aha-sk-list-facade-secret";
+    const client = new AhaSendClient({
+      apiKey,
+      accountId: "11111111-1111-4111-8111-111111111111",
+      fetch: mockFetch(() => new Response("{}", { status: 200 })),
+    });
+    const facade = client.lists;
+
+    expect(Object.getOwnPropertyNames(facade)).toEqual([
+      "list",
+      "iterate",
+      "get",
+      "create",
+      "update",
+      "delete",
+      "contacts",
+    ]);
+    expect(Object.getOwnPropertyNames(facade.contacts)).toEqual([
+      "list",
+      "iterate",
+      "upsert",
+      "delete",
+      "batchAdd",
+    ]);
+    expect(JSON.stringify(facade)).toBe("{}");
+    for (const rendered of [
+      inspect(facade, { showHidden: true }),
+      inspect(facade.contacts, { showHidden: true }),
+    ]) {
+      expect(rendered).not.toContain(apiKey);
+      expect(rendered).not.toContain("OperationExecutor");
       expect(rendered).not.toContain("#operations");
     }
   });

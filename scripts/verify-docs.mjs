@@ -19,8 +19,8 @@ import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
-const EXPECTED_NODE_SAMPLE_COUNT = 64;
-const EXPECTED_ITERATOR_COUNT = 11;
+const EXPECTED_NODE_SAMPLE_COUNT = 74;
+const EXPECTED_ITERATOR_COUNT = 14;
 const SUPPORTING_EXAMPLE_PATHS = Object.freeze([
   "examples/next-webhook-route/create-webhook-route.mjs",
 ]);
@@ -183,7 +183,7 @@ const REQUIREMENTS = Object.freeze([
   {
     label: "README idempotent-operation inventory",
     path: "README.md",
-    text: "all 11 endpoints whose generated operation profile marks them idempotent",
+    text: "all 15 endpoints whose generated operation profile marks them idempotent",
   },
   {
     label: "README parsed webhook body behavior",

@@ -13,6 +13,7 @@ import {
   createCleanupRegistry,
   createContactScenarioRegistry,
   createDomainScenarioRegistry,
+  createListScenarioRegistry,
   createLiveReport,
   createMessageScenarioRegistry,
   createRouteScenarioRegistry,
@@ -30,6 +31,7 @@ import {
   runContactLiveScenarios,
   runDomainLiveScenarios,
   runAPIKeyLiveScenarios,
+  runListLiveScenarios,
   runMessageLiveScenarios,
   runRouteLiveScenarios,
   runSMTPCredentialLiveScenarios,
@@ -49,6 +51,7 @@ import {
   type DomainLiveClient,
   type LiveCandidate,
   type LiveCandidateManifest,
+  type ListLiveClient,
   type LiveProfile,
   type MessageLiveClient,
   type RouteLiveClient,
@@ -171,6 +174,25 @@ function completeLiveResults(candidate: LiveCandidate) {
     fullSuccessObjects: 2,
   };
   byId.get("deleteContact")!.evidence = { cleanupVerified: true, deleted: true };
+  for (const operationId of ["getLists", "getListContacts", "getContactLists"]) {
+    byId.get(operationId)!.evidence = {
+      ...byId.get(operationId)!.evidence,
+      iteratorCrossedPage: true,
+    };
+  }
+  byId.get("upsertListContact")!.evidence = {
+    createdStatus: "confirmed",
+    updatedStatus: "unsubscribed",
+  };
+  byId.get("batchAddListContacts")!.evidence = {
+    added: 1,
+    skipped: 1,
+    failed: 1,
+    outcomes: ["already_member", "added", "not_found"],
+    unsubscribePreserved: true,
+  };
+  byId.get("deleteListContact")!.evidence = { removed: true, repeatNotFound: true };
+  byId.get("deleteList")!.evidence = { cleanupVerified: true, deleted: true };
   for (const operationId of [
     "getDeliverabilityStatistics",
     "getBounceStatistics",
@@ -473,6 +495,320 @@ function statisticsClientFixture(options: { checkEveryDomain?: boolean } = {}) {
       unauthorized: secondDomain,
     },
   };
+}
+
+function listClientFixture(
+  options: { loseCreateResponse?: boolean; overwriteUnsubscribe?: boolean } = {},
+) {
+  interface ListRecord {
+    object: "contact_list";
+    id: string;
+    created_at: string;
+    updated_at: string;
+    name: string;
+    description: string;
+    tags: string[];
+  }
+  interface MembershipRecord {
+    object: "list_contact";
+    list_id: string;
+    contact_id: string;
+    email: string;
+    subscription_status: "unconfirmed" | "confirmed" | "unsubscribed" | "complained";
+    subscribed_at: string | null;
+    unsubscribed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }
+
+  const timestamp = "2026-09-27T00:00:00Z";
+  const listId = "33333333-3333-4333-8333-333333333333";
+  const memberEmails = ["sdk+list@example.com", "sdk+list-batch@example.com"] as const;
+  const unknownEmail = "sdk+absent@example.com";
+  const calls: Array<{ method: string; args: unknown[] }> = [];
+  const lists = new Map<string, ListRecord>();
+  const contacts = new Map<string, { object: "contact"; id: string; email: string }>();
+  const memberships = new Map<string, MembershipRecord>();
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const record = (method: string, ...args: unknown[]) => calls.push({ method, args });
+  const requireList = (id: string) => {
+    const list = lists.get(id);
+    if (list === undefined) throw notFound();
+    return list;
+  };
+  const requireContact = (idOrEmail: string) => {
+    const contact = [...contacts.values()].find(
+      ({ id, email }) => id === idOrEmail || email === idOrEmail,
+    );
+    if (contact === undefined) throw notFound();
+    return contact;
+  };
+  const withCount = (list: ListRecord) => ({
+    ...list,
+    tags: [...list.tags],
+    contact_count: [...memberships.values()].filter(
+      (membership) =>
+        membership.list_id === list.id && membership.subscription_status === "confirmed",
+    ).length,
+  });
+  // Offset cursors, so a limit-1 walk has to follow `next_cursor` like the API.
+  const page = <T>(data: T[], params: Record<string, unknown> = {}) => {
+    const start = typeof params["after"] === "string" ? Number(params["after"]) : 0;
+    const limit = typeof params["limit"] === "number" ? params["limit"] : 100;
+    const hasMore = start + limit < data.length;
+    return {
+      object: "list",
+      data: data.slice(start, start + limit),
+      pagination: {
+        has_more: hasMore,
+        next_cursor: hasMore ? String(start + limit) : null,
+        previous_cursor: null,
+      },
+    };
+  };
+  async function* walk<T>(
+    method: string,
+    params: Record<string, unknown>,
+    fetchPage: (params: Record<string, unknown>) => ReturnType<typeof page<T>>,
+    ...args: unknown[]
+  ) {
+    let current = { ...params };
+    while (true) {
+      record(method, ...args, current);
+      const result = fetchPage(current);
+      yield* result.data;
+      if (!result.pagination.has_more) return;
+      current = { ...current, after: result.pagination.next_cursor };
+    }
+  }
+  let listSequence = 0;
+  const membersOf = (id: string, params: Record<string, unknown> = {}) =>
+    [...memberships.values()]
+      .filter(
+        (membership) =>
+          membership.list_id === id &&
+          (params["subscription_status"] === undefined ||
+            membership.subscription_status === params["subscription_status"]) &&
+          (params["email"] === undefined || membership.email === params["email"]),
+      )
+      .map((membership) => ({
+        ...membership,
+        ...(params["include_contacts"] === true
+          ? { contact: { ...requireContact(membership.contact_id) } }
+          : {}),
+      }));
+  const listPage = (params: Record<string, unknown>) => {
+    const name = String(params["name"] ?? "").toLowerCase();
+    return page(
+      [...lists.values()].filter((list) => list.name.toLowerCase().includes(name)).map(withCount),
+      params,
+    );
+  };
+  const listsOfContact = (idOrEmail: string) => {
+    const contact = requireContact(idOrEmail);
+    return [...memberships.values()]
+      .filter(({ contact_id, list_id }) => contact_id === contact.id && lists.has(list_id))
+      .map((membership) => ({ ...membership, list: { ...lists.get(membership.list_id)! } }));
+  };
+
+  const client: ListLiveClient = {
+    lists: {
+      list: async (params: Record<string, unknown>) => {
+        record("lists.list", params);
+        return listPage(params);
+      },
+      iterate: (params: Record<string, unknown>) => walk("lists.iterate", params, listPage),
+      create: async (body: { name: string; description?: string | null; tags?: string[] }) => {
+        record("lists.create", body);
+        const list: ListRecord = {
+          object: "contact_list",
+          id: listSequence++ === 0 ? listId : `55555555-5555-4555-8555-55555555555${listSequence}`,
+          created_at: timestamp,
+          updated_at: timestamp,
+          name: body.name,
+          description: body.description ?? "",
+          tags: [...(body.tags ?? [])],
+        };
+        lists.set(list.id, list);
+        if (options.loseCreateResponse === true) throw new Error("socket hang up");
+        return withCount(list);
+      },
+      get: async (id: string) => {
+        record("lists.get", id);
+        return withCount(requireList(id));
+      },
+      update: async (
+        id: string,
+        body: { name?: string | null; description?: string | null; tags?: string[] | null },
+      ) => {
+        record("lists.update", id, body);
+        const list = requireList(id);
+        if (body.name != null) list.name = body.name;
+        if (body.description != null) list.description = body.description;
+        if (body.tags != null) list.tags = [...body.tags];
+        return withCount(list);
+      },
+      delete: async (id: string) => {
+        record("lists.delete", id);
+        requireList(id);
+        lists.delete(id);
+        return { message: "list deleted" };
+      },
+      contacts: {
+        list: async (id: string, params: Record<string, unknown>) => {
+          record("lists.contacts.list", id, params);
+          requireList(id);
+          return page(membersOf(id, params), params);
+        },
+        iterate: (id: string, params: Record<string, unknown>) =>
+          walk(
+            "lists.contacts.iterate",
+            params,
+            (current) => page(membersOf(requireList(id).id, current), current),
+            id,
+          ),
+        upsert: async (
+          id: string,
+          idOrEmail: string,
+          body?: { subscription_status?: MembershipRecord["subscription_status"] },
+        ) => {
+          record("lists.contacts.upsert", id, idOrEmail, body);
+          requireList(id);
+          const contact = requireContact(idOrEmail);
+          const key = `${id}:${contact.id}`;
+          const existing = memberships.get(key);
+          const status = body?.subscription_status ?? existing?.subscription_status ?? "confirmed";
+          const membership: MembershipRecord = {
+            object: "list_contact",
+            list_id: id,
+            contact_id: contact.id,
+            email: contact.email,
+            subscription_status: status,
+            subscribed_at: status === "confirmed" ? timestamp : (existing?.subscribed_at ?? null),
+            unsubscribed_at: status === "unsubscribed" ? timestamp : null,
+            created_at: existing?.created_at ?? timestamp,
+            updated_at: timestamp,
+          };
+          memberships.set(key, membership);
+          return { ...membership };
+        },
+        delete: async (id: string, idOrEmail: string) => {
+          record("lists.contacts.delete", id, idOrEmail);
+          requireList(id);
+          const key = `${id}:${requireContact(idOrEmail).id}`;
+          if (!memberships.delete(key)) throw notFound();
+          return { message: "contact removed from list" };
+        },
+        batchAdd: async (id: string, body: { data: Array<{ email: string }> }) => {
+          record("lists.contacts.batchAdd", id, body);
+          requireList(id);
+          let added = 0;
+          let skipped = 0;
+          let failed = 0;
+          const data = body.data.map(({ email }, position) => {
+            const contact = [...contacts.values()].find((entry) => entry.email === email);
+            if (contact === undefined) {
+              failed += 1;
+              return {
+                position,
+                email,
+                outcome: "not_found",
+                reason: "no contact in this account matches this identifier",
+              };
+            }
+            const key = `${id}:${contact.id}`;
+            const existing = memberships.get(key);
+            if (existing !== undefined) {
+              skipped += 1;
+              if (options.overwriteUnsubscribe === true) {
+                existing.subscription_status = "confirmed";
+              }
+              return { position, email, outcome: "already_member", membership: { ...existing } };
+            }
+            added += 1;
+            const membership: MembershipRecord = {
+              object: "list_contact",
+              list_id: id,
+              contact_id: contact.id,
+              email,
+              subscription_status: "confirmed",
+              subscribed_at: timestamp,
+              unsubscribed_at: null,
+              created_at: timestamp,
+              updated_at: timestamp,
+            };
+            memberships.set(key, membership);
+            return { position, email, outcome: "added", membership: { ...membership } };
+          });
+          return { object: "list", added, skipped, failed, data };
+        },
+      },
+    },
+    contacts: {
+      create: async (body: { email: string }) => {
+        record("contacts.create", body);
+        const contact = {
+          object: "contact" as const,
+          id: `4444444${contacts.size}-4444-4444-8444-444444444444`,
+          email: body.email,
+        };
+        contacts.set(body.email, contact);
+        return { ...contact };
+      },
+      get: async (email: string) => {
+        record("contacts.get", email);
+        const contact = contacts.get(email);
+        if (contact === undefined) throw notFound();
+        return { ...contact };
+      },
+      delete: async (email: string) => {
+        record("contacts.delete", email);
+        const contact = contacts.get(email);
+        if (contact === undefined) throw notFound();
+        contacts.delete(email);
+        for (const [key, membership] of memberships) {
+          if (membership.contact_id === contact.id) memberships.delete(key);
+        }
+        return { message: "contact deleted" };
+      },
+      lists: {
+        list: async (idOrEmail: string, params: Record<string, unknown>) => {
+          record("contacts.lists.list", idOrEmail, params);
+          return page(listsOfContact(idOrEmail), params);
+        },
+        iterate: (idOrEmail: string, params: Record<string, unknown>) =>
+          walk(
+            "contacts.lists.iterate",
+            params,
+            (current) => page(listsOfContact(idOrEmail), current),
+            idOrEmail,
+          ),
+      },
+    },
+  };
+
+  return {
+    calls,
+    client,
+    contacts,
+    createRequest: { name: "SDK live list", description: "Live list", tags: ["sdk-live"] },
+    lists,
+    memberEmails,
+    memberships,
+    unknownEmail,
+    updateRequest: { name: "Updated SDK live list", description: "", tags: [] } as const,
+  };
+}
+
+function listRegistry(fixture: ReturnType<typeof listClientFixture>) {
+  return createListScenarioRegistry({
+    profile: inspectFixture().profile,
+    client: fixture.client,
+    createRequest: fixture.createRequest,
+    updateRequest: fixture.updateRequest,
+    memberEmails: fixture.memberEmails,
+    unknownEmail: fixture.unknownEmail,
+  });
 }
 
 function contactClientFixture(
@@ -1629,10 +1965,10 @@ describe("live candidate foundation", () => {
       name: "@ahasend/sdk",
       version: "0.1.0-live-test",
     });
-    expect(candidate.profile.operations).toHaveLength(64);
-    expect(candidate.profile.iterators).toHaveLength(11);
-    expect(candidate.registry.primary.size).toBe(64);
-    expect(candidate.registry.iterators).toHaveLength(11);
+    expect(candidate.profile.operations).toHaveLength(74);
+    expect(candidate.profile.iterators).toHaveLength(14);
+    expect(candidate.registry.primary.size).toBe(74);
+    expect(candidate.registry.iterators).toHaveLength(14);
     expect(Object.isFrozen(candidate.manifest)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.contractSha256)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.keysSha256)).toBe(true);
@@ -1715,8 +2051,8 @@ describe("live candidate foundation", () => {
     expect(candidate.package.version).toBe("0.1.0-archive-test");
     expect(candidate.profileSource).toEqual(profile.source);
     expect(candidate.profileSidecar).toEqual(profile.sidecar);
-    expect(candidate.profile.operations).toHaveLength(64);
-    expect(candidate.profile.iterators).toHaveLength(11);
+    expect(candidate.profile.operations).toHaveLength(74);
+    expect(candidate.profile.iterators).toHaveLength(14);
   });
 
   it("installs an immutable copy only after all candidate artifacts verify", async () => {
@@ -1772,7 +2108,7 @@ describe("live candidate foundation", () => {
 
     expect(runCommand).toHaveBeenCalledOnce();
     expect(readFileSync(resolve(installDirectory, basename(tarballPath)))).toEqual(fixture.tarball);
-    expect(installed.profile.operations).toHaveLength(64);
+    expect(installed.profile.operations).toHaveLength(74);
 
     const badDirectory = join(directory, "bad-install");
     writeFileSync(tarballPath, Buffer.from("substituted after candidate creation"));
@@ -1794,7 +2130,7 @@ describe("live candidate foundation", () => {
 });
 
 describe("live scenario inventory", () => {
-  it("creates 64 primary scenarios and eleven attached iterator subcases from the profile", () => {
+  it("creates 74 primary scenarios and fourteen attached iterator subcases from the profile", () => {
     const profile = inspectFixture().profile;
     const registry = createScenarioRegistry(
       profile,
@@ -1804,9 +2140,9 @@ describe("live scenario inventory", () => {
       })),
     );
 
-    expect(registry.primary.size).toBe(64);
-    expect(registry.iterators).toHaveLength(11);
-    expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(11);
+    expect(registry.primary.size).toBe(74);
+    expect(registry.iterators).toHaveLength(14);
+    expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(14);
     for (const iterator of registry.iterators) {
       expect(iterator.method).toBe("iterate");
       expect(iterator.primary).toBe(registry.primary.get(iterator.operationId));
@@ -1821,7 +2157,7 @@ describe("live scenario inventory", () => {
     expect(Object.isFrozen(registry.primary)).toBe(true);
     expect(() => mutablePrimary.delete(profile.operations[0]!.operationId)).toThrow();
     expect(() => mutablePrimary.set("orphan", {})).toThrow();
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
   });
 
   it("rejects missing, orphaned, duplicate, and mapping-redefining scenarios", () => {
@@ -1893,7 +2229,7 @@ describe("live scenario inventory", () => {
     );
     expect(domainEntries).toHaveLength(6);
     expect(domainEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, DomainLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2022,7 +2358,7 @@ describe("live scenario inventory", () => {
       operationId: "getContacts",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, ContactLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2142,6 +2478,206 @@ describe("live scenario inventory", () => {
     ]);
   });
 
+  it("registers every list primary across its three facades and links all three iterators", () => {
+    const registry = listRegistry(listClientFixture());
+    const listEntries = [...registry.primary.values()].filter(({ facade }) =>
+      ["lists", "lists.contacts", "contacts.lists"].includes(facade),
+    );
+
+    expect(listEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      [
+        "batchAddListContacts",
+        "createList",
+        "deleteList",
+        "deleteListContact",
+        "getContactLists",
+        "getList",
+        "getListContacts",
+        "getLists",
+        "updateList",
+        "upsertListContact",
+      ].sort(),
+    );
+    expect(listEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(
+      registry.iterators
+        .filter(({ facade }) => ["lists", "lists.contacts", "contacts.lists"].includes(facade))
+        .map(({ operationId, method }) => `${operationId}.${method}`),
+    ).toEqual(["getLists.iterate", "getListContacts.iterate", "getContactLists.iterate"]);
+    expect(registry.primary.size).toBe(74);
+    expectTypeOf<IsAssignable<AhaSendClient, ListLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("runs the disposable list lifecycle in order and records membership evidence", async () => {
+    const fixture = listClientFixture();
+    const result = await runListLiveScenarios(listRegistry(fixture));
+
+    expect(result.failure).toBeNull();
+    expect(result.operationResults.map(({ operationId }) => operationId)).toEqual([
+      "createList",
+      "updateList",
+      "getLists",
+      "upsertListContact",
+      "batchAddListContacts",
+      "getListContacts",
+      "getContactLists",
+      "getList",
+      "deleteListContact",
+      "deleteList",
+    ]);
+    expect(result.operationResults.every(({ status }) => status === "passed")).toBe(true);
+    expect(result.iteratorResults.map(({ operationId }) => operationId)).toEqual([
+      "getLists",
+      "getListContacts",
+      "getContactLists",
+    ]);
+    const evidence = (operationId: string) =>
+      result.operationResults.find((entry) => entry.operationId === operationId)?.evidence;
+    expect(evidence("batchAddListContacts")).toEqual({
+      added: 1,
+      skipped: 1,
+      failed: 1,
+      outcomes: ["already_member", "added", "not_found"],
+      unsubscribePreserved: true,
+    });
+    expect(evidence("upsertListContact")).toEqual({
+      createdStatus: "confirmed",
+      updatedStatus: "unsubscribed",
+    });
+    expect(evidence("getListContacts")).toMatchObject({
+      contactEmbedded: true,
+      statusFilterMatched: true,
+      direction: "forward",
+      limit: 1,
+    });
+    expect(evidence("getContactLists")).toMatchObject({
+      contactCountOmitted: true,
+      listEmbedded: true,
+    });
+    expect(evidence("deleteListContact")).toEqual({ removed: true, repeatNotFound: true });
+    expect(evidence("deleteList")).toEqual({ cleanupVerified: true, deleted: true });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify list contact fixture", status: "passed" },
+      { label: "delete and verify list contact fixture", status: "passed" },
+      { label: "delete and verify disposable list", status: "passed" },
+    ]);
+    expect(fixture.lists.size).toBe(0);
+    expect(fixture.contacts.size).toBe(0);
+    expect(fixture.memberships.size).toBe(0);
+
+    const upserts = fixture.calls.filter(({ method }) => method === "lists.contacts.upsert");
+    const secondListId = "55555555-5555-4555-8555-555555555552";
+    expect(upserts.map(({ args }) => args)).toEqual([
+      ["33333333-3333-4333-8333-333333333333", fixture.memberEmails[0], undefined],
+      [
+        "33333333-3333-4333-8333-333333333333",
+        fixture.memberEmails[0],
+        { subscription_status: "unsubscribed" },
+      ],
+      [secondListId, fixture.memberEmails[0], undefined],
+    ]);
+    expect(fixture.calls.filter(({ method }) => method === "lists.create")).toHaveLength(2);
+    // Each limit-1 iterator walks two pages, the second from the first page's cursor.
+    for (const method of ["lists.iterate", "lists.contacts.iterate", "contacts.lists.iterate"]) {
+      expect(
+        fixture.calls
+          .filter((call) => call.method === method)
+          .map(({ args }) => (args.at(-1) as Record<string, unknown>)["after"]),
+        method,
+      ).toEqual([undefined, "1"]);
+    }
+    for (const operationId of ["getLists", "getListContacts", "getContactLists"]) {
+      expect(evidence(operationId), operationId).toMatchObject({ iteratorCrossedPage: true });
+    }
+    expect(result.iteratorResults.map(({ evidence }) => evidence)).toEqual([
+      { direction: "forward", items: 2, limit: 1 },
+      { direction: "forward", items: 2, limit: 1 },
+      { direction: "forward", items: 2, limit: 1 },
+    ]);
+    expect(
+      fixture.calls.find(({ method }) => method === "lists.contacts.batchAdd")?.args[1],
+    ).toEqual({
+      data: [
+        { email: fixture.memberEmails[0] },
+        { email: fixture.memberEmails[1] },
+        { email: fixture.unknownEmail },
+      ],
+    });
+    expect(
+      fixture.calls
+        .filter(({ method }) => method === "lists.contacts.delete")
+        .map(({ args }) => args[1]),
+    ).toEqual([fixture.memberEmails[1], fixture.memberEmails[1]]);
+    const pathEmails = fixture.calls
+      .filter(
+        ({ method }) => method.startsWith("lists.contacts.") || method.startsWith("contacts."),
+      )
+      .flatMap(({ args }) => args.filter((arg): arg is string => typeof arg === "string"));
+    expect(pathEmails.some((value) => value.includes("%2B") || value.includes("%40"))).toBe(false);
+    expect(fixture.memberEmails[0]).toContain("+");
+  });
+
+  it("fails the batch when an existing unsubscribe is overwritten and still cleans every fixture", async () => {
+    const fixture = listClientFixture({ overwriteUnsubscribe: true });
+    const result = await runListLiveScenarios(listRegistry(fixture));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "batchAddListContacts" });
+    expect(result.operationResults.at(-1)).toEqual({
+      operationId: "batchAddListContacts",
+      status: "failed",
+    });
+    expect(result.cleanupResults.every(({ status }) => status === "passed")).toBe(true);
+    expect(fixture.lists.size).toBe(0);
+    expect(fixture.contacts.size).toBe(0);
+  });
+
+  it("finds and deletes a list whose create response was lost", async () => {
+    const fixture = listClientFixture({ loseCreateResponse: true });
+    const result = await runListLiveScenarios(listRegistry(fixture));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createList" });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable list", status: "passed" },
+    ]);
+    expect(fixture.lists.size).toBe(0);
+    expect(fixture.calls.map(({ method }) => method)).toEqual([
+      "lists.create",
+      "lists.list",
+      "lists.list",
+      "lists.list",
+      "lists.delete",
+      "lists.get",
+    ]);
+  });
+
+  it("rejects list update requests that do not rename and clear", () => {
+    const fixture = listClientFixture();
+    const build = (updateRequest: unknown) =>
+      createListScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: updateRequest as typeof fixture.updateRequest,
+        memberEmails: fixture.memberEmails,
+        unknownEmail: fixture.unknownEmail,
+      });
+
+    expect(() => build({ ...fixture.updateRequest, name: fixture.createRequest.name })).toThrow(
+      "must rename the list",
+    );
+    expect(() => build({ ...fixture.updateRequest, tags: null })).toThrow("clear the description");
+    expect(() =>
+      createListScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        memberEmails: fixture.memberEmails,
+        unknownEmail: fixture.memberEmails[1],
+      }),
+    ).toThrow("must differ from both member emails");
+  });
+
   it("registers exactly one executable scenario for ping and every message primary", () => {
     const fixture = messageClientFixture();
     const registry = createMessageScenarioRegistry({
@@ -2168,7 +2704,7 @@ describe("live scenario inventory", () => {
     );
     expect(messageEntries).toHaveLength(6);
     expect(messageEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, MessageLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2480,7 +3016,7 @@ describe("live scenario inventory", () => {
     );
     expect(apiKeyEntries).toHaveLength(5);
     expect(apiKeyEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, APIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2693,7 +3229,7 @@ describe("live scenario inventory", () => {
     );
     expect(routeEntries).toHaveLength(5);
     expect(routeEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, RouteLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2942,7 +3478,7 @@ describe("live scenario inventory", () => {
     );
     expect(webhookEntries).toHaveLength(5);
     expect(webhookEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, WebhookLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3191,7 +3727,7 @@ describe("live scenario inventory", () => {
         ({ operationId, method }) => operationId.includes("update") || method === "update",
       ),
     ).toBe(false);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, SMTPCredentialLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3396,7 +3932,7 @@ describe("live scenario inventory", () => {
     expect(accountEntries).toHaveLength(5);
     expect(accountEntries.every(({ run }) => typeof run === "function")).toBe(true);
     expect(registry.iterators.filter(({ facade }) => facade === "accounts")).toHaveLength(0);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, AccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3587,7 +4123,7 @@ describe("live scenario inventory", () => {
     );
     expect(suppressionEntries).toHaveLength(4);
     expect(suppressionEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, SuppressionLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3792,7 +4328,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(8);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4135,7 +4671,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(5);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountAPIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4401,7 +4937,7 @@ describe("live scenario inventory", () => {
     );
     expect(statisticsEntries).toHaveLength(3);
     expect(statisticsEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(64);
+    expect(registry.primary.size).toBe(74);
     expectTypeOf<IsAssignable<AhaSendClient, StatisticsLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5157,16 +5693,16 @@ describe("live cleanup and reporting", () => {
       package: candidate.package,
       tarballSha256: candidate.tarballSha256,
     });
-    expect(parsed.operations).toHaveLength(64);
-    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(64);
-    expect(parsed.iterators).toHaveLength(11);
-    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(11);
+    expect(parsed.operations).toHaveLength(74);
+    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(74);
+    expect(parsed.iterators).toHaveLength(14);
+    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(14);
     expect(
       validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
     ).toMatchObject({
       reportSha256: written.reportSha256,
-      operations: 64,
-      iterators: 11,
+      operations: 74,
+      iterators: 14,
       authorizationOutcomes: 11,
       sandboxOutcomes: 3,
       unexpectedFailures: 0,
@@ -5299,11 +5835,11 @@ describe("live cleanup and reporting", () => {
 
     const missing = structuredClone(report);
     missing.operations.pop();
-    expect(() => validate(missing)).toThrow("must contain exactly 64 results");
+    expect(() => validate(missing)).toThrow("must contain exactly 74 results");
 
     const missingIterator = structuredClone(report);
     missingIterator.iterators.pop();
-    expect(() => validate(missingIterator)).toThrow("must contain exactly 11 results");
+    expect(() => validate(missingIterator)).toThrow("must contain exactly 14 results");
 
     const orphan = structuredClone(report);
     orphan.operations[0]!.operationId = "orphanedOperation";
@@ -5379,6 +5915,34 @@ describe("live cleanup and reporting", () => {
     )!;
     delete (contactDelete.evidence as Record<string, unknown>).cleanupVerified;
     expect(() => validate(missingDeleteVerification)).toThrow("deleteContact cleanupVerified");
+
+    const reorderedListBatch = structuredClone(baseReport);
+    const listBatch = reorderedListBatch.operations.find(
+      ({ operationId }) => operationId === "batchAddListContacts",
+    )!;
+    (listBatch.evidence as Record<string, unknown>).outcomes = [
+      "added",
+      "already_member",
+      "not_found",
+    ];
+    expect(() => validate(reorderedListBatch)).toThrow("batchAddListContacts outcomes");
+
+    const overwrittenUnsubscribe = structuredClone(baseReport);
+    delete (
+      overwrittenUnsubscribe.operations.find(
+        ({ operationId }) => operationId === "batchAddListContacts",
+      )!.evidence as Record<string, unknown>
+    ).unsubscribePreserved;
+    expect(() => validate(overwrittenUnsubscribe)).toThrow(
+      "batchAddListContacts unsubscribePreserved",
+    );
+
+    const unverifiedRemoval = structuredClone(baseReport);
+    (
+      unverifiedRemoval.operations.find(({ operationId }) => operationId === "deleteListContact")!
+        .evidence as Record<string, unknown>
+    ).repeatNotFound = false;
+    expect(() => validate(unverifiedRemoval)).toThrow("deleteListContact repeatNotFound");
   });
 
   it("rejects altered sidecars, duplicate IDs, detached iterators, and extra package fields", () => {

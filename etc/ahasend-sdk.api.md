@@ -34,7 +34,6 @@ export interface Account {
     track_opens: boolean;
     // (undocumented)
     updated_at: ISODateTime;
-    // (undocumented)
     website: string;
 }
 
@@ -127,6 +126,7 @@ export class AhaSendClient {
     get contacts(): Readonly<ContactsClient>;
     get domains(): Readonly<DomainsClient>;
     static fromEnv(env?: ProcessEnvLike): AhaSendClient;
+    get lists(): Readonly<ListsClient>;
     get messages(): Readonly<MessagesClient>;
     ping(options?: RequestOptions): AhaSendPromise<PingResponse>;
     get rateLimiter(): Readonly<RateLimiterController>;
@@ -399,6 +399,31 @@ export interface Attachment {
 }
 
 // @public
+export interface BatchAddListContactInput {
+    // (undocumented)
+    email?: string | null | undefined;
+    // (undocumented)
+    id?: string | null | undefined;
+}
+
+// @public
+export interface BatchAddListContactsRequest {
+    // (undocumented)
+    data: ReadonlyArray<BatchAddListContactInput>;
+}
+
+// @public
+export interface BatchAddListContactsResponse {
+    added: number;
+    // (undocumented)
+    data: BatchListContactResult[];
+    failed: number;
+    // (undocumented)
+    object: "list";
+    skipped: number;
+}
+
+// @public
 export interface BatchContactResult {
     // (undocumented)
     contact?: Contact;
@@ -409,6 +434,17 @@ export interface BatchContactResult {
     // (undocumented)
     position: number;
     // (undocumented)
+    reason?: string;
+}
+
+// @public
+export interface BatchListContactResult {
+    email?: string;
+    id?: string;
+    membership?: ListContact;
+    outcome: "added" | "already_member" | "not_found" | "invalid";
+    // (undocumented)
+    position: number;
     reason?: string;
 }
 
@@ -463,6 +499,9 @@ export interface BounceStatisticsResponse {
     // (undocumented)
     object: "list";
 }
+
+// @public
+export type CanonicalContactAttributeValue = string | number | boolean;
 
 // @public (undocumented)
 export interface CategoryRateLimit {
@@ -540,6 +579,17 @@ export type ContactJSONValue = null | boolean | number | string | ContactJSONVal
 };
 
 // @public
+export interface ContactList extends EmbeddedContactList {
+    contact_count: number;
+}
+
+// @public
+export interface ContactListsClient {
+    iterate(idOrEmail: string, params?: ListContactListsParams, options?: RequestOptions): AsyncGenerator<ListContact, void, undefined>;
+    list(idOrEmail: string, params?: ListContactListsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<ListContact>>;
+}
+
+// @public
 export interface ContactsClient {
     batchUpsert(body: BatchUpsertContactsRequest, options?: IdempotencyRequestOptions): AhaSendPromise<BatchUpsertContactsResponse>;
     create(body: CreateContactRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Contact>;
@@ -547,6 +597,7 @@ export interface ContactsClient {
     get(idOrEmail: string, options?: RequestOptions): AhaSendPromise<Contact>;
     iterate(params?: ListContactsParams, options?: RequestOptions): AsyncGenerator<Contact, void, undefined>;
     list(params?: ListContactsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Contact>>;
+    readonly lists: Readonly<ContactListsClient>;
     update(idOrEmail: string, body: UpdateContactRequest, options?: RequestOptions): AhaSendPromise<Contact>;
 }
 
@@ -560,9 +611,16 @@ export interface CreateAPIKeyRequest {
 }
 
 // @public
+export interface CreateContactListRequest {
+    description?: string | null | undefined;
+    name: string;
+    tags?: readonly string[] | null | undefined;
+}
+
+// @public
 export interface CreateContactRequest {
     // (undocumented)
-    attributes?: Record<string, string | number | boolean> | null | undefined;
+    attributes?: Record<string, CanonicalContactAttributeValue> | null | undefined;
     // (undocumented)
     email: string;
     // (undocumented)
@@ -914,6 +972,21 @@ export interface DomainsClient {
     update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): AhaSendPromise<Domain>;
 }
 
+// @public
+export interface EmbeddedContactList {
+    // (undocumented)
+    created_at: ISODateTime;
+    description: string;
+    // (undocumented)
+    id: string;
+    name: string;
+    // (undocumented)
+    object: "contact_list";
+    tags: string[];
+    // (undocumented)
+    updated_at: ISODateTime;
+}
+
 // @public (undocumented)
 export interface ErrorEvent extends RequestEvent {
     // (undocumented)
@@ -967,6 +1040,41 @@ export interface ListAccountMembersResponse {
 }
 
 // @public
+export interface ListContact {
+    contact?: Contact;
+    // (undocumented)
+    contact_id: string;
+    // (undocumented)
+    created_at: ISODateTime;
+    email: string;
+    list?: EmbeddedContactList;
+    // (undocumented)
+    list_id: string;
+    // (undocumented)
+    object: "list_contact";
+    subscribed_at: ISODateTime | null;
+    // (undocumented)
+    subscription_status: ListContactSubscriptionStatus;
+    unsubscribed_at: ISODateTime | null;
+    // (undocumented)
+    updated_at: ISODateTime;
+}
+
+// @public
+export type ListContactListsParams = PaginationParams & {
+    subscription_status?: ListContactSubscriptionStatus | undefined;
+};
+
+// @public
+export interface ListContactsClient {
+    batchAdd(listId: UUID, body: BatchAddListContactsRequest, options?: IdempotencyRequestOptions): AhaSendPromise<BatchAddListContactsResponse>;
+    delete(listId: UUID, idOrEmail: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    iterate(listId: UUID, params?: ListListContactsParams, options?: RequestOptions): AsyncGenerator<ListContact, void, undefined>;
+    list(listId: UUID, params?: ListListContactsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<ListContact>>;
+    upsert(listId: UUID, idOrEmail: string, body?: UpsertListContactRequest, options?: RequestOptions): AhaSendPromise<ListContact>;
+}
+
+// @public
 export type ListContactsParams = PaginationParams & {
     email?: string | undefined;
     status?: "enabled" | "disabled" | "blocked" | undefined;
@@ -975,9 +1083,24 @@ export type ListContactsParams = PaginationParams & {
     to_time?: ISODateTime | undefined;
 };
 
+// @public
+export type ListContactSubscriptionStatus = "unconfirmed" | "confirmed" | "unsubscribed" | "complained";
+
 // @public (undocumented)
 export type ListDomainsParams = PaginationParams & {
     dns_valid?: boolean | undefined;
+};
+
+// @public
+export type ListListContactsParams = PaginationParams & {
+    subscription_status?: ListContactSubscriptionStatus | undefined;
+    email?: string | undefined;
+    include_contacts?: boolean | undefined;
+};
+
+// @public
+export type ListListsParams = PaginationParams & {
+    name?: string | undefined;
 };
 
 // @public (undocumented)
@@ -996,6 +1119,17 @@ export type ListMessagesParams = PaginationParams & {
 export type ListRoutesParams = PaginationParams & {
     domain?: string | undefined;
 };
+
+// @public
+export interface ListsClient {
+    readonly contacts: Readonly<ListContactsClient>;
+    create(body: CreateContactListRequest, options?: IdempotencyRequestOptions): AhaSendPromise<ContactList>;
+    delete(listId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(listId: UUID, options?: RequestOptions): AhaSendPromise<ContactList>;
+    iterate(params?: ListListsParams, options?: RequestOptions): AsyncGenerator<ContactList, void, undefined>;
+    list(params?: ListListsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<ContactList>>;
+    update(listId: UUID, body: UpdateContactListRequest, options?: RequestOptions): AhaSendPromise<ContactList>;
+}
 
 // @public (undocumented)
 export type ListSubAccountsParams = PaginationParams;
@@ -1476,7 +1610,6 @@ export interface SubAccount {
     parent_account_id: UUID;
     // (undocumented)
     status: SubAccountStatus;
-    // (undocumented)
     website: string;
 }
 
@@ -1569,6 +1702,7 @@ export interface Suppression {
     id: UUID;
     // (undocumented)
     object: "suppression";
+    protected: boolean;
     // (undocumented)
     reason: string;
 }
@@ -1652,7 +1786,6 @@ export interface UpdateAccountRequest {
     track_clicks?: boolean | undefined;
     // (undocumented)
     track_opens?: boolean | undefined;
-    // (undocumented)
     website?: string | undefined;
 }
 
@@ -1670,9 +1803,19 @@ export type UpdateAPIKeyRequest = {
 });
 
 // @public
+export interface UpdateContactListRequest {
+    // (undocumented)
+    description?: string | null | undefined;
+    // (undocumented)
+    name?: string | null | undefined;
+    // (undocumented)
+    tags?: readonly string[] | null | undefined;
+}
+
+// @public
 export interface UpdateContactRequest {
     // (undocumented)
-    attributes?: Record<string, string | number | boolean | null> | null | undefined;
+    attributes?: Record<string, CanonicalContactAttributeValue | null> | null | undefined;
     // (undocumented)
     email?: string | null | undefined;
     // (undocumented)
@@ -1763,6 +1906,11 @@ export interface UpdateWebhookRequest {
     on_transient_error?: boolean | null | undefined;
     scope?: WebhookScope | null | undefined;
     url?: string | null | undefined;
+}
+
+// @public
+export interface UpsertListContactRequest {
+    subscription_status?: Exclude<ListContactSubscriptionStatus, "complained"> | null | undefined;
 }
 
 // @public (undocumented)

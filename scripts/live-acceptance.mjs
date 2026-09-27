@@ -24,8 +24,8 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 64;
-export const EXPECTED_LIVE_ITERATOR_COUNT = 11;
+export const EXPECTED_LIVE_OPERATION_COUNT = 74;
+export const EXPECTED_LIVE_ITERATOR_COUNT = 14;
 
 const packageName = "@ahasend/sdk";
 const domainOperationIds = Object.freeze([
@@ -57,6 +57,19 @@ const contactOperationIds = Object.freeze([
   "batchUpsertContacts",
   "deleteContact",
 ]);
+const listOperationIds = Object.freeze([
+  "createList",
+  "updateList",
+  "getLists",
+  "upsertListContact",
+  "batchAddListContacts",
+  "getListContacts",
+  "getContactLists",
+  "getList",
+  "deleteListContact",
+  "deleteList",
+]);
+const listIteratorOperationIds = Object.freeze(["getLists", "getListContacts", "getContactLists"]);
 const apiKeyOperationIds = Object.freeze([
   "getAPIKeys",
   "createAPIKey",
@@ -838,6 +851,9 @@ async function executeLiveScenarios(
   cleanup,
 ) {
   const scenarios = requireExecutableLiveScenarios(registry, operationIds, scenarioLabel);
+  const iteratorOperationIds = new Set(
+    iteratorOperationId === null ? [] : [iteratorOperationId].flat(),
+  );
   const operationResults = [];
   const iteratorResults = [];
   let failure = null;
@@ -850,7 +866,7 @@ async function executeLiveScenarios(
         status: "passed",
         ...(result.evidence === undefined ? {} : { evidence: result.evidence }),
       });
-      if (operationId === iteratorOperationId) {
+      if (iteratorOperationIds.has(operationId)) {
         iteratorResults.push({
           operationId,
           status: "passed",
@@ -859,7 +875,7 @@ async function executeLiveScenarios(
       }
     } catch (error) {
       operationResults.push({ operationId, status: "failed" });
-      if (operationId === iteratorOperationId) {
+      if (iteratorOperationIds.has(operationId)) {
         iteratorResults.push({ operationId, status: "failed" });
       }
       failure = createLiveFailure({ phase: "operation", operationId }, error);
@@ -1769,6 +1785,668 @@ export function createContactScenarioRegistry({
 /** Execute contact scenarios in lifecycle order and always drain cleanup. */
 export function runContactLiveScenarios(registry) {
   return runLiveScenarios(registry, contactOperationIds, "getContacts", "Contact");
+}
+
+const listSubscriptionStatuses = Object.freeze([
+  "unconfirmed",
+  "confirmed",
+  "unsubscribed",
+  "complained",
+]);
+
+function requireListCreateRequest(value) {
+  const request = requireObject(value, "List live create request");
+  requireString(request.name, "List live create request name");
+  return Object.freeze({ ...request });
+}
+
+function requireListUpdateRequest(value, createBody) {
+  const request = requireObject(value, "List live update request");
+  const name = requireString(request.name, "List live update request name");
+  if (name === createBody.name) {
+    throw new TypeError("List live update request must rename the list.");
+  }
+  if (request.description !== "" || !Array.isArray(request.tags) || request.tags.length !== 0) {
+    throw new TypeError(
+      'List live update request must clear the description with "" and the tags with [].',
+    );
+  }
+  return Object.freeze({ ...request, tags: Object.freeze([]) });
+}
+
+function requireListMemberEmails(value) {
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new TypeError("List live member emails must name exactly two disposable contacts.");
+  }
+  const emails = value.map((email, index) => requireString(email, `List live member ${index}`));
+  if (emails[0] === emails[1]) {
+    throw new TypeError("List live member emails must be distinct.");
+  }
+  return Object.freeze(emails);
+}
+
+function requireListFields(value, label) {
+  const list = requireObject(value, label);
+  if (list.object !== "contact_list") {
+    throw new TypeError(`${label} object must be contact_list.`);
+  }
+  for (const field of ["id", "created_at", "updated_at", "name"]) {
+    requireString(list[field], `${label} ${field}`);
+  }
+  if (typeof list.description !== "string") {
+    throw new TypeError(`${label} description must be a string.`);
+  }
+  if (!Array.isArray(list.tags) || list.tags.some((tag) => typeof tag !== "string")) {
+    throw new TypeError(`${label} tags must be an array of strings.`);
+  }
+  return list;
+}
+
+function requireListResult(value, expected, label) {
+  const list = requireListFields(value, label);
+  if (!Number.isInteger(list.contact_count) || list.contact_count < 0) {
+    throw new TypeError(`${label} contact_count must be a non-negative integer.`);
+  }
+  if (expected.id !== undefined && list.id !== expected.id) {
+    throw new TypeError(`${label} returned the wrong list.`);
+  }
+  if (expected.name !== undefined && list.name !== expected.name) {
+    throw new TypeError(`${label} name does not match the request.`);
+  }
+  return list;
+}
+
+function requireMembershipResult(value, expected, label) {
+  const membership = requireObject(value, label);
+  if (membership.object !== "list_contact") {
+    throw new TypeError(`${label} object must be list_contact.`);
+  }
+  for (const field of ["list_id", "contact_id", "email", "created_at", "updated_at"]) {
+    requireString(membership[field], `${label} ${field}`);
+  }
+  if (!listSubscriptionStatuses.includes(membership.subscription_status)) {
+    throw new TypeError(`${label} subscription_status is invalid.`);
+  }
+  for (const field of ["subscribed_at", "unsubscribed_at"]) {
+    if (membership[field] !== null && typeof membership[field] !== "string") {
+      throw new TypeError(`${label} ${field} must be a string or null.`);
+    }
+  }
+  if (membership.list_id !== expected.listId) {
+    throw new TypeError(`${label} belongs to the wrong list.`);
+  }
+  if (expected.contactId !== undefined && membership.contact_id !== expected.contactId) {
+    throw new TypeError(`${label} belongs to the wrong contact.`);
+  }
+  if (expected.status !== undefined && membership.subscription_status !== expected.status) {
+    throw new TypeError(`${label} subscription_status must be ${expected.status}.`);
+  }
+  return membership;
+}
+
+/**
+ * Walk a list collection that holds more items than one page, so the iterator
+ * has to follow a cursor. The first page must be full and report `has_more`,
+ * and every expected item must come back through the iterator.
+ */
+async function runCrossPageIteratorScenario(
+  list,
+  iterate,
+  pageParams,
+  label,
+  expectedIds,
+  idOf,
+  validateEntry,
+) {
+  if (expectedIds.length <= pageParams.limit) {
+    throw new TypeError(`${label} iterator needs more expected items than one page holds.`);
+  }
+  const page = requireObject(await list(pageParams), `${label} list response`);
+  if (!Array.isArray(page.data)) {
+    throw new TypeError(`${label} list response data must be an array.`);
+  }
+  if (
+    page.data.length !== pageParams.limit ||
+    requireObject(page.pagination, `${label} list response pagination`).has_more !== true
+  ) {
+    throw new TypeError(`${label} first page must be full and report has_more.`);
+  }
+  page.data.forEach((entry, index) => validateEntry(entry, `${label} list response item ${index}`));
+
+  const seen = new Set();
+  let itemCount = 0;
+  for await (const entry of iterate(pageParams)) {
+    validateEntry(entry, `${label} iterator item ${itemCount}`);
+    seen.add(idOf(entry));
+    itemCount += 1;
+    if (itemCount >= 100) break;
+  }
+  if (expectedIds.some((id) => !seen.has(id))) {
+    throw new TypeError(`${label} iterator must return every expected item across pages.`);
+  }
+  const direction = pageParams.before === undefined ? "forward" : "backward";
+  return Object.freeze({
+    evidence: Object.freeze({
+      direction,
+      iteratorCrossedPage: true,
+      limit: pageParams.limit,
+      pageItems: page.data.length,
+    }),
+    iteratorEvidence: Object.freeze({ direction, items: itemCount, limit: pageParams.limit }),
+  });
+}
+
+function requireMappedOperation(profile, client, operationId, label) {
+  const mapping = profile.operations.find((entry) => entry.operationId === operationId);
+  if (mapping === undefined) {
+    throw new TypeError(`${label} requires the packaged ${operationId} mapping.`);
+  }
+  return requireMappedClientMethod(client, mapping, label);
+}
+
+/**
+ * Build the list lifecycle over one disposable list and two disposable
+ * contacts. The first contact joins through a single upsert and is then
+ * unsubscribed; the batch then names it again beside the second contact and an
+ * address no contact holds, so one call reports all three reachable outcomes
+ * and shows that a batch never overwrites an unsubscribe. A complained
+ * membership cannot be produced on demand, so its 409 is not exercised live.
+ */
+export function createListScenarioRegistry({
+  profile,
+  client,
+  createRequest,
+  updateRequest,
+  memberEmails,
+  unknownEmail,
+  pagination = { limit: 1 },
+}) {
+  const lists = requireLifecycleMappings(
+    profile,
+    ["getLists", "createList", "getList", "updateList", "deleteList"],
+    "lists",
+    "getLists",
+    "list",
+  );
+  const members = requireLifecycleMappings(
+    profile,
+    ["getListContacts", "batchAddListContacts", "upsertListContact", "deleteListContact"],
+    "lists.contacts",
+    "getListContacts",
+    "list membership",
+  );
+  const contactLists = requireLifecycleMappings(
+    profile,
+    ["getContactLists"],
+    "contacts.lists",
+    "getContactLists",
+    "contact list",
+  );
+  const mapped = (mappings, operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `List ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mapped(lists, "getLists"),
+    iterate: requireMappedClientMethod(client, lists.iterator, "List iterator scenario"),
+    create: mapped(lists, "createList"),
+    get: mapped(lists, "getList"),
+    update: mapped(lists, "updateList"),
+    delete: mapped(lists, "deleteList"),
+    listMembers: mapped(members, "getListContacts"),
+    iterateMembers: requireMappedClientMethod(
+      client,
+      members.iterator,
+      "List membership iterator scenario",
+    ),
+    batchAdd: mapped(members, "batchAddListContacts"),
+    upsert: mapped(members, "upsertListContact"),
+    removeMember: mapped(members, "deleteListContact"),
+    listForContact: mapped(contactLists, "getContactLists"),
+    iterateForContact: requireMappedClientMethod(
+      client,
+      contactLists.iterator,
+      "Contact list iterator scenario",
+    ),
+    createContact: requireMappedOperation(profile, client, "createContact", "List contact fixture"),
+    getContact: requireMappedOperation(profile, client, "getContact", "List contact fixture"),
+    deleteContact: requireMappedOperation(profile, client, "deleteContact", "List contact fixture"),
+  });
+  const createBody = requireListCreateRequest(createRequest);
+  const updateBody = requireListUpdateRequest(updateRequest, createBody);
+  const [unsubscribedEmail, addedEmail] = requireListMemberEmails(memberEmails);
+  const missingEmail = requireString(unknownEmail, "List live unknown email");
+  if ([unsubscribedEmail, addedEmail].includes(missingEmail)) {
+    throw new TypeError("List live unknown email must differ from both member emails.");
+  }
+  const pageParams = requireLivePagination(pagination, "List");
+  // A second list shares the renamed list's name as a prefix, so the list
+  // listing and the contact's lists both span two pages at limit 1.
+  const secondListName = `${updateBody.name} second`;
+  const listNames = new Set([createBody.name, updateBody.name, secondListName]);
+  const state = { listId: null, secondListId: null, contactIds: new Map() };
+  const requireListId = () => {
+    if (state.listId === null) throw new TypeError("List scenarios require the created list.");
+    return state.listId;
+  };
+  const requireContactId = (email) => {
+    const contactId = state.contactIds.get(email);
+    if (contactId === undefined) {
+      throw new TypeError("List scenarios require the disposable contact fixtures.");
+    }
+    return contactId;
+  };
+  const deleteListById = async (listId) => {
+    try {
+      await methods.delete(listId);
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
+    }
+    await requireResourceAbsent(methods.get, listId, "List cleanup verification", "list");
+  };
+  const ensureContactFixtures = async (cleanup) => {
+    for (const email of [unsubscribedEmail, addedEmail]) {
+      if (state.contactIds.has(email)) continue;
+      cleanup.register("delete and verify list contact fixture", async () => {
+        try {
+          await methods.deleteContact(email);
+        } catch (error) {
+          if (!isNotFoundError(error)) throw error;
+        }
+        await requireResourceAbsent(
+          methods.getContact,
+          email,
+          "List contact fixture cleanup verification",
+          "contact",
+        );
+      });
+      const contact = requireObject(
+        await methods.createContact({ email }),
+        "List contact fixture response",
+      );
+      state.contactIds.set(email, requireString(contact.id, "List contact fixture id"));
+    }
+  };
+
+  const scenarios = new Map([
+    [
+      "createList",
+      {
+        operationId: "createList",
+        async run({ cleanup }) {
+          // Registered before the write: a create whose response is lost is
+          // still found by its unique name and removed.
+          cleanup.register("delete and verify disposable list", async () => {
+            const listIds = new Set(
+              [state.listId, state.secondListId].filter((listId) => listId !== null),
+            );
+            for (const name of listNames) {
+              const page = requireObject(
+                await methods.list({ name, limit: 100 }),
+                "List cleanup lookup",
+              );
+              for (const entry of page.data) {
+                if (entry?.name === name) listIds.add(entry.id);
+              }
+            }
+            for (const listId of listIds) await deleteListById(listId);
+          });
+          const list = requireListResult(
+            await methods.create(createBody),
+            { name: createBody.name },
+            "List create scenario response",
+          );
+          state.listId = list.id;
+          if (list.contact_count !== 0) {
+            throw new TypeError("List create scenario must report a contact_count of 0.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupRegistered: true, contactCount: 0 }),
+          });
+        },
+      },
+    ],
+    [
+      "updateList",
+      {
+        operationId: "updateList",
+        async run() {
+          const list = requireListResult(
+            await methods.update(requireListId(), updateBody),
+            { id: requireListId(), name: updateBody.name },
+            "List update scenario response",
+          );
+          if (list.description !== "" || list.tags.length !== 0) {
+            throw new TypeError("List update scenario must clear the description and the tags.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ descriptionCleared: true, renamed: true, tagsCleared: true }),
+          });
+        },
+      },
+    ],
+    [
+      "getLists",
+      {
+        operationId: "getLists",
+        async run() {
+          const second = requireListResult(
+            await methods.create({ name: secondListName }),
+            { name: secondListName },
+            "Second list create response",
+          );
+          state.secondListId = second.id;
+          const filtered = (params) => ({ ...params, name: updateBody.name });
+          return runCrossPageIteratorScenario(
+            (params) => methods.list(filtered(params)),
+            (params) => methods.iterate(filtered(params)),
+            pageParams,
+            "List",
+            [requireListId(), second.id],
+            (entry) => entry.id,
+            (entry, label) => {
+              const list = requireListResult(entry, {}, label);
+              if (!list.name.startsWith(updateBody.name)) {
+                throw new TypeError(`${label} does not match the name filter.`);
+              }
+            },
+          );
+        },
+      },
+    ],
+    [
+      "upsertListContact",
+      {
+        operationId: "upsertListContact",
+        async run({ cleanup }) {
+          await ensureContactFixtures(cleanup);
+          const listId = requireListId();
+          const contactId = requireContactId(unsubscribedEmail);
+          requireMembershipResult(
+            await methods.upsert(listId, unsubscribedEmail),
+            { listId, contactId, status: "confirmed" },
+            "List upsert scenario create response",
+          );
+          const unsubscribed = requireMembershipResult(
+            await methods.upsert(listId, unsubscribedEmail, {
+              subscription_status: "unsubscribed",
+            }),
+            { listId, contactId, status: "unsubscribed" },
+            "List upsert scenario unsubscribe response",
+          );
+          if (typeof unsubscribed.unsubscribed_at !== "string") {
+            throw new TypeError("List upsert scenario must record unsubscribed_at.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              createdStatus: "confirmed",
+              updatedStatus: "unsubscribed",
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "batchAddListContacts",
+      {
+        operationId: "batchAddListContacts",
+        async run({ cleanup }) {
+          await ensureContactFixtures(cleanup);
+          const listId = requireListId();
+          const data = [
+            { email: unsubscribedEmail },
+            { email: addedEmail },
+            { email: missingEmail },
+          ];
+          const result = requireObject(
+            await methods.batchAdd(listId, { data }),
+            "List batch-add scenario response",
+          );
+          const outcomes = ["already_member", "added", "not_found"];
+          if (
+            result.object !== "list" ||
+            result.added !== 1 ||
+            result.skipped !== 1 ||
+            result.failed !== 1 ||
+            !Array.isArray(result.data) ||
+            result.data.length !== data.length
+          ) {
+            throw new TypeError(
+              "List batch-add scenario must report one added, one skipped, and one failed entry in input order.",
+            );
+          }
+          result.data.forEach((entry, position) => {
+            const label = `List batch-add scenario result ${position}`;
+            const outcome = requireObject(entry, label);
+            if (outcome.position !== position || outcome.outcome !== outcomes[position]) {
+              throw new TypeError(
+                `${label} must be ${outcomes[position]} at position ${position}.`,
+              );
+            }
+            if (outcomes[position] === "not_found") {
+              requireString(outcome.reason, `${label} reason`);
+              if (outcome.membership !== undefined) {
+                throw new TypeError(`${label} must not carry a membership.`);
+              }
+              return;
+            }
+            requireMembershipResult(
+              outcome.membership,
+              {
+                listId,
+                contactId: requireContactId(data[position].email),
+                status: position === 0 ? "unsubscribed" : "confirmed",
+              },
+              `${label} membership`,
+            );
+          });
+          return Object.freeze({
+            evidence: Object.freeze({
+              added: result.added,
+              skipped: result.skipped,
+              failed: result.failed,
+              outcomes: Object.freeze([...outcomes]),
+              unsubscribePreserved: true,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getListContacts",
+      {
+        operationId: "getListContacts",
+        async run() {
+          const listId = requireListId();
+          const result = await runCrossPageIteratorScenario(
+            (params) => methods.listMembers(listId, params),
+            (params) => methods.iterateMembers(listId, params),
+            pageParams,
+            "List membership",
+            [requireContactId(unsubscribedEmail), requireContactId(addedEmail)],
+            (entry) => entry.contact_id,
+            (entry, label) => requireMembershipResult(entry, { listId }, label),
+          );
+          const filtered = requireObject(
+            await methods.listMembers(listId, {
+              subscription_status: "unsubscribed",
+              include_contacts: true,
+              limit: 100,
+            }),
+            "List membership filtered response",
+          );
+          const contactId = requireContactId(unsubscribedEmail);
+          if (!Array.isArray(filtered.data) || filtered.data.length !== 1) {
+            throw new TypeError(
+              "List membership status filter must return exactly the unsubscribed member.",
+            );
+          }
+          const membership = requireMembershipResult(
+            filtered.data[0],
+            { listId, contactId, status: "unsubscribed" },
+            "List membership filtered item",
+          );
+          if (
+            requireObject(membership.contact, "List membership embedded contact").id !== contactId
+          ) {
+            throw new TypeError(
+              "List membership include_contacts must embed the member's contact.",
+            );
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              ...result.evidence,
+              contactEmbedded: true,
+              statusFilterMatched: true,
+            }),
+            iteratorEvidence: result.iteratorEvidence,
+          });
+        },
+      },
+    ],
+    [
+      "getContactLists",
+      {
+        operationId: "getContactLists",
+        async run() {
+          const listId = requireListId();
+          const contactId = requireContactId(unsubscribedEmail);
+          if (state.secondListId === null) {
+            throw new TypeError("Contact list scenario requires the second list.");
+          }
+          requireMembershipResult(
+            await methods.upsert(state.secondListId, unsubscribedEmail),
+            { listId: state.secondListId, contactId, status: "confirmed" },
+            "Second list membership response",
+          );
+          const result = await runCrossPageIteratorScenario(
+            (params) => methods.listForContact(unsubscribedEmail, params),
+            (params) => methods.iterateForContact(unsubscribedEmail, params),
+            pageParams,
+            "Contact list",
+            [listId, state.secondListId],
+            (entry) => entry.list_id,
+            (entry, label) =>
+              requireMembershipResult(entry, { listId: entry?.list_id, contactId }, label),
+          );
+          const page = requireObject(
+            await methods.listForContact(unsubscribedEmail, { limit: 100 }),
+            "Contact list lookup response",
+          );
+          const membership = (Array.isArray(page.data) ? page.data : []).find(
+            (entry) => entry?.list_id === listId,
+          );
+          requireMembershipResult(
+            membership,
+            { listId, contactId, status: "unsubscribed" },
+            "Contact list membership",
+          );
+          const list = requireListFields(membership.list, "Contact list embedded list");
+          if (list.id !== listId || Object.hasOwn(list, "contact_count")) {
+            throw new TypeError(
+              "Contact list membership must embed its list without contact_count.",
+            );
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              ...result.evidence,
+              contactCountOmitted: true,
+              listEmbedded: true,
+            }),
+            iteratorEvidence: result.iteratorEvidence,
+          });
+        },
+      },
+    ],
+    [
+      "getList",
+      {
+        operationId: "getList",
+        async run() {
+          const list = requireListResult(
+            await methods.get(requireListId()),
+            { id: requireListId(), name: updateBody.name },
+            "List get scenario response",
+          );
+          // One member is unsubscribed from the list and never counts; the
+          // other counts unless validation has already found it invalid.
+          if (list.contact_count > 1) {
+            throw new TypeError(
+              "List get scenario contact_count must exclude the unsubscribed member.",
+            );
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ matched: true, unsubscribedExcluded: true }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteListContact",
+      {
+        operationId: "deleteListContact",
+        async run() {
+          const listId = requireListId();
+          const removed = requireObject(
+            await methods.removeMember(listId, addedEmail),
+            "List member removal response",
+          );
+          requireString(removed.message, "List member removal message");
+          let repeatNotFound = false;
+          try {
+            await methods.removeMember(listId, addedEmail);
+          } catch (error) {
+            if (!isNotFoundError(error)) throw error;
+            repeatNotFound = true;
+          }
+          if (!repeatNotFound) {
+            throw new TypeError("Removing a membership that is gone must answer 404.");
+          }
+          const remaining = requireObject(
+            await methods.listMembers(listId, { email: addedEmail, limit: 100 }),
+            "List member removal verification",
+          );
+          if (!Array.isArray(remaining.data) || remaining.data.length !== 0) {
+            throw new TypeError("List member removal must delete the membership.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ removed: true, repeatNotFound: true }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteList",
+      {
+        operationId: "deleteList",
+        async run() {
+          const listId = requireListId();
+          await methods.delete(listId);
+          await requireResourceAbsent(
+            methods.get,
+            listId,
+            "List delete scenario verification",
+            "list",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupVerified: true, deleted: true }),
+          });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute list scenarios in lifecycle order and always drain cleanup. */
+export function runListLiveScenarios(registry) {
+  return runLiveScenarios(registry, listOperationIds, listIteratorOperationIds, "List");
 }
 
 function requireAPIKeyCreateRequest(value, label) {
@@ -4717,6 +5395,31 @@ function requireSandboxOutcomes(operations) {
   ]);
 }
 
+function requireListOutcomes(operations) {
+  for (const operationId of ["getLists", "getListContacts", "getContactLists"]) {
+    requireOperationOutcomes(operations, operationId, [["iteratorCrossedPage", true]]);
+  }
+  requireOperationOutcomes(operations, "batchAddListContacts", [
+    ["added", 1],
+    ["skipped", 1],
+    ["failed", 1],
+    ["outcomes", ["already_member", "added", "not_found"]],
+    ["unsubscribePreserved", true],
+  ]);
+  requireOperationOutcomes(operations, "upsertListContact", [
+    ["createdStatus", "confirmed"],
+    ["updatedStatus", "unsubscribed"],
+  ]);
+  requireOperationOutcomes(operations, "deleteListContact", [
+    ["removed", true],
+    ["repeatNotFound", true],
+  ]);
+  requireOperationOutcomes(operations, "deleteList", [
+    ["cleanupVerified", true],
+    ["deleted", true],
+  ]);
+}
+
 function requireContactOutcomes(operations) {
   requireOperationOutcomes(operations, "batchUpsertContacts", [
     ["created", 1],
@@ -4997,6 +5700,7 @@ function validateLiveReportArtifactContract(
     validateReportIteratorLinks(report.operations, report.iterators);
     requireSandboxOutcomes(report.operations);
     requireContactOutcomes(report.operations);
+    requireListOutcomes(report.operations);
     requireAuthorizationOutcomes(report.operations);
   }
   if (!Array.isArray(report.cleanup)) {

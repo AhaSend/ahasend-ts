@@ -10,7 +10,14 @@ import type {
   SuccessResponse,
   UUID,
 } from "../types/common.js";
-import { assertNonEmptyArray, forwardOptions, forwardWithIdempotency } from "./_helpers.js";
+import {
+  assertNonEmptyArray,
+  createFrozenFacade,
+  forwardOptions,
+  forwardWithIdempotency,
+} from "./_helpers.js";
+import { createContactListsClient } from "./contact-lists.js";
+import type { ContactListsClient } from "./contact-lists.js";
 
 /** A recursively nested JSON value returned from a legacy contact attribute. */
 export type ContactJSONValue =
@@ -20,6 +27,13 @@ export type ContactJSONValue =
   | string
   | ContactJSONValue[]
   | { [key: string]: ContactJSONValue };
+
+/**
+ * A non-null value written to a contact attribute. The account's attribute
+ * definition picks the accepted form: a string, a finite number, a boolean, a
+ * strict `YYYY-MM-DD` date string, or an RFC3339 timestamp string.
+ */
+export type CanonicalContactAttributeValue = string | number | boolean;
 
 /** An account-global contact and its subscription, validation, and attribute state. */
 export interface Contact {
@@ -47,7 +61,7 @@ export interface CreateContactRequest {
   status?: "enabled" | "disabled" | "blocked" | null | undefined;
   status_reason?: string | null | undefined;
   unsubscribed?: boolean | null | undefined;
-  attributes?: Record<string, string | number | boolean> | null | undefined;
+  attributes?: Record<string, CanonicalContactAttributeValue> | null | undefined;
 }
 
 /** Partial contact changes. A null attribute member removes the stored attribute. */
@@ -58,7 +72,7 @@ export interface UpdateContactRequest {
   status?: "enabled" | "disabled" | "blocked" | null | undefined;
   status_reason?: string | null | undefined;
   unsubscribed?: boolean | null | undefined;
-  attributes?: Record<string, string | number | boolean | null> | null | undefined;
+  attributes?: Record<string, CanonicalContactAttributeValue | null> | null | undefined;
 }
 
 /** One ordered create-or-update input in a synchronous contact batch. */
@@ -133,15 +147,20 @@ export interface ContactsClient {
     body: BatchUpsertContactsRequest,
     options?: IdempotencyRequestOptions,
   ): AhaSendPromise<BatchUpsertContactsResponse>;
+
+  /** Read the lists one contact is on. Authorization requires `lists:read`. */
+  readonly lists: Readonly<ContactListsClient>;
 }
 
 class ContactsClientImplementation implements ContactsClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
+  readonly #lists: Readonly<ContactListsClient>;
 
   constructor(operations: OperationExecutor, accountId: UUID) {
     this.#operations = operations;
     this.#accountId = accountId;
+    this.#lists = createFrozenFacade(createContactListsClient(operations, accountId));
   }
 
   list(
@@ -221,6 +240,11 @@ class ContactsClientImplementation implements ContactsClient {
       { path: { account_id: this.#accountId }, body },
       forwardWithIdempotency(options),
     );
+  }
+
+  /** Read the lists one contact is on. Authorization requires `lists:read`. */
+  get lists(): Readonly<ContactListsClient> {
+    return this.#lists;
   }
 }
 

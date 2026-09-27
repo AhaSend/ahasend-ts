@@ -18,6 +18,7 @@ export interface Account {
   created_at: ISODateTime;
   updated_at: ISODateTime;
   name: string;
+  /** Stored as a bare domain such as `acme.com`. */
   website: string;
   about: string;
   track_opens: boolean;
@@ -31,6 +32,10 @@ export interface Account {
 
 export interface UpdateAccountRequest {
   name?: string | undefined;
+  /**
+   * A domain such as `acme.com`, or an http(s) URL such as `https://acme.com`,
+   * which the API reduces to its host before storing it.
+   */
   website?: string | undefined;
   about?: string | undefined;
   track_opens?: boolean | undefined;

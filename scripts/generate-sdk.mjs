@@ -12,9 +12,9 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 64;
-const EXPECTED_SCHEMA_COUNT = 80;
-const EXPECTED_ITERATOR_COUNT = 11;
+const EXPECTED_OPERATION_COUNT = 74;
+const EXPECTED_SCHEMA_COUNT = 94;
+const EXPECTED_ITERATOR_COUNT = 14;
 const EXPECTED_WEBHOOK_COUNT = 11;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
@@ -140,6 +140,16 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["getContact", "contacts", "get"],
   ["updateContact", "contacts", "update"],
   ["deleteContact", "contacts", "delete"],
+  ["getLists", "lists", "list"],
+  ["createList", "lists", "create"],
+  ["getList", "lists", "get"],
+  ["updateList", "lists", "update"],
+  ["deleteList", "lists", "delete"],
+  ["getListContacts", "lists.contacts", "list"],
+  ["batchAddListContacts", "lists.contacts", "batchAdd"],
+  ["upsertListContact", "lists.contacts", "upsert"],
+  ["deleteListContact", "lists.contacts", "delete"],
+  ["getContactLists", "contacts.lists", "list"],
   ["getSuppressions", "suppressions", "list"],
   ["createSuppression", "suppressions", "create"],
   ["deleteSuppression", "suppressions", "delete"],
@@ -171,6 +181,9 @@ export const ITERATOR_MAPPINGS = Object.freeze([
   ["listSubAccounts", "subAccounts", "iterate"],
   ["listSubAccountAPIKeys", "subAccounts.apiKeys", "iterate"],
   ["getContacts", "contacts", "iterate"],
+  ["getLists", "lists", "iterate"],
+  ["getListContacts", "lists.contacts", "iterate"],
+  ["getContactLists", "contacts.lists", "iterate"],
   ["getSuppressions", "suppressions", "iterate"],
   ["getRoutes", "routes", "iterate"],
   ["getWebhooks", "webhooks", "iterate"],

@@ -65,7 +65,7 @@ describe("generated API reference", () => {
   });
 
   it(
-    "accounts for all 64 methods and eleven iterators exactly once",
+    "accounts for all 74 methods and fourteen iterators exactly once",
     { timeout: 120_000 },
     async () => {
       const reference = await generateApiReference();
@@ -82,8 +82,8 @@ describe("generated API reference", () => {
       expect(iteratorMarkers).toEqual(
         OPERATION_PROFILE.iterators.map(({ operationId }) => operationId),
       );
-      expect(new Set(methodMarkers)).toHaveLength(64);
-      expect(new Set(iteratorMarkers)).toHaveLength(11);
+      expect(new Set(methodMarkers)).toHaveLength(74);
+      expect(new Set(iteratorMarkers)).toHaveLength(14);
 
       for (const mapping of [...OPERATION_PROFILE.operations, ...OPERATION_PROFILE.iterators]) {
         const kind = OPERATION_PROFILE.iterators.includes(mapping) ? "iterator" : "operation";
@@ -204,7 +204,8 @@ describe("generated API reference", () => {
     for (const phrase of [
       "`contacts:read`, `contacts:write`, and `contacts:delete` permissions",
       "definitions managed in the AhaSend dashboard",
-      "neither definition CRUD nor list membership",
+      "this API exposes no definition CRUD",
+      "joins no list on its own",
       "percent-encodes the value exactly once",
       "Prefer unsubscribe over delete",
       "hard delete permanently removes contact history",
@@ -213,6 +214,41 @@ describe("generated API reference", () => {
     ]) {
       expect(reference).toContain(phrase);
     }
+  });
+
+  it("documents the list permission, count, batch, and removal contract", async () => {
+    const reference = await generateApiReference();
+
+    for (const phrase of [
+      "`lists:read`, `lists:write`, and `lists:delete` permissions",
+      "removing a list's members all use `lists:write`",
+      "`include_contacts: true` also needs `contacts:read`",
+      "the members a campaign to it would reach",
+      "both changing and removing it answer `409`",
+      "answers `200` with one outcome per entry",
+      "percent-encodes it exactly once",
+    ]) {
+      expect(reference).toContain(phrase);
+    }
+  });
+
+  it("names the conditional contacts:read scope on the member listing and its iterator", async () => {
+    const reference = await generateApiReference();
+    const conditional =
+      "- **Conditional scope:** also requires `contacts:read` when `include_contacts` is `true`; without it the API answers `403`.";
+
+    expect(section(reference, "operation", "getListContacts")).toContain(conditional);
+    expect(section(reference, "iterator", "getListContacts")).toContain(conditional);
+    expect(section(reference, "operation", "getLists")).not.toContain("Conditional scope");
+
+    const unnamed = openApiSource.replace(
+      "Embed the whole contact in every item. Requires the `contacts:read`\n            scope in addition to `lists:read`.",
+      "Embed the whole contact in every item.",
+    );
+    expect(unnamed).not.toBe(openApiSource);
+    await expect(generateApiReference({ openApiSource: unnamed })).rejects.toThrow(
+      "include_contacts description must name the contacts:read scope",
+    );
   });
 
   it("keeps every public model link resolvable", async () => {
@@ -322,7 +358,7 @@ describe("generated API reference", () => {
         openApiSource,
         profileSource: JSON.stringify(missingIterator),
       }),
-    ).rejects.toThrow(/must contain 11 iterator mappings/);
+    ).rejects.toThrow(/must contain 14 iterator mappings/);
 
     const duplicateAlias = structuredClone(OPERATION_PROFILE) as {
       version: 1;

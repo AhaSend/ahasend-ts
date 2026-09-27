@@ -217,6 +217,56 @@
       "method": "delete"
     },
     {
+      "operationId": "getLists",
+      "facade": "lists",
+      "method": "list"
+    },
+    {
+      "operationId": "createList",
+      "facade": "lists",
+      "method": "create"
+    },
+    {
+      "operationId": "getList",
+      "facade": "lists",
+      "method": "get"
+    },
+    {
+      "operationId": "updateList",
+      "facade": "lists",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteList",
+      "facade": "lists",
+      "method": "delete"
+    },
+    {
+      "operationId": "getListContacts",
+      "facade": "lists.contacts",
+      "method": "list"
+    },
+    {
+      "operationId": "batchAddListContacts",
+      "facade": "lists.contacts",
+      "method": "batchAdd"
+    },
+    {
+      "operationId": "upsertListContact",
+      "facade": "lists.contacts",
+      "method": "upsert"
+    },
+    {
+      "operationId": "deleteListContact",
+      "facade": "lists.contacts",
+      "method": "delete"
+    },
+    {
+      "operationId": "getContactLists",
+      "facade": "contacts.lists",
+      "method": "list"
+    },
+    {
       "operationId": "getSuppressions",
       "facade": "suppressions",
       "method": "list"
@@ -356,6 +406,21 @@
     {
       "operationId": "getContacts",
       "facade": "contacts",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getLists",
+      "facade": "lists",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getListContacts",
+      "facade": "lists.contacts",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getContactLists",
+      "facade": "contacts.lists",
       "method": "iterate"
     },
     {

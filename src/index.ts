@@ -193,6 +193,7 @@ export type {
   BatchUpsertContactInput,
   BatchUpsertContactsRequest,
   BatchUpsertContactsResponse,
+  CanonicalContactAttributeValue,
   Contact,
   ContactJSONValue,
   ContactsClient,
@@ -200,5 +201,26 @@ export type {
   ListContactsParams,
   UpdateContactRequest,
 } from "./resources/contacts.js";
+
+export type {
+  ContactList,
+  CreateContactListRequest,
+  ListListsParams,
+  ListsClient,
+  UpdateContactListRequest,
+} from "./resources/lists.js";
+export type {
+  BatchAddListContactInput,
+  BatchAddListContactsRequest,
+  BatchAddListContactsResponse,
+  BatchListContactResult,
+  EmbeddedContactList,
+  ListContact,
+  ListContactsClient,
+  ListContactSubscriptionStatus,
+  ListListContactsParams,
+  UpsertListContactRequest,
+} from "./resources/list-contacts.js";
+export type { ContactListsClient, ListContactListsParams } from "./resources/contact-lists.js";
 
 export { SDK_VERSION } from "./version.js";

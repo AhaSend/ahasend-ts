@@ -413,6 +413,100 @@ const result = await client.contacts.delete(idOrEmail);
 console.log("Contact deleted.", { message: result.message });`,
   ),
   entry(
+    "getLists",
+    "GET /v2/accounts/{account_id}/lists",
+    "client.lists.list",
+    `const page = await client.lists.list({ name: "newsletter", limit: 20 });
+console.log("Lists listed.", { count: page.data.length });`,
+  ),
+  entry(
+    "createList",
+    "POST /v2/accounts/{account_id}/lists",
+    "client.lists.create",
+    `const list = await client.lists.create(
+  { name: "Product updates", description: "Monthly release notes", tags: ["product"] },
+  { idempotencyKey: "sdk-sample-create-list" },
+);
+console.log("List created.", { id: list.id, contactCount: list.contact_count });`,
+  ),
+  entry(
+    "getList",
+    "GET /v2/accounts/{account_id}/lists/{list_id}",
+    "client.lists.get",
+    `const listId = "00000000-0000-4000-8000-000000000010";
+const list = await client.lists.get(listId);
+console.log("List found.", { id: list.id, contactCount: list.contact_count });`,
+  ),
+  entry(
+    "updateList",
+    "PUT /v2/accounts/{account_id}/lists/{list_id}",
+    "client.lists.update",
+    `const listId = "00000000-0000-4000-8000-000000000010";
+const list = await client.lists.update(listId, { name: "Product news", tags: [] });
+console.log("List updated.", { id: list.id, name: list.name });`,
+  ),
+  entry(
+    "deleteList",
+    "DELETE /v2/accounts/{account_id}/lists/{list_id}",
+    "client.lists.delete",
+    `const listId = "00000000-0000-4000-8000-000000000010";
+const result = await client.lists.delete(listId);
+console.log("List deleted.", { message: result.message });`,
+  ),
+  entry(
+    "getListContacts",
+    "GET /v2/accounts/{account_id}/lists/{list_id}/contacts",
+    "client.lists.contacts.list",
+    `const listId = "00000000-0000-4000-8000-000000000010";
+const page = await client.lists.contacts.list(listId, {
+  subscription_status: "confirmed",
+  limit: 20,
+});
+console.log("List members listed.", { count: page.data.length });`,
+  ),
+  entry(
+    "batchAddListContacts",
+    "POST /v2/accounts/{account_id}/lists/{list_id}/contacts/batch",
+    "client.lists.contacts.batchAdd",
+    `const listId = "00000000-0000-4000-8000-000000000010";
+const result = await client.lists.contacts.batchAdd(
+  listId,
+  {
+    data: [{ email: "one@example.com" }, { id: "00000000-0000-4000-8000-000000000011" }],
+  },
+  { idempotencyKey: "sdk-sample-batch-add-list-contacts" },
+);
+console.log("List batch completed.", { added: result.added, failed: result.failed });`,
+  ),
+  entry(
+    "upsertListContact",
+    "PUT /v2/accounts/{account_id}/lists/{list_id}/contacts/{id_or_email}",
+    "client.lists.contacts.upsert",
+    `const listId = "00000000-0000-4000-8000-000000000010";
+const idOrEmail = "User+Tag@Example.COM";
+const membership = await client.lists.contacts.upsert(listId, idOrEmail, {
+  subscription_status: "unsubscribed",
+});
+console.log("List membership saved.", { status: membership.subscription_status });`,
+  ),
+  entry(
+    "deleteListContact",
+    "DELETE /v2/accounts/{account_id}/lists/{list_id}/contacts/{id_or_email}",
+    "client.lists.contacts.delete",
+    `const listId = "00000000-0000-4000-8000-000000000010";
+const idOrEmail = "User+Tag@Example.COM";
+const result = await client.lists.contacts.delete(listId, idOrEmail);
+console.log("Contact removed from list.", { message: result.message });`,
+  ),
+  entry(
+    "getContactLists",
+    "GET /v2/accounts/{account_id}/contacts/{id_or_email}/lists",
+    "client.contacts.lists.list",
+    `const idOrEmail = "User+Tag@Example.COM";
+const page = await client.contacts.lists.list(idOrEmail, { subscription_status: "confirmed" });
+console.log("Contact lists listed.", { count: page.data.length });`,
+  ),
+  entry(
     "getSuppressions",
     "GET /v2/accounts/{account_id}/suppressions",
     "client.suppressions.list",

@@ -8,6 +8,7 @@ import {
   createAccountScenarioRegistry,
   createAPIKeyScenarioRegistry,
   createContactScenarioRegistry,
+  createListScenarioRegistry,
   createDomainScenarioRegistry,
   createLiveReport,
   createMessageScenarioRegistry,
@@ -23,6 +24,7 @@ import {
   runAccountLiveScenarios,
   runAPIKeyLiveScenarios,
   runContactLiveScenarios,
+  runListLiveScenarios,
   runDomainLiveScenarios,
   runMessageLiveScenarios,
   runRouteLiveScenarios,
@@ -425,6 +427,29 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
               { email: batchContactEmail, first_name: "SDK batch created" },
             ],
           },
+          pagination,
+        }),
+      ),
+    ),
+  );
+  runs.push(
+    collectRun(
+      "list scenarios",
+      await runListLiveScenarios(
+        createListScenarioRegistry({
+          profile,
+          client,
+          createRequest: {
+            name: `SDK live list ${suffix}`,
+            description: "AhaSend SDK live acceptance list",
+            tags: ["sdk-live"],
+          },
+          updateRequest: { name: `Updated SDK live list ${suffix}`, description: "", tags: [] },
+          memberEmails: [
+            `sdk-live-list+${suffix}@${config.suppressionDomain}`,
+            `sdk-live-list-batch+${suffix}@${config.suppressionDomain}`,
+          ],
+          unknownEmail: `sdk-live-list-absent+${suffix}@${config.suppressionDomain}`,
           pagination,
         }),
       ),

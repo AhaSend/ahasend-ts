@@ -80,14 +80,14 @@ describe("SDK artifact generation", () => {
     expect(OPERATION_PROFILE).toEqual(profile);
   });
 
-  it("pins 80 wire schemas and validates complete profile parity", () => {
+  it("pins 94 wire schemas and validates complete profile parity", () => {
     const components = document["components"] as JsonRecord;
     const schemas = components["schemas"] as JsonRecord;
 
-    expect(Object.keys(schemas)).toHaveLength(80);
+    expect(Object.keys(schemas)).toHaveLength(94);
     expect(() => validateOperationProfile(document, profile)).not.toThrow();
-    expect(OPERATION_PROFILE.operations).toHaveLength(64);
-    expect(OPERATION_PROFILE.iterators).toHaveLength(11);
+    expect(OPERATION_PROFILE.operations).toHaveLength(74);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(14);
   });
 
   it("carries the read-only template scope onto both template descriptors", () => {
@@ -293,8 +293,8 @@ describe("SDK artifact generation", () => {
     expectTypeOf<readonly []>().toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
   });
 
-  it("indexes parameters, request bodies, inputs, and successes for all 64 operations", () => {
-    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(64);
+  it("indexes parameters, request bodies, inputs, and successes for all 74 operations", () => {
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(74);
     expectTypeOf<keyof OperationParametersById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationRequestBodyById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationInputById>().toEqualTypeOf<OperationId>();
