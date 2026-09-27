@@ -288,6 +288,44 @@ describe("Resource client iterators", () => {
     expect(out).toEqual(["s1"]);
   });
 
+  it("client.lists.contacts.iterate() walks backward on previous_cursor and keeps the filters", async () => {
+    const listId = "88888888-8888-4888-8888-888888888888";
+    const urls: URL[] = [];
+    const client = makeClient((call, input) => {
+      urls.push(new URL(input.toString()));
+      return new Response(
+        JSON.stringify({
+          object: "list",
+          data: [{ object: "list_contact", email: `member-${call}@example.com` }],
+          pagination:
+            call === 1
+              ? { has_more: true, next_cursor: "newer", previous_cursor: "older" }
+              : { has_more: false, next_cursor: "newer", previous_cursor: null },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const emails: string[] = [];
+    for await (const member of client.lists.contacts.iterate(listId, {
+      before: "start",
+      subscription_status: "unsubscribed",
+      include_contacts: false,
+    })) {
+      emails.push(member.email);
+    }
+
+    expect(emails).toEqual(["member-1@example.com", "member-2@example.com"]);
+    expect(urls.map((url) => url.pathname)).toEqual([
+      `/v2/accounts/${ACCOUNT_ID}/lists/${listId}/contacts`,
+      `/v2/accounts/${ACCOUNT_ID}/lists/${listId}/contacts`,
+    ]);
+    expect(urls.map((url) => url.search)).toEqual([
+      "?before=start&subscription_status=unsubscribed&include_contacts=false",
+      "?before=older&subscription_status=unsubscribed&include_contacts=false",
+    ]);
+  });
+
   it("preserves request options and remains cancellable between pages", async () => {
     const requestHeaders: string[] = [];
     const client = makeClient((call, _input, init) => {
