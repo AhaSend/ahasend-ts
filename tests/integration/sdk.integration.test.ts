@@ -322,6 +322,8 @@ const OPERATION_CASES = [
   ]),
   operation("getMessage", ["messages"], "get", [RESOURCE_ID]),
   operation("cancelMessage", ["messages"], "cancel", [RESOURCE_ID]),
+  operation("listTemplates", ["templates"], "list", [PAGINATION]),
+  operation("getTemplate", ["templates"], "get", [RESOURCE_ID]),
   operation("getAccount", ["accounts"], "get"),
   operation("updateAccount", ["accounts"], "update", [{ name: "Integration account" }]),
   operation("getAccountMembers", ["accounts"], "listMembers"),
@@ -933,8 +935,8 @@ describe("packed SDK operation contract", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
     const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
-    expect(OPERATION_CASES).toHaveLength(62);
-    expect(new Set(implementedOperationIds).size).toBe(62);
+    expect(OPERATION_CASES).toHaveLength(64);
+    expect(new Set(implementedOperationIds).size).toBe(64);
     expect([...implementedOperationIds].sort()).toEqual(operationIds.sort());
   });
 

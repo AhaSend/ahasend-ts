@@ -57,6 +57,9 @@ interface PublicSchemaContracts {
   MessageSummary: SDK.MessageSummary;
   Message: SDK.Message;
   PaginatedMessagesResponse: SDK.PaginatedResponse<SDK.MessageSummary>;
+  TemplateVariable: SDK.TemplateVariable;
+  Template: SDK.Template;
+  PaginatedTemplatesResponse: SDK.PaginatedResponse<SDK.Template>;
   Account: SDK.Account;
   SubAccount: SDK.SubAccount;
   CreateSubAccountRequest: SDK.CreateSubAccountRequest;

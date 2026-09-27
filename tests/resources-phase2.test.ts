@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { AhaSendNotFoundError } from "../src/errors.js";
 import type {
   BatchUpsertContactInput,
   Contact,
@@ -19,6 +20,7 @@ import type {
   DeliveryTimeStatistics,
 } from "../src/resources/statistics.js";
 import type { ListSuppressionsParams, Suppression } from "../src/resources/suppressions.js";
+import type { ListTemplatesParams, Template } from "../src/resources/templates.js";
 import type {
   CreatedWebhook,
   CreateWebhookRequest,
@@ -32,6 +34,7 @@ import {
   makeClient,
   ROUTE_ID,
   SMTP_CREDENTIAL_ID,
+  TEMPLATE_ID,
   USER_ID,
   WEBHOOK_ID,
 } from "./helpers/resource-call.js";
@@ -957,6 +960,153 @@ describe("RoutesClient", () => {
     expect(calls[0]!.method).toBe("DELETE");
     expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/routes/${ROUTE_ID}`);
     expect(calls[0]!.operationId).toBe("deleteRoute");
+  });
+});
+
+const TEMPLATE_RESPONSE = {
+  object: "template",
+  id: TEMPLATE_ID,
+  created_at: "2026-09-10T10:00:00Z",
+  updated_at: "2026-09-10T11:00:00Z",
+  name: "Welcome",
+  subject: "Welcome, {{ first_name }}",
+  preheader: "Thanks for joining",
+  variables: [
+    { name: "first_name", required: true },
+    { name: "unsubscribe_url", required: false },
+  ],
+} as const;
+
+function templatePage(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("TemplatesClient", () => {
+  it("list() sends every cursor control the caller passes", async () => {
+    const { fetch, calls } = captureFetch(() =>
+      templatePage({
+        object: "list",
+        data: [TEMPLATE_RESPONSE],
+        pagination: { has_more: true, next_cursor: "next-template", previous_cursor: null },
+      }),
+    );
+    const client = makeClient(fetch);
+    const params: ListTemplatesParams = { limit: 25, after: "previous-page" };
+
+    const page = await client.templates.list(params, {
+      headers: { "x-trace-id": "template-list-1" },
+    });
+
+    const url = new URL(calls[0]!.url);
+    expect(calls[0]!.operationId).toBe("listTemplates");
+    expect(calls[0]!.method).toBe("GET");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/templates`);
+    // The raw query string, so a serialized empty value cannot read as absent.
+    expect(url.search).toBe("?limit=25&after=previous-page");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("template-list-1");
+    expect(page.data[0]!.variables).toEqual([
+      { name: "first_name", required: true },
+      { name: "unsubscribe_url", required: false },
+    ]);
+    expect(page.pagination).toEqual({
+      has_more: true,
+      next_cursor: "next-template",
+      previous_cursor: null,
+    });
+  });
+
+  it("list() sends the backward cursor and no query at all when unset", async () => {
+    const { fetch, calls } = captureFetch(() =>
+      templatePage({ object: "list", data: [], pagination: { has_more: false } }),
+    );
+    const client = makeClient(fetch);
+
+    await client.templates.list({ before: "previous-page" });
+    await client.templates.list();
+
+    expect(new URL(calls[0]!.url).search).toBe("?before=previous-page");
+    expect(new URL(calls[1]!.url).search).toBe("");
+    expect(calls.map(({ operationId }) => operationId)).toEqual(["listTemplates", "listTemplates"]);
+  });
+
+  it("get() addresses the template path segment exactly once", async () => {
+    const { fetch, calls } = captureFetch(() => templatePage(TEMPLATE_RESPONSE));
+    const client = makeClient(fetch);
+
+    const template = await client.templates.get(TEMPLATE_ID, {
+      headers: { "x-trace-id": "template-get-1" },
+    });
+
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}`,
+    );
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.operationId).toBe("getTemplate");
+    expect(calls[0]!.headers["x-trace-id"]).toBe("template-get-1");
+    expect(calls[0]!.body).toBeUndefined();
+    expect(template.subject).toBe("Welcome, {{ first_name }}");
+  });
+
+  it("get() rejects an identifier that is not a template UUID before dispatch", () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() => client.templates.get("../messages")).toThrow(/expected uuid/);
+    expect(calls).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("iterate() follows next_cursor across pages and stops with the last one", async () => {
+    const { fetch, calls } = captureFetch((_call, index) =>
+      templatePage({
+        object: "list",
+        data: [{ ...TEMPLATE_RESPONSE, name: `template-${index}` }],
+        pagination:
+          index === 0
+            ? { has_more: true, next_cursor: "second-page", previous_cursor: null }
+            : { has_more: false, next_cursor: null, previous_cursor: null },
+      }),
+    );
+    const client = makeClient(fetch);
+
+    const templates: Template[] = [];
+    for await (const template of client.templates.iterate(
+      { limit: 1 },
+      { headers: { "x-trace-id": "template-iterator-1" } },
+    )) {
+      templates.push(template);
+    }
+
+    expect(templates.map(({ name }) => name)).toEqual(["template-0", "template-1"]);
+    expect(calls).toHaveLength(2);
+    expect(calls.map(({ operationId }) => operationId)).toEqual(["listTemplates", "listTemplates"]);
+    expect(calls.map(({ headers }) => headers["x-trace-id"])).toEqual([
+      "template-iterator-1",
+      "template-iterator-1",
+    ]);
+    expect(new URL(calls[0]!.url).search).toBe("?limit=1");
+    expect(new URL(calls[1]!.url).search).toBe("?limit=1&after=second-page");
+  });
+
+  it("get() surfaces a missing template as the not-found error type", async () => {
+    const { fetch, calls } = captureFetch(() =>
+      templatePage({ message: "Template not found" }, 404),
+    );
+    const client = makeClient(fetch);
+
+    const rejection = await client.templates.get(TEMPLATE_ID).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(rejection).toBeInstanceOf(AhaSendNotFoundError);
+    expect((rejection as AhaSendNotFoundError).status).toBe(404);
+    expect((rejection as AhaSendNotFoundError).body).toEqual({ message: "Template not found" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.operationId).toBe("getTemplate");
   });
 });
 

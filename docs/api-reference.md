@@ -4,7 +4,7 @@
 
 This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
-It contains exactly 62 API methods and 10 async iterators.
+It contains exactly 64 API methods and 11 async iterators.
 
 ## Contact management
 
@@ -560,6 +560,68 @@ const client = AhaSendClient.fromEnv();
 const messageId = "00000000-0000-4000-8000-000000000002";
 const result = await client.messages.cancel(messageId);
 console.log("Message cancellation requested.", { message: result.message });
+```
+
+<!-- operation: listTemplates -->
+
+### templates.list
+
+```ts
+client.templates.list(params?: ListTemplatesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Template>>
+```
+
+- **Operation ID:** `listTemplates`
+- **HTTP:** `GET /v2/accounts/{account_id}/templates`
+- **Models:** [ListTemplatesParams](../src/resources/templates.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `200: PaginatedTemplatesResponse`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: listTemplates -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.templates.list({ limit: 20 });
+console.log("Templates listed.", { count: page.data.length });
+```
+
+<!-- operation: getTemplate -->
+
+### templates.get
+
+```ts
+client.templates.get(templateId: string, options?: RequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `getTemplate`
+- **HTTP:** `GET /v2/accounts/{account_id}/templates/{template_id}`
+- **Models:** [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `200: Template`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const template = await client.templates.get(templateId);
+console.log("Template found.", { id: template.id, name: template.name });
 ```
 
 <!-- operation: getAccount -->
@@ -2055,6 +2117,18 @@ client.messages.iterate(params?: ListMessagesParams, options?: RequestOptions): 
 
 - **Operation ID:** `getMessages`
 - **Models:** [ListMessagesParams](../src/resources/messages.ts), [RequestOptions](../src/types/common.ts), [MessageSummary](../src/resources/messages.ts)
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: listTemplates -->
+
+### templates.iterate
+
+```ts
+client.templates.iterate(params?: ListTemplatesParams, options?: RequestOptions): AsyncGenerator<Template, void, undefined>
+```
+
+- **Operation ID:** `listTemplates`
+- **Models:** [ListTemplatesParams](../src/resources/templates.ts), [RequestOptions](../src/types/common.ts), [Template](../src/resources/templates.ts)
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
 <!-- iterator: listSubAccounts -->

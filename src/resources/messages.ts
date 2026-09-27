@@ -142,11 +142,23 @@ export interface CreateMessageRequest {
   from: Address;
   /** 1–100 recipients (the API rejects an empty array). */
   recipients: readonly Recipient[];
-  subject: string;
+  /**
+   * Subject line. Required unless `template_id` names a template that carries
+   * one of its own, which the type cannot express; a subject given here is
+   * used even when the template has one.
+   */
+  subject?: string | undefined;
+  /**
+   * A transactional template to send, which supplies the subject, the preview
+   * text and both bodies. Cannot be combined with `text_content`,
+   * `html_content` or `amp_content`, and a templated message carries no AMP
+   * part. Values for the template's variables come from `substitutions`.
+   */
+  template_id?: string | undefined;
   reply_to?: Address | undefined;
-  /** Plain-text body. Required if `html_content` is empty. */
+  /** Plain-text body. Required if `html_content` and `template_id` are empty. */
   text_content?: string | undefined;
-  /** HTML body. Required if `text_content` is empty. */
+  /** HTML body. Required if `text_content` and `template_id` are empty. */
   html_content?: string | undefined;
   /** AMP HTML variant. */
   amp_content?: string | undefined;

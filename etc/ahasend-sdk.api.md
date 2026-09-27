@@ -135,6 +135,7 @@ export class AhaSendClient {
     get statistics(): Readonly<StatisticsClient>;
     get subAccounts(): Readonly<SubAccountsClient>;
     get suppressions(): Readonly<SuppressionsClient>;
+    get templates(): Readonly<TemplatesClient>;
     toJSON(): {
         readonly name: "AhaSendClient";
         readonly accountId: UUID;
@@ -671,10 +672,10 @@ export interface CreateMessageRequest {
     sandbox_result?: SandboxResult | undefined;
     // (undocumented)
     schedule?: MessageSchedule | undefined;
-    // (undocumented)
-    subject: string;
+    subject?: string | undefined;
     substitutions?: Record<string, SubstitutionValue> | undefined;
     tags?: readonly string[] | undefined;
+    template_id?: string | undefined;
     text_content?: string | undefined;
     tracking?: Tracking | undefined;
 }
@@ -1006,6 +1007,9 @@ export type ListSuppressionsParams = PaginationParams & {
     from_time?: ISODateTime | undefined;
     to_time?: ISODateTime | undefined;
 };
+
+// @public
+export type ListTemplatesParams = PaginationParams;
 
 // @public (undocumented)
 export type ListWebhooksParams = PaginationParams & {
@@ -1590,6 +1594,38 @@ export interface TelemetryHooks {
     onRequest?: ((event: RequestEvent) => void | Promise<void>) | undefined;
     onResponse?: ((event: ResponseEvent) => void | Promise<void>) | undefined;
     onRetry?: ((event: RetryEvent) => void | Promise<void>) | undefined;
+}
+
+// @public
+export interface Template {
+    // (undocumented)
+    created_at: ISODateTime;
+    // (undocumented)
+    id: string;
+    // (undocumented)
+    name: string;
+    // (undocumented)
+    object: "template";
+    preheader: string;
+    subject: string;
+    // (undocumented)
+    updated_at: ISODateTime;
+    // (undocumented)
+    variables: TemplateVariable[];
+}
+
+// @public
+export interface TemplatesClient {
+    get(templateId: string, options?: RequestOptions): AhaSendPromise<Template>;
+    iterate(params?: ListTemplatesParams, options?: RequestOptions): AsyncGenerator<Template, void, undefined>;
+    list(params?: ListTemplatesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Template>>;
+}
+
+// @public
+export interface TemplateVariable {
+    // (undocumented)
+    name: string;
+    required: boolean;
 }
 
 // @public

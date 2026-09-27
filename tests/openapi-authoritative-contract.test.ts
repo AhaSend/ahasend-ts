@@ -171,6 +171,52 @@ describe("authoritative OpenAPI model contracts", () => {
     ]);
   });
 
+  it("pins the transactional template read models", () => {
+    expect(schema("TemplateVariable").required).toEqual(["name", "required"]);
+    expect(Object.keys(properties("TemplateVariable"))).toEqual(["name", "required"]);
+    expect(property("TemplateVariable", "required").type).toBe("boolean");
+
+    expect(schema("Template").required).toEqual([
+      "object",
+      "id",
+      "created_at",
+      "updated_at",
+      "name",
+      "subject",
+      "preheader",
+      "variables",
+    ]);
+    expect(Object.keys(properties("Template"))).toEqual(schema("Template").required);
+    expect(nullableProperties("Template")).toEqual([]);
+    expect(property("Template", "object").enum).toEqual(["template"]);
+    expect(property("Template", "variables")).toMatchObject({
+      type: "array",
+      items: { $ref: "#/components/schemas/TemplateVariable" },
+    });
+
+    expect(schema("PaginatedTemplatesResponse").required).toEqual(["object", "data", "pagination"]);
+    expect(property("PaginatedTemplatesResponse", "data")).toMatchObject({
+      type: "array",
+      items: { $ref: "#/components/schemas/Template" },
+    });
+  });
+
+  it("frees the send request from `subject` without weakening the conversation request", () => {
+    // A templated send carries the template's subject, so the send request can
+    // no longer require one. The conversational endpoint takes no template and
+    // keeps its subject required.
+    expect(schema("CreateMessageRequest").required).toEqual(["from", "recipients"]);
+    expect(property("CreateMessageRequest", "template_id")).toMatchObject({
+      type: "string",
+      format: "uuid",
+    });
+    expect(property("CreateMessageRequest", "template_id").description).toContain(
+      "Cannot be combined with `text_content`, `html_content` or `amp_content`",
+    );
+    expect(schema("CreateConversationMessageRequest").required).toEqual(["from", "to", "subject"]);
+    expect(properties("CreateConversationMessageRequest")).not.toHaveProperty("template_id");
+  });
+
   it("keeps pagination cursors optional and non-null when present", () => {
     expect(schema("PaginationInfo").required).toEqual(["has_more"]);
     expect(Object.keys(properties("PaginationInfo"))).toEqual([

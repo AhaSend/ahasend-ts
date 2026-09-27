@@ -48,6 +48,7 @@ import {
   captureFetch,
   HOSTNAME,
   makeClient,
+  TEMPLATE_ID,
 } from "./helpers/resource-call.js";
 
 describe("Resource helper boundary", () => {
@@ -446,6 +447,80 @@ describe("MessagesClient", () => {
     });
     expect(message.data[0]).toHaveProperty("id");
     expect(message.data[0]).toHaveProperty("error");
+  });
+
+  it("send() forwards template_id and omits the key when the caller sends none", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.messages.send({
+      from: { email: "a@b.com" },
+      recipients: [{ email: "x@y.com" }],
+      subject: "Overrides the template subject",
+      template_id: TEMPLATE_ID,
+      substitutions: { first_name: "Pat" },
+    });
+    await client.messages.send({
+      from: { email: "a@b.com" },
+      recipients: [{ email: "x@y.com" }],
+      subject: "hi",
+      text_content: "hi",
+    });
+
+    const templated = JSON.parse(calls[0]!.body!) as Record<string, unknown>;
+    const inline = JSON.parse(calls[1]!.body!) as Record<string, unknown>;
+
+    expect(templated["template_id"]).toBe(TEMPLATE_ID);
+    expect(templated["subject"]).toBe("Overrides the template subject");
+    expect(inline).not.toHaveProperty("template_id");
+    expect(calls.map(({ operationId }) => operationId)).toEqual(["createMessage", "createMessage"]);
+  });
+
+  it("send() accepts a templated request with no subject and sends no subject key", async () => {
+    // The widening the optional subject exists for: the template carries the
+    // subject, so the request has none to send.
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+    const templated: CreateMessageRequest = {
+      from: { email: "a@b.com" },
+      recipients: [{ email: "x@y.com" }],
+      template_id: TEMPLATE_ID,
+      substitutions: { first_name: "Pat" },
+    };
+
+    await client.messages.send(templated);
+
+    const body = JSON.parse(calls[0]!.body!) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("subject");
+    expect(body["template_id"]).toBe(TEMPLATE_ID);
+  });
+
+  it("keeps the optional subject and template on the fan-out request only", () => {
+    type RequiredKeys<Body> = {
+      [Key in keyof Body]-?: object extends Pick<Body, Key> ? never : Key;
+    }[keyof Body];
+
+    expectTypeOf<RequiredKeys<CreateMessageRequest>>().toEqualTypeOf<"from" | "recipients">();
+    expectTypeOf<RequiredKeys<CreateConversationMessageRequest>>().toEqualTypeOf<
+      "from" | "to" | "subject"
+    >();
+
+    // @ts-expect-error The conversation endpoint takes no template, so its subject stays required.
+    const conversationWithoutSubject: CreateConversationMessageRequest = {
+      from: { email: "a@b.com" },
+      to: [{ email: "x@y.com" }],
+      text_content: "hi",
+    };
+    const conversationWithTemplate: CreateConversationMessageRequest = {
+      from: { email: "a@b.com" },
+      to: [{ email: "x@y.com" }],
+      subject: "hi",
+      // @ts-expect-error The conversation endpoint accepts no template_id.
+      template_id: TEMPLATE_ID,
+    };
+
+    expect(conversationWithoutSubject.to).toHaveLength(1);
+    expect(conversationWithTemplate.subject).toBe("hi");
   });
 
   it("sendConversation() hits /messages/conversation", async () => {

@@ -89,6 +89,13 @@ export type {
 } from "./resources/messages.js";
 
 export type {
+  ListTemplatesParams,
+  Template,
+  TemplatesClient,
+  TemplateVariable,
+} from "./resources/templates.js";
+
+export type {
   CreateDomainRequest,
   DNSRecord,
   Domain,

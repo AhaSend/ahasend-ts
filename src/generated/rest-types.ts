@@ -39,6 +39,8 @@ export interface paths {
   };
   "/v2/accounts/{account_id}/messages/{message_id}": { get: operations["getMessage"] };
   "/v2/accounts/{account_id}/messages/{message_id}/cancel": { delete: operations["cancelMessage"] };
+  "/v2/accounts/{account_id}/templates": { get: operations["listTemplates"] };
+  "/v2/accounts/{account_id}/templates/{template_id}": { get: operations["getTemplate"] };
   "/v2/accounts/{account_id}": { get: operations["getAccount"]; put: operations["updateAccount"] };
   "/v2/accounts/{account_id}/members": {
     get: operations["getAccountMembers"];
@@ -268,7 +270,8 @@ export interface components {
       from: components["schemas"]["Address"];
       recipients: ReadonlyArray<components["schemas"]["Recipient"]>;
       reply_to?: components["schemas"]["Address"] | undefined;
-      subject: string;
+      subject?: string | undefined;
+      template_id?: string | undefined;
       text_content?: string | undefined;
       html_content?: string | undefined;
       amp_content?: string | undefined;
@@ -381,6 +384,25 @@ export interface components {
     PaginatedMessagesResponse: {
       object: "list";
       data: Array<components["schemas"]["MessageSummary"]>;
+      pagination: components["schemas"]["PaginationInfo"];
+    };
+    TemplateVariable: {
+      name: string;
+      required: boolean;
+    };
+    Template: {
+      object: "template";
+      id: string;
+      created_at: string;
+      updated_at: string;
+      name: string;
+      subject: string;
+      preheader: string;
+      variables: Array<components["schemas"]["TemplateVariable"]>;
+    };
+    PaginatedTemplatesResponse: {
+      object: "list";
+      data: Array<components["schemas"]["Template"]>;
       pagination: components["schemas"]["PaginationInfo"];
     };
     Account: {
@@ -1057,6 +1079,7 @@ export interface operations {
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
@@ -1110,6 +1133,45 @@ export interface operations {
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  listTemplates: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+      query: {
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: { "application/json": components["schemas"]["PaginatedTemplatesResponse"] };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getTemplate: {
+    parameters: {
+      path: {
+        account_id: string;
+        template_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["Template"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };

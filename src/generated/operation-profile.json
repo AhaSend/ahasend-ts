@@ -87,6 +87,16 @@
       "method": "cancel"
     },
     {
+      "operationId": "listTemplates",
+      "facade": "templates",
+      "method": "list"
+    },
+    {
+      "operationId": "getTemplate",
+      "facade": "templates",
+      "method": "get"
+    },
+    {
       "operationId": "getAccount",
       "facade": "accounts",
       "method": "get"
@@ -326,6 +336,11 @@
     {
       "operationId": "getMessages",
       "facade": "messages",
+      "method": "iterate"
+    },
+    {
+      "operationId": "listTemplates",
+      "facade": "templates",
       "method": "iterate"
     },
     {
