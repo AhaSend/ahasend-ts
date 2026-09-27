@@ -72,7 +72,7 @@ export interface PingResponse {
  * child-account API keys through `client.subAccounts.apiKeys`.
  *
  * Retries (with backoff + `Retry-After`), opt-in two-bucket rate limiting,
- * and automatic idempotency keys on create operations are built in and
+ * and automatic idempotency keys on create and batch operations are built in and
  * configurable via {@link AhaSendClientOptions}.
  */
 export class AhaSendClient {

@@ -69,7 +69,7 @@ signals.
 
 ## Idempotency keys
 
-Every create operation documented by the API as idempotent receives an automatically generated
+Every create and batch operation documented by the API as idempotent receives an automatically generated
 UUID `Idempotency-Key` by default. The SDK generates it once for the logical call and reuses the
 same value across all internal retry attempts.
 

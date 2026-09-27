@@ -225,25 +225,25 @@ await client.messages.send(body, {
   timeoutMs: 2_000, // override the timeout for each attempt in this call
   retry: { maxRetries: 1 }, // restrict this call's retry policy (or use false)
   headers: { "x-trace-id": traceId }, // extra headers for this call
-  idempotencyKey: `receipt-${orderId}`, // create operations only
+  idempotencyKey: `receipt-${orderId}`, // create and batch operations only
 });
 ```
 
-| Field            | Applies to        | Effect                                                        |
-| ---------------- | ----------------- | ------------------------------------------------------------- |
-| `signal`         | all methods       | `AbortSignal` — cancels the request (and any retry sleep)     |
-| `timeoutMs`      | all methods       | Per-attempt timeout override for fetch and response-body read |
-| `retry`          | all methods       | Disable or restrict the client retry policy for this call     |
-| `headers`        | all methods       | Additional request headers                                    |
-| `idempotencyKey` | create operations | Explicit idempotency key; otherwise one is auto-generated     |
+| Field            | Applies to                  | Effect                                                        |
+| ---------------- | --------------------------- | ------------------------------------------------------------- |
+| `signal`         | all methods                 | `AbortSignal` — cancels the request (and any retry sleep)     |
+| `timeoutMs`      | all methods                 | Per-attempt timeout override for fetch and response-body read |
+| `retry`          | all methods                 | Disable or restrict the client retry policy for this call     |
+| `headers`        | all methods                 | Additional request headers                                    |
+| `idempotencyKey` | create and batch operations | Explicit idempotency key; otherwise one is auto-generated     |
 
 ## Cross-cutting behaviour
 
 ### Automatic idempotency
 
-The SDK attaches a UUID `Idempotency-Key` to every **create** operation
+The SDK attaches a UUID `Idempotency-Key` to every **create and batch** operation
 (all 15 endpoints whose generated operation profile marks them idempotent,
-including message sends and resource creations). The key is generated once per
+including message sends, resource creations, and the contact and list batches). The key is generated once per
 call and reused across the SDK's internal retries. Stored outcomes — 2xx and
 deterministic 4xx — are replayed for 24 hours, so a retry cannot duplicate them.
 Server errors (5xx), handler failures, and panics are **not** stored: the API
@@ -265,7 +265,7 @@ for retention windows, replay classification, and recovery after an uncertain re
 When an operation's generated retry profile permits another attempt, the SDK
 retries `408`, `429`, `5xx`, network failures, timeouts, and eligible keyed
 `409` responses while an idempotent operation is still in progress — never
-other 4xx. Key-protected create operations require an idempotency key to be
+other 4xx. Key-protected create and batch operations require an idempotency key to be
 retryable; the SDK supplies one unless automatic key generation is disabled.
 A valid server `Retry-After` on 429 (seconds or HTTP-date) or an eligible keyed
 409 (positive integer seconds) is authoritative and capped at the configured
