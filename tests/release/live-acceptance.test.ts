@@ -174,6 +174,12 @@ function completeLiveResults(candidate: LiveCandidate) {
     fullSuccessObjects: 2,
   };
   byId.get("deleteContact")!.evidence = { cleanupVerified: true, deleted: true };
+  for (const operationId of ["getLists", "getListContacts", "getContactLists"]) {
+    byId.get(operationId)!.evidence = {
+      ...byId.get(operationId)!.evidence,
+      iteratorCrossedPage: true,
+    };
+  }
   byId.get("upsertListContact")!.evidence = {
     createdStatus: "confirmed",
     updatedStatus: "unsubscribed",
@@ -545,7 +551,37 @@ function listClientFixture(
         membership.list_id === list.id && membership.subscription_status === "confirmed",
     ).length,
   });
-  const page = <T>(data: T[]) => ({ object: "list", data, pagination: { has_more: false } });
+  // Offset cursors, so a limit-1 walk has to follow `next_cursor` like the API.
+  const page = <T>(data: T[], params: Record<string, unknown> = {}) => {
+    const start = typeof params["after"] === "string" ? Number(params["after"]) : 0;
+    const limit = typeof params["limit"] === "number" ? params["limit"] : 100;
+    const hasMore = start + limit < data.length;
+    return {
+      object: "list",
+      data: data.slice(start, start + limit),
+      pagination: {
+        has_more: hasMore,
+        next_cursor: hasMore ? String(start + limit) : null,
+        previous_cursor: null,
+      },
+    };
+  };
+  async function* walk<T>(
+    method: string,
+    params: Record<string, unknown>,
+    fetchPage: (params: Record<string, unknown>) => ReturnType<typeof page<T>>,
+    ...args: unknown[]
+  ) {
+    let current = { ...params };
+    while (true) {
+      record(method, ...args, current);
+      const result = fetchPage(current);
+      yield* result.data;
+      if (!result.pagination.has_more) return;
+      current = { ...current, after: result.pagination.next_cursor };
+    }
+  }
+  let listSequence = 0;
   const membersOf = (id: string, params: Record<string, unknown> = {}) =>
     [...memberships.values()]
       .filter(
@@ -561,6 +597,13 @@ function listClientFixture(
           ? { contact: { ...requireContact(membership.contact_id) } }
           : {}),
       }));
+  const listPage = (params: Record<string, unknown>) => {
+    const name = String(params["name"] ?? "").toLowerCase();
+    return page(
+      [...lists.values()].filter((list) => list.name.toLowerCase().includes(name)).map(withCount),
+      params,
+    );
+  };
   const listsOfContact = (idOrEmail: string) => {
     const contact = requireContact(idOrEmail);
     return [...memberships.values()]
@@ -572,25 +615,14 @@ function listClientFixture(
     lists: {
       list: async (params: Record<string, unknown>) => {
         record("lists.list", params);
-        const name = String(params["name"] ?? "").toLowerCase();
-        return page(
-          [...lists.values()]
-            .filter((list) => list.name.toLowerCase().includes(name))
-            .map(withCount),
-        );
+        return listPage(params);
       },
-      iterate: async function* (params: Record<string, unknown>) {
-        record("lists.iterate", params);
-        const name = String(params["name"] ?? "").toLowerCase();
-        for (const list of lists.values()) {
-          if (list.name.toLowerCase().includes(name)) yield withCount(list);
-        }
-      },
+      iterate: (params: Record<string, unknown>) => walk("lists.iterate", params, listPage),
       create: async (body: { name: string; description?: string | null; tags?: string[] }) => {
         record("lists.create", body);
         const list: ListRecord = {
           object: "contact_list",
-          id: listId,
+          id: listSequence++ === 0 ? listId : `55555555-5555-4555-8555-55555555555${listSequence}`,
           created_at: timestamp,
           updated_at: timestamp,
           name: body.name,
@@ -626,13 +658,15 @@ function listClientFixture(
         list: async (id: string, params: Record<string, unknown>) => {
           record("lists.contacts.list", id, params);
           requireList(id);
-          return page(membersOf(id, params));
+          return page(membersOf(id, params), params);
         },
-        iterate: async function* (id: string, params: Record<string, unknown>) {
-          record("lists.contacts.iterate", id, params);
-          requireList(id);
-          yield* membersOf(id, params);
-        },
+        iterate: (id: string, params: Record<string, unknown>) =>
+          walk(
+            "lists.contacts.iterate",
+            params,
+            (current) => page(membersOf(requireList(id).id, current), current),
+            id,
+          ),
         upsert: async (
           id: string,
           idOrEmail: string,
@@ -740,12 +774,15 @@ function listClientFixture(
       lists: {
         list: async (idOrEmail: string, params: Record<string, unknown>) => {
           record("contacts.lists.list", idOrEmail, params);
-          return page(listsOfContact(idOrEmail));
+          return page(listsOfContact(idOrEmail), params);
         },
-        iterate: async function* (idOrEmail: string, params: Record<string, unknown>) {
-          record("contacts.lists.iterate", idOrEmail, params);
-          yield* listsOfContact(idOrEmail);
-        },
+        iterate: (idOrEmail: string, params: Record<string, unknown>) =>
+          walk(
+            "contacts.lists.iterate",
+            params,
+            (current) => page(listsOfContact(idOrEmail), current),
+            idOrEmail,
+          ),
       },
     },
   };
@@ -2529,9 +2566,33 @@ describe("live scenario inventory", () => {
     expect(fixture.memberships.size).toBe(0);
 
     const upserts = fixture.calls.filter(({ method }) => method === "lists.contacts.upsert");
-    expect(upserts.map(({ args }) => args.slice(1))).toEqual([
-      [fixture.memberEmails[0], undefined],
-      [fixture.memberEmails[0], { subscription_status: "unsubscribed" }],
+    const secondListId = "55555555-5555-4555-8555-555555555552";
+    expect(upserts.map(({ args }) => args)).toEqual([
+      ["33333333-3333-4333-8333-333333333333", fixture.memberEmails[0], undefined],
+      [
+        "33333333-3333-4333-8333-333333333333",
+        fixture.memberEmails[0],
+        { subscription_status: "unsubscribed" },
+      ],
+      [secondListId, fixture.memberEmails[0], undefined],
+    ]);
+    expect(fixture.calls.filter(({ method }) => method === "lists.create")).toHaveLength(2);
+    // Each limit-1 iterator walks two pages, the second from the first page's cursor.
+    for (const method of ["lists.iterate", "lists.contacts.iterate", "contacts.lists.iterate"]) {
+      expect(
+        fixture.calls
+          .filter((call) => call.method === method)
+          .map(({ args }) => (args.at(-1) as Record<string, unknown>)["after"]),
+        method,
+      ).toEqual([undefined, "1"]);
+    }
+    for (const operationId of ["getLists", "getListContacts", "getContactLists"]) {
+      expect(evidence(operationId), operationId).toMatchObject({ iteratorCrossedPage: true });
+    }
+    expect(result.iteratorResults.map(({ evidence }) => evidence)).toEqual([
+      { direction: "forward", items: 2, limit: 1 },
+      { direction: "forward", items: 2, limit: 1 },
+      { direction: "forward", items: 2, limit: 1 },
     ]);
     expect(
       fixture.calls.find(({ method }) => method === "lists.contacts.batchAdd")?.args[1],
@@ -2581,6 +2642,7 @@ describe("live scenario inventory", () => {
     expect(fixture.lists.size).toBe(0);
     expect(fixture.calls.map(({ method }) => method)).toEqual([
       "lists.create",
+      "lists.list",
       "lists.list",
       "lists.list",
       "lists.delete",

@@ -1884,6 +1884,58 @@ function requireMembershipResult(value, expected, label) {
   return membership;
 }
 
+/**
+ * Walk a list collection that holds more items than one page, so the iterator
+ * has to follow a cursor. The first page must be full and report `has_more`,
+ * and every expected item must come back through the iterator.
+ */
+async function runCrossPageIteratorScenario(
+  list,
+  iterate,
+  pageParams,
+  label,
+  expectedIds,
+  idOf,
+  validateEntry,
+) {
+  if (expectedIds.length <= pageParams.limit) {
+    throw new TypeError(`${label} iterator needs more expected items than one page holds.`);
+  }
+  const page = requireObject(await list(pageParams), `${label} list response`);
+  if (!Array.isArray(page.data)) {
+    throw new TypeError(`${label} list response data must be an array.`);
+  }
+  if (
+    page.data.length !== pageParams.limit ||
+    requireObject(page.pagination, `${label} list response pagination`).has_more !== true
+  ) {
+    throw new TypeError(`${label} first page must be full and report has_more.`);
+  }
+  page.data.forEach((entry, index) => validateEntry(entry, `${label} list response item ${index}`));
+
+  const seen = new Set();
+  let itemCount = 0;
+  for await (const entry of iterate(pageParams)) {
+    validateEntry(entry, `${label} iterator item ${itemCount}`);
+    seen.add(idOf(entry));
+    itemCount += 1;
+    if (itemCount >= 100) break;
+  }
+  if (expectedIds.some((id) => !seen.has(id))) {
+    throw new TypeError(`${label} iterator must return every expected item across pages.`);
+  }
+  const direction = pageParams.before === undefined ? "forward" : "backward";
+  return Object.freeze({
+    evidence: Object.freeze({
+      direction,
+      iteratorCrossedPage: true,
+      limit: pageParams.limit,
+      pageItems: page.data.length,
+    }),
+    iteratorEvidence: Object.freeze({ direction, items: itemCount, limit: pageParams.limit }),
+  });
+}
+
 function requireMappedOperation(profile, client, operationId, label) {
   const mapping = profile.operations.find((entry) => entry.operationId === operationId);
   if (mapping === undefined) {
@@ -1970,8 +2022,11 @@ export function createListScenarioRegistry({
     throw new TypeError("List live unknown email must differ from both member emails.");
   }
   const pageParams = requireLivePagination(pagination, "List");
-  const listNames = new Set([createBody.name, updateBody.name]);
-  const state = { listId: null, contactIds: new Map() };
+  // A second list shares the renamed list's name as a prefix, so the list
+  // listing and the contact's lists both span two pages at limit 1.
+  const secondListName = `${updateBody.name} second`;
+  const listNames = new Set([createBody.name, updateBody.name, secondListName]);
+  const state = { listId: null, secondListId: null, contactIds: new Map() };
   const requireListId = () => {
     if (state.listId === null) throw new TypeError("List scenarios require the created list.");
     return state.listId;
@@ -2024,7 +2079,9 @@ export function createListScenarioRegistry({
           // Registered before the write: a create whose response is lost is
           // still found by its unique name and removed.
           cleanup.register("delete and verify disposable list", async () => {
-            const listIds = new Set(state.listId === null ? [] : [state.listId]);
+            const listIds = new Set(
+              [state.listId, state.secondListId].filter((listId) => listId !== null),
+            );
             for (const name of listNames) {
               const page = requireObject(
                 await methods.list({ name, limit: 100 }),
@@ -2075,14 +2132,25 @@ export function createListScenarioRegistry({
       {
         operationId: "getLists",
         async run() {
+          const second = requireListResult(
+            await methods.create({ name: secondListName }),
+            { name: secondListName },
+            "Second list create response",
+          );
+          state.secondListId = second.id;
           const filtered = (params) => ({ ...params, name: updateBody.name });
-          return runListIteratorScenario(
+          return runCrossPageIteratorScenario(
             (params) => methods.list(filtered(params)),
             (params) => methods.iterate(filtered(params)),
             pageParams,
             "List",
+            [requireListId(), second.id],
+            (entry) => entry.id,
             (entry, label) => {
-              requireListResult(entry, { id: requireListId(), name: updateBody.name }, label);
+              const list = requireListResult(entry, {}, label);
+              if (!list.name.startsWith(updateBody.name)) {
+                throw new TypeError(`${label} does not match the name filter.`);
+              }
             },
           );
         },
@@ -2192,11 +2260,13 @@ export function createListScenarioRegistry({
         operationId: "getListContacts",
         async run() {
           const listId = requireListId();
-          const result = await runListIteratorScenario(
+          const result = await runCrossPageIteratorScenario(
             (params) => methods.listMembers(listId, params),
             (params) => methods.iterateMembers(listId, params),
             pageParams,
             "List membership",
+            [requireContactId(unsubscribedEmail), requireContactId(addedEmail)],
+            (entry) => entry.contact_id,
             (entry, label) => requireMembershipResult(entry, { listId }, label),
           );
           const filtered = requireObject(
@@ -2243,11 +2313,21 @@ export function createListScenarioRegistry({
         async run() {
           const listId = requireListId();
           const contactId = requireContactId(unsubscribedEmail);
-          const result = await runListIteratorScenario(
+          if (state.secondListId === null) {
+            throw new TypeError("Contact list scenario requires the second list.");
+          }
+          requireMembershipResult(
+            await methods.upsert(state.secondListId, unsubscribedEmail),
+            { listId: state.secondListId, contactId, status: "confirmed" },
+            "Second list membership response",
+          );
+          const result = await runCrossPageIteratorScenario(
             (params) => methods.listForContact(unsubscribedEmail, params),
             (params) => methods.iterateForContact(unsubscribedEmail, params),
             pageParams,
             "Contact list",
+            [listId, state.secondListId],
+            (entry) => entry.list_id,
             (entry, label) =>
               requireMembershipResult(entry, { listId: entry?.list_id, contactId }, label),
           );
@@ -5316,6 +5396,9 @@ function requireSandboxOutcomes(operations) {
 }
 
 function requireListOutcomes(operations) {
+  for (const operationId of ["getLists", "getListContacts", "getContactLists"]) {
+    requireOperationOutcomes(operations, operationId, [["iteratorCrossedPage", true]]);
+  }
   requireOperationOutcomes(operations, "batchAddListContacts", [
     ["added", 1],
     ["skipped", 1],

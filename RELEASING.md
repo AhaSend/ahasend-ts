@@ -52,15 +52,18 @@ The contact scenarios create two unique plus-addressed contacts under
 hard-delete it, and verify both contacts are absent during cleanup. They do not
 add either contact to a list.
 
-The list scenarios create one uniquely named list and two plus-addressed
-contacts under `suppressionDomain`. They add the first contact with a single
+The list scenarios create two uniquely named lists and two plus-addressed
+contacts under `suppressionDomain`. The second list, and the first contact's
+membership of it, exist so the list listing, the member listing and the
+contact's lists each span two pages at `limit: 1`, which makes every list
+iterator follow a cursor. They add the first contact with a single
 upsert and unsubscribe it, then batch-add it again beside the second contact and
 an address no contact holds, which must report `already_member` (with the
 unsubscribe kept), `added`, and `not_found`. They read the members with
 `include_contacts: true`, read the first contact's lists, remove the second
-contact from the list twice (the repeat must answer 404), and delete the list.
-Cleanup deletes both contacts and finds the list by name, so a list whose create
-response was lost is still removed. A `complained` membership cannot be produced
+contact from the list twice (the repeat must answer 404), and delete the first
+list. Cleanup deletes both contacts and finds both lists by name, so a list
+whose create response was lost is still removed. A `complained` membership cannot be produced
 on demand, so its 409 is not exercised live.
 
 One caveat the repo cannot verify: adding an account member is a platform
