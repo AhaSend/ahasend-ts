@@ -72,9 +72,11 @@ export interface UpsertListContactRequest {
 }
 
 /**
- * One batch entry naming exactly one existing contact by `email` or `id`. An
- * entry naming neither, both, or anything else is reported `invalid` at its
- * own position rather than failing the request.
+ * One batch entry. Name exactly one existing contact, by `email` or by `id`,
+ * and nothing else. The type admits other shapes because the API does not
+ * reject them as a request: an entry naming neither, both, or another property
+ * comes back as an `invalid` outcome at its own position, and the rest of the
+ * batch still runs.
  */
 export interface BatchAddListContactInput {
   email?: string | null | undefined;
@@ -89,9 +91,18 @@ export interface BatchAddListContactsRequest {
 /** One entry's outcome, at the entry's index in the request array. */
 export interface BatchListContactResult {
   position: number;
-  /** The normalized input email, echoed when the entry named one usable email. */
+  /**
+   * The input email, trimmed and lowercased. Echoed whenever the entry named an
+   * email and no `id`, including when that email is invalid or the entry
+   * carried another property; absent when the email was not a string or was
+   * empty once trimmed.
+   */
   email?: string;
-  /** The input contact ID, echoed when the entry named one that parsed as a UUID. */
+  /**
+   * The input contact ID. Echoed whenever the entry named an `id` and no email
+   * and that `id` parsed as a UUID, including when the entry carried another
+   * property.
+   */
   id?: string;
   /**
    * `added` created the membership, `already_member` left an existing one
