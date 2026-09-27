@@ -586,16 +586,12 @@ npm run lint              # eslint over src
 npm run format            # prettier
 ```
 
-### Updating the API spec
+### Changing a code sample
 
-The API repository's `openapi.yaml` (on its `master` branch) owns everything in the spec except the
-code samples; this repository owns the Node samples. `npm run spec:sync` downloads that file with
-`gh` (pass `-- --ref devel` for a server change that has not reached `master` yet), writes it over
-`openapi.yaml`, re-injects the Node samples from `scripts/node-code-samples.mjs`, and regenerates
-`src/generated` and `docs/api-reference.md`. When the new spec adds, removes, or renames an
-operation or schema, it stops first and names the facade mappings, Node samples, and
-`contracts.lock.json` inventories to update. The API repository later pulls the Node samples from
-this repository's `openapi.yaml` back into its own.
+The Node samples embedded in `openapi.yaml` come from `scripts/node-code-samples.mjs`. After editing
+one, run `npm run contracts:generate` to write it into `openapi.yaml`, then `npm run sdk:generate`
+and `npm run docs:generate` to refresh `src/generated` and `docs/api-reference.md`, which both carry
+the result.
 
 ## Support and security
 
