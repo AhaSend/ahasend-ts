@@ -31,13 +31,18 @@ them the workflow fails partway through, after it has already published to the
 Put a required-reviewer protection rule on `npm-latest` at minimum. `live-gates`
 mutates a real account, so `live-release` deserves one too.
 
-**What live-gates actually does.** It exercises all 74 operations against a real
-account. It does **not** deliver mail: every send sets `sandbox: true`, and
-`scripts/live-acceptance.mjs:964` refuses to run a request without it. Routes and
+**What live-gates actually does.** The live report needs a passed result for all
+74 operations. Live acceptance exercises 72 of them against a real account; the
+two template operations, `listTemplates` and `getTemplate`, have no scenario yet
+and stay pending until a fixture template exists on the release account, so the
+gate cannot pass until they are added. It does **not** deliver mail: every send
+sets `sandbox: true`, and `requireSandboxMessageRequest` in
+`scripts/live-acceptance.mjs` refuses to run a request without it. Routes and
 webhooks are created `enabled: false`. What it _does_ do to the real account: creates and deletes
 domains, routes, webhooks, SMTP credentials, API keys, contacts, lists, suppressions and
 sub-accounts; updates the account settings (only the `about` text, which is
-restored afterwards — `scripts/run-live-acceptance.mjs:515`); wipes all
+restored afterwards — the `createAccountScenarioRegistry` call in
+`scripts/run-live-acceptance.mjs`); wipes all
 suppressions for `suppressionDomain` (`methods.wipe({ domain })`); and adds then
 removes a real account member. Treat it as destructive to the account, not as a
 mail event.
@@ -64,12 +69,12 @@ no real mail" covers the messages API, which this repo controls — not that.
 
 ### Secrets
 
-| Secret                     | Consumed by                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| -------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `AHASEND_API_KEY`          | `live-gates` (release.yml:461)                                                                  | Needs **every** scope — live acceptance exercises all 74 operations, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `contacts:read`, `contacts:write`, `contacts:delete`, `lists:read`, `lists:write`, `lists:delete`, `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
-| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:462)                                                                  | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:463)                                                                  | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:881, 963, 1022, 1111) | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                                                                                                                             |
+| Secret                     | Consumed by                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AHASEND_API_KEY`          | `live-gates` (release.yml:461)                                                                  | Needs **every** scope — live acceptance exercises every operation that has a scenario, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `contacts:read`, `contacts:write`, `contacts:delete`, `lists:read`, `lists:write`, `lists:delete`, `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
+| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:462)                                                                  | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:463)                                                                  | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:881, 963, 1022, 1111) | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                                                                                                                                               |
 
 > **`next-publish` has no `NPM_TOKEN`.** It runs
 > `npm publish --provenance` (release.yml:640) with `id-token: write`, which
@@ -86,7 +91,7 @@ no real mail" covers the messages API, which this repo controls — not that.
 ### `AHASEND_LIVE_CONFIG_JSON`
 
 Exactly these eight keys — no more, no fewer
-(`scripts/run-live-acceptance.mjs:39`):
+(`configKeys` in `scripts/run-live-acceptance.mjs`):
 
 ```json
 {
@@ -106,7 +111,8 @@ Validation rules the script enforces:
 - The **six domains** must be six _distinct_, non-empty domain names. No `@`,
   no commas. They are lowercased before use.
 - `disposableMailbox` must contain `@`. It is **added as a `Developer`-role
-  member of the release account** (`scripts/run-live-acceptance.mjs:516-519`) and
+  member of the release account** (the `createAccountScenarioRegistry` call in
+  `scripts/run-live-acceptance.mjs`) and
   removed in cleanup — so it must be an address you are willing to grant account
   access to, not a shared alias.
 - `webhookUrl` must be **HTTPS**.
@@ -116,16 +122,19 @@ Account preconditions:
 - `verifiedDomain` and `replacementVerifiedDomain` are real, DNS-verified
   sending domains on the account.
 - `dnslessDomain` must **not** exist on the account. The run creates it
-  (`scripts/live-acceptance.mjs:1190`), asserts it is DNS-invalid, checks that a
+  (`createMessageScenarioRegistry` in `scripts/live-acceptance.mjs`), asserts it
+  is DNS-invalid, checks that a
   send to it is rejected, and deletes it in cleanup. A copy left behind by a
   failed run must be removed before re-tagging.
 - `neverRegisteredDomain` must not exist on the account at all.
 - `lifecycleDomain` must **not** exist on the account either — the run creates
-  it (`scripts/run-live-acceptance.mjs:351`), drives it through the full
+  it (the `createDomainScenarioRegistry` call in
+  `scripts/run-live-acceptance.mjs`), drives it through the full
   create/update/delete lifecycle, and uses it (as a bare domain, which the API
   stores as given and reads back unchanged) as the `website` of the
   disposable sub-account the sub-account scenarios create and delete
-  (`scripts/run-live-acceptance.mjs:557`).
+  (the `createSubAccountScenarioRegistry` call in
+  `scripts/run-live-acceptance.mjs`).
   Like `dnslessDomain`, a copy left behind by a cancelled run must be removed
   before re-tagging.
 - `suppressionDomain` must **exist as a domain on the account** — the API
