@@ -41,7 +41,7 @@ console.log("API keys listed.", { count: page.data.length });`,
     "createAPIKey",
     "POST /v2/accounts/{account_id}/api-keys",
     "client.apiKeys.create",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const apiKey = await client.apiKeys.create({
   label: "Production API key",
   scopes: ["messages:send:all"],
@@ -83,7 +83,7 @@ console.log("Domains listed.", { count: page.data.length });`,
     "createDomain",
     "POST /v2/accounts/{account_id}/domains",
     "client.domains.create",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const domain = await client.domains.create({ domain: "example.com" });
 console.log("Domain created.", { id: domain.id, domain: domain.domain });`,
   ),
@@ -130,7 +130,7 @@ console.log("Messages listed.", { count: page.data.length });`,
     "createMessage",
     "POST /v2/accounts/{account_id}/messages",
     "client.messages.send",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.messages.send({
   from: { email: "sender@example.com", name: "Example" },
   recipients: [{ email: "recipient@example.net" }],
@@ -144,7 +144,7 @@ console.log("Sandbox message accepted.", { count: result.data.length });`,
     "createConversationMessage",
     "POST /v2/accounts/{account_id}/messages/conversation",
     "client.messages.sendConversation",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.messages.sendConversation({
   from: { email: "sender@example.com", name: "Example" },
   to: [{ email: "recipient@example.net" }],
@@ -210,7 +210,7 @@ console.log("Account members listed.", { count: members.data.length });`,
     "addAccountMember",
     "POST /v2/accounts/{account_id}/members",
     "client.accounts.addMember",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const member = await client.accounts.addMember({
   email: "developer@example.com",
   role: "Developer",
@@ -236,7 +236,7 @@ console.log("Sub-accounts listed.", { count: page.data.length });`,
     "createSubAccount",
     "POST /v2/accounts/{account_id}/sub-accounts",
     "client.subAccounts.create",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const subAccount = await client.subAccounts.create({
   name: "Example subsidiary",
   website: "subsidiary.example.com",
@@ -310,7 +310,7 @@ console.log("Sub-account API keys listed.", { count: page.data.length });`,
     "POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys",
     "client.subAccounts.apiKeys.create",
     `const subAccountId = "00000000-0000-4000-8000-000000000004";
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const apiKey = await client.subAccounts.apiKeys.create(subAccountId, {
   label: "Bootstrap key",
   scopes: ["messages:send:all"],
@@ -357,7 +357,7 @@ console.log("Contacts listed.", { count: page.data.length });`,
     "createContact",
     "POST /v2/accounts/{account_id}/contacts",
     "client.contacts.create",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const contact = await client.contacts.create({
   email: "person@example.com",
   first_name: "Pat",
@@ -369,7 +369,7 @@ console.log("Contact created.", { id: contact.id, status: contact.status });`,
     "batchUpsertContacts",
     "POST /v2/accounts/{account_id}/contacts/batch",
     "client.contacts.batchUpsert",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.contacts.batchUpsert({
   data: [
     { email: "new@example.com", attributes: { customer: true } },
@@ -416,7 +416,7 @@ console.log("Lists listed.", { count: page.data.length });`,
     "createList",
     "POST /v2/accounts/{account_id}/lists",
     "client.lists.create",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const list = await client.lists.create({
   name: "Product updates",
   description: "Monthly release notes",
@@ -464,7 +464,7 @@ console.log("List members listed.", { count: page.data.length });`,
     "POST /v2/accounts/{account_id}/lists/{list_id}/contacts/batch",
     "client.lists.contacts.batchAdd",
     `const listId = "00000000-0000-4000-8000-000000000010";
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.lists.contacts.batchAdd(listId, {
   data: [{ email: "one@example.com" }, { id: "00000000-0000-4000-8000-000000000011" }],
 });
@@ -509,7 +509,7 @@ console.log("Suppressions listed.", { count: page.data.length });`,
     "createSuppression",
     "POST /v2/accounts/{account_id}/suppressions",
     "client.suppressions.create",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.suppressions.create({
   email: "recipient@example.net",
   reason: "User requested removal",
@@ -542,7 +542,7 @@ console.log("Routes listed.", { count: page.data.length });`,
     "createRoute",
     "POST /v2/accounts/{account_id}/routes",
     "client.routes.create",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const route = await client.routes.create({
   name: "Inbound messages",
   url: "https://example.com/inbound",
@@ -587,7 +587,7 @@ console.log("Webhooks listed.", { count: page.data.length });`,
     "createWebhook",
     "POST /v2/accounts/{account_id}/webhooks",
     "client.webhooks.create",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const webhook = await client.webhooks.create({
   name: "Delivery events",
   url: "https://example.com/webhooks/ahasend",
@@ -633,7 +633,7 @@ console.log("SMTP credentials listed.", { count: page.data.length });`,
     "createSMTPCredential",
     "POST /v2/accounts/{account_id}/smtp-credentials",
     "client.smtpCredentials.create",
-    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const credential = await client.smtpCredentials.create({
   name: "Production SMTP",
   scope: "global",

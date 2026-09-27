@@ -111,7 +111,7 @@ client.apiKeys.create(body: CreateAPIKeyRequest, options?: IdempotencyRequestOpt
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const apiKey = await client.apiKeys.create({
   label: "Production API key",
   scopes: ["messages:send:all"],
@@ -269,7 +269,7 @@ client.domains.create(body: CreateDomainRequest, options?: IdempotencyRequestOpt
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const domain = await client.domains.create({ domain: "example.com" });
 console.log("Domain created.", { id: domain.id, domain: domain.domain });
 ```
@@ -455,7 +455,7 @@ client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOpt
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.messages.send({
   from: { email: "sender@example.com", name: "Example" },
   recipients: [{ email: "recipient@example.net" }],
@@ -492,7 +492,7 @@ client.messages.sendConversation(body: CreateConversationMessageRequest, options
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.messages.sendConversation({
   from: { email: "sender@example.com", name: "Example" },
   to: [{ email: "recipient@example.net" }],
@@ -743,7 +743,7 @@ client.accounts.addMember(body: AddAccountMemberRequest, options?: IdempotencyRe
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const member = await client.accounts.addMember({
   email: "developer@example.com",
   role: "Developer",
@@ -839,7 +839,7 @@ client.subAccounts.create(body: CreateSubAccountRequest, options?: IdempotencyRe
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const subAccount = await client.subAccounts.create({
   name: "Example subsidiary",
   website: "subsidiary.example.com",
@@ -1098,7 +1098,7 @@ import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
 const subAccountId = "00000000-0000-4000-8000-000000000004";
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const apiKey = await client.subAccounts.apiKeys.create(subAccountId, {
   label: "Bootstrap key",
   scopes: ["messages:send:all"],
@@ -1261,7 +1261,7 @@ client.contacts.create(body: CreateContactRequest, options?: IdempotencyRequestO
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const contact = await client.contacts.create({
   email: "person@example.com",
   first_name: "Pat",
@@ -1296,7 +1296,7 @@ client.contacts.batchUpsert(body: BatchUpsertContactsRequest, options?: Idempote
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.contacts.batchUpsert({
   data: [
     { email: "new@example.com", attributes: { customer: true } },
@@ -1459,7 +1459,7 @@ client.lists.create(body: CreateContactListRequest, options?: IdempotencyRequest
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const list = await client.lists.create({
   name: "Product updates",
   description: "Monthly release notes",
@@ -1624,7 +1624,7 @@ import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
 const listId = "00000000-0000-4000-8000-000000000010";
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.lists.contacts.batchAdd(listId, {
   data: [{ email: "one@example.com" }, { id: "00000000-0000-4000-8000-000000000011" }],
 });
@@ -1786,7 +1786,7 @@ client.suppressions.create(body: CreateSuppressionRequest, options?: Idempotency
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const result = await client.suppressions.create({
   email: "recipient@example.net",
   reason: "User requested removal",
@@ -1912,7 +1912,7 @@ client.routes.create(body: CreateRouteRequest, options?: IdempotencyRequestOptio
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const route = await client.routes.create({
   name: "Inbound messages",
   url: "https://example.com/inbound",
@@ -2073,7 +2073,7 @@ client.webhooks.create(body: CreateWebhookRequest, options?: IdempotencyRequestO
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const webhook = await client.webhooks.create({
   name: "Delivery events",
   url: "https://example.com/webhooks/ahasend",
@@ -2235,7 +2235,7 @@ client.smtpCredentials.create(body: CreateSMTPCredentialRequest, options?: Idemp
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
-// The SDK sends a fresh Idempotency-Key with this request automatically.
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const credential = await client.smtpCredentials.create({
   name: "Production SMTP",
   scope: "global",

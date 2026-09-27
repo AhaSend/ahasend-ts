@@ -1272,7 +1272,7 @@ function validateRequestBody(operationId, facadeCall, contractOperation, compone
 }
 
 export const AUTOMATIC_IDEMPOTENCY_COMMENT =
-  "// The SDK sends a fresh Idempotency-Key with this request automatically.";
+  "// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.";
 
 function operationHasIdempotency(operation) {
   return (
