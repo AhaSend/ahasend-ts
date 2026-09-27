@@ -51,6 +51,7 @@ export function collectOperations(document: unknown): ContractOperation[];
 export function collectContractInventory(document: unknown): ContractInventory;
 export function validateInternalReferences(document: unknown): void;
 export function assertInventoryMatches(actual: unknown, expected: unknown): void;
+export const AUTOMATIC_IDEMPOTENCY_COMMENT: string;
 export function validateNodeSampleRegistry(
   document: unknown,
   registry?: readonly NodeSampleRegistryEntry[],

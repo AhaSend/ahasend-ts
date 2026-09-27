@@ -88,6 +88,7 @@
     "sdk:generate": "node scripts/generate-sdk.mjs",
     "sdk:check": "node scripts/generate-sdk.mjs --check",
     "docs:generate": "node scripts/generate-docs.mjs",
+    "spec:sync": "node scripts/sync-spec.mjs",
     "docs:check": "node scripts/generate-docs.mjs --check && npm run test:docs:preflight",
     "release:source-gate": "node scripts/run-source-gates.mjs",
     "release:candidate": "node scripts/create-candidate.mjs",

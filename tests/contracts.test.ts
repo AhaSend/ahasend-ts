@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import { digestJsonArtifact, digestYamlArtifact } from "../scripts/digest-artifact.mjs";
 import {
   assertInventoryMatches,
+  AUTOMATIC_IDEMPOTENCY_COMMENT,
   collectContractInventory,
   collectOperations,
   documentedClassifications,
@@ -526,7 +527,7 @@ describe("REST contract rejection checks", () => {
     );
   });
 
-  it("rejects unsandboxed sends, unstable keys, and secret output", () => {
+  it("rejects unsandboxed sends, fixed idempotency keys, and secret output", () => {
     const unsandboxed = changedRegistryEntry("createMessage", (entry) => ({
       ...entry,
       sample: {
@@ -534,11 +535,21 @@ describe("REST contract rejection checks", () => {
         source: entry.sample.source.replace("sandbox: true", "sandbox: false"),
       },
     }));
-    const unstableKey = changedRegistryEntry("createDomain", (entry) => ({
+    const fixedKey = changedRegistryEntry("createDomain", (entry) => ({
       ...entry,
       sample: {
         ...entry.sample,
-        source: entry.sample.source.replace('{ idempotencyKey: "sdk-sample-create-domain" }', "{}"),
+        source: entry.sample.source.replace(
+          '{ domain: "example.com" }',
+          '{ domain: "example.com" }, { idempotencyKey: "sdk-sample-create-domain" }',
+        ),
+      },
+    }));
+    const unnotedKey = changedRegistryEntry("createDomain", (entry) => ({
+      ...entry,
+      sample: {
+        ...entry.sample,
+        source: entry.sample.source.replace(`${AUTOMATIC_IDEMPOTENCY_COMMENT}\n`, ""),
       },
     }));
     const secretOutput = changedRegistryEntry("createAPIKey", (entry) => ({
@@ -587,29 +598,30 @@ describe("REST contract rejection checks", () => {
             'recipients: [{ email: "recipient@example.net" }]',
             'recipients: [{ email: "recipient@example.net", sandbox: true }]',
           )
-          .replace("    sandbox: true,\n", ""),
+          .replace("  sandbox: true,\n", ""),
       },
     }));
     const bodyIdempotencyKey = changedRegistryEntry("createDomain", (entry) => ({
       ...entry,
       sample: {
         ...entry.sample,
-        source: entry.sample.source
-          .replace(
-            '{ domain: "example.com" }',
-            '{ domain: "example.com", idempotencyKey: "sdk-sample-create-domain" }',
-          )
-          .replace(',\n  { idempotencyKey: "sdk-sample-create-domain" }', ""),
+        source: entry.sample.source.replace(
+          '{ domain: "example.com" }',
+          '{ domain: "example.com", idempotencyKey: "sdk-sample-create-domain" }',
+        ),
       },
     }));
 
     expect(() => validateNodeSampleRegistry(document, unsandboxed)).toThrow(/sandbox: true/);
     expect(() => validateNodeSampleRegistry(document, nestedSandbox)).toThrow(/sandbox: true/);
-    expect(() => validateNodeSampleRegistry(document, unstableKey)).toThrow(
-      /stable caller idempotency key/,
+    expect(() => validateNodeSampleRegistry(document, fixedKey)).toThrow(
+      /must not pass an idempotencyKey/,
     );
     expect(() => validateNodeSampleRegistry(document, bodyIdempotencyKey)).toThrow(
-      /stable caller idempotency key/,
+      /must not pass an idempotencyKey/,
+    );
+    expect(() => validateNodeSampleRegistry(document, unnotedKey)).toThrow(
+      /sends an Idempotency-Key automatically/,
     );
     expect(() => validateNodeSampleRegistry(document, secretOutput)).toThrow(/one-time secret/);
     expect(() => validateNodeSampleRegistry(document, aliasedSecretOutput)).toThrow(

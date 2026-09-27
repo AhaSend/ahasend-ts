@@ -1068,13 +1068,6 @@ function requestBodyArgumentIndex(contractOperation) {
   ).length;
 }
 
-function requestOptionsArgumentIndex(contractOperation) {
-  return (
-    requestBodyArgumentIndex(contractOperation) +
-    (contractOperation.operation.requestBody === undefined ? 0 : 1)
-  );
-}
-
 function validatePublicImport(operationId, sourceFile) {
   const dynamicImports = collectNodes(
     sourceFile,
@@ -1278,6 +1271,9 @@ function validateRequestBody(operationId, facadeCall, contractOperation, compone
   }
 }
 
+export const AUTOMATIC_IDEMPOTENCY_COMMENT =
+  "// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.";
+
 function operationHasIdempotency(operation) {
   return (
     Array.isArray(operation.parameters) &&
@@ -1346,15 +1342,26 @@ function validateRegistrySample(entry, contractOperation, components) {
       throw new TypeError(`${operationId} sample must send with sandbox: true`);
     }
   }
-  if (operationHasIdempotency(contractOperation.operation)) {
-    const key = argumentProperty(
-      facadeCall,
-      requestOptionsArgumentIndex(contractOperation),
-      "idempotencyKey",
+  // A copied fixed key would replay the first response, or answer 422 to the
+  // next different request, so samples rely on the SDK's automatic key.
+  const passedKeys = collectNodes(
+    sourceFile,
+    (node) =>
+      (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
+      node.name.getText(sourceFile).replace(/^["']|["']$/gu, "") === "idempotencyKey",
+  );
+  if (passedKeys.length > 0) {
+    throw new TypeError(
+      `${operationId} sample must not pass an idempotencyKey; the SDK sends a fresh one`,
     );
-    if (key === undefined || !ts.isStringLiteral(key) || key.text.length < 8) {
-      throw new TypeError(`${operationId} sample must use a stable caller idempotency key`);
-    }
+  }
+  if (
+    operationHasIdempotency(contractOperation.operation) &&
+    !sample.source.includes(AUTOMATIC_IDEMPOTENCY_COMMENT)
+  ) {
+    throw new TypeError(
+      `${operationId} sample must note that the SDK sends an Idempotency-Key automatically`,
+    );
   }
 
   validateRequestBody(operationId, facadeCall, contractOperation, components);
