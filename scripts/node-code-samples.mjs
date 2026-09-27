@@ -41,10 +41,11 @@ console.log("API keys listed.", { count: page.data.length });`,
     "createAPIKey",
     "POST /v2/accounts/{account_id}/api-keys",
     "client.apiKeys.create",
-    `const apiKey = await client.apiKeys.create(
-  { label: "Production API key", scopes: ["messages:send:all"] },
-  { idempotencyKey: "sdk-sample-create-api-key" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const apiKey = await client.apiKeys.create({
+  label: "Production API key",
+  scopes: ["messages:send:all"],
+});
 console.log("API key created.", { id: apiKey.id, label: apiKey.label });`,
   ),
   entry(
@@ -82,10 +83,8 @@ console.log("Domains listed.", { count: page.data.length });`,
     "createDomain",
     "POST /v2/accounts/{account_id}/domains",
     "client.domains.create",
-    `const domain = await client.domains.create(
-  { domain: "example.com" },
-  { idempotencyKey: "sdk-sample-create-domain" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const domain = await client.domains.create({ domain: "example.com" });
 console.log("Domain created.", { id: domain.id, domain: domain.domain });`,
   ),
   entry(
@@ -131,32 +130,28 @@ console.log("Messages listed.", { count: page.data.length });`,
     "createMessage",
     "POST /v2/accounts/{account_id}/messages",
     "client.messages.send",
-    `const result = await client.messages.send(
-  {
-    from: { email: "sender@example.com", name: "Example" },
-    recipients: [{ email: "recipient@example.net" }],
-    subject: "Hello from AhaSend",
-    html_content: "<p>Hello!</p>",
-    sandbox: true,
-  },
-  { idempotencyKey: "sdk-sample-send-message" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const result = await client.messages.send({
+  from: { email: "sender@example.com", name: "Example" },
+  recipients: [{ email: "recipient@example.net" }],
+  subject: "Hello from AhaSend",
+  html_content: "<p>Hello!</p>",
+  sandbox: true,
+});
 console.log("Sandbox message accepted.", { count: result.data.length });`,
   ),
   entry(
     "createConversationMessage",
     "POST /v2/accounts/{account_id}/messages/conversation",
     "client.messages.sendConversation",
-    `const result = await client.messages.sendConversation(
-  {
-    from: { email: "sender@example.com", name: "Example" },
-    to: [{ email: "recipient@example.net" }],
-    subject: "Hello from AhaSend",
-    html_content: "<p>Hello!</p>",
-    sandbox: true,
-  },
-  { idempotencyKey: "sdk-sample-send-conversation" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const result = await client.messages.sendConversation({
+  from: { email: "sender@example.com", name: "Example" },
+  to: [{ email: "recipient@example.net" }],
+  subject: "Hello from AhaSend",
+  html_content: "<p>Hello!</p>",
+  sandbox: true,
+});
 console.log("Sandbox conversation accepted.", { count: result.data.length });`,
   ),
   entry(
@@ -215,10 +210,11 @@ console.log("Account members listed.", { count: members.data.length });`,
     "addAccountMember",
     "POST /v2/accounts/{account_id}/members",
     "client.accounts.addMember",
-    `const member = await client.accounts.addMember(
-  { email: "developer@example.com", role: "Developer" },
-  { idempotencyKey: "sdk-sample-add-account-member" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const member = await client.accounts.addMember({
+  email: "developer@example.com",
+  role: "Developer",
+});
 console.log("Account member added.", { userId: member.user_id, role: member.role });`,
   ),
   entry(
@@ -240,10 +236,11 @@ console.log("Sub-accounts listed.", { count: page.data.length });`,
     "createSubAccount",
     "POST /v2/accounts/{account_id}/sub-accounts",
     "client.subAccounts.create",
-    `const subAccount = await client.subAccounts.create(
-  { name: "Example subsidiary", website: "subsidiary.example.com" },
-  { idempotencyKey: "sdk-sample-create-sub-account" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const subAccount = await client.subAccounts.create({
+  name: "Example subsidiary",
+  website: "subsidiary.example.com",
+});
 console.log("Sub-account created.", { id: subAccount.id, status: subAccount.status });`,
   ),
   entry(
@@ -313,11 +310,11 @@ console.log("Sub-account API keys listed.", { count: page.data.length });`,
     "POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys",
     "client.subAccounts.apiKeys.create",
     `const subAccountId = "00000000-0000-4000-8000-000000000004";
-const apiKey = await client.subAccounts.apiKeys.create(
-  subAccountId,
-  { label: "Bootstrap key", scopes: ["messages:send:all"] },
-  { idempotencyKey: "sdk-sample-create-sub-account-api-key" },
-);
+// The SDK sends a fresh Idempotency-Key with this request automatically.
+const apiKey = await client.subAccounts.apiKeys.create(subAccountId, {
+  label: "Bootstrap key",
+  scopes: ["messages:send:all"],
+});
 console.log("Sub-account API key created.", { id: apiKey.id, label: apiKey.label });`,
   ),
   entry(
@@ -360,29 +357,25 @@ console.log("Contacts listed.", { count: page.data.length });`,
     "createContact",
     "POST /v2/accounts/{account_id}/contacts",
     "client.contacts.create",
-    `const contact = await client.contacts.create(
-  {
-    email: "person@example.com",
-    first_name: "Pat",
-    attributes: { customer: true },
-  },
-  { idempotencyKey: "sdk-sample-create-contact" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const contact = await client.contacts.create({
+  email: "person@example.com",
+  first_name: "Pat",
+  attributes: { customer: true },
+});
 console.log("Contact created.", { id: contact.id, status: contact.status });`,
   ),
   entry(
     "batchUpsertContacts",
     "POST /v2/accounts/{account_id}/contacts/batch",
     "client.contacts.batchUpsert",
-    `const result = await client.contacts.batchUpsert(
-  {
-    data: [
-      { email: "new@example.com", attributes: { customer: true } },
-      { email: "existing@example.com", attributes: { obsolete: null } },
-    ],
-  },
-  { idempotencyKey: "sdk-sample-batch-upsert-contacts" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const result = await client.contacts.batchUpsert({
+  data: [
+    { email: "new@example.com", attributes: { customer: true } },
+    { email: "existing@example.com", attributes: { obsolete: null } },
+  ],
+});
 console.log("Contact batch completed.", { created: result.created, updated: result.updated });`,
   ),
   entry(
@@ -423,10 +416,12 @@ console.log("Lists listed.", { count: page.data.length });`,
     "createList",
     "POST /v2/accounts/{account_id}/lists",
     "client.lists.create",
-    `const list = await client.lists.create(
-  { name: "Product updates", description: "Monthly release notes", tags: ["product"] },
-  { idempotencyKey: "sdk-sample-create-list" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const list = await client.lists.create({
+  name: "Product updates",
+  description: "Monthly release notes",
+  tags: ["product"],
+});
 console.log("List created.", { id: list.id, contactCount: list.contact_count });`,
   ),
   entry(
@@ -469,13 +464,10 @@ console.log("List members listed.", { count: page.data.length });`,
     "POST /v2/accounts/{account_id}/lists/{list_id}/contacts/batch",
     "client.lists.contacts.batchAdd",
     `const listId = "00000000-0000-4000-8000-000000000010";
-const result = await client.lists.contacts.batchAdd(
-  listId,
-  {
-    data: [{ email: "one@example.com" }, { id: "00000000-0000-4000-8000-000000000011" }],
-  },
-  { idempotencyKey: "sdk-sample-batch-add-list-contacts" },
-);
+// The SDK sends a fresh Idempotency-Key with this request automatically.
+const result = await client.lists.contacts.batchAdd(listId, {
+  data: [{ email: "one@example.com" }, { id: "00000000-0000-4000-8000-000000000011" }],
+});
 console.log("List batch completed.", { added: result.added, failed: result.failed });`,
   ),
   entry(
@@ -517,14 +509,12 @@ console.log("Suppressions listed.", { count: page.data.length });`,
     "createSuppression",
     "POST /v2/accounts/{account_id}/suppressions",
     "client.suppressions.create",
-    `const result = await client.suppressions.create(
-  {
-    email: "recipient@example.net",
-    reason: "User requested removal",
-    expires_at: "2030-01-01T00:00:00Z",
-  },
-  { idempotencyKey: "sdk-sample-create-suppression" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const result = await client.suppressions.create({
+  email: "recipient@example.net",
+  reason: "User requested removal",
+  expires_at: "2030-01-01T00:00:00Z",
+});
 console.log("Suppression created.", { count: result.data.length });`,
   ),
   entry(
@@ -552,14 +542,12 @@ console.log("Routes listed.", { count: page.data.length });`,
     "createRoute",
     "POST /v2/accounts/{account_id}/routes",
     "client.routes.create",
-    `const route = await client.routes.create(
-  {
-    name: "Inbound messages",
-    url: "https://example.com/inbound",
-    recipient: "inbound@example.com",
-  },
-  { idempotencyKey: "sdk-sample-create-route" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const route = await client.routes.create({
+  name: "Inbound messages",
+  url: "https://example.com/inbound",
+  recipient: "inbound@example.com",
+});
 console.log("Route created.", { id: route.id, name: route.name });`,
   ),
   entry(
@@ -599,15 +587,13 @@ console.log("Webhooks listed.", { count: page.data.length });`,
     "createWebhook",
     "POST /v2/accounts/{account_id}/webhooks",
     "client.webhooks.create",
-    `const webhook = await client.webhooks.create(
-  {
-    name: "Delivery events",
-    url: "https://example.com/webhooks/ahasend",
-    scope: "global",
-    on_delivered: true,
-  },
-  { idempotencyKey: "sdk-sample-create-webhook" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const webhook = await client.webhooks.create({
+  name: "Delivery events",
+  url: "https://example.com/webhooks/ahasend",
+  scope: "global",
+  on_delivered: true,
+});
 console.log("Webhook created.", { id: webhook.id, name: webhook.name });`,
   ),
   entry(
@@ -647,10 +633,11 @@ console.log("SMTP credentials listed.", { count: page.data.length });`,
     "createSMTPCredential",
     "POST /v2/accounts/{account_id}/smtp-credentials",
     "client.smtpCredentials.create",
-    `const credential = await client.smtpCredentials.create(
-  { name: "Production SMTP", scope: "global" },
-  { idempotencyKey: "sdk-sample-create-smtp-credential" },
-);
+    `// The SDK sends a fresh Idempotency-Key with this request automatically.
+const credential = await client.smtpCredentials.create({
+  name: "Production SMTP",
+  scope: "global",
+});
 console.log("SMTP credential created.", { id: credential.id, name: credential.name });`,
   ),
   entry(
