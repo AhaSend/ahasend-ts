@@ -183,7 +183,7 @@ const REQUIREMENTS = Object.freeze([
   {
     label: "README idempotent-operation inventory",
     path: "README.md",
-    text: "all 11 endpoints whose generated operation profile marks them idempotent",
+    text: "all 15 endpoints whose generated operation profile marks them idempotent",
   },
   {
     label: "README parsed webhook body behavior",

@@ -198,6 +198,10 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 | `client.apiKeys`         | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                          |
 | `client.webhooks`        | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`) |
 | `client.statistics`      | `deliverability`, `bounces`, `deliveryTimes`                                                                    |
+| `client.contacts`        | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists`                      |
+| `client.contacts.lists`  | `list`, `iterate` (the lists one contact is on)                                                                 |
+| `client.lists`           | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                  |
+| `client.lists.contacts`  | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                            |
 | `client.suppressions`    | `list`, `iterate`, `create`, `delete`, `wipe`                                                                   |
 | `client.routes`          | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                        |
 | `client.accounts`        | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                     |
@@ -238,7 +242,7 @@ await client.messages.send(body, {
 ### Automatic idempotency
 
 The SDK attaches a UUID `Idempotency-Key` to every **create** operation
-(all 11 endpoints whose generated operation profile marks them idempotent,
+(all 15 endpoints whose generated operation profile marks them idempotent,
 including message sends and resource creations). The key is generated once per
 call and reused across the SDK's internal retries. Stored outcomes — 2xx and
 deterministic 4xx — are replayed for 24 hours, so a retry cannot duplicate them.
@@ -597,9 +601,9 @@ credentials, message content, or webhook payloads in a public issue.
 
 Contact operations require `contacts:read`, `contacts:write`, or `contacts:delete` as documented
 for each operation. Writable attribute keys and their canonical types come from contact-attribute
-definitions managed in the AhaSend dashboard; the API intentionally exposes neither definition
-CRUD nor list membership. A contact created through the API is account-global and has no list
-membership, so it cannot be targeted by campaigns until a future Lists API adds one.
+definitions managed in the AhaSend dashboard; the API intentionally exposes no definition CRUD. A
+contact created through the API is account-global and joins no list on its own, so a campaign
+cannot reach it until it is added to a list (see below).
 
 Pass a UUID or a raw email such as `User+Tag@Example.COM` to contact lookup, update, and delete
 operations. The SDK percent-encodes that value exactly once as a URL path segment; do not pre-encode
@@ -612,6 +616,54 @@ Batch upsert accepts at most 1,000 contacts, but that cap is not a throughput ta
 end-to-end latency with representative data, wait for each synchronous batch response before
 submitting the next, reduce batch size or pace requests when latency grows, and honor `429`
 responses. The API makes no fixed throughput guarantee.
+
+## List management contract
+
+A list is a static, private, single opt-in container of contacts, and it is what a campaign
+targets. List operations require `lists:read`, `lists:write`, or `lists:delete`. Adding, changing,
+and removing a list's members all use `lists:write`, and reading members with
+`include_contacts: true` also needs `contacts:read`; without it the call answers `403`.
+
+```ts
+const list = await client.lists.create({ name: "Product updates", tags: ["product"] });
+
+const batch = await client.lists.contacts.batchAdd(list.id, {
+  data: [{ email: "one@example.com" }, { id: "00000000-0000-4000-8000-000000000011" }],
+});
+// A 200 still carries per-entry failures: `batch.data` holds one result per entry, in order.
+const failures = batch.data.filter(
+  ({ outcome }) => outcome === "not_found" || outcome === "invalid",
+);
+console.log("List batch completed.", { failed: failures.length });
+
+await client.lists.contacts.upsert(list.id, "User+Tag@Example.COM", {
+  subscription_status: "unsubscribed",
+});
+```
+
+- `contact_count` is the list's subscribers: the members a campaign to it would reach. A member
+  counts when its membership is `confirmed` and the contact is enabled, not unsubscribed
+  account-wide, and not found invalid by validation. The list embedded in a membership carries no
+  `contact_count`.
+- `batchAdd` takes 1–1,000 existing contacts, each named by exactly one of `email` or `id`, and
+  answers `200` with one result per entry in input order: `added`, `already_member`, `not_found`,
+  or `invalid` (the last two with a `reason`). It never creates a contact and never changes an
+  existing membership, so it cannot undo an unsubscribe.
+- Each membership carries its own `subscription_status` (`unconfirmed`, `confirmed`,
+  `unsubscribed`, or `complained`), independent of the contact's account-wide `unsubscribed` flag.
+  `upsert` with no body sends `{}`: a new membership is `confirmed`, and an existing one keeps the
+  status it holds.
+- To stop marketing mail on one list, upsert `subscription_status: "unsubscribed"`, which is
+  reversible and keeps the record. `lists.contacts.delete` removes the membership and discards
+  that record, so re-adding the contact later is silent. To stop mail everywhere, update the
+  contact with `unsubscribed: true`.
+- `complained` is the mailbox provider's verdict. It cannot be written, and a membership holding it
+  is frozen: both `upsert` and `delete` on it answer `409` (`AhaSendConflictError`).
+- Deleting a list keeps its memberships, so an unsubscribe survives it; a list that an unfinished
+  campaign still needs answers `409`.
+- Pass a UUID or a raw email wherever a contact is named; the SDK percent-encodes it exactly once.
+  `client.contacts.lists.list(idOrEmail)` answers which lists one contact is on; it needs
+  `lists:read`, not `contacts:read`.
 
 ## License
 
