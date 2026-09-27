@@ -31,11 +31,11 @@ them the workflow fails partway through, after it has already published to the
 Put a required-reviewer protection rule on `npm-latest` at minimum. `live-gates`
 mutates a real account, so `live-release` deserves one too.
 
-**What live-gates actually does.** It exercises all 62 operations against a real
+**What live-gates actually does.** It exercises all 74 operations against a real
 account. It does **not** deliver mail: every send sets `sandbox: true`, and
 `scripts/live-acceptance.mjs:964` refuses to run a request without it. Routes and
 webhooks are created `enabled: false`. What it _does_ do to the real account: creates and deletes
-domains, routes, webhooks, SMTP credentials, API keys, contacts, suppressions and
+domains, routes, webhooks, SMTP credentials, API keys, contacts, lists, suppressions and
 sub-accounts; updates the account settings (only the `about` text, which is
 restored afterwards — `scripts/run-live-acceptance.mjs:515`); wipes all
 suppressions for `suppressionDomain` (`methods.wipe({ domain })`); and adds then
@@ -47,18 +47,29 @@ The contact scenarios create two unique plus-addressed contacts under
 hard-delete it, and verify both contacts are absent during cleanup. They do not
 add either contact to a list.
 
+The list scenarios create one uniquely named list and two plus-addressed
+contacts under `suppressionDomain`. They add the first contact with a single
+upsert and unsubscribe it, then batch-add it again beside the second contact and
+an address no contact holds, which must report `already_member` (with the
+unsubscribe kept), `added`, and `not_found`. They read the members with
+`include_contacts: true`, read the first contact's lists, remove the second
+contact from the list twice (the repeat must answer 404), and delete the list.
+Cleanup deletes both contacts and finds the list by name, so a list whose create
+response was lost is still removed. A `complained` membership cannot be produced
+on demand, so its 409 is not exercised live.
+
 One caveat the repo cannot verify: adding an account member is a platform
 action, so AhaSend itself may email an invitation to `disposableMailbox`. "Sends
 no real mail" covers the messages API, which this repo controls — not that.
 
 ### Secrets
 
-| Secret                     | Consumed by                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                     |
-| -------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AHASEND_API_KEY`          | `live-gates` (release.yml:461)                                                                  | Needs **every** scope — live acceptance exercises all 62 operations, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `contacts:read`, `contacts:write`, `contacts:delete`, `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
-| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:462)                                                                  | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                                                                               |
-| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:463)                                                                  | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                                                                      |
-| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:881, 963, 1022, 1111) | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                                                                                |
+| Secret                     | Consumed by                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AHASEND_API_KEY`          | `live-gates` (release.yml:461)                                                                  | Needs **every** scope — live acceptance exercises all 74 operations, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `contacts:read`, `contacts:write`, `contacts:delete`, `lists:read`, `lists:write`, `lists:delete`, `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
+| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:462)                                                                  | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:463)                                                                  | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:881, 963, 1022, 1111) | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                                                                                                                             |
 
 > **`next-publish` has no `NPM_TOKEN`.** It runs
 > `npm publish --provenance` (release.yml:640) with `id-token: write`, which

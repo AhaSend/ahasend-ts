@@ -350,6 +350,65 @@ export type ContactLiveRun = DomainLiveRun;
 
 export function runContactLiveScenarios(registry: ScenarioRegistry): Promise<ContactLiveRun>;
 
+export interface ListLiveFacade {
+  readonly list: (...args: never[]) => unknown;
+  readonly iterate: (...args: never[]) => unknown;
+  readonly create: (...args: never[]) => unknown;
+  readonly get: (...args: never[]) => unknown;
+  readonly update: (...args: never[]) => unknown;
+  readonly delete: (...args: never[]) => unknown;
+  readonly contacts: {
+    readonly list: (...args: never[]) => unknown;
+    readonly iterate: (...args: never[]) => unknown;
+    readonly upsert: (...args: never[]) => unknown;
+    readonly delete: (...args: never[]) => unknown;
+    readonly batchAdd: (...args: never[]) => unknown;
+  };
+}
+
+export interface ListLiveClient {
+  readonly lists: ListLiveFacade;
+  readonly contacts: {
+    readonly create: (...args: never[]) => unknown;
+    readonly get: (...args: never[]) => unknown;
+    readonly delete: (...args: never[]) => unknown;
+    readonly lists: {
+      readonly list: (...args: never[]) => unknown;
+      readonly iterate: (...args: never[]) => unknown;
+    };
+  };
+}
+
+export interface ListLiveCreateRequest {
+  readonly name: string;
+  readonly description?: string | null;
+  readonly tags?: readonly string[] | null;
+}
+
+export interface ListLiveUpdateRequest {
+  readonly name: string;
+  readonly description: "";
+  readonly tags: readonly [];
+}
+
+export interface CreateListScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: ListLiveClient;
+  readonly createRequest: ListLiveCreateRequest;
+  readonly updateRequest: ListLiveUpdateRequest;
+  readonly memberEmails: readonly [string, string];
+  readonly unknownEmail: string;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createListScenarioRegistry(
+  options: CreateListScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type ListLiveRun = DomainLiveRun;
+
+export function runListLiveScenarios(registry: ScenarioRegistry): Promise<ListLiveRun>;
+
 export interface APIKeyLiveFacade {
   readonly list: (...args: never[]) => unknown;
   readonly iterate: (...args: never[]) => unknown;
