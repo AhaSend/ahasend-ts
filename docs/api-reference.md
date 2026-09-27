@@ -1580,6 +1580,7 @@ client.lists.contacts.list(listId: UUID, params?: ListListContactsParams, option
 - **OpenAPI models:** `200: PaginatedListContactsResponse`
 - **Scopes:** `lists:read`
 - **Security alternatives:** `BearerAuth: lists:read`
+- **Conditional scope:** also requires `contacts:read` when `include_contacts` is `true`; without it the API answers `403`.
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
@@ -2524,6 +2525,7 @@ client.lists.contacts.iterate(listId: UUID, params?: ListListContactsParams, opt
 
 - **Operation ID:** `getListContacts`
 - **Models:** [UUID](../src/types/common.ts), [ListListContactsParams](../src/resources/list-contacts.ts), [RequestOptions](../src/types/common.ts), [ListContact](../src/resources/list-contacts.ts)
+- **Conditional scope:** also requires `contacts:read` when `include_contacts` is `true`; without it the API answers `403`.
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
 <!-- iterator: getContactLists -->

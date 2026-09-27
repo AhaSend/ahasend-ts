@@ -314,6 +314,47 @@ function renderPagination(facts) {
   );
 }
 
+/**
+ * Scopes an operation needs only for some parameter values. The security
+ * requirement cannot express them, so each is named here and checked against
+ * the parameter's own OpenAPI description, which must name the scope.
+ */
+const CONDITIONAL_SCOPES = Object.freeze({
+  getListContacts: Object.freeze([
+    Object.freeze({
+      parameter: "include_contacts",
+      scope: "contacts:read",
+      condition: "`include_contacts` is `true`",
+    }),
+  ]),
+});
+
+function conditionalScopes(document, entry) {
+  const rules = CONDITIONAL_SCOPES[entry.operationId] ?? [];
+  const byName = new Map(
+    operationParameters(document, entry).map((parameter) => [parameter.name, parameter]),
+  );
+  for (const rule of rules) {
+    const parameter = byName.get(rule.parameter);
+    if (parameter === undefined) {
+      throw new TypeError(`${entry.operationId} has no ${rule.parameter} parameter`);
+    }
+    if (typeof parameter.description !== "string" || !parameter.description.includes(rule.scope)) {
+      throw new TypeError(
+        `${entry.operationId} ${rule.parameter} description must name the ${rule.scope} scope`,
+      );
+    }
+  }
+  return rules;
+}
+
+function renderConditionalScopes(rules) {
+  return rules.map(
+    ({ scope, condition }) =>
+      `- **Conditional scope:** also requires \`${scope}\` when ${condition}; without it the API answers \`403\`.`,
+  );
+}
+
 function renderAuthorization(rule) {
   if (rule === undefined) {
     return [
@@ -400,6 +441,7 @@ export async function generateApiReference({ openApiSource, profileSource, clien
     const models = operationModels(document, entry.operationId, entry.operation);
     const pagination = paginationFacts(document, entry);
     const authorization = AUTHORIZATION_REGISTRY[entry.operationId];
+    const conditional = conditionalScopes(document, entry);
     const registryEntry = sampleById.get(entry.operationId);
     if (registryEntry === undefined) {
       throw new TypeError(`SDK sample is missing for operation ${entry.operationId}`);
@@ -425,6 +467,7 @@ export async function generateApiReference({ openApiSource, profileSource, clien
       `- **OpenAPI models:** ${models.length === 0 ? "None" : models.map((model) => `\`${model}\``).join(", ")}`,
       `- **Scopes:** ${scopes.length === 0 ? "None" : scopes.map((scope) => `\`${scope}\``).join(", ")}`,
       `- **Security alternatives:** ${alternatives.map((alternative) => `\`${alternative}\``).join(" **or** ")}`,
+      ...renderConditionalScopes(conditional),
       `- **Idempotency:** ${hasIdempotency(document, entry) ? "Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key." : "Not supported by this operation."}`,
       ...renderAuthorization(authorization),
     );
@@ -463,6 +506,7 @@ export async function generateApiReference({ openApiSource, profileSource, clien
       "",
       `- **Operation ID:** \`${entry.operationId}\``,
       `- **Models:** ${links.length === 0 ? "None" : links.join(", ")}`,
+      ...renderConditionalScopes(conditionalScopes(document, entry)),
       `- **Pagination:** ${renderPagination(pagination)}`,
       "",
     );

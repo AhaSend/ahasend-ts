@@ -232,6 +232,25 @@ describe("generated API reference", () => {
     }
   });
 
+  it("names the conditional contacts:read scope on the member listing and its iterator", async () => {
+    const reference = await generateApiReference();
+    const conditional =
+      "- **Conditional scope:** also requires `contacts:read` when `include_contacts` is `true`; without it the API answers `403`.";
+
+    expect(section(reference, "operation", "getListContacts")).toContain(conditional);
+    expect(section(reference, "iterator", "getListContacts")).toContain(conditional);
+    expect(section(reference, "operation", "getLists")).not.toContain("Conditional scope");
+
+    const unnamed = openApiSource.replace(
+      "Embed the whole contact in every item. Requires the `contacts:read`\n            scope in addition to `lists:read`.",
+      "Embed the whole contact in every item.",
+    );
+    expect(unnamed).not.toBe(openApiSource);
+    await expect(generateApiReference({ openApiSource: unnamed })).rejects.toThrow(
+      "include_contacts description must name the contacts:read scope",
+    );
+  });
+
   it("keeps every public model link resolvable", async () => {
     const reference = await generateApiReference();
     const links = [...reference.matchAll(/\[[A-Za-z][A-Za-z0-9_]*\]\((\.\.\/src\/[^)]+)\)/g)].map(
