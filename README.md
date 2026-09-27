@@ -586,6 +586,17 @@ npm run lint              # eslint over src
 npm run format            # prettier
 ```
 
+### Updating the API spec
+
+The API repository's `openapi.yaml` (on its `devel` branch) owns everything in the spec except the
+code samples; this repository owns the Node samples. `npm run spec:sync` downloads that file with
+`gh` (pass `-- --ref <branch>` for another branch), writes it over `openapi.yaml`, re-injects the
+Node samples from `scripts/node-code-samples.mjs`, and regenerates `src/generated` and
+`docs/api-reference.md`. When the new spec adds, removes, or renames an operation or schema, it
+stops first and names the facade mappings, Node samples, and `contracts.lock.json` inventories to
+update. The API repository later pulls the Node samples from this repository's `openapi.yaml` back
+into its own.
+
 ## Support and security
 
 Runtime support is defined by the maintained blocking inventory above. Browser-like environments
