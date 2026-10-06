@@ -82,11 +82,80 @@ function normalizeVia(via, label, { allowSourceIds = false } = {}) {
   );
 }
 
+function parseFixAvailable(value, label) {
+  if (typeof value === "boolean") return value;
+  const fix = requireObject(value, label);
+  return {
+    name: requireNonEmptyString(fix.name, `${label}.name`),
+    version: requireNonEmptyString(fix.version, `${label}.version`),
+  };
+}
+
+function parseReleaseVersion(value, label) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(value);
+  if (match === null) throw new TypeError(`${label} must be a semantic version.`);
+  return match.slice(1, 4).map(Number);
+}
+
+function isLowerVersion(candidate, installed, label) {
+  const left = parseReleaseVersion(candidate, `${label} fix version`);
+  const right = parseReleaseVersion(installed, `${label} installed version`);
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] < right[index];
+  }
+  return false;
+}
+
+// A direct development advisory is unpatched when every package on its chain
+// that an advisory is filed against is affected in all published versions,
+// and npm's only remedy is to roll the direct dependency back to a release
+// older than the installed one. Any upgrade npm offers, breaking or not, is a
+// fix. npm reports one vulnerable range per package, the union over all of its
+// via entries, so a range of "*" proves an advisory unpatched only when that
+// advisory is the package's sole via entry; anything else fails closed.
+function isUnpatched(vulnerability, findings, installedVersions) {
+  const { fixAvailable, packageName } = vulnerability;
+  if (fixAvailable === true) return false;
+  if (fixAvailable !== false) {
+    const installed = installedVersions[packageName];
+    if (typeof installed !== "string") {
+      throw new TypeError(`Installed version of direct dependency ${packageName} is unknown.`);
+    }
+    if (
+      fixAvailable.name !== packageName ||
+      !isLowerVersion(fixAvailable.version, installed, packageName)
+    ) {
+      return false;
+    }
+  }
+
+  const pending = [vulnerability];
+  const visited = new Set();
+  while (pending.length > 0) {
+    const finding = pending.pop();
+    if (visited.has(finding.packageName)) continue;
+    visited.add(finding.packageName);
+    if (finding.hasOwnAdvisory && (finding.via.length !== 1 || finding.range !== "*")) {
+      return false;
+    }
+    for (const dependencyName of finding.inheritedFrom) {
+      const dependency = findings.get(dependencyName);
+      if (dependency === undefined) {
+        throw new TypeError(
+          `Advisory finding ${finding.packageName} names ${dependencyName}, which the report does not contain.`,
+        );
+      }
+      pending.push(dependency);
+    }
+  }
+  return true;
+}
+
 function parsePolicy(value) {
   const policy = requireObject(value, "Audit policy");
   requireExactKeys(
     policy,
-    ["version", "auditReportVersion", "exceptionSeverities"],
+    ["version", "auditReportVersion", "exceptionSeverities", "maxExceptionDays"],
     "Audit policy",
   );
   if (policy.version !== 1) throw new TypeError("Unsupported audit policy version.");
@@ -105,6 +174,9 @@ function parsePolicy(value) {
     policy.exceptionSeverities.some((severity) => severity === "high" || severity === "critical")
   ) {
     throw new TypeError("Audit policy cannot allow high or critical exceptions.");
+  }
+  if (!Number.isSafeInteger(policy.maxExceptionDays) || policy.maxExceptionDays <= 0) {
+    throw new TypeError("Audit policy maxExceptionDays must be a positive integer.");
   }
   return policy;
 }
@@ -134,7 +206,22 @@ function parseAuditReport(value, label, reportVersion) {
       `${label}.vulnerabilities[${packageName}].range`,
     );
     const via = normalizeVia(vulnerability.via, `${label}.vulnerabilities[${packageName}].via`);
-    parsed.push({ packageName, severity, isDirect: vulnerability.isDirect, range, via });
+    const fixAvailable = parseFixAvailable(
+      vulnerability.fixAvailable,
+      `${label}.vulnerabilities[${packageName}].fixAvailable`,
+    );
+    parsed.push({
+      packageName,
+      severity,
+      isDirect: vulnerability.isDirect,
+      range,
+      via,
+      fixAvailable,
+      // String entries name another finding the advisory reaches this package
+      // through; object entries are advisories filed against this package.
+      inheritedFrom: vulnerability.via.filter((entry) => typeof entry === "string"),
+      hasOwnAdvisory: vulnerability.via.some((entry) => typeof entry !== "string"),
+    });
   }
 
   const metadata = requireObject(report.metadata, `${label}.metadata`);
@@ -159,11 +246,14 @@ function parseAuditReport(value, label, reportVersion) {
   return parsed;
 }
 
-function exceptionKey(value) {
+// A null range matches regardless of the reported range. Only unpatched direct
+// findings are keyed that way: npm derives their range from the published
+// versions, so it moves with every upstream release while the advisory does not.
+function exceptionKey(value, range) {
   return JSON.stringify([
     value.packageName,
     value.severity,
-    value.range,
+    range,
     value.via.map((entry) => [typeof entry, entry]),
   ]);
 }
@@ -181,16 +271,26 @@ function parseExceptions(value, policy, today) {
   return document.exceptions.map((value, index) => {
     const label = `Audit exception ${index}`;
     const exception = requireObject(value, label);
+    const hasRange = "range" in exception;
     requireExactKeys(
       exception,
-      ["id", "packageName", "severity", "range", "via", "reviewedOn", "expiresOn", "reason"],
+      [
+        "id",
+        "packageName",
+        "severity",
+        ...(hasRange ? ["range"] : []),
+        "via",
+        "reviewedOn",
+        "expiresOn",
+        "reason",
+      ],
       label,
     );
     const parsed = {
       id: requireNonEmptyString(exception.id, `${label}.id`),
       packageName: requireNonEmptyString(exception.packageName, `${label}.packageName`),
       severity: requireSeverity(exception.severity, `${label}.severity`),
-      range: requireNonEmptyString(exception.range, `${label}.range`),
+      range: hasRange ? requireNonEmptyString(exception.range, `${label}.range`) : null,
       via: normalizeVia(exception.via, `${label}.via`, { allowSourceIds: true }),
       reviewedOn: requireDate(exception.reviewedOn, `${label}.reviewedOn`),
       expiresOn: requireDate(exception.expiresOn, `${label}.expiresOn`),
@@ -211,10 +311,16 @@ function parseExceptions(value, policy, today) {
     if (parsed.expiresOn <= parsed.reviewedOn) {
       throw new TypeError(`Audit exception ${parsed.id} must expire after its review date.`);
     }
+    const days = (Date.parse(parsed.expiresOn) - Date.parse(parsed.reviewedOn)) / 86_400_000;
+    if (days > policy.maxExceptionDays) {
+      throw new TypeError(
+        `Audit exception ${parsed.id} lasts ${String(days)} days; the policy allows at most ${String(policy.maxExceptionDays)}.`,
+      );
+    }
     if (ids.has(parsed.id)) throw new TypeError(`Duplicate audit exception id ${parsed.id}.`);
     ids.add(parsed.id);
 
-    const key = exceptionKey(parsed);
+    const key = exceptionKey(parsed, parsed.range);
     if (keys.has(key)) throw new TypeError(`Duplicate audit exception finding ${parsed.id}.`);
     keys.add(key);
     return { ...parsed, key };
@@ -226,9 +332,11 @@ export function validateAuditReports({
   productionReport,
   policy: policyValue,
   exceptions: exceptionValue,
+  installedVersions = {},
   today = new Date().toISOString().slice(0, 10),
 }) {
   const policy = parsePolicy(policyValue);
+  requireObject(installedVersions, "Installed versions");
   today = requireDate(today, "Audit validation date");
   const production = parseAuditReport(
     productionReport,
@@ -243,24 +351,29 @@ export function validateAuditReports({
       `Production advisories are forbidden: ${production.map(({ packageName }) => packageName).join(", ")}.`,
     );
   }
+  const findings = new Map(full.map((vulnerability) => [vulnerability.packageName, vulnerability]));
   const direct = full.filter((vulnerability) => vulnerability.isDirect);
-  if (direct.length > 0) {
+  const patchedDirect = direct.filter(
+    (vulnerability) => !isUnpatched(vulnerability, findings, installedVersions),
+  );
+  if (patchedDirect.length > 0) {
     throw new TypeError(
-      `Direct development advisories are forbidden: ${direct.map(({ packageName }) => packageName).join(", ")}.`,
+      `Direct development advisories are forbidden unless provably unpatched: ${patchedDirect.map(({ packageName }) => packageName).join(", ")}.`,
     );
   }
 
   const usedExceptionKeys = new Set();
   for (const vulnerability of full) {
+    const kind = vulnerability.isDirect ? "Direct" : "Transitive";
     if (!policy.exceptionSeverities.includes(vulnerability.severity)) {
       throw new TypeError(
-        `Transitive development advisory ${vulnerability.packageName} has non-eligible severity ${vulnerability.severity}.`,
+        `${kind} development advisory ${vulnerability.packageName} has non-eligible severity ${vulnerability.severity}.`,
       );
     }
-    const key = exceptionKey(vulnerability);
+    const key = exceptionKey(vulnerability, vulnerability.isDirect ? null : vulnerability.range);
     if (!exceptions.some((exception) => exception.key === key)) {
       throw new TypeError(
-        `Transitive development advisory ${vulnerability.packageName} has no exact exception.`,
+        `${kind} development advisory ${vulnerability.packageName} has no exact exception.`,
       );
     }
     usedExceptionKeys.add(key);
@@ -276,7 +389,7 @@ export function validateAuditReports({
   return {
     productionAdvisories: production.length,
     directDevelopmentAdvisories: direct.length,
-    transitiveDevelopmentAdvisories: full.length,
+    transitiveDevelopmentAdvisories: full.length - direct.length,
     exceptions: exceptions.length,
   };
 }
@@ -315,6 +428,20 @@ function runNpmAudit(args) {
   }
 }
 
+function readInstalledVersions() {
+  const lockfile = requireObject(
+    readJson(resolve(repositoryRoot, "package-lock.json"), "package lockfile"),
+    "Package lockfile",
+  );
+  const packages = requireObject(lockfile.packages, "Package lockfile packages");
+  const versions = {};
+  for (const [path, entry] of Object.entries(packages)) {
+    const name = /^node_modules\/((?:@[^/]+\/)?[^/]+)$/.exec(path)?.[1];
+    if (name !== undefined && typeof entry?.version === "string") versions[name] = entry.version;
+  }
+  return versions;
+}
+
 async function main() {
   if (process.argv.length !== 2) {
     throw new TypeError("Usage: node scripts/verify-audit.mjs");
@@ -326,7 +453,13 @@ async function main() {
   );
   const productionReport = runNpmAudit(["audit", "--omit=dev", "--json"]);
   const fullReport = runNpmAudit(["audit", "--include=dev", "--json"]);
-  const summary = validateAuditReports({ fullReport, productionReport, policy, exceptions });
+  const summary = validateAuditReports({
+    fullReport,
+    productionReport,
+    policy,
+    exceptions,
+    installedVersions: readInstalledVersions(),
+  });
   process.stdout.write(
     `Audit policy passed: ${summary.productionAdvisories} production, ${summary.directDevelopmentAdvisories} direct development, ${summary.transitiveDevelopmentAdvisories} transitive development advisories (${summary.exceptions} exceptions).\n`,
   );

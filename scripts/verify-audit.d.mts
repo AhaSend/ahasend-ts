@@ -5,6 +5,7 @@ export interface AuditValidationInput {
   readonly productionReport: unknown;
   readonly policy: unknown;
   readonly exceptions: unknown;
+  readonly installedVersions?: Readonly<Record<string, string>>;
   readonly today?: string;
 }
 

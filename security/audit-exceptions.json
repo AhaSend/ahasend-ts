@@ -1,4 +1,53 @@
 {
   "version": 1,
-  "exceptions": []
+  "exceptions": [
+    {
+      "id": "sprintf-js-GHSA-hp3w-g68c-fv3c",
+      "packageName": "sprintf-js",
+      "severity": "moderate",
+      "range": "*",
+      "via": [1241202],
+      "reviewedOn": "2026-10-06",
+      "expiresOn": "2027-01-04",
+      "reason": "GHSA-hp3w-g68c-fv3c (sprintf-js, moderate) has no patched release: npm reports every published sprintf-js as affected. It reaches this package only through the api-extractor CLI (@microsoft/api-extractor -> @rushstack/ts-command-line -> argparse 1.x -> sprintf-js), where sprintf-js formats the CLI's own fixed help and error strings; no input from the SDK, its users or the network reaches a format string. api-extractor is a development-only build and API-report tool, and none of these packages is in the published tarball, which has no runtime dependencies. npm offers no upgrade that removes the chain, only a rollback of api-extractor and tsup to releases that predate it. Remove this exception when an upstream release drops argparse 1.x or sprintf-js ships a fix."
+    },
+    {
+      "id": "argparse-GHSA-hp3w-g68c-fv3c",
+      "packageName": "argparse",
+      "severity": "moderate",
+      "range": "1.0.0 - 1.0.10",
+      "via": ["sprintf-js"],
+      "reviewedOn": "2026-10-06",
+      "expiresOn": "2027-01-04",
+      "reason": "GHSA-hp3w-g68c-fv3c (sprintf-js, moderate) has no patched release: npm reports every published sprintf-js as affected. It reaches this package only through the api-extractor CLI (@microsoft/api-extractor -> @rushstack/ts-command-line -> argparse 1.x -> sprintf-js), where sprintf-js formats the CLI's own fixed help and error strings; no input from the SDK, its users or the network reaches a format string. api-extractor is a development-only build and API-report tool, and none of these packages is in the published tarball, which has no runtime dependencies. npm offers no upgrade that removes the chain, only a rollback of api-extractor and tsup to releases that predate it. Remove this exception when an upstream release drops argparse 1.x or sprintf-js ships a fix."
+    },
+    {
+      "id": "@rushstack/ts-command-line-GHSA-hp3w-g68c-fv3c",
+      "packageName": "@rushstack/ts-command-line",
+      "severity": "moderate",
+      "range": ">=4.3.11",
+      "via": ["argparse"],
+      "reviewedOn": "2026-10-06",
+      "expiresOn": "2027-01-04",
+      "reason": "GHSA-hp3w-g68c-fv3c (sprintf-js, moderate) has no patched release: npm reports every published sprintf-js as affected. It reaches this package only through the api-extractor CLI (@microsoft/api-extractor -> @rushstack/ts-command-line -> argparse 1.x -> sprintf-js), where sprintf-js formats the CLI's own fixed help and error strings; no input from the SDK, its users or the network reaches a format string. api-extractor is a development-only build and API-report tool, and none of these packages is in the published tarball, which has no runtime dependencies. npm offers no upgrade that removes the chain, only a rollback of api-extractor and tsup to releases that predate it. Remove this exception when an upstream release drops argparse 1.x or sprintf-js ships a fix."
+    },
+    {
+      "id": "@microsoft/api-extractor-GHSA-hp3w-g68c-fv3c",
+      "packageName": "@microsoft/api-extractor",
+      "severity": "moderate",
+      "via": ["@rushstack/ts-command-line"],
+      "reviewedOn": "2026-10-06",
+      "expiresOn": "2027-01-04",
+      "reason": "GHSA-hp3w-g68c-fv3c (sprintf-js, moderate) has no patched release: npm reports every published sprintf-js as affected. It reaches this package only through the api-extractor CLI (@microsoft/api-extractor -> @rushstack/ts-command-line -> argparse 1.x -> sprintf-js), where sprintf-js formats the CLI's own fixed help and error strings; no input from the SDK, its users or the network reaches a format string. api-extractor is a development-only build and API-report tool, and none of these packages is in the published tarball, which has no runtime dependencies. npm offers no upgrade that removes the chain, only a rollback of api-extractor and tsup to releases that predate it. Remove this exception when an upstream release drops argparse 1.x or sprintf-js ships a fix."
+    },
+    {
+      "id": "tsup-GHSA-hp3w-g68c-fv3c",
+      "packageName": "tsup",
+      "severity": "moderate",
+      "via": ["@microsoft/api-extractor"],
+      "reviewedOn": "2026-10-06",
+      "expiresOn": "2027-01-04",
+      "reason": "GHSA-hp3w-g68c-fv3c (sprintf-js, moderate) has no patched release: npm reports every published sprintf-js as affected. npm flags tsup only through its optional peer dependency on @microsoft/api-extractor, which reaches sprintf-js through @rushstack/ts-command-line and argparse 1.x. This build does not load api-extractor through tsup: tsup.config.ts uses dts: true, and tsup imports api-extractor only for experimentalDts. tsup is a development-only build tool, and none of these packages is in the published tarball, which has no runtime dependencies. npm offers no upgrade that removes the chain, only a rollback of tsup to a release that predates it. Remove this exception when an upstream release drops argparse 1.x or sprintf-js ships a fix."
+    }
+  ]
 }

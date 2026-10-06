@@ -1,5 +1,6 @@
 {
   "version": 1,
   "auditReportVersion": 2,
-  "exceptionSeverities": ["info", "low", "moderate"]
+  "exceptionSeverities": ["info", "low", "moderate"],
+  "maxExceptionDays": 90
 }
