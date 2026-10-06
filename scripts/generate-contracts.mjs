@@ -1577,7 +1577,11 @@ function locateSampleBlock(lines, operationId) {
       index > operationLine && index < operationEnd && /^ {6}x-code-samples:\s*$/.test(line),
   );
   if (samplesLine < 0) {
-    return { samplesLine, samplesEnd: afterLastContent(lines, operationLine, operationEnd) };
+    return {
+      samplesLine,
+      contentEnd: afterLastContent(lines, operationLine, operationEnd),
+      samplesEnd: operationEnd,
+    };
   }
   return { samplesLine, samplesEnd: blockEnd(lines, samplesLine, 6) };
 }
@@ -1593,12 +1597,15 @@ export function injectNodeSamples(source, document, nodeSamples = NODE_CODE_SAMP
     .reverse();
 
   for (const operationId of operationIds) {
-    const { samplesLine, samplesEnd } = locateSampleBlock(lines, operationId);
+    const { samplesLine, contentEnd, samplesEnd } = locateSampleBlock(lines, operationId);
     const replacement = yamlSampleLines(nodeSamples[operationId]);
+    // Every insertion leaves the layout a replacement of the same sample
+    // leaves, so one pass is already normalized: the sample's own trailing
+    // blank line separates it from what follows.
     if (samplesLine < 0) {
       // No block yet: open one at the end of the operation, after its last
-      // non-blank line.
-      lines.splice(samplesEnd, 0, "      x-code-samples:", ...replacement);
+      // non-blank line, in place of the blank lines that ended it.
+      lines.splice(contentEnd, samplesEnd - contentEnd, "      x-code-samples:", ...replacement);
       continue;
     }
     const itemStarts = [];
@@ -1613,8 +1620,8 @@ export function injectNodeSamples(source, document, nodeSamples = NODE_CODE_SAMP
     }
 
     if (nodeItems.length === 0) {
-      // Last in the block, after its last non-blank line.
-      lines.splice(afterLastContent(lines, samplesLine, samplesEnd), 0, ...replacement);
+      // Last in the block, after the blank lines that end the item before it.
+      lines.splice(samplesEnd, 0, ...replacement);
       continue;
     }
 

@@ -1150,6 +1150,25 @@ function requireSuccessfulSandboxSend(value, label, expectedStatus) {
   });
 }
 
+/**
+ * Every message carries `template_id`: the template's UUID, or null for a
+ * message sent without one. `expected` pins the value when the scenario knows it.
+ */
+function requireMessageTemplateId(value, label, expected) {
+  const message = requireObject(value, label);
+  if (!Object.hasOwn(message, "template_id")) {
+    throw new TypeError(`${label} must carry template_id.`);
+  }
+  const templateId = message.template_id;
+  if (templateId !== null && typeof templateId !== "string") {
+    throw new TypeError(`${label} template_id must be a string or null.`);
+  }
+  if (expected !== undefined && templateId !== expected) {
+    throw new TypeError(`${label} template_id must be ${JSON.stringify(expected)}.`);
+  }
+  return message;
+}
+
 async function requireExpectedSandboxRejection(action, label) {
   try {
     await action();
@@ -1347,7 +1366,13 @@ export function createMessageScenarioRegistry({
       {
         operationId: "getMessages",
         async run() {
-          return runListIteratorScenario(methods.list, methods.iterate, pageParams, "Message");
+          return runListIteratorScenario(
+            methods.list,
+            methods.iterate,
+            pageParams,
+            "Message",
+            requireMessageTemplateId,
+          );
         },
       },
     ],
@@ -1359,7 +1384,12 @@ export function createMessageScenarioRegistry({
           if (state.messageId === null) {
             throw new TypeError("Message get scenario requires the verified sandbox message.");
           }
-          requireObject(await methods.get(state.messageId), "Message get response");
+          // The verified send is inline, so the message names no template.
+          requireMessageTemplateId(
+            await methods.get(state.messageId),
+            "Message get response",
+            null,
+          );
           return Object.freeze({ evidence: Object.freeze({ retrieved: true }) });
         },
       },
@@ -2552,7 +2582,22 @@ function requireTemplateResult(value, label, expectedId) {
     }
     return Object.freeze({ name, required: variable.required });
   });
-  return Object.freeze({ id, variables: Object.freeze(variables) });
+  // A template without a default sender carries a null `from` and an empty `reply_to`.
+  if (!Object.hasOwn(template, "from")) {
+    throw new TypeError(`${label} must carry from.`);
+  }
+  let senderEmail = null;
+  if (template.from !== null) {
+    const from = requireObject(template.from, `${label} from`);
+    senderEmail = requireString(from.email, `${label} from.email`);
+    if (Object.hasOwn(from, "name") && typeof from.name !== "string") {
+      throw new TypeError(`${label} from.name must be a string.`);
+    }
+  }
+  if (typeof template.reply_to !== "string") {
+    throw new TypeError(`${label} reply_to must be a string.`);
+  }
+  return Object.freeze({ id, senderEmail, variables: Object.freeze(variables) });
 }
 
 function requireTemplateSendRequest(value, templateId) {
@@ -2572,10 +2617,12 @@ function requireTemplateSendRequest(value, templateId) {
 /**
  * Build the two template scenarios around a template the release account
  * already holds, because the API cannot create one. The listing must reach it
- * through the iterator, the read must return it with the fields the spec
- * gives, and a sandboxed send must accept it. A variable the template requires
- * gets a placeholder value; a template that requires none is sent without
- * substitutions.
+ * through the iterator, and the read must return it with the fields the spec
+ * gives. The template must carry a default sender on the request's sender
+ * domain. Two sandboxed sends must accept it: the request as given, and the
+ * same request without `from`, which sends from the template's sender. A
+ * variable the template requires gets a placeholder value; a template that
+ * requires none is sent without substitutions.
  */
 export function createTemplateScenarioRegistry({
   profile,
@@ -2605,6 +2652,7 @@ export function createTemplateScenarioRegistry({
   });
   const fixtureId = requireString(templateId, "Template live fixture id");
   const send = requireTemplateSendRequest(sendRequest, fixtureId);
+  const senderDomain = requireEmailDomain(send.email, "Template live send request from.email");
   const pageParams = requireLivePagination(pagination, "Template");
   const validateEntry = (entry, label) => requireTemplateResult(entry, label);
 
@@ -2666,6 +2714,20 @@ export function createTemplateScenarioRegistry({
             "Template get scenario response",
             fixtureId,
           );
+          if (template.senderEmail === null) {
+            throw new TypeError(
+              `Template has no default sender; set one on ${senderDomain} in the "Sender" card of the template's page.`,
+            );
+          }
+          const templateSenderDomain = requireEmailDomain(
+            template.senderEmail,
+            "Template default sender",
+          );
+          if (templateSenderDomain !== senderDomain) {
+            throw new TypeError(
+              `Template default sender is on ${templateSenderDomain}, not ${senderDomain}; change it in the "Sender" card of the template's page.`,
+            );
+          }
           const required = template.variables
             .filter((variable) => variable.required)
             .map(({ name }) => name);
@@ -2682,6 +2744,11 @@ export function createTemplateScenarioRegistry({
             await methods.send(request),
             "Template sandbox send response",
           );
+          const { from: _from, ...withoutSender } = request;
+          const senderResult = requireSuccessfulSandboxSend(
+            await methods.send(withoutSender),
+            "Template default-sender sandbox send response",
+          );
           return Object.freeze({
             evidence: Object.freeze({
               matched: true,
@@ -2689,6 +2756,10 @@ export function createTemplateScenarioRegistry({
                 accepted: true,
                 requiredVariables: required.length,
                 results: result.results,
+              }),
+              templateSenderSend: Object.freeze({
+                accepted: true,
+                results: senderResult.results,
               }),
             }),
           });
@@ -5721,6 +5792,8 @@ function requireTemplateOutcomes(operations) {
     ["matched", true],
     ["templateSend.accepted", true],
     ["templateSend.results", positiveIntegerOutcome],
+    ["templateSenderSend.accepted", true],
+    ["templateSenderSend.results", positiveIntegerOutcome],
   ]);
 }
 

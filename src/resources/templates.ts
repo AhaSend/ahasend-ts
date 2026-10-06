@@ -1,6 +1,7 @@
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
+  Address,
   AhaSendPromise,
   ISODateTime,
   PaginatedResponse,
@@ -32,6 +33,13 @@ export interface Template {
   /** The stored preview text, injected into the delivered HTML when it is set. */
   preheader: string;
   variables: TemplateVariable[];
+  /**
+   * The default sender, used by a send that names no `from`. `null` when the
+   * template has none, and then every send naming it must give a `from`.
+   */
+  from: Address | null;
+  /** The default reply-to address, used by a send that sets no reply-to. Empty when unset. */
+  reply_to: string;
 }
 
 /** Cursor controls accepted by the template list operation, which takes no filters. */

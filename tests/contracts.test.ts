@@ -280,7 +280,9 @@ describe("REST contract normalization", () => {
     const createMessage = operations.find(({ operationId }) => operationId === "createMessage");
     const getRoutes = operations.find(({ operationId }) => operationId === "getRoutes");
     expect(createMessage?.operation.security).toHaveLength(2);
-    expect(createMessage?.operation.description).toMatch(/domain in `from\.email`/);
+    expect(createMessage?.operation.description).toMatch(
+      /domain of the sender, `from\.email` or the\s+template's/,
+    );
     expect(getRoutes?.operation.description).toMatch(/matching `domain` query parameter/);
   });
 });
@@ -750,7 +752,7 @@ function nodeSampleLines(operationId: string): string[] {
 describe("Node sample placement for operations the Go SDK has not reached", () => {
   const lines = source.split("\n");
 
-  it("opens a samples block after the operation's last line, before its trailing blank lines", () => {
+  it("opens a samples block after the operation's last line, in place of its trailing blank lines", () => {
     // An operation followed by a blank line before the next path.
     const operationId = collectOperations(document)
       .map((entry) => entry.operationId)
@@ -770,14 +772,16 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
 
     const injected = injectNodeSamples(bare, bareDocument);
 
+    // The sample's own trailing blank line ends the operation.
     expect(injected).toBe(
       [
         ...withoutBlock.slice(0, lastContent),
         "      x-code-samples:",
         ...nodeSampleLines(operationId),
-        ...withoutBlock.slice(lastContent),
+        ...withoutBlock.slice(bareRange.end),
       ].join("\n"),
     );
+    expect(injectNodeSamples(injected, parseOpenApi(injected))).toBe(injected);
     const samples = samplesFor(
       collectOperations(parseOpenApi(injected)).find((entry) => entry.operationId === operationId)!
         .operation,
@@ -786,7 +790,7 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
     expect(() => validateCodeSamples(parseOpenApi(injected))).not.toThrow();
   });
 
-  it("appends a missing Node sample after the block's last line, before trailing blank lines", () => {
+  it("appends a missing Node sample as the block's last item, after the item before it", () => {
     const range = operationLines(lines, "getContactLists");
     const javascript = range.item("javascript");
     expect(javascript.end).toBe(range.samplesEnd);
@@ -797,8 +801,8 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
       ...lines.slice(javascript.end),
     ];
 
-    let lastContent = javascript.start;
-    while (withoutNode[lastContent - 1] === "") lastContent -= 1;
+    // The blank lines that end the Go item stay between it and the Node item.
+    const blockEnd = javascript.start + 2;
 
     const injected = injectNodeSamples(
       withoutNode.join("\n"),
@@ -807,12 +811,39 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
 
     expect(injected).toBe(
       [
-        ...withoutNode.slice(0, lastContent),
+        ...withoutNode.slice(0, blockEnd),
         ...nodeSampleLines("getContactLists"),
-        ...withoutNode.slice(lastContent),
+        ...withoutNode.slice(blockEnd),
       ].join("\n"),
     );
+    expect(injectNodeSamples(injected, parseOpenApi(injected))).toBe(injected);
   });
+
+  it.each([0, 1, 2])(
+    "restores a Node-only samples block the server spec lacks in one pass, with %i blank lines after the operation",
+    (blankLines) => {
+      // The server spec carries no Node sample for an operation the SDK added
+      // last; spec:sync runs the contract generator once, so one pass must
+      // already be normalized.
+      const range = operationLines(lines, "unpauseSubAccountDomain");
+      expect(range.item("javascript")).toEqual({
+        start: range.samples + 1,
+        end: range.samplesEnd,
+      });
+      let contentEnd = range.samples;
+      while (lines[contentEnd - 1] === "") contentEnd -= 1;
+      const bare = [
+        ...lines.slice(0, contentEnd),
+        ...Array.from({ length: blankLines }, () => ""),
+        ...lines.slice(range.samplesEnd),
+      ].join("\n");
+
+      const injected = injectNodeSamples(bare, parseOpenApi(bare));
+
+      expect(injected).toBe(source);
+      expect(injectNodeSamples(injected, parseOpenApi(injected))).toBe(injected);
+    },
+  );
 
   it("accepts an operation with no Go sample and still rejects two", () => {
     const range = operationLines(lines, "getContactLists");

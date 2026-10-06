@@ -720,11 +720,13 @@ export interface CreateMessageRequest {
     amp_content?: string | undefined;
     // (undocumented)
     attachments?: readonly Attachment[] | undefined;
-    from: Address;
+    from?: {
+        email?: string | undefined;
+        name?: string | undefined;
+    } | null | undefined;
     headers?: Record<string, string> | undefined;
     html_content?: string | undefined;
     recipients: readonly Recipient[];
-    // (undocumented)
     reply_to?: Address | undefined;
     retention?: Retention | undefined;
     sandbox?: boolean | undefined;
@@ -1273,6 +1275,7 @@ export interface MessageSummary {
     subject: string;
     // (undocumented)
     tags: string[];
+    template_id: UUID | null;
     // (undocumented)
     updated_at: ISODateTime;
 }
@@ -1747,6 +1750,7 @@ export interface TelemetryHooks {
 export interface Template {
     // (undocumented)
     created_at: ISODateTime;
+    from: Address | null;
     // (undocumented)
     id: string;
     // (undocumented)
@@ -1754,6 +1758,7 @@ export interface Template {
     // (undocumented)
     object: "template";
     preheader: string;
+    reply_to: string;
     subject: string;
     // (undocumented)
     updated_at: ISODateTime;

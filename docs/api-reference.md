@@ -444,7 +444,7 @@ client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOpt
 - **Scopes:** `messages:send:all`, `messages:send:{domain}`
 - **Security alternatives:** `BearerAuth: messages:send:all` **or** `BearerAuth: messages:send:{domain}`
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
-- **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.
+- **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's sender on a templated request that names none.
 - **Authorization rule:** `body_domain`; global role `messages:send:all`; domain role `messages:send:{domain}`
 
 <!-- sdk-sample: createMessage -->

@@ -56,18 +56,25 @@ That message, not the bare status, shows the server has the route; an API
 without it answers 404 too, with a different body. No domain of the child is
 paused or unpaused, so the run changes nothing there.
 
-The run therefore needs a server that has the marketing-sending domain fields
-and the unpause route: deploy the API before tagging a release that includes
-them, or live-gates fails on `getDomains`, `createDomain` and
-`unpauseSubAccountDomain`.
+The run therefore needs a server that has the marketing-sending domain fields,
+the unpause route, the template default sender and the message `template_id`:
+deploy the API before tagging a release that includes them, or live-gates fails
+on `getDomains`, `createDomain`, `unpauseSubAccountDomain`, `listTemplates`,
+`getTemplate`, `getMessages` and `getMessage`.
 
 The API cannot create a template, so the template scenarios use the one named
 by `templateId` (see the account preconditions below). They walk the template
 listing through the iterator until it reaches that template, read it and check
-the fields the spec gives, then send it with `sandbox: true` from
-`verifiedDomain` to `disposableMailbox`. A variable the template marks
+the fields the spec gives, including its default sender (`from`) and
+`reply_to`. They then send it twice with `sandbox: true` to
+`disposableMailbox`: once from `verifiedDomain`, and once without `from`, so
+the API sends from the template's default sender. A variable the template marks
 `required` gets the placeholder value `AhaSend SDK live acceptance`; a template
 that requires none is sent without `substitutions`.
+
+The message scenarios check that every message they read carries
+`template_id`, and that the inline message they sent reads back with
+`template_id: null`.
 
 The contact scenarios create two unique plus-addressed contacts under
 `suppressionDomain`, update the first through both the single and batch APIs,
@@ -190,12 +197,16 @@ Account preconditions:
     hosted view (`view_browser_url`);
   - uses only optional variables (each with a fallback value), or none.
 
-  The dashboard does not show the template ID as text. Open the template in the
-  editor; its URL is
-  `https://dash.ahasend.com/account/<account-id>/transactional/templates/<template-id>/design`
-  (`design-full` for the full editor), and `<template-id>` is the value for
-  `templateId`. `client.templates.list()` also returns it as `id`. The template
-  must stay on the account; deleting it fails `listTemplates` and `getTemplate`.
+  Then give the template a default sender on `verifiedDomain` in the "Sender"
+  card of its page. The run sends once without `from`, which needs that
+  sender, and fails `getTemplate` on a template with no sender or a sender on
+  another domain.
+
+  The template's page,
+  `https://dash.ahasend.com/account/<account-id>/transactional/templates/<template-id>`,
+  shows the template ID, and `<template-id>` in its URL is the same value.
+  `client.templates.list()` also returns it as `id`. The template must stay on
+  the account; deleting it fails `listTemplates` and `getTemplate`.
 
 ---
 

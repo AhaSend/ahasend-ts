@@ -191,6 +191,8 @@ describe("authoritative OpenAPI model contracts", () => {
       "subject",
       "preheader",
       "variables",
+      "from",
+      "reply_to",
     ]);
     expect(Object.keys(properties("Template"))).toEqual(schema("Template").required);
     expect(nullableProperties("Template")).toEqual([]);
@@ -198,6 +200,18 @@ describe("authoritative OpenAPI model contracts", () => {
     expect(property("Template", "variables")).toMatchObject({
       type: "array",
       items: { $ref: "#/components/schemas/TemplateVariable" },
+    });
+    // A template without a default sender reads as a null `from` and an empty `reply_to`.
+    expect(property("Template", "from").oneOf).toEqual([
+      { $ref: "#/components/schemas/Address" },
+      { type: "null" },
+    ]);
+    expect(property("Template", "reply_to").type).toBe("string");
+
+    expect(schema("MessageSummary").required).toContain("template_id");
+    expect(property("MessageSummary", "template_id")).toMatchObject({
+      type: ["string", "null"],
+      format: "uuid",
     });
 
     expect(schema("PaginatedTemplatesResponse").required).toEqual(["object", "data", "pagination"]);
@@ -207,11 +221,19 @@ describe("authoritative OpenAPI model contracts", () => {
     });
   });
 
-  it("frees the send request from `subject` without weakening the conversation request", () => {
-    // A templated send carries the template's subject, so the send request can
-    // no longer require one. The conversational endpoint takes no template and
-    // keeps its subject required.
-    expect(schema("CreateMessageRequest").required).toEqual(["from", "recipients"]);
+  it("frees the send request from `subject` and `from` without weakening the conversation request", () => {
+    // A templated send carries the template's subject and can carry its
+    // sender, so the send request requires neither. The conversational
+    // endpoint takes no template and keeps both required.
+    expect(schema("CreateMessageRequest").required).toEqual(["recipients"]);
+    expect(property("CreateMessageRequest", "from")).toMatchObject({
+      type: ["object", "null"],
+      properties: { email: { type: "string" }, name: { type: "string" } },
+    });
+    expect(property("CreateMessageRequest", "from")).not.toHaveProperty("required");
+    expect(property("CreateMessageRequest", "from").description).toContain(
+      "counts as absent, name included",
+    );
     expect(property("CreateMessageRequest", "template_id")).toMatchObject({
       type: "string",
       format: "uuid",

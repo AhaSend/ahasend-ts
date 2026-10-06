@@ -294,7 +294,13 @@ export interface components {
       expires?: string | undefined;
     };
     CreateMessageRequest: {
-      from: components["schemas"]["Address"];
+      from?:
+        | {
+            email?: string | undefined;
+            name?: string | undefined;
+          }
+        | null
+        | undefined;
       recipients: ReadonlyArray<components["schemas"]["Recipient"]>;
       reply_to?: components["schemas"]["Address"] | undefined;
       subject?: string | undefined;
@@ -403,6 +409,7 @@ export interface components {
       reference_message_id: number | null;
       domain_id: string;
       account_id: string;
+      template_id: string | null;
     };
     Message: components["schemas"]["MessageSummary"] & {
       content?: string;
@@ -426,6 +433,8 @@ export interface components {
       subject: string;
       preheader: string;
       variables: Array<components["schemas"]["TemplateVariable"]>;
+      from: components["schemas"]["Address"] | null;
+      reply_to: string;
     };
     PaginatedTemplatesResponse: {
       object: "list";

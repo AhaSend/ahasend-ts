@@ -12,8 +12,17 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   to 1,000 contacts, one result per entry), `get`, `update`, and `delete`. A contact is named by
   UUID or by raw email, which the SDK percent-encodes once as a path segment.
 - `client.templates` reads the account's transactional templates (`list`, `iterate`, `get`), each
-  with the `variables` a send must supply. `messages.send()` takes `template_id`, and `subject` is
-  optional because a template can supply it. See "Send with a template" in the README.
+  with the `variables` a send must supply and its default sender and reply-to: `from`, an `Address`
+  or `null` when the template has none, and `reply_to`, empty when it has none.
+  `messages.send()` takes `template_id`, and `subject` and `from` are optional because a template
+  can supply them. A request whose template has a default sender can leave `from` out and sends
+  from the template's sender, which is authorized and checked like a `from` in the request. On a
+  templated request a `from` that is `null`, has no `email` or has an empty one counts as absent,
+  and a request `from` or `reply_to` wins over the template's. An inline request without a
+  `from.email` answers `400`, and so does a templated request whose template has no sender
+  (`from.email is required unless a template supplies a sender`). A templated request without a
+  sender from an API key that cannot send from any domain answers `403`. See "Send with a
+  template" in the README.
 - `client.lists` manages contact lists (`list`, `iterate`, `create`, `get`, `update`, `delete`),
   `client.lists.contacts` manages a list's members (`list`, `iterate`, `upsert`, `delete`,
   `batchAdd`), and `client.contacts.lists` lists the memberships one contact holds. `Suppression`
@@ -26,12 +35,17 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - `client.subAccounts.unpauseDomain(subAccountId, domain)` lifts the pause on a sub-account's domain
   and returns the domain. It needs `sub-accounts:suspend`, is idempotent, and is not retried
   automatically, like `suspend()` and `unsuspend()`.
+- `MessageSummary` and `Message` carry `template_id`, the transactional template the message was
+  sent from, or `null` for a message sent without one.
 
-Additive at runtime for existing users. The SDK does not validate response bodies, so a domain
-from a server that does not yet return the new fields still comes back as sent. At compile time,
-code that builds `Domain` literals must add `sending_type`, `paused`, `paused_at`, and
-`pause_reason`, and code that implements `SubAccountsClient` structurally, such as a test mock, must
-add `unpauseDomain`.
+Additive at runtime for existing users. The SDK does not validate response bodies, so a domain or
+message from a server that does not yet return the new fields still comes back as sent. At compile
+time, code that builds `Domain` literals must add `sending_type`, `paused`, `paused_at`, and
+`pause_reason`; code that builds `MessageSummary` or `Message` literals must add `template_id`; and
+code that implements `SubAccountsClient` structurally, such as a test mock, must add
+`unpauseDomain`.
+`CreateMessageRequest["from"]` widens to `{ email?: string; name?: string } | null | undefined`, so
+code that reads `from.email` back from a request it built must handle `null` and `undefined`.
 
 ### Changed
 
@@ -58,7 +72,9 @@ add `unpauseDomain`.
   repository and regenerates everything derived from them, and the contract check accepts an
   operation that has no Go sample yet. Live acceptance now covers every operation: the template
   scenarios read and sandbox-send a template the release account holds, named by a new
-  `templateId` key in `AHASEND_LIVE_CONFIG_JSON`.
+  `templateId` key in `AHASEND_LIVE_CONFIG_JSON`, once with `from` and once from the template's
+  default sender, which must be on `verifiedDomain`. The message scenarios check `template_id` on
+  every message they read.
 
 ## [0.2.1] — 2026-08-20
 

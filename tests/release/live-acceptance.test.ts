@@ -191,6 +191,7 @@ function completeLiveResults(candidate: LiveCandidate) {
   byId.get("getTemplate")!.evidence = {
     matched: true,
     templateSend: { accepted: true, requiredVariables: 0, results: 1 },
+    templateSenderSend: { accepted: true, results: 1 },
   };
   byId.get("createDomain")!.evidence = {
     created: true,
@@ -368,6 +369,7 @@ function domainClientFixture(
 
 function templateClientFixture(
   options: {
+    from?: { email: string; name?: string } | null;
     getTemplateId?: string;
     listed?: boolean;
     variables?: Array<{ name: string; required: boolean }>;
@@ -385,6 +387,8 @@ function templateClientFixture(
     subject: "",
     preheader: "",
     variables: options.variables ?? [{ name: "email", required: false }],
+    from: options.from === undefined ? { email: "templates@verified.example" } : options.from,
+    reply_to: "",
   });
   const others = [
     "0a1b2c3d-0000-4000-8000-000000000001",
@@ -483,17 +487,17 @@ function messageClientFixture(
         calls.push(`list:${JSON.stringify(params)}`);
         return {
           object: "list",
-          data: [{ id: messageId }],
+          data: [{ id: messageId, template_id: null }],
           pagination: { has_more: false },
         };
       }),
       iterate: vi.fn(async function* (params: unknown) {
         calls.push(`iterate:${JSON.stringify(params)}`);
-        yield { id: messageId };
+        yield { id: messageId, template_id: null };
       }),
       get: vi.fn(async (id: string) => {
         calls.push(`get:${id}`);
-        return { id: messageId };
+        return { id: messageId, template_id: null };
       }),
       cancel: vi.fn(async (id: string) => {
         calls.push(`cancel:${id}`);
@@ -2703,7 +2707,7 @@ describe("live scenario inventory", () => {
     expectTypeOf<IsAssignable<AhaSendClient, TemplateLiveClient>>().toEqualTypeOf<true>();
   });
 
-  it("finds the fixture template through the iterator, reads it, and sends it sandboxed", async () => {
+  it("finds the fixture template through the iterator, reads it, and sends it sandboxed with and without a sender", async () => {
     const fixture = templateClientFixture();
     const result = await runTemplateLiveScenarios(
       createTemplateScenarioRegistry({
@@ -2727,6 +2731,7 @@ describe("live scenario inventory", () => {
         evidence: {
           matched: true,
           templateSend: { accepted: true, requiredVariables: 0, results: 1 },
+          templateSenderSend: { accepted: true, results: 1 },
         },
       },
     ]);
@@ -2737,8 +2742,11 @@ describe("live scenario inventory", () => {
         evidence: { direction: "forward", items: 3, limit: 1 },
       },
     ]);
-    // A template that requires no variable is sent without substitutions.
-    expect(fixture.sends).toEqual([fixture.sendRequest]);
+    // A template that requires no variable is sent without substitutions. The
+    // second send leaves the sender to the template.
+    const { from: _from, ...withoutSender } = fixture.sendRequest;
+    expect(fixture.sends).toEqual([fixture.sendRequest, withoutSender]);
+    expect(fixture.sends[1]).not.toHaveProperty("from");
   });
 
   it("supplies a placeholder for each variable the template requires", async () => {
@@ -2759,14 +2767,14 @@ describe("live scenario inventory", () => {
     );
 
     expect(result.failure).toBeNull();
+    const substitutions = {
+      first_name: "AhaSend SDK live acceptance",
+      order_id: "AhaSend SDK live acceptance",
+    };
+    const { from: _from, ...withoutSender } = fixture.sendRequest;
     expect(fixture.sends).toEqual([
-      {
-        ...fixture.sendRequest,
-        substitutions: {
-          first_name: "AhaSend SDK live acceptance",
-          order_id: "AhaSend SDK live acceptance",
-        },
-      },
+      { ...fixture.sendRequest, substitutions },
+      { ...withoutSender, substitutions },
     ]);
     expect(
       result.operationResults.find(({ operationId }) => operationId === "getTemplate"),
@@ -2778,6 +2786,12 @@ describe("live scenario inventory", () => {
     [
       "the read returns another template",
       { getTemplateId: "0a1b2c3d-0000-4000-8000-000000000002" },
+      "getTemplate",
+    ],
+    ["the template has no default sender", { from: null }, "getTemplate"],
+    [
+      "the default sender is on another domain",
+      { from: { email: "templates@other.example" } },
       "getTemplate",
     ],
   ] as const)("fails the template scenarios when %s", async (_case, options, operationId) => {
@@ -2792,6 +2806,69 @@ describe("live scenario inventory", () => {
     );
 
     expect(result.failure).toEqual({ phase: "operation", operationId });
+    expect(fixture.sends).toEqual([]);
+  });
+
+  it.each([
+    [
+      { from: null },
+      'Template has no default sender; set one on verified.example in the "Sender" card',
+    ],
+    [
+      { from: { email: "templates@other.example" } },
+      'Template default sender is on other.example, not verified.example; change it in the "Sender" card',
+    ],
+  ] as const)(
+    "names the domains and the Sender card when the default sender is %j",
+    async (options, message) => {
+      const fixture = templateClientFixture(options);
+      const registry = createTemplateScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        templateId: fixture.templateId,
+        sendRequest: fixture.sendRequest,
+      });
+
+      const run = registry.primary.get("getTemplate")!["run"] as () => Promise<unknown>;
+      await expect(run()).rejects.toThrow(message);
+      expect(fixture.sends).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["no from key", { from: undefined }, "must carry from"],
+    ["a sender without an email", { from: { name: "Example" } }, "from.email"],
+    ["a reply_to that is not a string", { reply_to: null }, "reply_to must be a string"],
+  ] as const)("fails the template read when it carries %s", async (_case, override, message) => {
+    const fixture = templateClientFixture();
+    vi.spyOn(fixture.client.templates, "get").mockImplementationOnce(async () => {
+      const template: Record<string, unknown> = {
+        object: "template",
+        id: fixture.templateId,
+        created_at: "2026-10-01T00:00:00Z",
+        updated_at: "2026-10-01T00:00:00Z",
+        name: "Template",
+        subject: "",
+        preheader: "",
+        variables: [],
+        from: { email: "templates@verified.example" },
+        reply_to: "",
+        ...override,
+      };
+      if (template["from"] === undefined) delete template["from"];
+      return template;
+    });
+    const registry = createTemplateScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      templateId: fixture.templateId,
+      sendRequest: fixture.sendRequest,
+    });
+
+    // The run reports a failed operation without its error, so call the
+    // scenario directly to see which check refused the template.
+    const run = registry.primary.get("getTemplate")!["run"] as () => Promise<unknown>;
+    await expect(run()).rejects.toThrow(message);
     expect(fixture.sends).toEqual([]);
   });
 
@@ -3216,6 +3293,36 @@ describe("live scenario inventory", () => {
       { operationId: "createMessage", status: "failed" },
     ]);
     expect(fixture.client.messages.send).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [
+      "a listed message carries no template_id",
+      "list",
+      { object: "list", data: [{ id: "<listed@ahasend.test>" }], pagination: { has_more: false } },
+      "getMessages",
+    ],
+    [
+      "the inline message names a template",
+      "get",
+      { id: "<live-message-id@ahasend.test>", template_id: "0a1b2c3d-0000-4000-8000-0000000000aa" },
+      "getMessage",
+    ],
+  ] as const)("fails the message reads when %s", async (_case, method, response, operationId) => {
+    const fixture = messageClientFixture();
+    vi.spyOn(fixture.client.messages, method).mockImplementationOnce(async () => response);
+    const registry = createMessageScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      verifiedRequest: fixture.verifiedRequest,
+      conversationRequest: fixture.conversationRequest,
+      neverRegisteredDomain: fixture.neverRegisteredDomain,
+      dnslessCreateRequest: { domain: fixture.dnslessDomain },
+    });
+
+    const result = await runMessageLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId });
   });
 
   it("requires a future scheduled verified sandbox message before cancellation", async () => {

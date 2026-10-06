@@ -675,9 +675,10 @@ await client.lists.contacts.upsert(list.id, "User+Tag@Example.COM", {
 ## Send with a template
 
 Pass `template_id` instead of `html_content`, `text_content` and `amp_content`. The transactional
-template supplies the subject, the preview text and both bodies; a `subject` in the request
-replaces the template's. Values for the template's variables come from `substitutions`, and a
-recipient's own `substitutions` win over the request-level ones.
+template supplies the subject, the preview text and both bodies, and its default sender and
+reply-to when it has them; a `subject`, `from` or `reply_to` in the request replaces the
+template's. Values for the template's variables come from `substitutions`, and a recipient's own
+`substitutions` win over the request-level ones.
 
 ```ts
 const template = await client.templates.get("00000000-0000-4000-8000-000000000009");
@@ -696,8 +697,24 @@ const res = await client.messages.send({
 console.log("Template send accepted.", { count: res.data.length });
 ```
 
+A template with a default sender can be sent without `from`:
+
+```ts
+const res = await client.messages.send({
+  recipients: [{ email: "ada@example.com", substitutions: { first_name: "Ada" } }],
+  template_id: "00000000-0000-4000-8000-000000000009",
+});
+console.log("Template send accepted.", { count: res.data.length });
+```
+
 - `client.templates.list()` and `iterate()` page through the account's transactional templates,
-  newest first; `get()` returns one with the `variables` its design uses.
+  newest first; `get()` returns one with the `variables` its design uses, its default sender in
+  `from` (`null` when it has none) and its default `reply_to` (empty when it has none).
+- `from` is required unless the template has a default sender. The template's sender is checked
+  exactly like a `from` in the request: a domain that is not the account's, has invalid DNS records
+  or is paused fails the send with the same error. On a templated request a `from` that is `null`,
+  has no `email` or has an empty one counts as absent. A templated request without a sender from an
+  API key that cannot send from any domain answers `403`.
 - Every variable marked `required` must have a value for every recipient. A request that misses
   one is refused as a whole, and nothing is sent.
 - `email` and `view_browser_url` are supplied by AhaSend for each recipient and cannot be

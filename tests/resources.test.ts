@@ -362,14 +362,19 @@ describe("MessagesClient", () => {
       reference_message_id: null,
       domain_id: "domain_1",
       account_id: ACCOUNT_ID,
+      template_id: null,
     };
     const message: Message = { ...summary, content: "raw message" };
     const { sent_at: _sentAt, ...withoutSentAt } = summary;
     const { reference_message_id: _referenceId, ...withoutReferenceId } = summary;
+    const { template_id: _templateId, ...withoutTemplateId } = summary;
     // @ts-expect-error sent_at is a required serialized timestamp.
     const missingSentAt: MessageSummary = withoutSentAt;
     // @ts-expect-error reference_message_id is a required nullable key.
     const missingReferenceId: MessageSummary = withoutReferenceId;
+    // @ts-expect-error template_id is a required nullable key.
+    const missingTemplateId: MessageSummary = withoutTemplateId;
+    const templated: MessageSummary = { ...summary, template_id: TEMPLATE_ID };
 
     expectTypeOf<
       Awaited<ReturnType<import("../src/index.js").MessagesClient["list"]>>
@@ -386,7 +391,9 @@ describe("MessagesClient", () => {
       created_at: "2026-07-21T08:00:00Z",
       sent_at: null,
       reference_message_id: null,
+      template_id: null,
     });
+    expect(templated.template_id).toBe(TEMPLATE_ID);
 
     // Keep compile-only negative cases referenced without treating their runtime values as evidence.
     void [
@@ -394,10 +401,12 @@ describe("MessagesClient", () => {
       missingError,
       missingSentAt,
       missingReferenceId,
+      missingTemplateId,
       _id,
       _error,
       _sentAt,
       _referenceId,
+      _templateId,
     ];
   });
 
@@ -497,12 +506,41 @@ describe("MessagesClient", () => {
     expect(body["template_id"]).toBe(TEMPLATE_ID);
   });
 
-  it("keeps the optional subject and template on the fan-out request only", () => {
+  it("send() leaves the sender to the template when a templated request names none", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+    const withoutSender: CreateMessageRequest = {
+      recipients: [{ email: "x@y.com" }],
+      template_id: TEMPLATE_ID,
+    };
+    // The forms the API counts as absent on a templated request, which a
+    // client that always serialises the object can send.
+    const absentSenders: CreateMessageRequest["from"][] = [null, {}, { name: "Only a name" }];
+
+    await client.messages.send(withoutSender);
+    for (const from of absentSenders) {
+      await client.messages.send({ ...withoutSender, from });
+    }
+
+    const bodies = calls.map(({ body }) => JSON.parse(body!) as Record<string, unknown>);
+    expect(bodies[0]).not.toHaveProperty("from");
+    expect(bodies[0]!["template_id"]).toBe(TEMPLATE_ID);
+    expect(bodies.slice(1).map((body) => body["from"])).toEqual([
+      null,
+      {},
+      { name: "Only a name" },
+    ]);
+    expect(calls.map(({ operationId }) => operationId)).toEqual(
+      Array.from({ length: 4 }, () => "createMessage"),
+    );
+  });
+
+  it("keeps the optional sender, subject and template on the fan-out request only", () => {
     type RequiredKeys<Body> = {
       [Key in keyof Body]-?: object extends Pick<Body, Key> ? never : Key;
     }[keyof Body];
 
-    expectTypeOf<RequiredKeys<CreateMessageRequest>>().toEqualTypeOf<"from" | "recipients">();
+    expectTypeOf<RequiredKeys<CreateMessageRequest>>().toEqualTypeOf<"recipients">();
     expectTypeOf<RequiredKeys<CreateConversationMessageRequest>>().toEqualTypeOf<
       "from" | "to" | "subject"
     >();

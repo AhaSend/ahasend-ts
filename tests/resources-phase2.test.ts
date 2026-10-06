@@ -21,6 +21,7 @@ import type {
 } from "../src/resources/statistics.js";
 import type { ListSuppressionsParams, Suppression } from "../src/resources/suppressions.js";
 import type { ListTemplatesParams, Template } from "../src/resources/templates.js";
+import type { Address } from "../src/types/common.js";
 import type {
   CreatedWebhook,
   CreateWebhookRequest,
@@ -976,6 +977,8 @@ const TEMPLATE_RESPONSE = {
     { name: "first_name", required: true },
     { name: "unsubscribe_url", required: false },
   ],
+  from: { email: "hello@example.com", name: "Example" },
+  reply_to: "support@example.com",
 } as const;
 
 function templatePage(body: unknown, status = 200): Response {
@@ -1049,6 +1052,22 @@ describe("TemplatesClient", () => {
     expect(calls[0]!.headers["x-trace-id"]).toBe("template-get-1");
     expect(calls[0]!.body).toBeUndefined();
     expect(template.subject).toBe("Welcome, {{ first_name }}");
+    expect(template.from).toEqual({ email: "hello@example.com", name: "Example" });
+    expect(template.reply_to).toBe("support@example.com");
+  });
+
+  it("get() returns a null sender and an empty reply-to for a template without defaults", async () => {
+    const { fetch } = captureFetch(() =>
+      templatePage({ ...TEMPLATE_RESPONSE, from: null, reply_to: "" }),
+    );
+    const client = makeClient(fetch);
+
+    const template: Template = await client.templates.get(TEMPLATE_ID);
+
+    expect(template.from).toBeNull();
+    expect(template.reply_to).toBe("");
+    expectTypeOf(template.from).toEqualTypeOf<Address | null>();
+    expectTypeOf(template.reply_to).toEqualTypeOf<string>();
   });
 
   it("get() rejects an identifier that is not a template UUID before dispatch", () => {

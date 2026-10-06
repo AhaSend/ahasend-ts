@@ -203,7 +203,7 @@ export const AUTHORIZATION_REGISTRY = Object.freeze({
     quantifier: "one",
     roles: { global: "messages:send:all", domain: "messages:send:{domain}" },
     summary:
-      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's sender on a templated request that names none.",
   },
   createConversationMessage: {
     kind: "body_domain",
