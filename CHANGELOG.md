@@ -4,6 +4,62 @@ All notable changes to this package are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `client.contacts` manages account-global contacts: `list`, `iterate`, `create`, `batchUpsert` (up
+  to 1,000 contacts, one result per entry), `get`, `update`, and `delete`. A contact is named by
+  UUID or by raw email, which the SDK percent-encodes once as a path segment.
+- `client.templates` reads the account's transactional templates (`list`, `iterate`, `get`), each
+  with the `variables` a send must supply. `messages.send()` takes `template_id`, and `subject` is
+  optional because a template can supply it. See "Send with a template" in the README.
+- `client.lists` manages contact lists (`list`, `iterate`, `create`, `get`, `update`, `delete`),
+  `client.lists.contacts` manages a list's members (`list`, `iterate`, `upsert`, `delete`,
+  `batchAdd`), and `client.contacts.lists` lists the memberships one contact holds. `Suppression`
+  gains `protected`.
+- A domain has a `sending_type`, `transactional` or `marketing`, and reports whether sending from it
+  is paused: `paused`, `paused_at`, and `pause_reason`. `pause_reason` is typed as an open string
+  (`DomainPauseReason`) whose known value is `bounce_rate`. `domains.create()` and
+  `domains.update()` take `sending_type`, and `domains.list()` and `iterate()` filter on it. The
+  new exported types are `DomainSendingType` and `DomainPauseReason`.
+- `client.subAccounts.unpauseDomain(subAccountId, domain)` lifts the pause on a sub-account's domain
+  and returns the domain. It needs `sub-accounts:suspend`, is idempotent, and is not retried
+  automatically, like `suspend()` and `unsuspend()`.
+
+Additive at runtime for existing users. The SDK does not validate response bodies, so a domain
+from a server that does not yet return the new fields still comes back as sent. At compile time,
+code that builds `Domain` literals must add `sending_type`, `paused`, `paused_at`, and
+`pause_reason`, and code that implements `SubAccountsClient` structurally, such as a test mock, must
+add `unpauseDomain`.
+
+### Changed
+
+- The bundled `openapi.yaml` and `webhooks.yaml` follow the current API. Webhook `from` on campaign
+  message events can carry the sender's name (`Name <address>`); a route's `reply_to` is the
+  Reply-To header as received, and its `to` is the recipient address the route matched, or, on a
+  route that groups by Message-ID, the To header as received; both headers can hold display names
+  and several addresses; a route's
+  `spam_score` can be below 0 or above 10. The SDK never validated these as addresses or a range,
+  so no event that parsed before is refused now.
+- `webhooks.yaml` no longer lists the legacy `route.message` event type. The SDK still accepts a
+  `route.message` delivery, validates it against the routing schema, and returns it as
+  `message.routing`; `DEPRECATED_WEBHOOK_EVENT_TYPES`, `DeprecatedWebhookEventType`, and the
+  deprecated `RouteMessageEvent` alias are unchanged.
+- `ListDomainsParams.dns_valid` accepts `null`, which sends no filter, matching the API.
+- The documentation says "pause" and "resume" for `subAccounts.suspend()` and `unsuspend()`; the
+  method names and paths are unchanged. The JSDoc of `messages.send()`, `sendConversation()`, and
+  `domains.delete()` gives the `403` a paused domain answers. The webhook guide gives the retry horizons to keep
+  `webhook-id` records for, and says that more than 100 failed attempts in a row disable a webhook
+  or a route.
+- `APIKeyScopeName` documents that the braces in a domain scope such as
+  `messages:send:{example.com}` are part of the scope string.
+- Repository tooling: `npm run spec:sync` copies `openapi.yaml` and `webhooks.yaml` from the API
+  repository and regenerates everything derived from them, and the contract check accepts an
+  operation that has no Go sample yet. Live acceptance now covers every operation: the template
+  scenarios read and sandbox-send a template the release account holds, named by a new
+  `templateId` key in `AHASEND_LIVE_CONFIG_JSON`.
+
 ## [0.2.1] — 2026-08-20
 
 ### Added

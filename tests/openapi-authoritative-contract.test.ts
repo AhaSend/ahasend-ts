@@ -88,6 +88,10 @@ describe("authoritative OpenAPI model contracts", () => {
       "dkim_selector",
       "rotation_ready",
       "dsn_recipient",
+      "sending_type",
+      "paused",
+      "paused_at",
+      "pause_reason",
     ]);
     expect(nullableProperties("Domain")).toEqual([
       "last_dns_check_at",
@@ -98,6 +102,8 @@ describe("authoritative OpenAPI model contracts", () => {
       "dkim_rotation_interval_days",
       "dkim_selector",
       "dsn_recipient",
+      "paused_at",
+      "pause_reason",
     ]);
 
     expect(schema("Route").required).toEqual([

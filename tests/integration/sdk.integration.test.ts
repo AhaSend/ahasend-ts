@@ -295,7 +295,9 @@ const OPERATION_CASES = [
   operation("getAPIKey", ["apiKeys"], "get", [RESOURCE_ID]),
   operation("updateAPIKey", ["apiKeys"], "update", [RESOURCE_ID, { label: "Updated key" }]),
   operation("deleteAPIKey", ["apiKeys"], "delete", [RESOURCE_ID]),
-  operation("getDomains", ["domains"], "list", [{ dns_valid: true, ...PAGINATION }]),
+  operation("getDomains", ["domains"], "list", [
+    { dns_valid: true, sending_type: "marketing", ...PAGINATION },
+  ]),
   operation("createDomain", ["domains"], "create", [{ domain: DOMAIN }]),
   operation("getDomain", ["domains"], "get", [DOMAIN]),
   operation("updateDomain", ["domains"], "update", [DOMAIN, { tracking_subdomain: "track" }]),
@@ -347,6 +349,7 @@ const OPERATION_CASES = [
     { reason: "Integration suspension" },
   ]),
   operation("unsuspendSubAccount", ["subAccounts"], "unsuspend", [RESOURCE_ID]),
+  operation("unpauseSubAccountDomain", ["subAccounts"], "unpauseDomain", [RESOURCE_ID, DOMAIN]),
   operation("listSubAccountAPIKeys", ["subAccounts", "apiKeys"], "list", [RESOURCE_ID, PAGINATION]),
   operation("createSubAccountAPIKey", ["subAccounts", "apiKeys"], "create", [
     RESOURCE_ID,
@@ -963,8 +966,8 @@ describe("packed SDK operation contract", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
     const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
-    expect(OPERATION_CASES).toHaveLength(74);
-    expect(new Set(implementedOperationIds).size).toBe(74);
+    expect(OPERATION_CASES).toHaveLength(75);
+    expect(new Set(implementedOperationIds).size).toBe(75);
     expect([...implementedOperationIds].sort()).toEqual(operationIds.sort());
   });
 

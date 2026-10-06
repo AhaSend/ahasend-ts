@@ -690,6 +690,7 @@ export interface CreateDomainRequest {
     media_subdomain?: string | undefined;
     // (undocumented)
     return_path_subdomain?: string | undefined;
+    sending_type?: DomainSendingType | undefined;
     // (undocumented)
     subscription_subdomain?: string | undefined;
     // (undocumented)
@@ -949,10 +950,15 @@ export interface Domain {
     media_subdomain: string | null;
     // (undocumented)
     object: "domain";
+    pause_reason: DomainPauseReason | null;
+    paused: boolean;
+    paused_at: ISODateTime | null;
     // (undocumented)
     return_path_subdomain: string | null;
     // (undocumented)
     rotation_ready: boolean;
+    // (undocumented)
+    sending_type: DomainSendingType;
     // (undocumented)
     subscription_subdomain: string | null;
     // (undocumented)
@@ -960,6 +966,9 @@ export interface Domain {
     // (undocumented)
     updated_at: ISODateTime;
 }
+
+// @public
+export type DomainPauseReason = "bounce_rate" | (string & {});
 
 // @public
 export interface DomainsClient {
@@ -971,6 +980,9 @@ export interface DomainsClient {
     list(params?: ListDomainsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Domain>>;
     update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): AhaSendPromise<Domain>;
 }
+
+// @public
+export type DomainSendingType = "transactional" | "marketing";
 
 // @public
 export interface EmbeddedContactList {
@@ -1088,7 +1100,8 @@ export type ListContactSubscriptionStatus = "unconfirmed" | "confirmed" | "unsub
 
 // @public (undocumented)
 export type ListDomainsParams = PaginationParams & {
-    dns_valid?: boolean | undefined;
+    dns_valid?: boolean | null | undefined;
+    sending_type?: DomainSendingType | undefined;
 };
 
 // @public
@@ -1632,6 +1645,7 @@ export interface SubAccountsClient {
     iterate(params?: ListSubAccountsParams, options?: RequestOptions): AsyncGenerator<SubAccount, void, undefined>;
     list(params?: ListSubAccountsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SubAccount>>;
     suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>;
+    unpauseDomain(subAccountId: UUID, domain: string, options?: RequestOptions): AhaSendPromise<Domain>;
     unsuspend(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>;
     update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>;
     usage(options?: RequestOptions): AhaSendPromise<SubAccountUsageResponse>;
@@ -1718,7 +1732,6 @@ export interface SuppressionsClient {
 
 // @public (undocumented)
 export interface SuspendSubAccountRequest {
-    // (undocumented)
     reason: string;
 }
 
@@ -1839,6 +1852,7 @@ export interface UpdateDomainRequest {
     media_subdomain?: string | undefined;
     // (undocumented)
     return_path_subdomain?: string | undefined;
+    sending_type?: DomainSendingType | undefined;
     // (undocumented)
     subscription_subdomain?: string | undefined;
     // (undocumented)

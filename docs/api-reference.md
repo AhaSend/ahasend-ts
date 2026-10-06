@@ -4,7 +4,7 @@
 
 This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
-It contains exactly 74 API methods and 14 async iterators.
+It contains exactly 75 API methods and 14 async iterators.
 
 ## Contact management
 
@@ -1037,6 +1037,37 @@ const client = AhaSendClient.fromEnv();
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const subAccount = await client.subAccounts.unsuspend(subAccountId);
 console.log("Sub-account unsuspended.", { id: subAccount.id, status: subAccount.status });
+```
+
+<!-- operation: unpauseSubAccountDomain -->
+
+### subAccounts.unpauseDomain
+
+```ts
+client.subAccounts.unpauseDomain(subAccountId: UUID, domain: string, options?: RequestOptions): AhaSendPromise<Domain>
+```
+
+- **Operation ID:** `unpauseSubAccountDomain`
+- **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/domains/{domain}/unpause`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **OpenAPI models:** `200: Domain`
+- **Scopes:** `sub-accounts:suspend`
+- **Security alternatives:** `BearerAuth: sub-accounts:suspend`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: unpauseSubAccountDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const domain = await client.subAccounts.unpauseDomain(subAccountId, "mail.example.com");
+console.log("Sub-account domain unpaused.", { name: domain.domain, paused: domain.paused });
 ```
 
 <!-- operation: listSubAccountAPIKeys -->

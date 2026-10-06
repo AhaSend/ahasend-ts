@@ -181,11 +181,11 @@ describe("REST contract normalization", () => {
   it("matches the pinned operation, schema, idempotency, subaccount, and role inventories", () => {
     const inventory = collectContractInventory(document);
 
-    expect(inventory.operationIds).toHaveLength(74);
-    expect(new Set(inventory.operationIds)).toHaveLength(74);
+    expect(inventory.operationIds).toHaveLength(75);
+    expect(new Set(inventory.operationIds)).toHaveLength(75);
     expect(inventory.schemaNames).toHaveLength(94);
     expect(inventory.idempotencyOperationIds).toHaveLength(15);
-    expect(inventory.subAccountOperationIds).toHaveLength(13);
+    expect(inventory.subAccountOperationIds).toHaveLength(14);
     expect(inventory.subAccountSchemaNames).toHaveLength(7);
     expect(inventory.roleAlternativeOperationIds).toHaveLength(23);
     expect(() => assertInventoryMatches(inventory, lock.inventories)).not.toThrow();
@@ -204,15 +204,15 @@ describe("REST contract normalization", () => {
     expect(() => validateCodeSamples(document)).not.toThrow();
   });
 
-  it("retains one Go sample and adds one deterministic SDK sample to every operation", () => {
+  it("retains each Go sample and adds one deterministic SDK sample to every operation", () => {
     let shellSamples = 0;
+    const withoutGoSample: string[] = [];
 
     for (const { operationId, operation } of collectOperations(document)) {
       const samples = samplesFor(operation);
-      expect(
-        samples.filter(({ lang }) => lang === "go"),
-        operationId,
-      ).toHaveLength(1);
+      const goSamples = samples.filter(({ lang }) => lang === "go");
+      expect(goSamples.length, operationId).toBeLessThanOrEqual(1);
+      if (goSamples.length === 0) withoutGoSample.push(operationId);
       expect(
         samples.filter(({ lang }) => lang === "javascript"),
         operationId,
@@ -221,7 +221,9 @@ describe("REST contract normalization", () => {
     }
 
     expect(shellSamples).toBe(1);
-    expect(NODE_SAMPLE_REGISTRY).toHaveLength(74);
+    // The Go SDK adds its own sample, and the next spec sync brings it here.
+    expect(withoutGoSample).toEqual(["unpauseSubAccountDomain"]);
+    expect(NODE_SAMPLE_REGISTRY).toHaveLength(75);
     expect(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId)).toEqual(
       lock.inventories.operationIds,
     );
@@ -324,7 +326,7 @@ describe("REST contract rejection checks", () => {
     expect(collectOperations(changed)).toContainEqual(
       expect.objectContaining({ method: "head", path: "/v2/ping", operationId: "headPing" }),
     );
-    expect(collectContractInventory(changed).operationIds).toHaveLength(75);
+    expect(collectContractInventory(changed).operationIds).toHaveLength(76);
     expect(() =>
       assertInventoryMatches(collectContractInventory(changed), lock.inventories),
     ).toThrow(/inventory drift/);
@@ -795,6 +797,9 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
       ...lines.slice(javascript.end),
     ];
 
+    let lastContent = javascript.start;
+    while (withoutNode[lastContent - 1] === "") lastContent -= 1;
+
     const injected = injectNodeSamples(
       withoutNode.join("\n"),
       parseOpenApi(withoutNode.join("\n")),
@@ -802,9 +807,9 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
 
     expect(injected).toBe(
       [
-        ...withoutNode.slice(0, javascript.start),
+        ...withoutNode.slice(0, lastContent),
         ...nodeSampleLines("getContactLists"),
-        ...withoutNode.slice(javascript.start),
+        ...withoutNode.slice(lastContent),
       ].join("\n"),
     );
   });
@@ -850,18 +855,15 @@ describe("webhook delivery contract", () => {
     );
   });
 
-  it("uses message.routing canonically while accepting route.message as deprecated input", () => {
+  it("names only the canonical message.routing type; the SDK owns legacy route.message", () => {
     const webhookDefinitions = record(webhookDocument.webhooks);
     expect(webhookDefinitions).toHaveProperty("message.routing");
     expect(webhookDefinitions).not.toHaveProperty("route.message");
 
     const routeProperties = record(webhookSchema("RouteWebhookPayload").properties);
     const routeType = record(routeProperties.type);
-    expect(routeType.enum).toEqual(["message.routing", "route.message"]);
-    expect(routeType["x-deprecated-values"]).toEqual(["route.message"]);
-    expect(routeType.description).toMatch(
-      /message\.routing.*canonical.*route\.message.*deprecated/,
-    );
+    expect(routeType.enum).toEqual(["message.routing"]);
+    expect(routeType).not.toHaveProperty("x-deprecated-values");
   });
 
   it("defines is_bot as an optional boolean for open and click event data", () => {
@@ -1042,14 +1044,27 @@ describe("webhook delivery contract", () => {
 });
 
 describe("webhook delivery contract rejection checks", () => {
-  it("rejects route aliases that are not explicitly accepted and deprecated", () => {
-    const changed = structuredClone(webhookDocument);
-    const schemas = record(record(changed.components).schemas);
-    const routeProperties = record(record(schemas.RouteWebhookPayload).properties);
-    const routeType = record(routeProperties.type);
-    routeType.enum = ["message.routing"];
+  it("rejects a route type the SDK would accept twice or not at all", () => {
+    const routeTypeOf = (document: JsonRecord) => {
+      const schemas = record(record(document.components).schemas);
+      return record(record(record(schemas.RouteWebhookPayload).properties).type);
+    };
 
-    expect(() => validateWebhookContract(changed)).toThrow(/deprecated route\.message/);
+    const withLegacy = structuredClone(webhookDocument);
+    routeTypeOf(withLegacy).enum = ["message.routing", "route.message"];
+    expect(() => validateWebhookContract(withLegacy)).toThrow(/only canonical message\.routing/);
+
+    const withoutCanonical = structuredClone(webhookDocument);
+    routeTypeOf(withoutCanonical).enum = ["route.message"];
+    expect(() => validateWebhookContract(withoutCanonical)).toThrow(
+      /only canonical message\.routing/,
+    );
+
+    const withDeprecatedValues = structuredClone(webhookDocument);
+    routeTypeOf(withDeprecatedValues)["x-deprecated-values"] = ["route.message"];
+    expect(() => validateWebhookContract(withDeprecatedValues)).toThrow(
+      /the SDK owns legacy route\.message/,
+    );
   });
 
   it("rejects required is_bot fields", () => {

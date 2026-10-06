@@ -32,4 +32,19 @@ export function persistLiveAcceptanceEvidence(
   options: PersistLiveAcceptanceEvidenceOptions,
 ): Promise<LiveReportSummary>;
 
+export interface LiveConfig {
+  readonly verifiedDomain: string;
+  readonly replacementVerifiedDomain: string;
+  readonly neverRegisteredDomain: string;
+  readonly dnslessDomain: string;
+  readonly lifecycleDomain: string;
+  readonly suppressionDomain: string;
+  readonly disposableMailbox: string;
+  readonly templateId: string;
+  readonly webhookUrl: string;
+}
+
+/** Parse and validate `AHASEND_LIVE_CONFIG_JSON`. */
+export function parseLiveConfig(source: string): LiveConfig;
+
 export function main(): Promise<void>;

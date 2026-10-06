@@ -597,6 +597,7 @@ describe("AhaSendClient", () => {
       "delete",
       "suspend",
       "unsuspend",
+      "unpauseDomain",
       "apiKeys",
     ]);
     expect(Object.getOwnPropertySymbols(facade)).toEqual([]);

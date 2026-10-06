@@ -298,6 +298,14 @@ const subAccount = await client.subAccounts.unsuspend(subAccountId);
 console.log("Sub-account unsuspended.", { id: subAccount.id, status: subAccount.status });`,
   ),
   entry(
+    "unpauseSubAccountDomain",
+    "POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/domains/{domain}/unpause",
+    "client.subAccounts.unpauseDomain",
+    `const subAccountId = "00000000-0000-4000-8000-000000000004";
+const domain = await client.subAccounts.unpauseDomain(subAccountId, "mail.example.com");
+console.log("Sub-account domain unpaused.", { name: domain.domain, paused: domain.paused });`,
+  ),
+  entry(
     "listSubAccountAPIKeys",
     "GET /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys",
     "client.subAccounts.apiKeys.list",

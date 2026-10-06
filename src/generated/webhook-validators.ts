@@ -492,7 +492,7 @@ const SCHEMAS = {
       },
       spam_score: {
         type: "number",
-        format: "float",
+        format: "double",
       },
       bounce: {
         type: "boolean",

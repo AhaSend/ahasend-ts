@@ -59,8 +59,9 @@ const conversationBody: SDK.CreateConversationMessageRequest = {
 const domainBody: SDK.CreateDomainRequest = {
   domain: "example.com",
   dkim_selector: null,
+  sending_type: "marketing",
 };
-const domainUpdate: SDK.UpdateDomainRequest = { dkim_selector: "" };
+const domainUpdate: SDK.UpdateDomainRequest = { dkim_selector: "", sending_type: "transactional" };
 const domainModel: SDK.Domain = {
   object: "domain",
   id: uuid,
@@ -87,6 +88,10 @@ const domainModel: SDK.Domain = {
   dkim_selector: null,
   rotation_ready: false,
   dsn_recipient: null,
+  sending_type: "marketing",
+  paused: true,
+  paused_at: "2026-01-02T00:00:00Z",
+  pause_reason: "bounce_rate",
 };
 const apiKeyBody: SDK.CreateAPIKeyRequest = {
   label: "Package key",
@@ -196,7 +201,12 @@ const listBatch: SDK.BatchAddListContactsRequest = {
 };
 
 const direct: SDK.PaginationParams = { limit: 25, after: "direct-cursor" };
-const domains: SDK.ListDomainsParams = { limit: 25, after: "domain-cursor", dns_valid: true };
+const domains: SDK.ListDomainsParams = {
+  limit: 25,
+  after: "domain-cursor",
+  dns_valid: true,
+  sending_type: "marketing",
+};
 const messages: SDK.ListMessagesParams = {
   limit: 25,
   after: "message-cursor",
@@ -429,6 +439,7 @@ void client.subAccounts.update(uuid, subAccountUpdate).withResponse();
 void client.subAccounts.delete(uuid).withResponse();
 void client.subAccounts.suspend(uuid, suspendBody).withResponse();
 void client.subAccounts.unsuspend(uuid).withResponse();
+void client.subAccounts.unpauseDomain(uuid, "example.com").withResponse();
 
 void client.subAccounts.apiKeys.list(uuid, direct).withResponse();
 void client.subAccounts.apiKeys.create(uuid, apiKeyBody).withResponse();
@@ -569,6 +580,7 @@ const subAccountsMock: SDK.SubAccountsClient = {
   delete: () => result<SDK.SuccessResponse>(),
   suspend: () => result<SDK.SubAccount>(),
   unsuspend: () => result<SDK.SubAccount>(),
+  unpauseDomain: () => result<SDK.Domain>(),
   apiKeys: subAccountAPIKeysMock,
 };
 

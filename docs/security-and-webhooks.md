@@ -30,7 +30,8 @@ const event = await verifier.parse(headersRecordOrHeaders, rawBodyStringOrBuffer
 Timestamp-window verification is not replay deduplication. It only rejects deliveries whose
 timestamp is outside the accepted window; the same correctly signed delivery can be presented
 again inside that window. Applications must deduplicate the `webhook-id` value. Keep IDs at least
-as long as your delivery/retry horizon.
+as long as the retry horizon: AhaSend tries a webhook delivery up to 6 times in all (the first try
+and 5 retries) over about 16 minutes, and a route delivery up to 12 times over about 11 hours.
 
 ## Record and reject duplicate deliveries
 
@@ -123,9 +124,10 @@ Two consequences worth planning for:
 
 Branch on `classification`, and treat it as an open set. The set of buckets can grow, so a
 delivery can carry one this release predates. The
-SDK deliberately accepts those: rejecting one would return 400 to AhaSend, and 100 consecutive
-errors disable the webhook. `isKnownDeliveryAttemptClassification` narrows to what the classifier
-emits today, leaving you to decide what the rest means:
+SDK deliberately accepts those: rejecting one would return 400 to AhaSend, and when more than 100
+attempts in a row fail, retries included, AhaSend disables the webhook or route.
+`isKnownDeliveryAttemptClassification` narrows to what the classifier emits today, leaving you to
+decide what the rest means:
 
 ```ts
 import {

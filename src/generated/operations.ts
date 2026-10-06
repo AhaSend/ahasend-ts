@@ -562,6 +562,11 @@ export const OPERATION_DESCRIPTORS = {
         format: null,
       },
       {
+        name: "sending_type",
+        required: false,
+        format: null,
+      },
+      {
         name: "limit",
         required: false,
         format: null,
@@ -1392,6 +1397,39 @@ export const OPERATION_DESCRIPTORS = {
       {
         status: 200,
         schema: "SubAccount",
+      },
+    ],
+    idempotency: false,
+    retry: "never",
+    security: [["sub-accounts:suspend"]],
+    resourceAuthorization: null,
+  },
+  unpauseSubAccountDomain: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/domains/{domain}/unpause",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "sub_account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "domain",
+        required: true,
+        format: "hostname",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "Domain",
       },
     ],
     idempotency: false,

@@ -24,7 +24,7 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 74;
+export const EXPECTED_LIVE_OPERATION_COUNT = 75;
 export const EXPECTED_LIVE_ITERATOR_COUNT = 14;
 
 const packageName = "@ahasend/sdk";
@@ -70,6 +70,10 @@ const listOperationIds = Object.freeze([
   "deleteList",
 ]);
 const listIteratorOperationIds = Object.freeze(["getLists", "getListContacts", "getContactLists"]);
+const templateOperationIds = Object.freeze(["listTemplates", "getTemplate"]);
+// The release account's template list is not ours to bound, so the search for
+// the fixture template stops after this many templates.
+const templateSearchLimit = 200;
 const apiKeyOperationIds = Object.freeze([
   "getAPIKeys",
   "createAPIKey",
@@ -118,6 +122,7 @@ const subAccountOperationIds = Object.freeze([
   "updateSubAccount",
   "suspendSubAccount",
   "unsuspendSubAccount",
+  "unpauseSubAccountDomain",
   "deleteSubAccount",
 ]);
 const subAccountAPIKeyOperationIds = Object.freeze([
@@ -643,6 +648,32 @@ function requireDomainResult(value, expectedDomain, label) {
   return result;
 }
 
+const domainSendingTypes = Object.freeze(["transactional", "marketing"]);
+
+function requireDomainSendingType(value, label) {
+  const request = requireObject(value, label);
+  if (
+    Object.hasOwn(request, "sending_type") &&
+    !domainSendingTypes.includes(request.sending_type)
+  ) {
+    throw new TypeError(`${label} sending_type must be transactional or marketing.`);
+  }
+  return request.sending_type;
+}
+
+function requireDomainSendingState(value, expectedDomain, expectedSendingType, label) {
+  const result = requireDomainResult(value, expectedDomain, label);
+  if (result.sending_type !== expectedSendingType) {
+    throw new TypeError(`${label} must report sending_type ${expectedSendingType}.`);
+  }
+  if (result.paused !== false || result.paused_at !== null || result.pause_reason !== null) {
+    throw new TypeError(
+      `${label} must report the domain as not paused, with null paused_at and pause_reason.`,
+    );
+  }
+  return result;
+}
+
 function requireDnsInvalidDomainResult(value, expectedDomain, label) {
   const result = requireDomainResult(value, expectedDomain, label);
   if (result.dns_valid !== false) {
@@ -736,6 +767,10 @@ export function createDomainScenarioRegistry({
   });
   const createBody = requireDomainRequest(createRequest, "Domain live create request", ["domain"]);
   const updateBody = requireDomainRequest(updateRequest, "Domain live update request", []);
+  const createdSendingType =
+    requireDomainSendingType(createBody, "Domain live create request") ?? "transactional";
+  const updatedSendingType =
+    requireDomainSendingType(updateBody, "Domain live update request") ?? createdSendingType;
   const pageParams = requireLivePagination(pagination, "Domain");
   const domain = createBody.domain;
 
@@ -745,7 +780,32 @@ export function createDomainScenarioRegistry({
       {
         operationId: "getDomains",
         async run() {
-          return runListIteratorScenario(methods.list, methods.iterate, pageParams, "Domain");
+          const result = await runListIteratorScenario(
+            methods.list,
+            methods.iterate,
+            pageParams,
+            "Domain",
+          );
+          const filtered = requireObject(
+            await methods.list({ ...pageParams, sending_type: "transactional" }),
+            "Domain sending_type filter response",
+          );
+          if (
+            !Array.isArray(filtered.data) ||
+            filtered.data.some(
+              (entry) =>
+                requireObject(entry, "Domain sending_type filter item").sending_type !==
+                "transactional",
+            )
+          ) {
+            throw new TypeError(
+              "Domain sending_type filter response must hold only transactional domains.",
+            );
+          }
+          return Object.freeze({
+            ...result,
+            evidence: Object.freeze({ ...result.evidence, sendingTypeFilterVerified: true }),
+          });
         },
       },
     ],
@@ -768,8 +828,19 @@ export function createDomainScenarioRegistry({
               "domain",
             );
           });
-          requireDomainResult(result, domain, "Domain create scenario response");
-          return Object.freeze({ evidence: Object.freeze({ created: true }) });
+          requireDomainSendingState(
+            result,
+            domain,
+            createdSendingType,
+            "Domain create scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              created: true,
+              paused: false,
+              sendingType: createdSendingType,
+            }),
+          });
         },
       },
     ],
@@ -788,12 +859,15 @@ export function createDomainScenarioRegistry({
       {
         operationId: "updateDomain",
         async run() {
-          requireDomainResult(
+          requireDomainSendingState(
             await methods.update(domain, updateBody),
             domain,
+            updatedSendingType,
             "Domain update scenario response",
           );
-          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+          return Object.freeze({
+            evidence: Object.freeze({ matched: true, sendingType: updatedSendingType }),
+          });
         },
       },
     ],
@@ -2447,6 +2521,190 @@ export function createListScenarioRegistry({
 /** Execute list scenarios in lifecycle order and always drain cleanup. */
 export function runListLiveScenarios(registry) {
   return runLiveScenarios(registry, listOperationIds, listIteratorOperationIds, "List");
+}
+
+function requireTemplateResult(value, label, expectedId) {
+  const template = requireObject(value, label);
+  if (template.object !== "template") {
+    throw new TypeError(`${label} object must be template.`);
+  }
+  const id = requireString(template.id, `${label} id`);
+  if (expectedId !== undefined && id !== expectedId) {
+    throw new TypeError(`${label} returned the wrong template.`);
+  }
+  for (const field of ["created_at", "updated_at", "name"]) {
+    requireString(template[field], `${label} ${field}`);
+  }
+  // A template without a subject or preview text carries empty strings.
+  for (const field of ["subject", "preheader"]) {
+    if (typeof template[field] !== "string") {
+      throw new TypeError(`${label} ${field} must be a string.`);
+    }
+  }
+  if (!Array.isArray(template.variables)) {
+    throw new TypeError(`${label} variables must be an array.`);
+  }
+  const variables = template.variables.map((value, index) => {
+    const variable = requireObject(value, `${label} variable ${index}`);
+    const name = requireString(variable.name, `${label} variable ${index} name`);
+    if (typeof variable.required !== "boolean") {
+      throw new TypeError(`${label} variable ${index} required must be a boolean.`);
+    }
+    return Object.freeze({ name, required: variable.required });
+  });
+  return Object.freeze({ id, variables: Object.freeze(variables) });
+}
+
+function requireTemplateSendRequest(value, templateId) {
+  const parsed = requireSandboxMessageRequest(value, "Template live send request");
+  const { request } = parsed;
+  if (request.template_id !== templateId) {
+    throw new TypeError("Template live send request template_id must name the fixture template.");
+  }
+  for (const field of ["text_content", "html_content", "amp_content", "substitutions"]) {
+    if (Object.hasOwn(request, field)) {
+      throw new TypeError(`Template live send request must not set ${field}.`);
+    }
+  }
+  return parsed;
+}
+
+/**
+ * Build the two template scenarios around a template the release account
+ * already holds, because the API cannot create one. The listing must reach it
+ * through the iterator, the read must return it with the fields the spec
+ * gives, and a sandboxed send must accept it. A variable the template requires
+ * gets a placeholder value; a template that requires none is sent without
+ * substitutions.
+ */
+export function createTemplateScenarioRegistry({
+  profile,
+  client,
+  templateId,
+  sendRequest,
+  pagination = { limit: 1 },
+}) {
+  const mappings = requireLifecycleMappings(
+    profile,
+    templateOperationIds,
+    "templates",
+    "listTemplates",
+    "template",
+  );
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Template ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("listTemplates"),
+    iterate: requireMappedClientMethod(client, mappings.iterator, "Template iterator scenario"),
+    get: mappedOperation("getTemplate"),
+    send: requireMappedOperation(profile, client, "createMessage", "Template send"),
+  });
+  const fixtureId = requireString(templateId, "Template live fixture id");
+  const send = requireTemplateSendRequest(sendRequest, fixtureId);
+  const pageParams = requireLivePagination(pagination, "Template");
+  const validateEntry = (entry, label) => requireTemplateResult(entry, label);
+
+  const scenarios = new Map([
+    [
+      "listTemplates",
+      {
+        operationId: "listTemplates",
+        async run() {
+          const page = requireObject(await methods.list(pageParams), "Template list response");
+          if (!Array.isArray(page.data)) {
+            throw new TypeError("Template list response data must be an array.");
+          }
+          requireObject(page.pagination, "Template list response pagination");
+          page.data.forEach((entry, index) =>
+            validateEntry(entry, `Template list response item ${index}`),
+          );
+
+          let itemCount = 0;
+          let found = false;
+          for await (const entry of methods.iterate(pageParams)) {
+            const template = validateEntry(entry, `Template iterator item ${itemCount}`);
+            itemCount += 1;
+            if (template.id === fixtureId) {
+              found = true;
+              break;
+            }
+            if (itemCount >= templateSearchLimit) break;
+          }
+          if (!found) {
+            throw new TypeError(
+              `Template iterator did not reach the fixture template within ${templateSearchLimit} templates.`,
+            );
+          }
+          const direction = pageParams.before === undefined ? "forward" : "backward";
+          return Object.freeze({
+            evidence: Object.freeze({
+              direction,
+              limit: pageParams.limit,
+              pageItems: page.data.length,
+              templateFound: true,
+            }),
+            iteratorEvidence: Object.freeze({
+              direction,
+              items: itemCount,
+              limit: pageParams.limit,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getTemplate",
+      {
+        operationId: "getTemplate",
+        async run() {
+          const template = requireTemplateResult(
+            await methods.get(fixtureId),
+            "Template get scenario response",
+            fixtureId,
+          );
+          const required = template.variables
+            .filter((variable) => variable.required)
+            .map(({ name }) => name);
+          const request =
+            required.length === 0
+              ? send.request
+              : {
+                  ...send.request,
+                  substitutions: Object.fromEntries(
+                    required.map((name) => [name, "AhaSend SDK live acceptance"]),
+                  ),
+                };
+          const result = requireSuccessfulSandboxSend(
+            await methods.send(request),
+            "Template sandbox send response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              matched: true,
+              templateSend: Object.freeze({
+                accepted: true,
+                requiredVariables: required.length,
+                results: result.results,
+              }),
+            }),
+          });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+export function runTemplateLiveScenarios(registry) {
+  return runLiveScenarios(registry, templateOperationIds, "listTemplates", "Template");
 }
 
 function requireAPIKeyCreateRequest(value, label) {
@@ -4392,6 +4650,7 @@ export function createSubAccountScenarioRegistry({
   createRequest,
   updateRequest,
   suspendRequest,
+  absentDomain,
   pagination = { limit: 1 },
 }) {
   const mappings = requireLifecycleMappings(
@@ -4419,10 +4678,12 @@ export function createSubAccountScenarioRegistry({
     delete: mappedOperation("deleteSubAccount"),
     suspend: mappedOperation("suspendSubAccount"),
     unsuspend: mappedOperation("unsuspendSubAccount"),
+    unpauseDomain: mappedOperation("unpauseSubAccountDomain"),
   });
   const createBody = requireSubAccountCreateRequest(createRequest);
   const updateBody = requireSubAccountUpdateRequest(updateRequest, createBody);
   const suspendBody = requireSubAccountSuspendRequest(suspendRequest);
+  const unpauseDomain = requireString(absentDomain, "Sub-account live unpause domain");
   const pageParams = requireLivePagination(pagination, "Sub-account");
   let subAccountId;
   const fixtureId = () => requireString(subAccountId, "Disposable sub-account fixture id");
@@ -4614,6 +4875,27 @@ export function createSubAccountScenarioRegistry({
           return Object.freeze({
             evidence: Object.freeze({ status: "active", transitionVerified: true }),
           });
+        },
+      },
+    ],
+    [
+      "unpauseSubAccountDomain",
+      {
+        operationId: "unpauseSubAccountDomain",
+        async run() {
+          // The disposable child owns no domain, so the API answers 404. Its own
+          // "domain not found" body separates that from a server without the route.
+          try {
+            await methods.unpauseDomain(fixtureId(), unpauseDomain);
+          } catch (error) {
+            if (isNotFoundError(error) && error.body?.message === "domain not found") {
+              return Object.freeze({
+                evidence: Object.freeze({ absentDomainNotFound: true, status: 404 }),
+              });
+            }
+            throw error;
+          }
+          throw new TypeError("Sub-account unpause scenario found a domain on the new child.");
         },
       },
     ],
@@ -5420,6 +5702,28 @@ function requireListOutcomes(operations) {
   ]);
 }
 
+function requireDomainOutcomes(operations) {
+  requireOperationOutcomes(operations, "getDomains", [["sendingTypeFilterVerified", true]]);
+  requireOperationOutcomes(operations, "createDomain", [
+    ["paused", false],
+    ["sendingType", "transactional"],
+  ]);
+  requireOperationOutcomes(operations, "updateDomain", [["sendingType", "marketing"]]);
+  requireOperationOutcomes(operations, "unpauseSubAccountDomain", [
+    ["absentDomainNotFound", true],
+    ["status", 404],
+  ]);
+}
+
+function requireTemplateOutcomes(operations) {
+  requireOperationOutcomes(operations, "listTemplates", [["templateFound", true]]);
+  requireOperationOutcomes(operations, "getTemplate", [
+    ["matched", true],
+    ["templateSend.accepted", true],
+    ["templateSend.results", positiveIntegerOutcome],
+  ]);
+}
+
 function requireContactOutcomes(operations) {
   requireOperationOutcomes(operations, "batchUpsertContacts", [
     ["created", 1],
@@ -5699,6 +6003,8 @@ function validateLiveReportArtifactContract(
     requirePassedResults(report.iterators, "Iterator inventory");
     validateReportIteratorLinks(report.operations, report.iterators);
     requireSandboxOutcomes(report.operations);
+    requireDomainOutcomes(report.operations);
+    requireTemplateOutcomes(report.operations);
     requireContactOutcomes(report.operations);
     requireListOutcomes(report.operations);
     requireAuthorizationOutcomes(report.operations);

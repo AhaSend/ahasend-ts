@@ -191,10 +191,13 @@ const PRIMARY_MATRIX = [
     input: { path: `${ACCOUNT_PATH}/api-keys/${API_KEY_ID}` },
   })),
   primary("getDomains", "domains", "list", (client) => ({
-    result: client.domains.list({ ...PAGINATION_PARAMS, dns_valid: true }, REQUEST_OPTIONS),
+    result: client.domains.list(
+      { ...PAGINATION_PARAMS, dns_valid: true, sending_type: "marketing" },
+      REQUEST_OPTIONS,
+    ),
     input: {
       path: `${ACCOUNT_PATH}/domains`,
-      query: { dns_valid: "true", ...PAGINATION_QUERY },
+      query: { dns_valid: "true", sending_type: "marketing", ...PAGINATION_QUERY },
     },
   })),
   primary("createDomain", "domains", "create", (client) => {
@@ -348,6 +351,10 @@ const PRIMARY_MATRIX = [
   primary("unsuspendSubAccount", "subAccounts", "unsuspend", (client) => ({
     result: client.subAccounts.unsuspend(IDS.subAccount, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/unsuspend` },
+  })),
+  primary("unpauseSubAccountDomain", "subAccounts", "unpauseDomain", (client) => ({
+    result: client.subAccounts.unpauseDomain(IDS.subAccount, IDS.domain, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/domains/${HOSTNAME}/unpause` },
   })),
   primary("listSubAccountAPIKeys", "subAccounts.apiKeys", "list", (client) => ({
     result: client.subAccounts.apiKeys.list(IDS.subAccount, PAGINATION_PARAMS, REQUEST_OPTIONS),
@@ -783,10 +790,10 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for all 74 implemented operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(74);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(74);
-    expect(OPERATION_PROFILE.operations).toHaveLength(74);
+  it("accounts for all 75 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(75);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(75);
+    expect(OPERATION_PROFILE.operations).toHaveLength(75);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -862,7 +869,7 @@ describe("Non-empty request array coverage", () => {
 describe("Generated operation inventory", () => {
   it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(74);
+    expect(operationIds).toHaveLength(75);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
     expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
       operationIds,

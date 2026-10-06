@@ -20,6 +20,8 @@ import type {
   CreateDomainRequest,
   DNSRecord,
   Domain,
+  DomainPauseReason,
+  DomainSendingType,
   ListDomainsParams,
   UpdateDomainRequest,
 } from "../src/resources/domains.js";
@@ -814,6 +816,10 @@ describe("DomainsClient", () => {
       dkim_selector: null,
       rotation_ready: false,
       dsn_recipient: null,
+      sending_type: "transactional",
+      paused: false,
+      paused_at: null,
+      pause_reason: null,
     };
     const { last_dns_check_at: _lastDnsCheckAt, ...withoutLastDnsCheckAt } = domain;
     // @ts-expect-error last_dns_check_at is a required nullable response key.
@@ -823,7 +829,16 @@ describe("DomainsClient", () => {
     // @ts-expect-error DNS record labels are optional but cannot be null when present.
     const nullDnsRecordLabel: DNSRecord = { ...dnsRecord, label: null };
 
-    expectTypeOf<Domain>().toEqualTypeOf<components["schemas"]["Domain"]>();
+    // pause_reason names its known value but stays open to reasons added later.
+    expectTypeOf<Omit<Domain, "pause_reason">>().toEqualTypeOf<
+      Omit<components["schemas"]["Domain"], "pause_reason">
+    >();
+    expectTypeOf<components["schemas"]["Domain"]["pause_reason"]>().toExtend<
+      Domain["pause_reason"]
+    >();
+    expectTypeOf<Domain["pause_reason"]>().toExtend<
+      components["schemas"]["Domain"]["pause_reason"]
+    >();
     expectTypeOf<DNSRecord>().toEqualTypeOf<components["schemas"]["DNSRecord"]>();
     expectTypeOf<RemovedDomainRequestOptions>().toEqualTypeOf<RemovedDomainRequestOptions>();
     expect(domain.last_dns_check_at).toBeNull();
@@ -851,6 +866,87 @@ describe("DomainsClient", () => {
     await client.domains.create({ domain: "example.com", dkim_selector: null });
 
     expect(calls[0]!.body).toBe(JSON.stringify({ domain: "example.com", dkim_selector: null }));
+  });
+
+  it("models the sending type on create, update, and the list filter", () => {
+    const marketing: CreateDomainRequest = { domain: "example.com", sending_type: "marketing" };
+    const unchanged: UpdateDomainRequest = { tracking_subdomain: "track" };
+    const filter: ListDomainsParams = { sending_type: "transactional", dns_valid: null };
+    // @ts-expect-error The sending type is transactional or marketing.
+    const unknownType: CreateDomainRequest = { domain: "example.com", sending_type: "bulk" };
+    // @ts-expect-error The API refuses a null sending type; omit it instead.
+    const nullType: UpdateDomainRequest = { sending_type: null };
+
+    expectTypeOf<ListDomainsParams["sending_type"]>().toEqualTypeOf<
+      DomainSendingType | undefined
+    >();
+    expectTypeOf<Domain["sending_type"]>().toEqualTypeOf<DomainSendingType>();
+    expectTypeOf<"bounce_rate">().toExtend<DomainPauseReason>();
+    expectTypeOf<"a_reason_added_later">().toExtend<DomainPauseReason>();
+    expect([marketing, unchanged, filter]).toHaveLength(3);
+    void [unknownType, nullType];
+  });
+
+  it("create() and update() send sending_type only when it is given", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.domains.create({ domain: "example.com", sending_type: "marketing" });
+    await client.domains.update(HOSTNAME, { sending_type: "transactional" });
+    await client.domains.update(HOSTNAME, { tracking_subdomain: "track" });
+
+    expect(calls.map(({ body }) => JSON.parse(body!) as unknown)).toEqual([
+      { domain: "example.com", sending_type: "marketing" },
+      { sending_type: "transactional" },
+      { tracking_subdomain: "track" },
+    ]);
+  });
+
+  it("list() sends the sending_type filter and drops a null dns_valid", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.domains.list({ sending_type: "marketing", dns_valid: null, limit: 10 });
+
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("sending_type")).toBe("marketing");
+    expect(url.searchParams.has("dns_valid")).toBe(false);
+    expect(url.searchParams.get("limit")).toBe("10");
+  });
+
+  it.each([
+    [
+      "a paused marketing domain",
+      {
+        sending_type: "marketing",
+        paused: true,
+        paused_at: "2026-10-06T08:00:00Z",
+        pause_reason: "bounce_rate",
+      },
+    ],
+    [
+      "a pause reason added after this release",
+      {
+        sending_type: "transactional",
+        paused: true,
+        paused_at: "2026-10-06T08:00:00Z",
+        pause_reason: "a_reason_added_later",
+      },
+    ],
+    // A server deployed before these fields existed omits them; the SDK does not
+    // validate response bodies, so the domain still comes back as sent.
+    ["a domain from a server without the sending type and pause fields", {}],
+  ])("get() returns %s unchanged", async (_case, fields) => {
+    const body = { object: "domain", domain: HOSTNAME, dns_valid: true, ...fields };
+    const { fetch } = captureFetch(
+      () =>
+        new Response(JSON.stringify(body), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = makeClient(fetch);
+
+    await expect(client.domains.get(HOSTNAME)).resolves.toEqual(body);
   });
 
   it("list() dispatches getDomains with filters, limit, and one cursor", async () => {

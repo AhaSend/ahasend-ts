@@ -99,6 +99,8 @@ export type {
   CreateDomainRequest,
   DNSRecord,
   Domain,
+  DomainPauseReason,
+  DomainSendingType,
   DomainsClient,
   ListDomainsParams,
   UpdateDomainRequest,

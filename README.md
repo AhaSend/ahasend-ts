@@ -190,24 +190,24 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 
 ## Resources
 
-| Resource                 | Methods                                                                                                         |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `client.messages`        | `send`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                  |
-| `client.templates`       | `list`, `iterate`, `get` (read-only transactional templates)                                                    |
-| `client.domains`         | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                              |
-| `client.apiKeys`         | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                          |
-| `client.webhooks`        | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`) |
-| `client.statistics`      | `deliverability`, `bounces`, `deliveryTimes`                                                                    |
-| `client.contacts`        | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists`                      |
-| `client.contacts.lists`  | `list`, `iterate` (the lists one contact is on)                                                                 |
-| `client.lists`           | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                  |
-| `client.lists.contacts`  | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                            |
-| `client.suppressions`    | `list`, `iterate`, `create`, `delete`, `wipe`                                                                   |
-| `client.routes`          | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                        |
-| `client.accounts`        | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                     |
-| `client.smtpCredentials` | `list`, `iterate`, `create`, `get`, `delete`                                                                    |
-| `client.subAccounts`     | `list`, `iterate`, `create`, `usage`, `get`, `update`, `delete`, `suspend`, `unsuspend`, plus nested `apiKeys`  |
-| `client.ping()`          | Health check (`GET /v2/ping`)                                                                                   |
+| Resource                 | Methods                                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `client.messages`        | `send`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                                  |
+| `client.templates`       | `list`, `iterate`, `get` (read-only transactional templates)                                                                    |
+| `client.domains`         | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                                              |
+| `client.apiKeys`         | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                          |
+| `client.webhooks`        | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`)                 |
+| `client.statistics`      | `deliverability`, `bounces`, `deliveryTimes`                                                                                    |
+| `client.contacts`        | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists`                                      |
+| `client.contacts.lists`  | `list`, `iterate` (the lists one contact is on)                                                                                 |
+| `client.lists`           | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                                  |
+| `client.lists.contacts`  | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                                            |
+| `client.suppressions`    | `list`, `iterate`, `create`, `delete`, `wipe`                                                                                   |
+| `client.routes`          | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                                        |
+| `client.accounts`        | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                                     |
+| `client.smtpCredentials` | `list`, `iterate`, `create`, `get`, `delete`                                                                                    |
+| `client.subAccounts`     | `list`, `iterate`, `create`, `usage`, `get`, `update`, `delete`, `suspend`, `unsuspend`, `unpauseDomain`, plus nested `apiKeys` |
+| `client.ping()`          | Health check (`GET /v2/ping`)                                                                                                   |
 
 Every method carries JSDoc — hover in your editor for parameter
 constraints, required scopes, and behavioural notes.
@@ -671,6 +671,77 @@ await client.lists.contacts.upsert(list.id, "User+Tag@Example.COM", {
 - Pass a UUID or a raw email wherever a contact is named; the SDK percent-encodes it exactly once.
   `client.contacts.lists.list(idOrEmail)` answers which lists one contact is on; it needs
   `lists:read`, not `contacts:read`.
+
+## Send with a template
+
+Pass `template_id` instead of `html_content`, `text_content` and `amp_content`. The transactional
+template supplies the subject, the preview text and both bodies; a `subject` in the request
+replaces the template's. Values for the template's variables come from `substitutions`, and a
+recipient's own `substitutions` win over the request-level ones.
+
+```ts
+const template = await client.templates.get("00000000-0000-4000-8000-000000000009");
+const required = template.variables.filter((variable) => variable.required);
+console.log("Template loaded.", { requiredCount: required.length });
+
+const res = await client.messages.send({
+  from: { email: "sender@yourdomain.com", name: "Your App" },
+  recipients: [
+    { email: "ada@example.com", substitutions: { first_name: "Ada" } },
+    { email: "grace@example.com", substitutions: { first_name: "Grace" } },
+  ],
+  template_id: template.id,
+  substitutions: { product: "Example" },
+});
+console.log("Template send accepted.", { count: res.data.length });
+```
+
+- `client.templates.list()` and `iterate()` page through the account's transactional templates,
+  newest first; `get()` returns one with the `variables` its design uses.
+- Every variable marked `required` must have a value for every recipient. A request that misses
+  one is refused as a whole, and nothing is sent.
+- `email` and `view_browser_url` are supplied by AhaSend for each recipient and cannot be
+  overridden: `email` is that recipient's address, and `view_browser_url` is empty until a hosted
+  view of a sent message exists.
+- `unsubscribe_url` is supplied the same way, replacing a value of your own, only on a design that
+  uses it; such a message also carries one-click `List-Unsubscribe` headers. On a design that does
+  not use it, nothing is minted and your value passes through like any other name the template
+  does not use.
+- A `template_id` that does not name one of the account's transactional templates answers `404`.
+  Reading templates needs `templates:read`; sending one needs only the usual send scope.
+
+## Domain sending type and pauses
+
+Every domain has a `sending_type`, `transactional` or `marketing`, which affects its
+deliverability: marketing email sent from a transactional domain can get the account paused.
+`domains.create()` makes a transactional domain unless you pass `sending_type`, and
+`domains.update()` leaves the type unchanged unless you pass it; a change applies to new messages
+within five minutes. `domains.list()` and `iterate()` filter on it:
+
+```ts
+const created = await client.domains.create({
+  domain: "news.example.com",
+  sending_type: "marketing",
+});
+console.log("Marketing domain created.", { id: created.id });
+
+const page = await client.domains.list({ sending_type: "marketing" });
+// pause_reason is an open set: bounce_rate today, possibly more later.
+const paused = page.data.filter((domain) => domain.paused);
+console.log("Marketing domains listed.", { pausedCount: paused.length });
+```
+
+- AhaSend can pause sending from one domain while the account's other domains keep sending.
+  `paused` is then `true`, `paused_at` says when, and `pause_reason` says why. `bounce_rate` means
+  too many recent emails from the domain bounced; treat any other value as a reason added after
+  this release. While a domain is paused, a send from it answers `403` (`AhaSendPermissionError`;
+  a sandbox send is still accepted), and so does deleting it.
+- A parent account lifts the pause on a sub-account's domain with
+  `client.subAccounts.unpauseDomain(subAccountId, domain)`, which needs `sub-accounts:suspend` and
+  returns the domain. It is idempotent: a domain that is not paused is returned unchanged. The
+  change can take some minutes to apply to new email, and the call is not retried automatically.
+- `subAccounts.suspend()` and `unsuspend()` pause and resume a whole sub-account. A paused
+  sub-account has `status: "suspended"`.
 
 ## License
 

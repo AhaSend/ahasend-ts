@@ -23,6 +23,7 @@ import {
   createSubAccountAPIKeyScenarioRegistry,
   createSubAccountScenarioRegistry,
   createSuppressionScenarioRegistry,
+  createTemplateScenarioRegistry,
   createWebhookScenarioRegistry,
   inspectLiveCandidate,
   installLiveCandidate,
@@ -40,6 +41,7 @@ import {
   runSubAccountAPIKeyLiveScenarios,
   runSubAccountLiveScenarios,
   runSuppressionLiveScenarios,
+  runTemplateLiveScenarios,
   runWebhookLiveScenarios,
   runWithCleanup,
   validateLiveReportArtifacts,
@@ -60,9 +62,13 @@ import {
   type SubAccountAPIKeyLiveClient,
   type SubAccountLiveClient,
   type SuppressionLiveClient,
+  type TemplateLiveClient,
   type WebhookLiveClient,
 } from "../../scripts/live-acceptance.mjs";
-import { persistLiveAcceptanceEvidence } from "../../scripts/run-live-acceptance.mjs";
+import {
+  parseLiveConfig,
+  persistLiveAcceptanceEvidence,
+} from "../../scripts/run-live-acceptance.mjs";
 import liveReportSchema from "../../scripts/live-report.schema.json";
 
 interface OperationProfileSource {
@@ -174,6 +180,25 @@ function completeLiveResults(candidate: LiveCandidate) {
     fullSuccessObjects: 2,
   };
   byId.get("deleteContact")!.evidence = { cleanupVerified: true, deleted: true };
+  byId.get("getDomains")!.evidence = {
+    ...byId.get("getDomains")!.evidence,
+    sendingTypeFilterVerified: true,
+  };
+  byId.get("listTemplates")!.evidence = {
+    ...byId.get("listTemplates")!.evidence,
+    templateFound: true,
+  };
+  byId.get("getTemplate")!.evidence = {
+    matched: true,
+    templateSend: { accepted: true, requiredVariables: 0, results: 1 },
+  };
+  byId.get("createDomain")!.evidence = {
+    created: true,
+    paused: false,
+    sendingType: "transactional",
+  };
+  byId.get("updateDomain")!.evidence = { matched: true, sendingType: "marketing" };
+  byId.get("unpauseSubAccountDomain")!.evidence = { absentDomainNotFound: true, status: 404 };
   for (const operationId of ["getLists", "getListContacts", "getContactLists"]) {
     byId.get(operationId)!.evidence = {
       ...byId.get(operationId)!.evidence,
@@ -271,19 +296,29 @@ function completeLiveResults(candidate: LiveCandidate) {
 }
 
 function domainClientFixture(
-  options: { cleanupFailure?: unknown; failGet?: boolean; getFailure?: unknown } = {},
+  options: {
+    cleanupFailure?: unknown;
+    failGet?: boolean;
+    getFailure?: unknown;
+    oldShape?: boolean;
+  } = {},
 ) {
   const calls: string[] = [];
   let exists = false;
+  let sendingType = "transactional";
   const domain = "live-domain.example";
   const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const result = () =>
+    options.oldShape === true
+      ? { domain }
+      : { domain, sending_type: sendingType, paused: false, paused_at: null, pause_reason: null };
   const client: DomainLiveClient = {
     domains: {
       list: vi.fn(async (params) => {
         calls.push(`list:${JSON.stringify(params)}`);
         return {
           object: "list",
-          data: exists ? [{ domain }] : [],
+          data: exists ? [result()] : [],
           pagination: { has_more: false },
         };
       }),
@@ -291,10 +326,11 @@ function domainClientFixture(
         calls.push(`iterate:${JSON.stringify(params)}`);
         if (exists) yield { domain };
       }),
-      create: vi.fn(async () => {
+      create: vi.fn(async (request?: { sending_type?: string }) => {
         calls.push("create");
         exists = true;
-        return { domain };
+        sendingType = request?.sending_type ?? "transactional";
+        return result();
       }),
       get: vi.fn(async () => {
         calls.push("get");
@@ -306,12 +342,13 @@ function domainClientFixture(
         if (options.failGet === true) {
           throw Object.assign(new Error("later scenario failed"), { status: 500 });
         }
-        return { domain };
+        return result();
       }),
-      update: vi.fn(async () => {
+      update: vi.fn(async (_domain?: string, request?: { sending_type?: string }) => {
         calls.push("update");
         if (!exists) throw notFound();
-        return { domain };
+        sendingType = request?.sending_type ?? sendingType;
+        return result();
       }),
       delete: vi.fn(async () => {
         calls.push("delete");
@@ -322,11 +359,72 @@ function domainClientFixture(
       checkDns: vi.fn(async () => {
         calls.push("checkDns");
         if (!exists) throw notFound();
-        return { domain };
+        return result();
       }),
     },
   };
   return { calls, client, domain };
+}
+
+function templateClientFixture(
+  options: {
+    getTemplateId?: string;
+    listed?: boolean;
+    variables?: Array<{ name: string; required: boolean }>;
+  } = {},
+) {
+  const templateId = "0a1b2c3d-0000-4000-8000-0000000000aa";
+  const calls: string[] = [];
+  const sends: Array<Record<string, unknown>> = [];
+  const template = (id: string) => ({
+    object: "template" as const,
+    id,
+    created_at: "2026-10-01T00:00:00Z",
+    updated_at: "2026-10-01T00:00:00Z",
+    name: `Template ${id}`,
+    subject: "",
+    preheader: "",
+    variables: options.variables ?? [{ name: "email", required: false }],
+  });
+  const others = [
+    "0a1b2c3d-0000-4000-8000-000000000001",
+    "0a1b2c3d-0000-4000-8000-000000000002",
+  ].map(template);
+  const all = options.listed === false ? others : [...others, template(templateId)];
+  const client: TemplateLiveClient = {
+    templates: {
+      list: vi.fn(async (params: { limit: number }) => {
+        calls.push(`list:${JSON.stringify(params)}`);
+        return {
+          object: "list",
+          data: all.slice(0, params.limit),
+          pagination: { has_more: all.length > params.limit },
+        };
+      }),
+      iterate: vi.fn(async function* (params: { limit: number }) {
+        calls.push(`iterate:${JSON.stringify(params)}`);
+        for (const entry of all) yield entry;
+      }),
+      get: vi.fn(async (id: string) => {
+        calls.push(`get:${id}`);
+        return template(options.getTemplateId ?? id);
+      }),
+    },
+    messages: {
+      send: vi.fn(async (request: Record<string, unknown>) => {
+        calls.push("send");
+        sends.push(request);
+        return { object: "list", data: [{ object: "message", id: "msg-1", status: "queued" }] };
+      }),
+    },
+  };
+  const sendRequest = {
+    from: { email: "sender@verified.example" },
+    recipients: [{ email: "live@example.test" }],
+    template_id: templateId,
+    sandbox: true as const,
+  };
+  return { calls, client, sendRequest, sends, templateId };
 }
 
 function messageClientFixture(
@@ -1659,6 +1757,8 @@ function subAccountClientFixture(
     failCleanup?: boolean;
     malformedCreate?: boolean;
     unsafeUsage?: boolean;
+    unpauseFailure?: unknown;
+    unpauseResult?: unknown;
   } = {},
 ) {
   const accountId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -1674,6 +1774,7 @@ function subAccountClientFixture(
     monthly_credit: 75_000,
   };
   const suspendRequest = { reason: "SDK live lifecycle verification" };
+  const absentDomain = "absent-child-domain.example.test";
   const record = (id: string, name: string, website: string) => ({
     object: "sub_account" as const,
     id,
@@ -1780,6 +1881,16 @@ function subAccountClientFixture(
     child.status = "active";
     return { ...child };
   });
+  const unpauseDomain = vi.fn(async (id: string, domain: string) => {
+    calls.push(`unpauseDomain:${domain}`);
+    if (!records.has(id)) throw notFound();
+    if (Object.hasOwn(options, "unpauseFailure")) throw options.unpauseFailure;
+    if (Object.hasOwn(options, "unpauseResult")) return options.unpauseResult;
+    throw Object.assign(new Error("domain not found"), {
+      status: 404,
+      body: { message: "domain not found" },
+    });
+  });
   const client: SubAccountLiveClient = {
     accountId,
     subAccounts: {
@@ -1792,9 +1903,11 @@ function subAccountClientFixture(
       delete: deleteSubAccount,
       suspend,
       unsuspend,
+      unpauseDomain,
     },
   };
   return {
+    absentDomain,
     accountId,
     calls,
     childId,
@@ -1965,9 +2078,9 @@ describe("live candidate foundation", () => {
       name: "@ahasend/sdk",
       version: "0.1.0-live-test",
     });
-    expect(candidate.profile.operations).toHaveLength(74);
+    expect(candidate.profile.operations).toHaveLength(75);
     expect(candidate.profile.iterators).toHaveLength(14);
-    expect(candidate.registry.primary.size).toBe(74);
+    expect(candidate.registry.primary.size).toBe(75);
     expect(candidate.registry.iterators).toHaveLength(14);
     expect(Object.isFrozen(candidate.manifest)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.contractSha256)).toBe(true);
@@ -2051,7 +2164,7 @@ describe("live candidate foundation", () => {
     expect(candidate.package.version).toBe("0.1.0-archive-test");
     expect(candidate.profileSource).toEqual(profile.source);
     expect(candidate.profileSidecar).toEqual(profile.sidecar);
-    expect(candidate.profile.operations).toHaveLength(74);
+    expect(candidate.profile.operations).toHaveLength(75);
     expect(candidate.profile.iterators).toHaveLength(14);
   });
 
@@ -2108,7 +2221,7 @@ describe("live candidate foundation", () => {
 
     expect(runCommand).toHaveBeenCalledOnce();
     expect(readFileSync(resolve(installDirectory, basename(tarballPath)))).toEqual(fixture.tarball);
-    expect(installed.profile.operations).toHaveLength(74);
+    expect(installed.profile.operations).toHaveLength(75);
 
     const badDirectory = join(directory, "bad-install");
     writeFileSync(tarballPath, Buffer.from("substituted after candidate creation"));
@@ -2130,7 +2243,7 @@ describe("live candidate foundation", () => {
 });
 
 describe("live scenario inventory", () => {
-  it("creates 74 primary scenarios and fourteen attached iterator subcases from the profile", () => {
+  it("creates 75 primary scenarios and fourteen attached iterator subcases from the profile", () => {
     const profile = inspectFixture().profile;
     const registry = createScenarioRegistry(
       profile,
@@ -2140,7 +2253,7 @@ describe("live scenario inventory", () => {
       })),
     );
 
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expect(registry.iterators).toHaveLength(14);
     expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(14);
     for (const iterator of registry.iterators) {
@@ -2157,7 +2270,7 @@ describe("live scenario inventory", () => {
     expect(Object.isFrozen(registry.primary)).toBe(true);
     expect(() => mutablePrimary.delete(profile.operations[0]!.operationId)).toThrow();
     expect(() => mutablePrimary.set("orphan", {})).toThrow();
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
   });
 
   it("rejects missing, orphaned, duplicate, and mapping-redefining scenarios", () => {
@@ -2229,7 +2342,7 @@ describe("live scenario inventory", () => {
     );
     expect(domainEntries).toHaveLength(6);
     expect(domainEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, DomainLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2328,6 +2441,67 @@ describe("live scenario inventory", () => {
     );
   });
 
+  it("checks the sending type and pause state the domain lifecycle reads back", async () => {
+    const fixture = domainClientFixture();
+    const result = await runDomainLiveScenarios(
+      createDomainScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: { domain: fixture.domain },
+        updateRequest: { tracking_subdomain: "live", sending_type: "marketing" },
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.domains.update).toHaveBeenCalledWith(fixture.domain, {
+      tracking_subdomain: "live",
+      sending_type: "marketing",
+    });
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "createDomain"),
+    ).toMatchObject({
+      evidence: { created: true, paused: false, sendingType: "transactional" },
+    });
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "updateDomain"),
+    ).toMatchObject({ evidence: { matched: true, sendingType: "marketing" } });
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "getDomains"),
+    ).toMatchObject({ evidence: { sendingTypeFilterVerified: true } });
+    expect(fixture.client.domains.list).toHaveBeenCalledWith({
+      limit: 1,
+      sending_type: "transactional",
+    });
+
+    expect(() =>
+      createDomainScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: { domain: fixture.domain },
+        updateRequest: { sending_type: "bulk" as "marketing" },
+      }),
+    ).toThrow("sending_type must be transactional or marketing");
+  });
+
+  it("fails the domain lifecycle against a server that does not return the sending type", async () => {
+    const fixture = domainClientFixture({ oldShape: true });
+    const result = await runDomainLiveScenarios(
+      createDomainScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: { domain: fixture.domain },
+      }),
+    );
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createDomain" });
+    expect((result.failure as unknown as { error: unknown }).error).toMatchObject({
+      message: "Domain create scenario response must report sending_type transactional.",
+    });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify domain fixture", status: "passed" },
+    ]);
+  });
+
   it("registers every contact primary and links its iterator to the packaged list mapping", () => {
     const fixture = contactClientFixture();
     const registry = createContactScenarioRegistry({
@@ -2358,7 +2532,7 @@ describe("live scenario inventory", () => {
       operationId: "getContacts",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, ContactLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2478,6 +2652,170 @@ describe("live scenario inventory", () => {
     ]);
   });
 
+  it("requires templateId in the live configuration and accepts only a UUID", () => {
+    const config = {
+      verifiedDomain: "mail.example.com",
+      replacementVerifiedDomain: "mail2.example.com",
+      neverRegisteredDomain: "never-registered.example.com",
+      dnslessDomain: "no-dns.example.com",
+      lifecycleDomain: "lifecycle.example.com",
+      suppressionDomain: "suppression.example.com",
+      disposableMailbox: "sdk-live@example.com",
+      templateId: "0A1B2C3D-0000-4000-8000-0000000000AA",
+      webhookUrl: "https://webhook.example.com/ahasend",
+    };
+
+    expect(parseLiveConfig(JSON.stringify(config)).templateId).toBe(
+      "0a1b2c3d-0000-4000-8000-0000000000aa",
+    );
+    for (const templateId of ["", "template-1", "0a1b2c3d-0000-4000-8000-0000000000a"]) {
+      expect(() => parseLiveConfig(JSON.stringify({ ...config, templateId })), templateId).toThrow(
+        /templateId/,
+      );
+    }
+    const { templateId: _templateId, ...withoutTemplate } = config;
+    expect(() => parseLiveConfig(JSON.stringify(withoutTemplate))).toThrow();
+    expect(() => parseLiveConfig(JSON.stringify({ ...config, templateId: 7 }))).toThrow(
+      /templateId/,
+    );
+  });
+
+  it("registers both template primaries and links the template iterator", () => {
+    const fixture = templateClientFixture();
+    const registry = createTemplateScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      templateId: fixture.templateId,
+      sendRequest: fixture.sendRequest,
+    });
+    const entries = [...registry.primary.values()].filter(({ facade }) => facade === "templates");
+
+    expect(entries.map(({ operationId }) => operationId).sort()).toEqual([
+      "getTemplate",
+      "listTemplates",
+    ]);
+    expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(registry.primary.get("listTemplates")?.iterator).toMatchObject({
+      operationId: "listTemplates",
+      method: "iterate",
+    });
+    expect(registry.primary.size).toBe(75);
+    expectTypeOf<IsAssignable<AhaSendClient, TemplateLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("finds the fixture template through the iterator, reads it, and sends it sandboxed", async () => {
+    const fixture = templateClientFixture();
+    const result = await runTemplateLiveScenarios(
+      createTemplateScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        templateId: fixture.templateId,
+        sendRequest: fixture.sendRequest,
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(result.operationResults).toEqual([
+      {
+        operationId: "listTemplates",
+        status: "passed",
+        evidence: { direction: "forward", limit: 1, pageItems: 1, templateFound: true },
+      },
+      {
+        operationId: "getTemplate",
+        status: "passed",
+        evidence: {
+          matched: true,
+          templateSend: { accepted: true, requiredVariables: 0, results: 1 },
+        },
+      },
+    ]);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "listTemplates",
+        status: "passed",
+        evidence: { direction: "forward", items: 3, limit: 1 },
+      },
+    ]);
+    // A template that requires no variable is sent without substitutions.
+    expect(fixture.sends).toEqual([fixture.sendRequest]);
+  });
+
+  it("supplies a placeholder for each variable the template requires", async () => {
+    const fixture = templateClientFixture({
+      variables: [
+        { name: "first_name", required: true },
+        { name: "nickname", required: false },
+        { name: "order_id", required: true },
+      ],
+    });
+    const result = await runTemplateLiveScenarios(
+      createTemplateScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        templateId: fixture.templateId,
+        sendRequest: fixture.sendRequest,
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(fixture.sends).toEqual([
+      {
+        ...fixture.sendRequest,
+        substitutions: {
+          first_name: "AhaSend SDK live acceptance",
+          order_id: "AhaSend SDK live acceptance",
+        },
+      },
+    ]);
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "getTemplate"),
+    ).toMatchObject({ evidence: { templateSend: { requiredVariables: 2 } } });
+  });
+
+  it.each([
+    ["the listing does not reach the template", { listed: false }, "listTemplates"],
+    [
+      "the read returns another template",
+      { getTemplateId: "0a1b2c3d-0000-4000-8000-000000000002" },
+      "getTemplate",
+    ],
+  ] as const)("fails the template scenarios when %s", async (_case, options, operationId) => {
+    const fixture = templateClientFixture(options);
+    const result = await runTemplateLiveScenarios(
+      createTemplateScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        templateId: fixture.templateId,
+        sendRequest: fixture.sendRequest,
+      }),
+    );
+
+    expect(result.failure).toEqual({ phase: "operation", operationId });
+    expect(fixture.sends).toEqual([]);
+  });
+
+  it("refuses a template send that is not sandboxed or carries its own content", () => {
+    const fixture = templateClientFixture();
+    const create = (sendRequest: Record<string, unknown>) =>
+      createTemplateScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        templateId: fixture.templateId,
+        sendRequest: sendRequest as never,
+      });
+
+    expect(() => create({ ...fixture.sendRequest, sandbox: false })).toThrow(
+      "sandbox must be true",
+    );
+    expect(() => create({ ...fixture.sendRequest, html_content: "<p>x</p>" })).toThrow(
+      "must not set html_content",
+    );
+    expect(() =>
+      create({ ...fixture.sendRequest, template_id: "0a1b2c3d-0000-4000-8000-000000000001" }),
+    ).toThrow("must name the fixture template");
+  });
+
   it("registers every list primary across its three facades and links all three iterators", () => {
     const registry = listRegistry(listClientFixture());
     const listEntries = [...registry.primary.values()].filter(({ facade }) =>
@@ -2504,7 +2842,7 @@ describe("live scenario inventory", () => {
         .filter(({ facade }) => ["lists", "lists.contacts", "contacts.lists"].includes(facade))
         .map(({ operationId, method }) => `${operationId}.${method}`),
     ).toEqual(["getLists.iterate", "getListContacts.iterate", "getContactLists.iterate"]);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, ListLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2704,7 +3042,7 @@ describe("live scenario inventory", () => {
     );
     expect(messageEntries).toHaveLength(6);
     expect(messageEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, MessageLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3016,7 +3354,7 @@ describe("live scenario inventory", () => {
     );
     expect(apiKeyEntries).toHaveLength(5);
     expect(apiKeyEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, APIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3229,7 +3567,7 @@ describe("live scenario inventory", () => {
     );
     expect(routeEntries).toHaveLength(5);
     expect(routeEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, RouteLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3478,7 +3816,7 @@ describe("live scenario inventory", () => {
     );
     expect(webhookEntries).toHaveLength(5);
     expect(webhookEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, WebhookLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3727,7 +4065,7 @@ describe("live scenario inventory", () => {
         ({ operationId, method }) => operationId.includes("update") || method === "update",
       ),
     ).toBe(false);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, SMTPCredentialLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3932,7 +4270,7 @@ describe("live scenario inventory", () => {
     expect(accountEntries).toHaveLength(5);
     expect(accountEntries.every(({ run }) => typeof run === "function")).toBe(true);
     expect(registry.iterators.filter(({ facade }) => facade === "accounts")).toHaveLength(0);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, AccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4123,7 +4461,7 @@ describe("live scenario inventory", () => {
     );
     expect(suppressionEntries).toHaveLength(4);
     expect(suppressionEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, SuppressionLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4311,6 +4649,7 @@ describe("live scenario inventory", () => {
       createRequest: fixture.createRequest,
       updateRequest: fixture.updateRequest,
       suspendRequest: fixture.suspendRequest,
+      absentDomain: fixture.absentDomain,
     });
     const entries = [...registry.primary.values()].filter(({ facade }) => facade === "subAccounts");
 
@@ -4324,11 +4663,12 @@ describe("live scenario inventory", () => {
         "deleteSubAccount",
         "suspendSubAccount",
         "unsuspendSubAccount",
+        "unpauseSubAccountDomain",
       ].sort(),
     );
-    expect(entries).toHaveLength(8);
+    expect(entries).toHaveLength(9);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4341,6 +4681,7 @@ describe("live scenario inventory", () => {
       createRequest: fixture.createRequest,
       updateRequest: fixture.updateRequest,
       suspendRequest: fixture.suspendRequest,
+      absentDomain: fixture.absentDomain,
       pagination,
     });
     const result = await runSubAccountLiveScenarios(registry);
@@ -4372,6 +4713,7 @@ describe("live scenario inventory", () => {
         createRequest: fixture.createRequest,
         updateRequest: fixture.updateRequest,
         suspendRequest: fixture.suspendRequest,
+        absentDomain: fixture.absentDomain,
         pagination: { limit: 0 },
       }),
     ).toThrow("limit must be an integer from 1 to 100");
@@ -4386,6 +4728,7 @@ describe("live scenario inventory", () => {
         createRequest: fixture.createRequest,
         updateRequest: fixture.updateRequest,
         suspendRequest: fixture.suspendRequest,
+        absentDomain: fixture.absentDomain,
       }),
     );
 
@@ -4410,6 +4753,7 @@ describe("live scenario inventory", () => {
         createRequest: unsafeFixture.createRequest,
         updateRequest: unsafeFixture.updateRequest,
         suspendRequest: unsafeFixture.suspendRequest,
+        absentDomain: unsafeFixture.absentDomain,
       }),
     );
     expect(unsafeResult.failure).toEqual({
@@ -4430,6 +4774,7 @@ describe("live scenario inventory", () => {
         createRequest: fixture.createRequest,
         updateRequest: fixture.updateRequest,
         suspendRequest: fixture.suspendRequest,
+        absentDomain: fixture.absentDomain,
       }),
     );
 
@@ -4467,6 +4812,86 @@ describe("live scenario inventory", () => {
     );
   });
 
+  it("unpauses a domain the disposable child does not own and requires the handler's 404", async () => {
+    const fixture = subAccountClientFixture();
+    const result = await runSubAccountLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        suspendRequest: fixture.suspendRequest,
+        absentDomain: fixture.absentDomain,
+      }),
+    );
+
+    expect(result.failure).toBeNull();
+    expect(fixture.client.subAccounts.unpauseDomain).toHaveBeenCalledWith(
+      fixture.childId,
+      fixture.absentDomain,
+    );
+    expect(
+      result.operationResults.find(({ operationId }) => operationId === "unpauseSubAccountDomain"),
+    ).toMatchObject({ evidence: { absentDomainNotFound: true, status: 404 } });
+    expect(fixture.calls.indexOf(`unpauseDomain:${fixture.absentDomain}`)).toBeGreaterThan(
+      fixture.calls.indexOf("unsuspend"),
+    );
+  });
+
+  it.each([
+    [
+      "a server without the route",
+      Object.assign(new Error("Not Found"), { status: 404, body: { message: "Not Found" } }),
+    ],
+    ["a permission error", Object.assign(new Error("forbidden"), { status: 403 })],
+  ])("fails the unpause scenario on %s", async (_case, unpauseFailure) => {
+    const fixture = subAccountClientFixture({ unpauseFailure });
+    const result = await runSubAccountLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        suspendRequest: fixture.suspendRequest,
+        absentDomain: fixture.absentDomain,
+      }),
+    );
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "unpauseSubAccountDomain" });
+    expect((result.failure as unknown as { error: unknown }).error).toBe(unpauseFailure);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable sub-account fixture", status: "passed" },
+    ]);
+  });
+
+  it("fails the unpause scenario when the new child answers 200 with a domain", async () => {
+    const fixture = subAccountClientFixture({
+      unpauseResult: {
+        object: "domain",
+        domain: "absent-child-domain.example.test",
+        paused: false,
+      },
+    });
+    const result = await runSubAccountLiveScenarios(
+      createSubAccountScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        createRequest: fixture.createRequest,
+        updateRequest: fixture.updateRequest,
+        suspendRequest: fixture.suspendRequest,
+        absentDomain: fixture.absentDomain,
+      }),
+    );
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "unpauseSubAccountDomain" });
+    expect((result.failure as unknown as { error: Error }).error.message).toBe(
+      "Sub-account unpause scenario found a domain on the new child.",
+    );
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable sub-account fixture", status: "passed" },
+    ]);
+  });
+
   it("registers sub-account cleanup before validation and reports cleanup failures", async () => {
     const malformedFixture = subAccountClientFixture({ malformedCreate: true });
     const malformedResult = await runSubAccountLiveScenarios(
@@ -4476,6 +4901,7 @@ describe("live scenario inventory", () => {
         createRequest: malformedFixture.createRequest,
         updateRequest: malformedFixture.updateRequest,
         suspendRequest: malformedFixture.suspendRequest,
+        absentDomain: malformedFixture.absentDomain,
       }),
     );
 
@@ -4496,6 +4922,7 @@ describe("live scenario inventory", () => {
         createRequest: cleanupFailureFixture.createRequest,
         updateRequest: cleanupFailureFixture.updateRequest,
         suspendRequest: cleanupFailureFixture.suspendRequest,
+        absentDomain: cleanupFailureFixture.absentDomain,
       }),
     );
     expect(cleanupFailureResult.failure).toEqual({ phase: "cleanup" });
@@ -4514,6 +4941,7 @@ describe("live scenario inventory", () => {
         createRequest: fixture.createRequest,
         updateRequest: fixture.updateRequest,
         suspendRequest: fixture.suspendRequest,
+        absentDomain: fixture.absentDomain,
       }),
     );
     const source = canonicalizeJson(
@@ -4549,6 +4977,7 @@ describe("live scenario inventory", () => {
         createRequest: parent.createRequest,
         updateRequest: parent.updateRequest,
         suspendRequest: parent.suspendRequest,
+        absentDomain: parent.absentDomain,
       }),
       (subAccountId) => {
         parentWasActive = parent.records.has(subAccountId);
@@ -4567,7 +4996,7 @@ describe("live scenario inventory", () => {
     expect(parentWasActive).toBe(true);
     expect(child?.subAccountId).toBe(parent.childId);
     expect(result.failure).toBeNull();
-    expect(result.subAccounts.operationResults).toHaveLength(8);
+    expect(result.subAccounts.operationResults).toHaveLength(9);
     expect(result.subAccountAPIKeys?.operationResults).toHaveLength(5);
     expect(result.cleanupResults).toEqual([
       { label: "delete and verify disposable child API-key fixture", status: "passed" },
@@ -4588,6 +5017,7 @@ describe("live scenario inventory", () => {
         createRequest: parent.createRequest,
         updateRequest: parent.updateRequest,
         suspendRequest: parent.suspendRequest,
+        absentDomain: parent.absentDomain,
       }),
       (subAccountId) => {
         child = subAccountAPIKeyClientFixture({ malformedSecret: true, subAccountId });
@@ -4607,7 +5037,7 @@ describe("live scenario inventory", () => {
       operationId: "createSubAccountAPIKey",
       suite: "subAccounts.apiKeys",
     });
-    expect(result.subAccounts.operationResults).toHaveLength(7);
+    expect(result.subAccounts.operationResults).toHaveLength(8);
     expect(result.subAccountAPIKeys?.failure).toEqual({
       phase: "operation",
       operationId: "createSubAccountAPIKey",
@@ -4631,6 +5061,7 @@ describe("live scenario inventory", () => {
         createRequest: parent.createRequest,
         updateRequest: parent.updateRequest,
         suspendRequest: parent.suspendRequest,
+        absentDomain: parent.absentDomain,
       }),
       (subAccountId) => {
         reusedSubAccountId = subAccountId;
@@ -4671,7 +5102,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(5);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountAPIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4937,7 +5368,7 @@ describe("live scenario inventory", () => {
     );
     expect(statisticsEntries).toHaveLength(3);
     expect(statisticsEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(74);
+    expect(registry.primary.size).toBe(75);
     expectTypeOf<IsAssignable<AhaSendClient, StatisticsLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5562,6 +5993,7 @@ describe("live cleanup and reporting", () => {
     expect(fixture.calls).toEqual([
       'list:{"limit":1}',
       'iterate:{"limit":1}',
+      'list:{"limit":1,"sending_type":"transactional"}',
       "create",
       "get",
       "delete",
@@ -5693,15 +6125,15 @@ describe("live cleanup and reporting", () => {
       package: candidate.package,
       tarballSha256: candidate.tarballSha256,
     });
-    expect(parsed.operations).toHaveLength(74);
-    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(74);
+    expect(parsed.operations).toHaveLength(75);
+    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(75);
     expect(parsed.iterators).toHaveLength(14);
     expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(14);
     expect(
       validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
     ).toMatchObject({
       reportSha256: written.reportSha256,
-      operations: 74,
+      operations: 75,
       iterators: 14,
       authorizationOutcomes: 11,
       sandboxOutcomes: 3,
@@ -5835,7 +6267,7 @@ describe("live cleanup and reporting", () => {
 
     const missing = structuredClone(report);
     missing.operations.pop();
-    expect(() => validate(missing)).toThrow("must contain exactly 74 results");
+    expect(() => validate(missing)).toThrow("must contain exactly 75 results");
 
     const missingIterator = structuredClone(report);
     missingIterator.iterators.pop();
@@ -5908,6 +6340,34 @@ describe("live cleanup and reporting", () => {
     expect(() => validate(incompleteBatchEvidence)).toThrow(
       "batchUpsertContacts fullSuccessObjects",
     );
+
+    const missingTemplateSend = structuredClone(baseReport);
+    const getTemplate = missingTemplateSend.operations.find(
+      ({ operationId }) => operationId === "getTemplate",
+    )!;
+    delete (getTemplate.evidence as Record<string, unknown>).templateSend;
+    expect(() => validate(missingTemplateSend)).toThrow("getTemplate templateSend");
+
+    const missingTemplateListing = structuredClone(baseReport);
+    const listTemplates = missingTemplateListing.operations.find(
+      ({ operationId }) => operationId === "listTemplates",
+    )!;
+    delete (listTemplates.evidence as Record<string, unknown>).templateFound;
+    expect(() => validate(missingTemplateListing)).toThrow("listTemplates templateFound");
+
+    const missingUnpause = structuredClone(baseReport);
+    const unpause = missingUnpause.operations.find(
+      ({ operationId }) => operationId === "unpauseSubAccountDomain",
+    )!;
+    delete (unpause.evidence as Record<string, unknown>).absentDomainNotFound;
+    expect(() => validate(missingUnpause)).toThrow("unpauseSubAccountDomain absentDomainNotFound");
+
+    const transactionalUpdate = structuredClone(baseReport);
+    const domainUpdate = transactionalUpdate.operations.find(
+      ({ operationId }) => operationId === "updateDomain",
+    )!;
+    (domainUpdate.evidence as Record<string, unknown>).sendingType = "transactional";
+    expect(() => validate(transactionalUpdate)).toThrow("updateDomain sendingType");
 
     const missingDeleteVerification = structuredClone(baseReport);
     const contactDelete = missingDeleteVerification.operations.find(

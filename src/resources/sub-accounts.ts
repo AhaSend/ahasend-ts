@@ -11,6 +11,7 @@ import type {
 } from "../types/common.js";
 import { createFrozenFacade, forwardOptions, forwardWithIdempotency } from "./_helpers.js";
 import type { IdempotencyRequestOptions } from "./_helpers.js";
+import type { Domain } from "./domains.js";
 import { createSubAccountAPIKeysClient } from "./sub-account-api-keys.js";
 import type { SubAccountAPIKeysClient } from "./sub-account-api-keys.js";
 
@@ -55,6 +56,7 @@ export type UpdateSubAccountRequest = {
 } & ({ name: string } | { website: string } | { monthly_credit: number });
 
 export interface SuspendSubAccountRequest {
+  /** Reason for the pause, 1–500 characters. */
   reason: string;
 }
 
@@ -136,7 +138,8 @@ export interface SubAccountsClient {
   delete(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
 
   /**
-   * Suspend a child account with the supplied reason.
+   * Pause sending on a child account; its `status` becomes `suspended`. When this call starts the
+   * pause, the child account's dashboard shows `reason` as a note.
    * Authorization requires `sub-accounts:suspend`.
    */
   suspend(
@@ -146,9 +149,23 @@ export interface SubAccountsClient {
   ): AhaSendPromise<SubAccount>;
 
   /**
-   * Restore a suspended child account. Authorization requires `sub-accounts:suspend`.
+   * Resume sending on a paused child account. A pause that AhaSend started answers HTTP 403
+   * (`AhaSendPermissionError`); only AhaSend support can resume it.
+   * Authorization requires `sub-accounts:suspend`.
    */
   unsuspend(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>;
+
+  /**
+   * Lift the pause on one of a child account's domains so that it can send again, and return
+   * the domain. The call is idempotent: a domain that is not paused is returned unchanged. A
+   * change can take some minutes to apply to new email.
+   * Authorization requires `sub-accounts:suspend`.
+   */
+  unpauseDomain(
+    subAccountId: UUID,
+    domain: string,
+    options?: RequestOptions,
+  ): AhaSendPromise<Domain>;
 
   /** Manage API keys owned by child accounts through the parent account. */
   readonly apiKeys: Readonly<SubAccountAPIKeysClient>;
@@ -258,7 +275,8 @@ class SubAccountsClientImplementation implements SubAccountsClient {
   }
 
   /**
-   * Suspend a child account with the supplied reason.
+   * Pause sending on a child account; its `status` becomes `suspended`. When this call starts the
+   * pause, the child account's dashboard shows `reason` as a note.
    * Authorization requires `sub-accounts:suspend`.
    */
   suspend(
@@ -274,12 +292,32 @@ class SubAccountsClientImplementation implements SubAccountsClient {
   }
 
   /**
-   * Restore a suspended child account. Authorization requires `sub-accounts:suspend`.
+   * Resume sending on a paused child account. A pause that AhaSend started answers HTTP 403
+   * (`AhaSendPermissionError`); only AhaSend support can resume it.
+   * Authorization requires `sub-accounts:suspend`.
    */
   unsuspend(subAccountId: UUID, options: RequestOptions = {}): AhaSendPromise<SubAccount> {
     return this.#operations.execute(
       "unsuspendSubAccount",
       { path: { account_id: this.#accountId, sub_account_id: subAccountId } },
+      forwardOptions(options),
+    );
+  }
+
+  /**
+   * Lift the pause on one of a child account's domains so that it can send again, and return
+   * the domain. The call is idempotent: a domain that is not paused is returned unchanged. A
+   * change can take some minutes to apply to new email.
+   * Authorization requires `sub-accounts:suspend`.
+   */
+  unpauseDomain(
+    subAccountId: UUID,
+    domain: string,
+    options: RequestOptions = {},
+  ): AhaSendPromise<Domain> {
+    return this.#operations.execute(
+      "unpauseSubAccountDomain",
+      { path: { account_id: this.#accountId, sub_account_id: subAccountId, domain } },
       forwardOptions(options),
     );
   }

@@ -63,6 +63,9 @@ export interface paths {
   "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/unsuspend": {
     post: operations["unsuspendSubAccount"];
   };
+  "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/domains/{domain}/unpause": {
+    post: operations["unpauseSubAccountDomain"];
+  };
   "/v2/accounts/{account_id}/sub-accounts/{sub_account_id}/api-keys": {
     get: operations["listSubAccountAPIKeys"];
     post: operations["createSubAccountAPIKey"];
@@ -227,6 +230,10 @@ export interface components {
       dkim_selector: string | null;
       rotation_ready: boolean;
       dsn_recipient: string | null;
+      sending_type: "transactional" | "marketing";
+      paused: boolean;
+      paused_at: string | null;
+      pause_reason: string | null;
     };
     CreateDomainRequest: {
       domain: string;
@@ -237,6 +244,7 @@ export interface components {
       media_subdomain?: string | undefined;
       dkim_rotation_interval_days?: number | undefined;
       dkim_selector?: string | null | undefined;
+      sending_type?: "transactional" | "marketing" | undefined;
     };
     UpdateDomainRequest: {
       tracking_subdomain?: string | undefined;
@@ -245,6 +253,7 @@ export interface components {
       media_subdomain?: string | undefined;
       dkim_rotation_interval_days?: number | undefined;
       dkim_selector?: string | null | undefined;
+      sending_type?: "transactional" | "marketing" | undefined;
     };
     PaginatedDomainsResponse: {
       object: "list";
@@ -1041,6 +1050,7 @@ export interface operations {
       };
       query: {
         dns_valid?: boolean | null | undefined;
+        sending_type?: "transactional" | "marketing" | undefined;
         limit?: number | undefined;
         after?: string | undefined;
         before?: string | undefined;
@@ -1487,6 +1497,23 @@ export interface operations {
     };
     responses: {
       "200": { content: { "application/json": components["schemas"]["SubAccount"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  unpauseSubAccountDomain: {
+    parameters: {
+      path: {
+        account_id: string;
+        sub_account_id: string;
+        domain: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["Domain"] } };
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };

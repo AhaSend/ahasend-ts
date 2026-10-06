@@ -12,7 +12,7 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 74;
+const EXPECTED_OPERATION_COUNT = 75;
 const EXPECTED_SCHEMA_COUNT = 94;
 const EXPECTED_ITERATOR_COUNT = 14;
 const EXPECTED_WEBHOOK_COUNT = 11;
@@ -129,6 +129,7 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["deleteSubAccount", "subAccounts", "delete"],
   ["suspendSubAccount", "subAccounts", "suspend"],
   ["unsuspendSubAccount", "subAccounts", "unsuspend"],
+  ["unpauseSubAccountDomain", "subAccounts", "unpauseDomain"],
   ["listSubAccountAPIKeys", "subAccounts.apiKeys", "list"],
   ["createSubAccountAPIKey", "subAccounts.apiKeys", "create"],
   ["getSubAccountAPIKey", "subAccounts.apiKeys", "get"],
@@ -1263,8 +1264,16 @@ function commonWebhookEnvelopeSchema(webhooks, schemas) {
   };
 }
 
-// Reads a documented-but-unenforced value list off one property, the same way
-// `x-deprecated-values` is read off the event `type` properties above. The
+/**
+ * Event types the SDK still accepts as input although webhooks.yaml no longer
+ * lists them. A route delivery once carried `route.message`; it is validated
+ * against the `message.routing` schema and returned as `message.routing`.
+ * The list is fixed here rather than read from the spec so that dropping it
+ * there does not break callers that still handle it.
+ */
+export const LEGACY_ROUTE_EVENT_TYPES = Object.freeze(["route.message"]);
+
+// Reads a documented-but-unenforced value list off one property. The
 // runtime validator never sees these — `validationSchema()`'s whitelist drops
 // the extension — so they document what the producer emits today without
 // constraining what it may emit tomorrow.
@@ -1289,20 +1298,7 @@ function generateWebhookTypes(document, webhookDigest) {
     eventType,
     webhookSchemaName(eventType, webhook),
   ]);
-  const deprecatedTypes = [
-    ...new Set(
-      Object.values(schemas).flatMap((schemaValue) => {
-        const schema = assertRecord(schemaValue, "webhook schema");
-        const properties = schema.properties;
-        if (properties === undefined) return [];
-        const typeValue = assertRecord(properties, "webhook schema properties").type;
-        if (typeValue === undefined) return [];
-        const typeSchema = assertRecord(typeValue, "webhook type schema");
-        const values = typeSchema["x-deprecated-values"];
-        return Array.isArray(values) ? values.filter((value) => typeof value === "string") : [];
-      }),
-    ),
-  ];
+  const deprecatedTypes = [...LEGACY_ROUTE_EVENT_TYPES];
   const canonicalTypes = entries.map(([eventType]) => eventType);
   const knownTypes = [...canonicalTypes, ...deprecatedTypes];
   const knownClassifications = knownValues(
@@ -1373,10 +1369,17 @@ function generateWebhookValidators(document) {
   );
   const routeSchemaName = eventSchemas["message.routing"];
   if (routeSchemaName === undefined) throw new TypeError("message.routing webhook is required");
-  eventSchemas["route.message"] = routeSchemaName;
+  for (const legacyType of LEGACY_ROUTE_EVENT_TYPES) eventSchemas[legacyType] = routeSchemaName;
   const normalizedSchemas = Object.fromEntries(
     Object.entries(schemas).map(([name, schema]) => [name, validationSchema(schema)]),
   );
+  // A legacy route delivery is validated against the full route schema, so its
+  // type enum admits the legacy names too.
+  const routeType = normalizedSchemas[routeSchemaName]?.properties?.type;
+  if (!Array.isArray(routeType?.enum)) {
+    throw new TypeError(`${routeSchemaName}.type must declare an enum`);
+  }
+  routeType.enum = [...routeType.enum, ...LEGACY_ROUTE_EVENT_TYPES];
   const commonEnvelopeSchema = commonWebhookEnvelopeSchema(webhooks, schemas);
 
   return `${GENERATED_HEADER}import {

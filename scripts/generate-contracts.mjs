@@ -783,13 +783,15 @@ export function validateWebhookContract(document) {
   const routePayload = assertRecord(schemas.RouteWebhookPayload, "RouteWebhookPayload");
   const routeProperties = assertRecord(routePayload.properties, "RouteWebhookPayload.properties");
   const routeType = assertRecord(routeProperties.type, "RouteWebhookPayload.properties.type");
-  if (JSON.stringify(routeType.enum) !== JSON.stringify(["message.routing", "route.message"])) {
-    throw new TypeError(
-      "RouteWebhookPayload.type must accept canonical message.routing and deprecated route.message",
-    );
+  // The SDK accepts legacy route.message input on its own (LEGACY_ROUTE_EVENT_TYPES in
+  // scripts/generate-sdk.mjs), so the spec must name only the canonical type.
+  if (JSON.stringify(routeType.enum) !== JSON.stringify(["message.routing"])) {
+    throw new TypeError("RouteWebhookPayload.type must accept only canonical message.routing");
   }
-  if (JSON.stringify(routeType["x-deprecated-values"]) !== JSON.stringify(["route.message"])) {
-    throw new TypeError("RouteWebhookPayload.type must mark route.message as deprecated input");
+  if (routeType["x-deprecated-values"] !== undefined) {
+    throw new TypeError(
+      "RouteWebhookPayload.type must not declare x-deprecated-values; the SDK owns legacy route.message",
+    );
   }
 
   for (const schemaName of ["MessageWebhookData", "MessageClickedWebhookData"]) {

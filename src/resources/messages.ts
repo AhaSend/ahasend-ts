@@ -319,6 +319,10 @@ export interface MessagesClient {
    * key for your own retries; stored non-server-error results can be replayed
    * for 24 hours, while server errors release the key for re-execution.
    *
+   * While sending from the `from.email` domain is paused, the API refuses the
+   * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a
+   * paused domain is accepted.
+   *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.
    */
@@ -346,6 +350,10 @@ export interface MessagesClient {
    *   log.warn("some recipients were not queued", failed);
    * }
    * ```
+   *
+   * While sending from the `from.email` domain is paused, the API refuses the
+   * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a
+   * paused domain is accepted.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.
@@ -414,6 +422,10 @@ class MessagesClientImplementation implements MessagesClient {
    * key for your own retries; stored non-server-error results can be replayed
    * for 24 hours, while server errors release the key for re-execution.
    *
+   * While sending from the `from.email` domain is paused, the API refuses the
+   * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a
+   * paused domain is accepted.
+   *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.
    */
@@ -434,6 +446,10 @@ class MessagesClientImplementation implements MessagesClient {
    * Send a single message to multiple To/Cc/Bcc recipients (combined ≤ 50).
    * To and Cc recipients can see one another; Bcc recipients remain hidden.
    * Use {@link send} for individualized fan-out.
+   *
+   * While sending from the `from.email` domain is paused, the API refuses the
+   * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a
+   * paused domain is accepted.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
    * matching the domain in `from.email`.

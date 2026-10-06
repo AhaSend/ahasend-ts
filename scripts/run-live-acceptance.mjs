@@ -18,6 +18,7 @@ import {
   createSubAccountAPIKeyScenarioRegistry,
   createSubAccountScenarioRegistry,
   createSuppressionScenarioRegistry,
+  createTemplateScenarioRegistry,
   createWebhookScenarioRegistry,
   installLiveCandidate,
   redactLiveValue,
@@ -32,6 +33,7 @@ import {
   runStatisticsLiveScenarios,
   runSubAccountAndAPIKeyLiveScenarios,
   runSuppressionLiveScenarios,
+  runTemplateLiveScenarios,
   runWebhookLiveScenarios,
   unwrapLiveFailure,
   validateLiveReportArtifacts,
@@ -47,12 +49,14 @@ const configKeys = Object.freeze([
   "neverRegisteredDomain",
   "replacementVerifiedDomain",
   "suppressionDomain",
+  "templateId",
   "verifiedDomain",
   "webhookUrl",
 ]);
+const UUID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 let failureRedactionSecrets = [];
 
-function parseLiveConfig(source) {
+export function parseLiveConfig(source) {
   let parsed;
   try {
     parsed = JSON.parse(source);
@@ -81,6 +85,10 @@ function parseLiveConfig(source) {
   if (!normalized.disposableMailbox.includes("@")) {
     throw new TypeError("Live acceptance disposableMailbox must be an email address.");
   }
+  const templateId = normalized.templateId.toLowerCase();
+  if (!UUID_PATTERN.test(templateId)) {
+    throw new TypeError("Live acceptance templateId must be a template UUID.");
+  }
   const webhookUrl = new URL(normalized.webhookUrl);
   if (webhookUrl.protocol !== "https:") {
     throw new TypeError("Live acceptance webhookUrl must use HTTPS.");
@@ -93,6 +101,7 @@ function parseLiveConfig(source) {
     dnslessDomain: domains[3],
     lifecycleDomain: domains[4],
     suppressionDomain: domains[5],
+    templateId,
     webhookUrl: webhookUrl.href,
   });
 }
@@ -353,7 +362,7 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
           profile,
           client,
           createRequest: { domain: config.lifecycleDomain },
-          updateRequest: { tracking_subdomain: "sdk-live" },
+          updateRequest: { tracking_subdomain: "sdk-live", sending_type: "marketing" },
           pagination,
         }),
       ),
@@ -383,6 +392,25 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
           },
           neverRegisteredDomain: config.neverRegisteredDomain,
           dnslessCreateRequest: { domain: config.dnslessDomain },
+          pagination,
+        }),
+      ),
+    ),
+  );
+  runs.push(
+    collectRun(
+      "template scenarios",
+      await runTemplateLiveScenarios(
+        createTemplateScenarioRegistry({
+          profile,
+          client,
+          templateId: config.templateId,
+          sendRequest: {
+            from: { email: verifiedSender },
+            recipients: [{ email: config.disposableMailbox }],
+            template_id: config.templateId,
+            sandbox: true,
+          },
           pagination,
         }),
       ),
@@ -617,6 +645,7 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
         monthly_credit: 75_000,
       },
       suspendRequest: { reason: "AhaSend SDK live lifecycle verification" },
+      absentDomain: config.neverRegisteredDomain,
       pagination,
     }),
     (subAccountId) =>

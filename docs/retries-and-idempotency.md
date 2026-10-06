@@ -25,8 +25,9 @@ Caller cancellation is never retried. Ordinary 4xx responses, including an API-k
 `accounts.addMember()` for an existing member, `suppressions.create()` for an existing
 suppression — surface as terminal `AhaSendConflictError` (`error.code === "conflict_error"`):
 they carry neither `Idempotent-Replayed` nor `Retry-After`, which is what distinguishes them
-from the retryable in-progress state on the same status code. `domains.checkDns()`, `subAccounts.suspend()`, and
-`subAccounts.unsuspend()` are also never retried because the API does not declare them retry-safe.
+from the retryable in-progress state on the same status code. `domains.checkDns()`,
+`subAccounts.suspend()`, `subAccounts.unsuspend()`, and `subAccounts.unpauseDomain()` are also never
+retried because the API does not declare them retry-safe.
 
 For HTTP 429, a valid `Retry-After` in seconds or HTTP-date form is authoritative and capped at
 `maxDelayMs`. An eligible idempotency-in-progress 409 accepts only the positive integer seconds

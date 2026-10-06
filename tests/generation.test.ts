@@ -86,7 +86,7 @@ describe("SDK artifact generation", () => {
 
     expect(Object.keys(schemas)).toHaveLength(94);
     expect(() => validateOperationProfile(document, profile)).not.toThrow();
-    expect(OPERATION_PROFILE.operations).toHaveLength(74);
+    expect(OPERATION_PROFILE.operations).toHaveLength(75);
     expect(OPERATION_PROFILE.iterators).toHaveLength(14);
   });
 
@@ -137,7 +137,7 @@ describe("SDK artifact generation", () => {
         parameter: descriptor.pathParameters.find(({ name }) => name === "domain"),
       }));
 
-    expect(domainPathDescriptors).toHaveLength(4);
+    expect(domainPathDescriptors).toHaveLength(5);
     expect(domainPathDescriptors).toEqual([
       {
         operationId: "getDomain",
@@ -153,6 +153,10 @@ describe("SDK artifact generation", () => {
       },
       {
         operationId: "checkDomainDNS",
+        parameter: { name: "domain", required: true, format: "hostname" },
+      },
+      {
+        operationId: "unpauseSubAccountDomain",
         parameter: { name: "domain", required: true, format: "hostname" },
       },
     ]);
@@ -293,8 +297,8 @@ describe("SDK artifact generation", () => {
     expectTypeOf<readonly []>().toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
   });
 
-  it("indexes parameters, request bodies, inputs, and successes for all 74 operations", () => {
-    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(74);
+  it("indexes parameters, request bodies, inputs, and successes for all 75 operations", () => {
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(75);
     expectTypeOf<keyof OperationParametersById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationRequestBodyById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationInputById>().toEqualTypeOf<OperationId>();

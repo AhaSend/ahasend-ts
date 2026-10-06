@@ -162,6 +162,11 @@
       "method": "unsuspend"
     },
     {
+      "operationId": "unpauseSubAccountDomain",
+      "facade": "subAccounts",
+      "method": "unpauseDomain"
+    },
+    {
       "operationId": "listSubAccountAPIKeys",
       "facade": "subAccounts.apiKeys",
       "method": "list"

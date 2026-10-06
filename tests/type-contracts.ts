@@ -1210,6 +1210,16 @@ type SubAccountSignatures = [
       (subAccountId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SubAccount>
     >
   >,
+  Expect<
+    Equal<
+      SDK.SubAccountsClient["unpauseDomain"],
+      (
+        subAccountId: SDK.UUID,
+        domain: string,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.Domain>
+    >
+  >,
   Expect<Equal<SDK.SubAccountsClient["apiKeys"], Readonly<SDK.SubAccountAPIKeysClient>>>,
 ];
 
@@ -1282,6 +1292,7 @@ declare const subAccountIteratorResult: AsyncGenerator<SDK.SubAccount, void, und
 declare const subAccountResult: SDK.AhaSendPromise<SDK.SubAccount>;
 declare const subAccountUsageResult: SDK.AhaSendPromise<SDK.SubAccountUsageResponse>;
 declare const subAccountDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+declare const subAccountDomainResult: SDK.AhaSendPromise<SDK.Domain>;
 declare const subAccountAPIKeyListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.APIKey>>;
 declare const subAccountAPIKeyIteratorResult: AsyncGenerator<SDK.APIKey, void, undefined>;
 declare const createdSubAccountAPIKeyResult: SDK.AhaSendPromise<SDK.CreatedAPIKey>;
@@ -1307,6 +1318,7 @@ const structuralSubAccountMock: SDK.SubAccountsClient = {
   delete: () => subAccountDeleteResult,
   suspend: () => subAccountResult,
   unsuspend: () => subAccountResult,
+  unpauseDomain: () => subAccountDomainResult,
   apiKeys: structuralSubAccountAPIKeyMock,
 };
 
