@@ -388,7 +388,7 @@ function templateClientFixture(
     preheader: "",
     variables: options.variables ?? [{ name: "email", required: false }],
     from: options.from === undefined ? { email: "templates@verified.example" } : options.from,
-    reply_to: "",
+    reply_to: null,
   });
   const others = [
     "0a1b2c3d-0000-4000-8000-000000000001",
@@ -2838,7 +2838,13 @@ describe("live scenario inventory", () => {
   it.each([
     ["no from key", { from: undefined }, "must carry from"],
     ["a sender without an email", { from: { name: "Example" } }, "from.email"],
-    ["a reply_to that is not a string", { reply_to: null }, "reply_to must be a string"],
+    ["no reply_to key", { reply_to: undefined }, "must carry reply_to"],
+    [
+      "a reply_to that is a string",
+      { reply_to: "support@verified.example" },
+      "reply_to must be an object",
+    ],
+    ["a reply_to without an email", { reply_to: { name: "" } }, "reply_to.email"],
   ] as const)("fails the template read when it carries %s", async (_case, override, message) => {
     const fixture = templateClientFixture();
     vi.spyOn(fixture.client.templates, "get").mockImplementationOnce(async () => {
@@ -2852,10 +2858,11 @@ describe("live scenario inventory", () => {
         preheader: "",
         variables: [],
         from: { email: "templates@verified.example" },
-        reply_to: "",
+        reply_to: null,
         ...override,
       };
       if (template["from"] === undefined) delete template["from"];
+      if (template["reply_to"] === undefined) delete template["reply_to"];
       return template;
     });
     const registry = createTemplateScenarioRegistry({

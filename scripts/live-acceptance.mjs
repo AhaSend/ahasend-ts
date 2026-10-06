@@ -2582,7 +2582,7 @@ function requireTemplateResult(value, label, expectedId) {
     }
     return Object.freeze({ name, required: variable.required });
   });
-  // A template without a default sender carries a null `from` and an empty `reply_to`.
+  // A template without a default sender carries a null `from` and a null `reply_to`.
   if (!Object.hasOwn(template, "from")) {
     throw new TypeError(`${label} must carry from.`);
   }
@@ -2594,8 +2594,12 @@ function requireTemplateResult(value, label, expectedId) {
       throw new TypeError(`${label} from.name must be a string.`);
     }
   }
-  if (typeof template.reply_to !== "string") {
-    throw new TypeError(`${label} reply_to must be a string.`);
+  if (!Object.hasOwn(template, "reply_to")) {
+    throw new TypeError(`${label} must carry reply_to.`);
+  }
+  if (template.reply_to !== null) {
+    const replyTo = requireObject(template.reply_to, `${label} reply_to`);
+    requireString(replyTo.email, `${label} reply_to.email`);
   }
   return Object.freeze({ id, senderEmail, variables: Object.freeze(variables) });
 }

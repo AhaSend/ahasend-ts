@@ -434,7 +434,7 @@ export interface components {
       preheader: string;
       variables: Array<components["schemas"]["TemplateVariable"]>;
       from: components["schemas"]["Address"] | null;
-      reply_to: string;
+      reply_to: components["schemas"]["Address"] | null;
     };
     PaginatedTemplatesResponse: {
       object: "list";

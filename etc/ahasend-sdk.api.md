@@ -1758,7 +1758,7 @@ export interface Template {
     // (undocumented)
     object: "template";
     preheader: string;
-    reply_to: string;
+    reply_to: Address | null;
     subject: string;
     // (undocumented)
     updated_at: ISODateTime;

@@ -13,7 +13,7 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   UUID or by raw email, which the SDK percent-encodes once as a path segment.
 - `client.templates` reads the account's transactional templates (`list`, `iterate`, `get`), each
   with the `variables` a send must supply and its default sender and reply-to: `from`, an `Address`
-  or `null` when the template has none, and `reply_to`, empty when it has none.
+  or `null` when the template has none, and `reply_to`, likewise an `Address` or `null`.
   `messages.send()` takes `template_id`, and `subject` and `from` are optional because a template
   can supply them. A request whose template has a default sender can leave `from` out and sends
   from the template's sender, which is authorized and checked like a `from` in the request. On a

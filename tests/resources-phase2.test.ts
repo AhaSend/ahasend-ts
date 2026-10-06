@@ -978,7 +978,7 @@ const TEMPLATE_RESPONSE = {
     { name: "unsubscribe_url", required: false },
   ],
   from: { email: "hello@example.com", name: "Example" },
-  reply_to: "support@example.com",
+  reply_to: { email: "support@example.com", name: "" },
 } as const;
 
 function templatePage(body: unknown, status = 200): Response {
@@ -1053,21 +1053,21 @@ describe("TemplatesClient", () => {
     expect(calls[0]!.body).toBeUndefined();
     expect(template.subject).toBe("Welcome, {{ first_name }}");
     expect(template.from).toEqual({ email: "hello@example.com", name: "Example" });
-    expect(template.reply_to).toBe("support@example.com");
+    expect(template.reply_to).toEqual({ email: "support@example.com", name: "" });
   });
 
-  it("get() returns a null sender and an empty reply-to for a template without defaults", async () => {
+  it("get() returns a null sender and a null reply-to for a template without defaults", async () => {
     const { fetch } = captureFetch(() =>
-      templatePage({ ...TEMPLATE_RESPONSE, from: null, reply_to: "" }),
+      templatePage({ ...TEMPLATE_RESPONSE, from: null, reply_to: null }),
     );
     const client = makeClient(fetch);
 
     const template: Template = await client.templates.get(TEMPLATE_ID);
 
     expect(template.from).toBeNull();
-    expect(template.reply_to).toBe("");
+    expect(template.reply_to).toBeNull();
     expectTypeOf(template.from).toEqualTypeOf<Address | null>();
-    expectTypeOf(template.reply_to).toEqualTypeOf<string>();
+    expectTypeOf(template.reply_to).toEqualTypeOf<Address | null>();
   });
 
   it("get() rejects an identifier that is not a template UUID before dispatch", () => {

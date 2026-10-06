@@ -709,7 +709,7 @@ console.log("Template send accepted.", { count: res.data.length });
 
 - `client.templates.list()` and `iterate()` page through the account's transactional templates,
   newest first; `get()` returns one with the `variables` its design uses, its default sender in
-  `from` (`null` when it has none) and its default `reply_to` (empty when it has none).
+  `from` and its default `reply_to`, each an `Address` or `null` when it has none.
 - `from` is required unless the template has a default sender. The template's sender is checked
   exactly like a `from` in the request: a domain that is not the account's, has invalid DNS records
   or is paused fails the send with the same error. On a templated request a `from` that is `null`,

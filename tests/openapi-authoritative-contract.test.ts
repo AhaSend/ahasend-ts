@@ -201,12 +201,16 @@ describe("authoritative OpenAPI model contracts", () => {
       type: "array",
       items: { $ref: "#/components/schemas/TemplateVariable" },
     });
-    // A template without a default sender reads as a null `from` and an empty `reply_to`.
+    // A template without a default sender reads as a null `from` and a null `reply_to`,
+    // and both take the shape of a send's address fields.
     expect(property("Template", "from").oneOf).toEqual([
       { $ref: "#/components/schemas/Address" },
       { type: "null" },
     ]);
-    expect(property("Template", "reply_to").type).toBe("string");
+    expect(property("Template", "reply_to").oneOf).toEqual([
+      { $ref: "#/components/schemas/Address" },
+      { type: "null" },
+    ]);
 
     expect(schema("MessageSummary").required).toContain("template_id");
     expect(property("MessageSummary", "template_id")).toMatchObject({

@@ -38,8 +38,12 @@ export interface Template {
    * template has none, and then every send naming it must give a `from`.
    */
   from: Address | null;
-  /** The default reply-to address, used by a send that sets no reply-to. Empty when unset. */
-  reply_to: string;
+  /**
+   * The default reply-to address, used by a send that sets no reply-to, also one
+   * that names its own `from`. `null` when the template has none. It has the
+   * shape of a send's `reply_to`, and its `name` is always empty.
+   */
+  reply_to: Address | null;
 }
 
 /** Cursor controls accepted by the template list operation, which takes no filters. */
