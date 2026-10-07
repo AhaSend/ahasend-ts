@@ -222,7 +222,7 @@ describe("REST contract normalization", () => {
 
     expect(shellSamples).toBe(1);
     // The Go SDK adds its own sample, and the next spec sync brings it here.
-    expect(withoutGoSample).toEqual(["createTemplateMessage", "unpauseSubAccountDomain"]);
+    expect(withoutGoSample).toEqual([]);
     expect(NODE_SAMPLE_REGISTRY).toHaveLength(76);
     expect(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId)).toEqual(
       lock.inventories.operationIds,
@@ -827,25 +827,37 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
   it.each([0, 1, 2])(
     "restores a Node-only samples block the server spec lacks in one pass, with %i blank lines after the operation",
     (blankLines) => {
-      // The server spec carries no Node sample for an operation the SDK added
-      // last; spec:sync runs the contract generator once, so one pass must
-      // already be normalized.
-      const range = operationLines(lines, "unpauseSubAccountDomain");
+      // The server spec carries no sample at all for an operation neither SDK
+      // has reached; spec:sync runs the contract generator once, so one pass
+      // must already be normalized. The fixture is an operation whose block
+      // holds only its Node sample, opened right after the operation's last
+      // line as the generator writes it.
+      const full = operationLines(lines, "unpauseSubAccountDomain");
+      const go = full.item("go");
+      let blockStart = full.samples;
+      while (lines[blockStart - 1] === "") blockStart -= 1;
+      const nodeOnlyLines = [
+        ...lines.slice(0, blockStart),
+        ...lines.slice(full.samples, go.start),
+        ...lines.slice(go.end),
+      ];
+      const nodeOnly = nodeOnlyLines.join("\n");
+      const range = operationLines(nodeOnlyLines, "unpauseSubAccountDomain");
       expect(range.item("javascript")).toEqual({
         start: range.samples + 1,
         end: range.samplesEnd,
       });
       let contentEnd = range.samples;
-      while (lines[contentEnd - 1] === "") contentEnd -= 1;
+      while (nodeOnlyLines[contentEnd - 1] === "") contentEnd -= 1;
       const bare = [
-        ...lines.slice(0, contentEnd),
+        ...nodeOnlyLines.slice(0, contentEnd),
         ...Array.from({ length: blankLines }, () => ""),
-        ...lines.slice(range.samplesEnd),
+        ...nodeOnlyLines.slice(range.samplesEnd),
       ].join("\n");
 
       const injected = injectNodeSamples(bare, parseOpenApi(bare));
 
-      expect(injected).toBe(source);
+      expect(injected).toBe(nodeOnly);
       expect(injectNodeSamples(injected, parseOpenApi(injected))).toBe(injected);
     },
   );
