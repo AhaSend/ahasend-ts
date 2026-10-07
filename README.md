@@ -192,7 +192,7 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 
 | Resource                 | Methods                                                                                                                         |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `client.messages`        | `send`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                                  |
+| `client.messages`        | `send`, `sendTemplate`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                  |
 | `client.templates`       | `list`, `iterate`, `get` (read-only transactional templates)                                                                    |
 | `client.domains`         | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                                              |
 | `client.apiKeys`         | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                          |
@@ -674,25 +674,23 @@ await client.lists.contacts.upsert(list.id, "User+Tag@Example.COM", {
 
 ## Send with a template
 
-Pass `template_id` instead of `html_content`, `text_content` and `amp_content`. The transactional
-template supplies the subject, the preview text and both bodies, and its default sender and
-reply-to when it has them; a `subject`, `from` or `reply_to` in the request replaces the
-template's. Values for the template's variables come from `substitutions`, and a recipient's own
-`substitutions` win over the request-level ones.
+`client.messages.sendTemplate()` sends a transactional template. The template supplies the
+subject, the preview text and both bodies, and its default sender and reply-to when it has them; a
+`subject`, `from` or `reply_to` in the request replaces the template's. Values for the template's
+variables come only from each recipient's `substitutions`.
 
 ```ts
 const template = await client.templates.get("00000000-0000-4000-8000-000000000009");
 const required = template.variables.filter((variable) => variable.required);
 console.log("Template loaded.", { requiredCount: required.length });
 
-const res = await client.messages.send({
+const res = await client.messages.sendTemplate({
+  template_id: template.id,
   from: { email: "sender@yourdomain.com", name: "Your App" },
   recipients: [
-    { email: "ada@example.com", substitutions: { first_name: "Ada" } },
-    { email: "grace@example.com", substitutions: { first_name: "Grace" } },
+    { email: "ada@example.com", substitutions: { first_name: "Ada", product: "Example" } },
+    { email: "grace@example.com", substitutions: { first_name: "Grace", product: "Example" } },
   ],
-  template_id: template.id,
-  substitutions: { product: "Example" },
 });
 console.log("Template send accepted.", { count: res.data.length });
 ```
@@ -700,9 +698,9 @@ console.log("Template send accepted.", { count: res.data.length });
 A template with a default sender can be sent without `from`:
 
 ```ts
-const res = await client.messages.send({
-  recipients: [{ email: "ada@example.com", substitutions: { first_name: "Ada" } }],
+const res = await client.messages.sendTemplate({
   template_id: "00000000-0000-4000-8000-000000000009",
+  recipients: [{ email: "ada@example.com", substitutions: { first_name: "Ada" } }],
 });
 console.log("Template send accepted.", { count: res.data.length });
 ```
@@ -712,20 +710,24 @@ console.log("Template send accepted.", { count: res.data.length });
   `from` and its default `reply_to`, each an `Address` or `null` when it has none.
 - `from` is required unless the template has a default sender. The template's sender is checked
   exactly like a `from` in the request: a domain that is not the account's, has invalid DNS records
-  or is paused fails the send with the same error. On a templated request a `from` that is `null`,
-  has no `email` or has an empty one counts as absent. A templated request without a sender from an
-  API key that cannot send from any domain answers `403`.
-- Every variable marked `required` must have a value for every recipient. A request that misses
-  one is refused as a whole, and nothing is sent.
+  or is paused fails the send with the same error. A request without a sender from an API key that
+  cannot send from any domain answers `403`.
+- `subject` is required unless the template has a subject.
+- Every variable marked `required` must have a value in every recipient's `substitutions`. A
+  request that misses one is refused as a whole, and nothing is sent.
+- The request takes no body and no request-level `substitutions`: the API answers `400` to
+  `text_content`, `html_content`, `amp_content` or `substitutions`.
 - `email` and `view_browser_url` are supplied by AhaSend for each recipient and cannot be
   overridden: `email` is that recipient's address, and `view_browser_url` is empty until a hosted
   view of a sent message exists.
 - `unsubscribe_url` is supplied the same way, replacing a value of your own, only on a design that
-  uses it; such a message also carries one-click `List-Unsubscribe` headers. On a design that does
-  not use it, nothing is minted and your value passes through like any other name the template
-  does not use.
-- A `template_id` that does not name one of the account's transactional templates answers `404`.
-  Reading templates needs `templates:read`; sending one needs only the usual send scope.
+  uses it; such a message also carries one-click `List-Unsubscribe` headers, and a
+  `List-Unsubscribe` or `List-Unsubscribe-Post` in `headers` is dropped. On a design that does not
+  use it, nothing is minted and your value passes through like any other name the template does
+  not use.
+- A `template_id` that does not name one of the account's transactional templates answers `404`
+  (`AhaSendNotFoundError`). Reading templates needs `templates:read`; sending one needs only the
+  usual send scope.
 
 ## Domain sending type and pauses
 

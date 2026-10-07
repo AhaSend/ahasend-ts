@@ -65,7 +65,7 @@ describe("generated API reference", () => {
   });
 
   it(
-    "accounts for all 75 methods and fourteen iterators exactly once",
+    "accounts for all 76 methods and fourteen iterators exactly once",
     { timeout: 120_000 },
     async () => {
       const reference = await generateApiReference();
@@ -82,7 +82,7 @@ describe("generated API reference", () => {
       expect(iteratorMarkers).toEqual(
         OPERATION_PROFILE.iterators.map(({ operationId }) => operationId),
       );
-      expect(new Set(methodMarkers)).toHaveLength(75);
+      expect(new Set(methodMarkers)).toHaveLength(76);
       expect(new Set(iteratorMarkers)).toHaveLength(14);
 
       for (const mapping of [...OPERATION_PROFILE.operations, ...OPERATION_PROFILE.iterators]) {

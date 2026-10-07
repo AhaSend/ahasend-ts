@@ -34,6 +34,7 @@ export interface paths {
     get: operations["getMessages"];
     post: operations["createMessage"];
   };
+  "/v2/accounts/{account_id}/messages/template": { post: operations["createTemplateMessage"] };
   "/v2/accounts/{account_id}/messages/conversation": {
     post: operations["createConversationMessage"];
   };
@@ -294,17 +295,10 @@ export interface components {
       expires?: string | undefined;
     };
     CreateMessageRequest: {
-      from?:
-        | {
-            email?: string | undefined;
-            name?: string | undefined;
-          }
-        | null
-        | undefined;
+      from: components["schemas"]["Address"];
       recipients: ReadonlyArray<components["schemas"]["Recipient"]>;
       reply_to?: components["schemas"]["Address"] | undefined;
-      subject?: string | undefined;
-      template_id?: string | undefined;
+      subject: string;
       text_content?: string | undefined;
       html_content?: string | undefined;
       amp_content?: string | undefined;
@@ -317,6 +311,25 @@ export interface components {
       substitutions?:
         | {
             [key: string]: unknown;
+          }
+        | undefined;
+      tags?: Array<string> | undefined;
+      sandbox?: boolean | undefined;
+      sandbox_result?: "deliver" | "bounce" | "defer" | "fail" | "suppress" | undefined;
+      tracking?: components["schemas"]["Tracking"] | undefined;
+      retention?: components["schemas"]["Retention"] | undefined;
+      schedule?: components["schemas"]["MessageSchedule"] | undefined;
+    };
+    CreateTemplateMessageRequest: {
+      template_id: string;
+      from?: components["schemas"]["Address"] | undefined;
+      recipients: ReadonlyArray<components["schemas"]["Recipient"]>;
+      reply_to?: components["schemas"]["Address"] | undefined;
+      subject?: string | undefined;
+      attachments?: Array<components["schemas"]["Attachment"]> | undefined;
+      headers?:
+        | {
+            [key: string]: string;
           }
         | undefined;
       tags?: Array<string> | undefined;
@@ -1191,6 +1204,25 @@ export interface operations {
       };
     };
     requestBody: { content: { "application/json": components["schemas"]["CreateMessageRequest"] } };
+    responses: {
+      "202": { content: { "application/json": components["schemas"]["CreateMessageResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  createTemplateMessage: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["CreateTemplateMessageRequest"] };
+    };
     responses: {
       "202": { content: { "application/json": components["schemas"]["CreateMessageResponse"] } };
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };

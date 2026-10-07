@@ -13,6 +13,7 @@ const STANDARD_SECURITY_PAIRS = {
   deleteDomain: ["domains:delete:all", "domains:delete:{domain}"],
   getMessages: ["messages:read:all", "messages:read:{domain}"],
   createMessage: ["messages:send:all", "messages:send:{domain}"],
+  createTemplateMessage: ["messages:send:all", "messages:send:{domain}"],
   createConversationMessage: ["messages:send:all", "messages:send:{domain}"],
   getMessage: ["messages:read:all", "messages:read:{domain}"],
   cancelMessage: ["messages:cancel:all", "messages:cancel:{domain}"],
@@ -51,7 +52,15 @@ const EXPECTED_AUTHORIZATION = {
     quantifier: "one",
     roles: { global: "messages:send:all", domain: "messages:send:{domain}" },
     summary:
-      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's sender on a templated request that names none.",
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
+  },
+  createTemplateMessage: {
+    kind: "body_domain",
+    bodyPath: "from.email",
+    quantifier: "one",
+    roles: { global: "messages:send:all", domain: "messages:send:{domain}" },
+    summary:
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's default sender when the request names none.",
   },
   createConversationMessage: {
     kind: "body_domain",
@@ -280,6 +289,7 @@ const EXPECTED_AUTHORIZATION = {
 
 const SOURCE_BY_OPERATION = {
   createMessage: "src/resources/messages.ts",
+  createTemplateMessage: "src/resources/messages.ts",
   createConversationMessage: "src/resources/messages.ts",
   getMessages: "src/resources/messages.ts",
   getMessage: "src/resources/messages.ts",
@@ -388,7 +398,7 @@ function mutableAuthorizationRegistry(): MutableRegistry {
 }
 
 describe("authorization metadata conformance", () => {
-  it("keeps all 23 standard Security Requirement OR pairs independent", () => {
+  it("keeps all 24 standard Security Requirement OR pairs independent", () => {
     const pairOperationIds = Object.entries(OPERATION_DESCRIPTORS)
       .filter(([, descriptor]) => descriptor.security.length === 2)
       .map(([operationId]) => operationId)
@@ -407,7 +417,7 @@ describe("authorization metadata conformance", () => {
   });
 
   it("matches every structured resource rule and its public JSDoc", () => {
-    expect(Object.keys(EXPECTED_AUTHORIZATION)).toHaveLength(22);
+    expect(Object.keys(EXPECTED_AUTHORIZATION)).toHaveLength(23);
     expect(() => assertAuthorizationConformance(RESOURCE_AUTHORIZATION)).not.toThrow();
   });
 

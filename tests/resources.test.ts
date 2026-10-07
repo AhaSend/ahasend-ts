@@ -31,6 +31,7 @@ import type {
   Attachment,
   CreateConversationMessageRequest,
   CreateMessageRequest,
+  CreateTemplateMessageRequest,
   ListMessagesParams,
   Message,
   MessageSummary,
@@ -460,96 +461,91 @@ describe("MessagesClient", () => {
     expect(message.data[0]).toHaveProperty("error");
   });
 
-  it("send() forwards template_id and omits the key when the caller sends none", async () => {
+  it("sendTemplate() posts the template and recipient substitutions to /messages/template", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.messages.send({
-      from: { email: "a@b.com" },
-      recipients: [{ email: "x@y.com" }],
-      subject: "Overrides the template subject",
+    await client.messages.sendTemplate({
       template_id: TEMPLATE_ID,
-      substitutions: { first_name: "Pat" },
-    });
-    await client.messages.send({
       from: { email: "a@b.com" },
-      recipients: [{ email: "x@y.com" }],
-      subject: "hi",
-      text_content: "hi",
+      recipients: [{ email: "x@y.com", substitutions: { first_name: "Pat" } }],
+      subject: "Overrides the template subject",
     });
 
-    const templated = JSON.parse(calls[0]!.body!) as Record<string, unknown>;
-    const inline = JSON.parse(calls[1]!.body!) as Record<string, unknown>;
-
-    expect(templated["template_id"]).toBe(TEMPLATE_ID);
-    expect(templated["subject"]).toBe("Overrides the template subject");
-    expect(inline).not.toHaveProperty("template_id");
-    expect(calls.map(({ operationId }) => operationId)).toEqual(["createMessage", "createMessage"]);
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages/template`);
+    expect(calls[0]!.operationId).toBe("createTemplateMessage");
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      template_id: TEMPLATE_ID,
+      from: { email: "a@b.com" },
+      recipients: [{ email: "x@y.com", substitutions: { first_name: "Pat" } }],
+      subject: "Overrides the template subject",
+    });
   });
 
-  it("send() accepts a templated request with no subject and sends no subject key", async () => {
-    // The widening the optional subject exists for: the template carries the
-    // subject, so the request has none to send.
+  it("sendTemplate() leaves the sender and subject to the template when the request names none", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    const templated: CreateMessageRequest = {
-      from: { email: "a@b.com" },
-      recipients: [{ email: "x@y.com" }],
+    const templated: CreateTemplateMessageRequest = {
       template_id: TEMPLATE_ID,
-      substitutions: { first_name: "Pat" },
+      recipients: [{ email: "x@y.com" }],
     };
 
-    await client.messages.send(templated);
+    await client.messages.sendTemplate(templated);
 
     const body = JSON.parse(calls[0]!.body!) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("from");
     expect(body).not.toHaveProperty("subject");
     expect(body["template_id"]).toBe(TEMPLATE_ID);
   });
 
-  it("send() leaves the sender to the template when a templated request names none", async () => {
+  it("sendTemplate() rejects an empty recipients array before sending", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    const withoutSender: CreateMessageRequest = {
-      recipients: [{ email: "x@y.com" }],
-      template_id: TEMPLATE_ID,
-    };
-    // The forms the API counts as absent on a templated request, which a
-    // client that always serialises the object can send.
-    const absentSenders: CreateMessageRequest["from"][] = [null, {}, { name: "Only a name" }];
 
-    await client.messages.send(withoutSender);
-    for (const from of absentSenders) {
-      await client.messages.send({ ...withoutSender, from });
-    }
+    expect(() =>
+      client.messages.sendTemplate({ template_id: TEMPLATE_ID, recipients: [] }),
+    ).toThrow(/`recipients` must contain at least one item/);
 
-    const bodies = calls.map(({ body }) => JSON.parse(body!) as Record<string, unknown>);
-    expect(bodies[0]).not.toHaveProperty("from");
-    expect(bodies[0]!["template_id"]).toBe(TEMPLATE_ID);
-    expect(bodies.slice(1).map((body) => body["from"])).toEqual([
-      null,
-      {},
-      { name: "Only a name" },
-    ]);
-    expect(calls.map(({ operationId }) => operationId)).toEqual(
-      Array.from({ length: 4 }, () => "createMessage"),
-    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toHaveLength(0);
   });
 
-  it("keeps the optional sender, subject and template on the fan-out request only", () => {
+  it("gives each send its own request type", () => {
     type RequiredKeys<Body> = {
       [Key in keyof Body]-?: object extends Pick<Body, Key> ? never : Key;
     }[keyof Body];
 
-    expectTypeOf<RequiredKeys<CreateMessageRequest>>().toEqualTypeOf<"recipients">();
+    expectTypeOf<RequiredKeys<CreateMessageRequest>>().toEqualTypeOf<
+      "from" | "recipients" | "subject"
+    >();
+    expectTypeOf<RequiredKeys<CreateTemplateMessageRequest>>().toEqualTypeOf<
+      "template_id" | "recipients"
+    >();
     expectTypeOf<RequiredKeys<CreateConversationMessageRequest>>().toEqualTypeOf<
       "from" | "to" | "subject"
     >();
 
-    // @ts-expect-error The conversation endpoint takes no template, so its subject stays required.
-    const conversationWithoutSubject: CreateConversationMessageRequest = {
+    const inlineWithTemplate: CreateMessageRequest = {
       from: { email: "a@b.com" },
-      to: [{ email: "x@y.com" }],
+      recipients: [{ email: "x@y.com" }],
+      subject: "hi",
       text_content: "hi",
+      // @ts-expect-error A template is sent with sendTemplate, not send.
+      template_id: TEMPLATE_ID,
+    };
+    const templateWithBody: CreateTemplateMessageRequest = {
+      template_id: TEMPLATE_ID,
+      recipients: [{ email: "x@y.com" }],
+      // @ts-expect-error The template supplies the body.
+      html_content: "<p>hi</p>",
+    };
+    const templateWithRequestSubstitutions: CreateTemplateMessageRequest = {
+      template_id: TEMPLATE_ID,
+      recipients: [{ email: "x@y.com" }],
+      // @ts-expect-error Template values go on each recipient.
+      substitutions: { first_name: "Pat" },
     };
     const conversationWithTemplate: CreateConversationMessageRequest = {
       from: { email: "a@b.com" },
@@ -559,7 +555,9 @@ describe("MessagesClient", () => {
       template_id: TEMPLATE_ID,
     };
 
-    expect(conversationWithoutSubject.to).toHaveLength(1);
+    expect(inlineWithTemplate.subject).toBe("hi");
+    expect(templateWithBody.template_id).toBe(TEMPLATE_ID);
+    expect(templateWithRequestSubstitutions.template_id).toBe(TEMPLATE_ID);
     expect(conversationWithTemplate.subject).toBe("hi");
   });
 

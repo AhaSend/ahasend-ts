@@ -890,6 +890,7 @@
     "deleteDomain": ["domains:delete:{domain}", "domains:delete:all"],
     "getMessages": ["messages:read:all", "messages:read:{domain}"],
     "createMessage": ["messages:send:all", "messages:send:{domain}"],
+    "createTemplateMessage": ["messages:send:all", "messages:send:{domain}"],
     "createConversationMessage": ["messages:send:all", "messages:send:{domain}"],
     "getMessage": ["messages:read:all", "messages:read:{domain}"],
     "cancelMessage": ["messages:cancel:all", "messages:cancel:{domain}"],

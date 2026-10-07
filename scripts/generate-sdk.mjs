@@ -12,8 +12,8 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 75;
-const EXPECTED_SCHEMA_COUNT = 94;
+const EXPECTED_OPERATION_COUNT = 76;
+const EXPECTED_SCHEMA_COUNT = 95;
 const EXPECTED_ITERATOR_COUNT = 14;
 const EXPECTED_WEBHOOK_COUNT = 11;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
@@ -111,6 +111,7 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["checkDomainDNS", "domains", "checkDns"],
   ["getMessages", "messages", "list"],
   ["createMessage", "messages", "send"],
+  ["createTemplateMessage", "messages", "sendTemplate"],
   ["createConversationMessage", "messages", "sendConversation"],
   ["getMessage", "messages", "get"],
   ["cancelMessage", "messages", "cancel"],
@@ -203,7 +204,15 @@ export const AUTHORIZATION_REGISTRY = Object.freeze({
     quantifier: "one",
     roles: { global: "messages:send:all", domain: "messages:send:{domain}" },
     summary:
-      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's sender on a templated request that names none.",
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
+  },
+  createTemplateMessage: {
+    kind: "body_domain",
+    bodyPath: "from.email",
+    quantifier: "one",
+    roles: { global: "messages:send:all", domain: "messages:send:{domain}" },
+    summary:
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's default sender when the request names none.",
   },
   createConversationMessage: {
     kind: "body_domain",

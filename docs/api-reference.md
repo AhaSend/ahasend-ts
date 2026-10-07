@@ -4,7 +4,7 @@
 
 This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
-It contains exactly 75 API methods and 14 async iterators.
+It contains exactly 76 API methods and 14 async iterators.
 
 ## Contact management
 
@@ -444,7 +444,7 @@ client.messages.send(body: CreateMessageRequest, options?: IdempotencyRequestOpt
 - **Scopes:** `messages:send:all`, `messages:send:{domain}`
 - **Security alternatives:** `BearerAuth: messages:send:all` **or** `BearerAuth: messages:send:{domain}`
 - **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
-- **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's sender on a templated request that names none.
+- **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.
 - **Authorization rule:** `body_domain`; global role `messages:send:all`; domain role `messages:send:{domain}`
 
 <!-- sdk-sample: createMessage -->
@@ -464,6 +464,41 @@ const result = await client.messages.send({
   sandbox: true,
 });
 console.log("Sandbox message accepted.", { count: result.data.length });
+```
+
+<!-- operation: createTemplateMessage -->
+
+### messages.sendTemplate
+
+```ts
+client.messages.sendTemplate(body: CreateTemplateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>
+```
+
+- **Operation ID:** `createTemplateMessage`
+- **HTTP:** `POST /v2/accounts/{account_id}/messages/template`
+- **Models:** [CreateTemplateMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
+- **OpenAPI models:** `request: CreateTemplateMessageRequest`, `202: CreateMessageResponse`
+- **Scopes:** `messages:send:all`, `messages:send:{domain}`
+- **Security alternatives:** `BearerAuth: messages:send:all` **or** `BearerAuth: messages:send:{domain}`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's default sender when the request names none.
+- **Authorization rule:** `body_domain`; global role `messages:send:all`; domain role `messages:send:{domain}`
+
+<!-- sdk-sample: createTemplateMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const result = await client.messages.sendTemplate({
+  template_id: "00000000-0000-4000-8000-000000000009",
+  recipients: [{ email: "recipient@example.net", substitutions: { first_name: "Ada" } }],
+  sandbox: true,
+});
+console.log("Sandbox template message accepted.", { count: result.data.length });
 ```
 
 <!-- operation: createConversationMessage -->

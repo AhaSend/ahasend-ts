@@ -47,8 +47,8 @@
     "tarballSha256": { "$ref": "#/definitions/sha256" },
     "operations": {
       "type": "array",
-      "minItems": 75,
-      "maxItems": 75,
+      "minItems": 76,
+      "maxItems": 76,
       "items": { "$ref": "#/definitions/result" }
     },
     "iterators": {

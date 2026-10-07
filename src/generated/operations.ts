@@ -104,7 +104,18 @@ export const RESOURCE_AUTHORIZATION = {
       domain: "messages:send:{domain}",
     },
     summary:
-      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's sender on a templated request that names none.",
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
+  },
+  createTemplateMessage: {
+    kind: "body_domain",
+    bodyPath: "from.email",
+    quantifier: "one",
+    roles: {
+      global: "messages:send:all",
+      domain: "messages:send:{domain}",
+    },
+    summary:
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's default sender when the request names none.",
   },
   createConversationMessage: {
     kind: "body_domain",
@@ -858,7 +869,43 @@ export const OPERATION_DESCRIPTORS = {
         domain: "messages:send:{domain}",
       },
       summary:
-        "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's sender on a templated request that names none.",
+        "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
+    },
+  },
+  createTemplateMessage: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/messages/template",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "CreateTemplateMessageRequest",
+    },
+    success: [
+      {
+        status: 202,
+        schema: "CreateMessageResponse",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["messages:send:all"], ["messages:send:{domain}"]],
+    resourceAuthorization: {
+      kind: "body_domain",
+      bodyPath: "from.email",
+      quantifier: "one",
+      roles: {
+        global: "messages:send:all",
+        domain: "messages:send:{domain}",
+      },
+      summary:
+        "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's default sender when the request names none.",
     },
   },
   createConversationMessage: {

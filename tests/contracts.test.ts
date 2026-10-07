@@ -181,13 +181,13 @@ describe("REST contract normalization", () => {
   it("matches the pinned operation, schema, idempotency, subaccount, and role inventories", () => {
     const inventory = collectContractInventory(document);
 
-    expect(inventory.operationIds).toHaveLength(75);
-    expect(new Set(inventory.operationIds)).toHaveLength(75);
-    expect(inventory.schemaNames).toHaveLength(94);
-    expect(inventory.idempotencyOperationIds).toHaveLength(15);
+    expect(inventory.operationIds).toHaveLength(76);
+    expect(new Set(inventory.operationIds)).toHaveLength(76);
+    expect(inventory.schemaNames).toHaveLength(95);
+    expect(inventory.idempotencyOperationIds).toHaveLength(16);
     expect(inventory.subAccountOperationIds).toHaveLength(14);
     expect(inventory.subAccountSchemaNames).toHaveLength(7);
-    expect(inventory.roleAlternativeOperationIds).toHaveLength(23);
+    expect(inventory.roleAlternativeOperationIds).toHaveLength(24);
     expect(() => assertInventoryMatches(inventory, lock.inventories)).not.toThrow();
   });
 
@@ -222,8 +222,8 @@ describe("REST contract normalization", () => {
 
     expect(shellSamples).toBe(1);
     // The Go SDK adds its own sample, and the next spec sync brings it here.
-    expect(withoutGoSample).toEqual(["unpauseSubAccountDomain"]);
-    expect(NODE_SAMPLE_REGISTRY).toHaveLength(75);
+    expect(withoutGoSample).toEqual(["createTemplateMessage", "unpauseSubAccountDomain"]);
+    expect(NODE_SAMPLE_REGISTRY).toHaveLength(76);
     expect(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId)).toEqual(
       lock.inventories.operationIds,
     );
@@ -278,10 +278,15 @@ describe("REST contract normalization", () => {
 
     const operations = collectOperations(document);
     const createMessage = operations.find(({ operationId }) => operationId === "createMessage");
+    const createTemplateMessage = operations.find(
+      ({ operationId }) => operationId === "createTemplateMessage",
+    );
     const getRoutes = operations.find(({ operationId }) => operationId === "getRoutes");
     expect(createMessage?.operation.security).toHaveLength(2);
-    expect(createMessage?.operation.description).toMatch(
-      /domain of the sender, `from\.email` or the\s+template's/,
+    expect(createMessage?.operation.description).toMatch(/domain in `from\.email`/);
+    expect(createTemplateMessage?.operation.security).toHaveLength(2);
+    expect(createTemplateMessage?.operation.description).toMatch(
+      /domain of the sender, `from\.email` or the\s+template's default sender/,
     );
     expect(getRoutes?.operation.description).toMatch(/matching `domain` query parameter/);
   });
@@ -328,7 +333,7 @@ describe("REST contract rejection checks", () => {
     expect(collectOperations(changed)).toContainEqual(
       expect.objectContaining({ method: "head", path: "/v2/ping", operationId: "headPing" }),
     );
-    expect(collectContractInventory(changed).operationIds).toHaveLength(76);
+    expect(collectContractInventory(changed).operationIds).toHaveLength(77);
     expect(() =>
       assertInventoryMatches(collectContractInventory(changed), lock.inventories),
     ).toThrow(/inventory drift/);

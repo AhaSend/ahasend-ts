@@ -420,7 +420,7 @@ describe("operational documentation verification", () => {
     "strict-checks every shipped sample against the public client",
     { timeout: 120_000 },
     async () => {
-      expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(75);
+      expect(Object.keys(NODE_CODE_SAMPLES)).toHaveLength(76);
 
       await expect(
         verifyPackagedJavaScript(packedSdkTarball, packedSdkChecksum),
@@ -498,8 +498,8 @@ describe("operational documentation verification", () => {
       expect(index.supportingExamples.map(({ path }) => path)).toEqual([
         "examples/next-webhook-route/create-webhook-route.mjs",
       ]);
-      expect(Object.keys(index.nodeSamples)).toHaveLength(75);
-      expect(index.profileSummary).toEqual({ operations: 75, iterators: 14 });
+      expect(Object.keys(index.nodeSamples)).toHaveLength(76);
+      expect(index.profileSummary).toEqual({ operations: 76, iterators: 14 });
       await expect(verifyDocumentationIndex(index)).resolves.toBeUndefined();
     },
   );

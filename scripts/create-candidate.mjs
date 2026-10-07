@@ -41,7 +41,7 @@ import {
   validateSourceGateReport,
 } from "./run-source-gates.mjs";
 
-const EXPECTED_OPERATION_COUNT = 75;
+const EXPECTED_OPERATION_COUNT = 76;
 const EXPECTED_ITERATOR_COUNT = 14;
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const harnessDirectories = [".betterborg-task/", ".orchestry/", ".betterborg-analysis/"];

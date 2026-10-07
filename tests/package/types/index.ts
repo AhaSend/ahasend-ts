@@ -449,6 +449,7 @@ void client.subAccounts.apiKeys.delete(uuid, uuid).withResponse();
 
 const messagesMock: SDK.MessagesClient = {
   send: () => result<SDK.SendMessageResponse>(),
+  sendTemplate: () => result<SDK.SendMessageResponse>(),
   sendConversation: () => result<SDK.SendMessageResponse>(),
   list: () => result<SDK.PaginatedResponse<SDK.MessageSummary>>(),
   iterate: () => iterator<SDK.MessageSummary>(),

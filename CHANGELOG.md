@@ -14,15 +14,16 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - `client.templates` reads the account's transactional templates (`list`, `iterate`, `get`), each
   with the `variables` a send must supply and its default sender and reply-to: `from`, an `Address`
   or `null` when the template has none, and `reply_to`, likewise an `Address` or `null`.
-  `messages.send()` takes `template_id`, and `subject` and `from` are optional because a template
-  can supply them. A request whose template has a default sender can leave `from` out and sends
-  from the template's sender, which is authorized and checked like a `from` in the request. On a
-  templated request a `from` that is `null`, has no `email` or has an empty one counts as absent,
-  and a request `from` or `reply_to` wins over the template's. An inline request without a
-  `from.email` answers `400`, and so does a templated request whose template has no sender
-  (`from.email is required unless a template supplies a sender`). A templated request without a
-  sender from an API key that cannot send from any domain answers `403`. See "Send with a
-  template" in the README.
+- `messages.sendTemplate()` sends a transactional template, taking `CreateTemplateMessageRequest`:
+  `template_id` and `recipients` are required, and the values for the template's variables go in
+  each recipient's `substitutions`. `from` and `subject` are optional: a request that leaves `from`
+  out sends from the template's default sender, which is authorized and checked like a `from` in
+  the request, and one that leaves `subject` out uses the template's subject. A request `from`,
+  `subject` or `reply_to` wins over the template's. A request that leaves out a sender or a subject
+  the template does not have answers `400`, and so does one carrying `text_content`,
+  `html_content`, `amp_content` or request-level `substitutions`. A request without a sender from
+  an API key that cannot send from any domain answers `403`, and a `template_id` that is not one
+  of the account's transactional templates answers `404`. See "Send with a template" in the README.
 - `client.lists` manages contact lists (`list`, `iterate`, `create`, `get`, `update`, `delete`),
   `client.lists.contacts` manages a list's members (`list`, `iterate`, `upsert`, `delete`,
   `batchAdd`), and `client.contacts.lists` lists the memberships one contact holds. `Suppression`
@@ -42,10 +43,8 @@ Additive at runtime for existing users. The SDK does not validate response bodie
 message from a server that does not yet return the new fields still comes back as sent. At compile
 time, code that builds `Domain` literals must add `sending_type`, `paused`, `paused_at`, and
 `pause_reason`; code that builds `MessageSummary` or `Message` literals must add `template_id`; and
-code that implements `SubAccountsClient` structurally, such as a test mock, must add
-`unpauseDomain`.
-`CreateMessageRequest["from"]` widens to `{ email?: string; name?: string } | null | undefined`, so
-code that reads `from.email` back from a request it built must handle `null` and `undefined`.
+code that implements `SubAccountsClient` or `MessagesClient` structurally, such as a test mock,
+must add `unpauseDomain` or `sendTemplate`.
 
 ### Changed
 
@@ -72,9 +71,9 @@ code that reads `from.email` back from a request it built must handle `null` and
   repository and regenerates everything derived from them, and the contract check accepts an
   operation that has no Go sample yet. Live acceptance now covers every operation: the template
   scenarios read and sandbox-send a template the release account holds, named by a new
-  `templateId` key in `AHASEND_LIVE_CONFIG_JSON`, once with `from` and once from the template's
-  default sender, which must be on `verifiedDomain`. The message scenarios check `template_id` on
-  every message they read.
+  `templateId` key in `AHASEND_LIVE_CONFIG_JSON`, with `messages.sendTemplate()`, once with `from`
+  and once from the template's default sender, which must be on `verifiedDomain`. The message
+  scenarios check `template_id` on every message they read.
 
 ## [0.2.1] — 2026-08-20
 

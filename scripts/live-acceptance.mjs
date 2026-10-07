@@ -24,7 +24,7 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 75;
+export const EXPECTED_LIVE_OPERATION_COUNT = 76;
 export const EXPECTED_LIVE_ITERATOR_COUNT = 14;
 
 const packageName = "@ahasend/sdk";
@@ -70,7 +70,11 @@ const listOperationIds = Object.freeze([
   "deleteList",
 ]);
 const listIteratorOperationIds = Object.freeze(["getLists", "getListContacts", "getContactLists"]);
-const templateOperationIds = Object.freeze(["listTemplates", "getTemplate"]);
+const templateReadOperationIds = Object.freeze(["listTemplates", "getTemplate"]);
+// The template send is a messages method, but it needs the fixture template the
+// read scenarios check, so the template scenarios own it and run it last.
+const templateSendOperationId = "createTemplateMessage";
+const templateOperationIds = Object.freeze([...templateReadOperationIds, templateSendOperationId]);
 // The release account's template list is not ours to bound, so the search for
 // the fixture template stops after this many templates.
 const templateSearchLimit = 200;
@@ -1088,7 +1092,8 @@ function requireEmailDomain(value, label) {
 function assertMessageMappings(profile) {
   const expected = new Set(messageOperationIds);
   const actual = profile.operations.filter(
-    ({ facade, operationId }) => facade === "messages" || operationId === "ping",
+    ({ facade, operationId }) =>
+      (facade === "messages" && operationId !== templateSendOperationId) || operationId === "ping",
   );
   const actualIds = new Set(actual.map(({ operationId }) => operationId));
   const missing = messageOperationIds.filter((operationId) => !actualIds.has(operationId));
@@ -2610,6 +2615,9 @@ function requireTemplateSendRequest(value, templateId) {
   if (request.template_id !== templateId) {
     throw new TypeError("Template live send request template_id must name the fixture template.");
   }
+  if (!Array.isArray(request.recipients) || request.recipients.length === 0) {
+    throw new TypeError("Template live send request recipients must be a non-empty array.");
+  }
   for (const field of ["text_content", "html_content", "amp_content", "substitutions"]) {
     if (Object.hasOwn(request, field)) {
       throw new TypeError(`Template live send request must not set ${field}.`);
@@ -2619,14 +2627,14 @@ function requireTemplateSendRequest(value, templateId) {
 }
 
 /**
- * Build the two template scenarios around a template the release account
+ * Build the three template scenarios around a template the release account
  * already holds, because the API cannot create one. The listing must reach it
  * through the iterator, and the read must return it with the fields the spec
  * gives. The template must carry a default sender on the request's sender
- * domain. Two sandboxed sends must accept it: the request as given, and the
- * same request without `from`, which sends from the template's sender. A
- * variable the template requires gets a placeholder value; a template that
- * requires none is sent without substitutions.
+ * domain. Two sandboxed template sends must accept it: the request as given,
+ * and the same request without `from`, which sends from the template's sender.
+ * Each recipient gets a placeholder value for every variable the template
+ * requires; a template that requires none is sent without substitutions.
  */
 export function createTemplateScenarioRegistry({
   profile,
@@ -2637,7 +2645,7 @@ export function createTemplateScenarioRegistry({
 }) {
   const mappings = requireLifecycleMappings(
     profile,
-    templateOperationIds,
+    templateReadOperationIds,
     "templates",
     "listTemplates",
     "template",
@@ -2652,13 +2660,15 @@ export function createTemplateScenarioRegistry({
     list: mappedOperation("listTemplates"),
     iterate: requireMappedClientMethod(client, mappings.iterator, "Template iterator scenario"),
     get: mappedOperation("getTemplate"),
-    send: requireMappedOperation(profile, client, "createMessage", "Template send"),
+    send: requireMappedOperation(profile, client, templateSendOperationId, "Template send"),
   });
   const fixtureId = requireString(templateId, "Template live fixture id");
   const send = requireTemplateSendRequest(sendRequest, fixtureId);
   const senderDomain = requireEmailDomain(send.email, "Template live send request from.email");
   const pageParams = requireLivePagination(pagination, "Template");
   const validateEntry = (entry, label) => requireTemplateResult(entry, label);
+  // The read scenario records the variables the send must fill.
+  let requiredVariables = null;
 
   const scenarios = new Map([
     [
@@ -2732,17 +2742,33 @@ export function createTemplateScenarioRegistry({
               `Template default sender is on ${templateSenderDomain}, not ${senderDomain}; change it in the "Sender" card of the template's page.`,
             );
           }
-          const required = template.variables
-            .filter((variable) => variable.required)
-            .map(({ name }) => name);
+          requiredVariables = Object.freeze(
+            template.variables.filter((variable) => variable.required).map(({ name }) => name),
+          );
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      templateSendOperationId,
+      {
+        operationId: templateSendOperationId,
+        async run() {
+          if (requiredVariables === null) {
+            throw new TypeError("Template send scenario requires the template read to pass first.");
+          }
+          const substitutions = Object.fromEntries(
+            requiredVariables.map((name) => [name, "AhaSend SDK live acceptance"]),
+          );
           const request =
-            required.length === 0
+            requiredVariables.length === 0
               ? send.request
               : {
                   ...send.request,
-                  substitutions: Object.fromEntries(
-                    required.map((name) => [name, "AhaSend SDK live acceptance"]),
-                  ),
+                  recipients: send.request.recipients.map((recipient) => ({
+                    ...recipient,
+                    substitutions: { ...recipient.substitutions, ...substitutions },
+                  })),
                 };
           const result = requireSuccessfulSandboxSend(
             await methods.send(request),
@@ -2755,10 +2781,9 @@ export function createTemplateScenarioRegistry({
           );
           return Object.freeze({
             evidence: Object.freeze({
-              matched: true,
               templateSend: Object.freeze({
                 accepted: true,
-                requiredVariables: required.length,
+                requiredVariables: requiredVariables.length,
                 results: result.results,
               }),
               templateSenderSend: Object.freeze({
@@ -5792,8 +5817,8 @@ function requireDomainOutcomes(operations) {
 
 function requireTemplateOutcomes(operations) {
   requireOperationOutcomes(operations, "listTemplates", [["templateFound", true]]);
-  requireOperationOutcomes(operations, "getTemplate", [
-    ["matched", true],
+  requireOperationOutcomes(operations, "getTemplate", [["matched", true]]);
+  requireOperationOutcomes(operations, templateSendOperationId, [
     ["templateSend.accepted", true],
     ["templateSend.results", positiveIntegerOutcome],
     ["templateSenderSend.accepted", true],

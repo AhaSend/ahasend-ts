@@ -80,13 +80,13 @@ describe("SDK artifact generation", () => {
     expect(OPERATION_PROFILE).toEqual(profile);
   });
 
-  it("pins 94 wire schemas and validates complete profile parity", () => {
+  it("pins 95 wire schemas and validates complete profile parity", () => {
     const components = document["components"] as JsonRecord;
     const schemas = components["schemas"] as JsonRecord;
 
-    expect(Object.keys(schemas)).toHaveLength(94);
+    expect(Object.keys(schemas)).toHaveLength(95);
     expect(() => validateOperationProfile(document, profile)).not.toThrow();
-    expect(OPERATION_PROFILE.operations).toHaveLength(75);
+    expect(OPERATION_PROFILE.operations).toHaveLength(76);
     expect(OPERATION_PROFILE.iterators).toHaveLength(14);
   });
 
@@ -297,8 +297,8 @@ describe("SDK artifact generation", () => {
     expectTypeOf<readonly []>().toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
   });
 
-  it("indexes parameters, request bodies, inputs, and successes for all 75 operations", () => {
-    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(75);
+  it("indexes parameters, request bodies, inputs, and successes for all 76 operations", () => {
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(76);
     expectTypeOf<keyof OperationParametersById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationRequestBodyById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationInputById>().toEqualTypeOf<OperationId>();

@@ -57,20 +57,22 @@ without it answers 404 too, with a different body. No domain of the child is
 paused or unpaused, so the run changes nothing there.
 
 The run therefore needs a server that has the marketing-sending domain fields,
-the unpause route, the template default sender and the message `template_id`:
+the unpause route, the template send route, the template default sender and
+the message `template_id`:
 deploy the API before tagging a release that includes them, or live-gates fails
 on `getDomains`, `createDomain`, `unpauseSubAccountDomain`, `listTemplates`,
-`getTemplate`, `getMessages` and `getMessage`.
+`getTemplate`, `createTemplateMessage`, `getMessages` and `getMessage`.
 
 The API cannot create a template, so the template scenarios use the one named
 by `templateId` (see the account preconditions below). They walk the template
 listing through the iterator until it reaches that template, read it and check
 the fields the spec gives, including its default sender (`from`) and
-`reply_to`. They then send it twice with `sandbox: true` to
-`disposableMailbox`: once from `verifiedDomain`, and once without `from`, so
-the API sends from the template's default sender. A variable the template marks
-`required` gets the placeholder value `AhaSend SDK live acceptance`; a template
-that requires none is sent without `substitutions`.
+`reply_to`. They then send it twice with `messages.sendTemplate()` and
+`sandbox: true` to `disposableMailbox`: once from `verifiedDomain`, and once
+without `from`, so the API sends from the template's default sender. A variable
+the template marks `required` gets the placeholder value
+`AhaSend SDK live acceptance` in the recipient's `substitutions`; a template
+that requires none is sent with no `substitutions`.
 
 The message scenarios check that every message they read carries
 `template_id`, and that the inline message they sent reads back with

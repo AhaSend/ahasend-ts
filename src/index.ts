@@ -69,6 +69,7 @@ export type {
   Attachment,
   CreateConversationMessageRequest,
   CreateMessageRequest,
+  CreateTemplateMessageRequest,
   DeliveryAttempt,
   ListMessagesParams,
   Message,

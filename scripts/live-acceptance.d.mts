@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-export const EXPECTED_LIVE_OPERATION_COUNT: 75;
+export const EXPECTED_LIVE_OPERATION_COUNT: 76;
 export const EXPECTED_LIVE_ITERATOR_COUNT: 14;
 
 export interface LiveMapping {
@@ -418,7 +418,7 @@ export interface TemplateLiveClient {
     readonly get: (...args: never[]) => unknown;
   };
   readonly messages: {
-    readonly send: (...args: never[]) => unknown;
+    readonly sendTemplate: (...args: never[]) => unknown;
   };
 }
 

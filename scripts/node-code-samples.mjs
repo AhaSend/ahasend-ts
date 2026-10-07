@@ -141,6 +141,18 @@ const result = await client.messages.send({
 console.log("Sandbox message accepted.", { count: result.data.length });`,
   ),
   entry(
+    "createTemplateMessage",
+    "POST /v2/accounts/{account_id}/messages/template",
+    "client.messages.sendTemplate",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const result = await client.messages.sendTemplate({
+  template_id: "00000000-0000-4000-8000-000000000009",
+  recipients: [{ email: "recipient@example.net", substitutions: { first_name: "Ada" } }],
+  sandbox: true,
+});
+console.log("Sandbox template message accepted.", { count: result.data.length });`,
+  ),
+  entry(
     "createConversationMessage",
     "POST /v2/accounts/{account_id}/messages/conversation",
     "client.messages.sendConversation",

@@ -51,7 +51,11 @@ const NODE_LANGUAGES = new Set([
   "node.js",
 ]);
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
-const SANDBOX_OPERATION_IDS = new Set(["createMessage", "createConversationMessage"]);
+const SANDBOX_OPERATION_IDS = new Set([
+  "createMessage",
+  "createTemplateMessage",
+  "createConversationMessage",
+]);
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const GIT_COMMIT_PATTERN = /^[a-f0-9]{40}$/;
 const SIGNATURE_PATTERN = /^v1,[A-Za-z0-9+/]{43}=$/;

@@ -720,10 +720,7 @@ export interface CreateMessageRequest {
     amp_content?: string | undefined;
     // (undocumented)
     attachments?: readonly Attachment[] | undefined;
-    from?: {
-        email?: string | undefined;
-        name?: string | undefined;
-    } | null | undefined;
+    from: Address;
     headers?: Record<string, string> | undefined;
     html_content?: string | undefined;
     recipients: readonly Recipient[];
@@ -733,10 +730,9 @@ export interface CreateMessageRequest {
     sandbox_result?: SandboxResult | undefined;
     // (undocumented)
     schedule?: MessageSchedule | undefined;
-    subject?: string | undefined;
+    subject: string;
     substitutions?: Record<string, SubstitutionValue> | undefined;
     tags?: readonly string[] | undefined;
-    template_id?: string | undefined;
     text_content?: string | undefined;
     tracking?: Tracking | undefined;
 }
@@ -800,6 +796,25 @@ export interface CreateSuppressionResponse {
     data: Suppression[];
     // (undocumented)
     object: "list";
+}
+
+// @public
+export interface CreateTemplateMessageRequest {
+    // (undocumented)
+    attachments?: readonly Attachment[] | undefined;
+    from?: Address | undefined;
+    headers?: Record<string, string> | undefined;
+    recipients: readonly Recipient[];
+    reply_to?: Address | undefined;
+    retention?: Retention | undefined;
+    sandbox?: boolean | undefined;
+    sandbox_result?: SandboxResult | undefined;
+    // (undocumented)
+    schedule?: MessageSchedule | undefined;
+    subject?: string | undefined;
+    tags?: readonly string[] | undefined;
+    template_id: string;
+    tracking?: Tracking | undefined;
 }
 
 // @public
@@ -1227,6 +1242,7 @@ export interface MessagesClient {
     list(params?: ListMessagesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<MessageSummary>>;
     send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
     sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
+    sendTemplate(body: CreateTemplateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
 }
 
 // @public (undocumented)

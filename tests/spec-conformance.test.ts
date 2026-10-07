@@ -20,6 +20,7 @@ import type {
   CreateConversationMessageRequest,
   CreateMessageRequest,
   CreateSMTPCredentialRequest,
+  CreateTemplateMessageRequest,
   CreateWebhookRequest,
 } from "../src/index.js";
 import type { OperationId, RetryMode } from "../src/generated/operations.js";
@@ -251,6 +252,18 @@ const PRIMARY_MATRIX = [
     return {
       result: client.messages.send(body, IDEMPOTENCY_OPTIONS),
       input: { path: `${ACCOUNT_PATH}/messages`, body },
+    };
+  }),
+  primary("createTemplateMessage", "messages", "sendTemplate", (client) => {
+    const body = {
+      template_id: TEMPLATE_ID,
+      recipients: [{ email: "recipient@example.test", substitutions: { first_name: "Matrix" } }],
+      attachments: [{ data: "hello", content_type: "text/plain", file_name: "hello.txt" }],
+      tags: ["transactional"],
+    } satisfies CreateTemplateMessageRequest;
+    return {
+      result: client.messages.sendTemplate(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/messages/template`, body },
     };
   }),
   primary("createConversationMessage", "messages", "sendConversation", (client) => {
@@ -790,10 +803,10 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for all 75 implemented operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(75);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(75);
-    expect(OPERATION_PROFILE.operations).toHaveLength(75);
+  it("accounts for all 76 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(76);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(76);
+    expect(OPERATION_PROFILE.operations).toHaveLength(76);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -869,7 +882,7 @@ describe("Non-empty request array coverage", () => {
 describe("Generated operation inventory", () => {
   it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(75);
+    expect(operationIds).toHaveLength(76);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
     expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
       operationIds,

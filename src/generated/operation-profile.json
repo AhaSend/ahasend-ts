@@ -72,6 +72,11 @@
       "method": "send"
     },
     {
+      "operationId": "createTemplateMessage",
+      "facade": "messages",
+      "method": "sendTemplate"
+    },
+    {
       "operationId": "createConversationMessage",
       "facade": "messages",
       "method": "sendConversation"

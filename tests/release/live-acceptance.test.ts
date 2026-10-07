@@ -188,8 +188,8 @@ function completeLiveResults(candidate: LiveCandidate) {
     ...byId.get("listTemplates")!.evidence,
     templateFound: true,
   };
-  byId.get("getTemplate")!.evidence = {
-    matched: true,
+  byId.get("getTemplate")!.evidence = { matched: true };
+  byId.get("createTemplateMessage")!.evidence = {
     templateSend: { accepted: true, requiredVariables: 0, results: 1 },
     templateSenderSend: { accepted: true, results: 1 },
   };
@@ -415,8 +415,8 @@ function templateClientFixture(
       }),
     },
     messages: {
-      send: vi.fn(async (request: Record<string, unknown>) => {
-        calls.push("send");
+      sendTemplate: vi.fn(async (request: Record<string, unknown>) => {
+        calls.push("sendTemplate");
         sends.push(request);
         return { object: "list", data: [{ object: "message", id: "msg-1", status: "queued" }] };
       }),
@@ -2082,9 +2082,9 @@ describe("live candidate foundation", () => {
       name: "@ahasend/sdk",
       version: "0.1.0-live-test",
     });
-    expect(candidate.profile.operations).toHaveLength(75);
+    expect(candidate.profile.operations).toHaveLength(76);
     expect(candidate.profile.iterators).toHaveLength(14);
-    expect(candidate.registry.primary.size).toBe(75);
+    expect(candidate.registry.primary.size).toBe(76);
     expect(candidate.registry.iterators).toHaveLength(14);
     expect(Object.isFrozen(candidate.manifest)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.contractSha256)).toBe(true);
@@ -2168,7 +2168,7 @@ describe("live candidate foundation", () => {
     expect(candidate.package.version).toBe("0.1.0-archive-test");
     expect(candidate.profileSource).toEqual(profile.source);
     expect(candidate.profileSidecar).toEqual(profile.sidecar);
-    expect(candidate.profile.operations).toHaveLength(75);
+    expect(candidate.profile.operations).toHaveLength(76);
     expect(candidate.profile.iterators).toHaveLength(14);
   });
 
@@ -2225,7 +2225,7 @@ describe("live candidate foundation", () => {
 
     expect(runCommand).toHaveBeenCalledOnce();
     expect(readFileSync(resolve(installDirectory, basename(tarballPath)))).toEqual(fixture.tarball);
-    expect(installed.profile.operations).toHaveLength(75);
+    expect(installed.profile.operations).toHaveLength(76);
 
     const badDirectory = join(directory, "bad-install");
     writeFileSync(tarballPath, Buffer.from("substituted after candidate creation"));
@@ -2247,7 +2247,7 @@ describe("live candidate foundation", () => {
 });
 
 describe("live scenario inventory", () => {
-  it("creates 75 primary scenarios and fourteen attached iterator subcases from the profile", () => {
+  it("creates 76 primary scenarios and fourteen attached iterator subcases from the profile", () => {
     const profile = inspectFixture().profile;
     const registry = createScenarioRegistry(
       profile,
@@ -2257,7 +2257,7 @@ describe("live scenario inventory", () => {
       })),
     );
 
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expect(registry.iterators).toHaveLength(14);
     expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(14);
     for (const iterator of registry.iterators) {
@@ -2274,7 +2274,7 @@ describe("live scenario inventory", () => {
     expect(Object.isFrozen(registry.primary)).toBe(true);
     expect(() => mutablePrimary.delete(profile.operations[0]!.operationId)).toThrow();
     expect(() => mutablePrimary.set("orphan", {})).toThrow();
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
   });
 
   it("rejects missing, orphaned, duplicate, and mapping-redefining scenarios", () => {
@@ -2346,7 +2346,7 @@ describe("live scenario inventory", () => {
     );
     expect(domainEntries).toHaveLength(6);
     expect(domainEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, DomainLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2536,7 +2536,7 @@ describe("live scenario inventory", () => {
       operationId: "getContacts",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, ContactLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2684,7 +2684,7 @@ describe("live scenario inventory", () => {
     );
   });
 
-  it("registers both template primaries and links the template iterator", () => {
+  it("registers the template primaries and the template send, and links the template iterator", () => {
     const fixture = templateClientFixture();
     const registry = createTemplateScenarioRegistry({
       profile: inspectFixture().profile,
@@ -2692,9 +2692,13 @@ describe("live scenario inventory", () => {
       templateId: fixture.templateId,
       sendRequest: fixture.sendRequest,
     });
-    const entries = [...registry.primary.values()].filter(({ facade }) => facade === "templates");
+    const entries = [...registry.primary.values()].filter(
+      ({ facade, operationId }) =>
+        facade === "templates" || operationId === "createTemplateMessage",
+    );
 
     expect(entries.map(({ operationId }) => operationId).sort()).toEqual([
+      "createTemplateMessage",
       "getTemplate",
       "listTemplates",
     ]);
@@ -2703,7 +2707,7 @@ describe("live scenario inventory", () => {
       operationId: "listTemplates",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, TemplateLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2725,11 +2729,11 @@ describe("live scenario inventory", () => {
         status: "passed",
         evidence: { direction: "forward", limit: 1, pageItems: 1, templateFound: true },
       },
+      { operationId: "getTemplate", status: "passed", evidence: { matched: true } },
       {
-        operationId: "getTemplate",
+        operationId: "createTemplateMessage",
         status: "passed",
         evidence: {
-          matched: true,
           templateSend: { accepted: true, requiredVariables: 0, results: 1 },
           templateSenderSend: { accepted: true, results: 1 },
         },
@@ -2749,7 +2753,7 @@ describe("live scenario inventory", () => {
     expect(fixture.sends[1]).not.toHaveProperty("from");
   });
 
-  it("supplies a placeholder for each variable the template requires", async () => {
+  it("supplies each recipient a placeholder for every variable the template requires", async () => {
     const fixture = templateClientFixture({
       variables: [
         { name: "first_name", required: true },
@@ -2771,13 +2775,17 @@ describe("live scenario inventory", () => {
       first_name: "AhaSend SDK live acceptance",
       order_id: "AhaSend SDK live acceptance",
     };
+    const recipients = fixture.sendRequest.recipients.map((recipient) => ({
+      ...recipient,
+      substitutions,
+    }));
     const { from: _from, ...withoutSender } = fixture.sendRequest;
     expect(fixture.sends).toEqual([
-      { ...fixture.sendRequest, substitutions },
-      { ...withoutSender, substitutions },
+      { ...fixture.sendRequest, recipients },
+      { ...withoutSender, recipients },
     ]);
     expect(
-      result.operationResults.find(({ operationId }) => operationId === "getTemplate"),
+      result.operationResults.find(({ operationId }) => operationId === "createTemplateMessage"),
     ).toMatchObject({ evidence: { templateSend: { requiredVariables: 2 } } });
   });
 
@@ -2895,6 +2903,12 @@ describe("live scenario inventory", () => {
     expect(() => create({ ...fixture.sendRequest, html_content: "<p>x</p>" })).toThrow(
       "must not set html_content",
     );
+    expect(() => create({ ...fixture.sendRequest, substitutions: { first_name: "Ada" } })).toThrow(
+      "must not set substitutions",
+    );
+    expect(() => create({ ...fixture.sendRequest, recipients: [] })).toThrow(
+      "recipients must be a non-empty array",
+    );
     expect(() =>
       create({ ...fixture.sendRequest, template_id: "0a1b2c3d-0000-4000-8000-000000000001" }),
     ).toThrow("must name the fixture template");
@@ -2926,7 +2940,7 @@ describe("live scenario inventory", () => {
         .filter(({ facade }) => ["lists", "lists.contacts", "contacts.lists"].includes(facade))
         .map(({ operationId, method }) => `${operationId}.${method}`),
     ).toEqual(["getLists.iterate", "getListContacts.iterate", "getContactLists.iterate"]);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, ListLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3110,10 +3124,14 @@ describe("live scenario inventory", () => {
       neverRegisteredDomain: fixture.neverRegisteredDomain,
       dnslessCreateRequest: { domain: fixture.dnslessDomain },
     });
+    // The template scenarios own the template send, which needs the fixture template.
     const messageEntries = [...registry.primary.values()].filter(
-      ({ facade, operationId }) => facade === "messages" || operationId === "ping",
+      ({ facade, operationId }) =>
+        (facade === "messages" && operationId !== "createTemplateMessage") ||
+        operationId === "ping",
     );
 
+    expect(registry.primary.get("createTemplateMessage")).not.toHaveProperty("run");
     expect(messageEntries.map(({ operationId }) => operationId).sort()).toEqual(
       [
         "cancelMessage",
@@ -3126,7 +3144,7 @@ describe("live scenario inventory", () => {
     );
     expect(messageEntries).toHaveLength(6);
     expect(messageEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, MessageLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3468,7 +3486,7 @@ describe("live scenario inventory", () => {
     );
     expect(apiKeyEntries).toHaveLength(5);
     expect(apiKeyEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, APIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3681,7 +3699,7 @@ describe("live scenario inventory", () => {
     );
     expect(routeEntries).toHaveLength(5);
     expect(routeEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, RouteLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3930,7 +3948,7 @@ describe("live scenario inventory", () => {
     );
     expect(webhookEntries).toHaveLength(5);
     expect(webhookEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, WebhookLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4179,7 +4197,7 @@ describe("live scenario inventory", () => {
         ({ operationId, method }) => operationId.includes("update") || method === "update",
       ),
     ).toBe(false);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, SMTPCredentialLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4384,7 +4402,7 @@ describe("live scenario inventory", () => {
     expect(accountEntries).toHaveLength(5);
     expect(accountEntries.every(({ run }) => typeof run === "function")).toBe(true);
     expect(registry.iterators.filter(({ facade }) => facade === "accounts")).toHaveLength(0);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, AccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4575,7 +4593,7 @@ describe("live scenario inventory", () => {
     );
     expect(suppressionEntries).toHaveLength(4);
     expect(suppressionEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, SuppressionLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4782,7 +4800,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(9);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5216,7 +5234,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(5);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountAPIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5482,7 +5500,7 @@ describe("live scenario inventory", () => {
     );
     expect(statisticsEntries).toHaveLength(3);
     expect(statisticsEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(75);
+    expect(registry.primary.size).toBe(76);
     expectTypeOf<IsAssignable<AhaSendClient, StatisticsLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -6239,15 +6257,15 @@ describe("live cleanup and reporting", () => {
       package: candidate.package,
       tarballSha256: candidate.tarballSha256,
     });
-    expect(parsed.operations).toHaveLength(75);
-    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(75);
+    expect(parsed.operations).toHaveLength(76);
+    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(76);
     expect(parsed.iterators).toHaveLength(14);
     expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(14);
     expect(
       validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
     ).toMatchObject({
       reportSha256: written.reportSha256,
-      operations: 75,
+      operations: 76,
       iterators: 14,
       authorizationOutcomes: 11,
       sandboxOutcomes: 3,
@@ -6381,7 +6399,7 @@ describe("live cleanup and reporting", () => {
 
     const missing = structuredClone(report);
     missing.operations.pop();
-    expect(() => validate(missing)).toThrow("must contain exactly 75 results");
+    expect(() => validate(missing)).toThrow("must contain exactly 76 results");
 
     const missingIterator = structuredClone(report);
     missingIterator.iterators.pop();
@@ -6456,11 +6474,11 @@ describe("live cleanup and reporting", () => {
     );
 
     const missingTemplateSend = structuredClone(baseReport);
-    const getTemplate = missingTemplateSend.operations.find(
-      ({ operationId }) => operationId === "getTemplate",
+    const createTemplateMessage = missingTemplateSend.operations.find(
+      ({ operationId }) => operationId === "createTemplateMessage",
     )!;
-    delete (getTemplate.evidence as Record<string, unknown>).templateSend;
-    expect(() => validate(missingTemplateSend)).toThrow("getTemplate templateSend");
+    delete (createTemplateMessage.evidence as Record<string, unknown>).templateSend;
+    expect(() => validate(missingTemplateSend)).toThrow("createTemplateMessage templateSend");
 
     const missingTemplateListing = structuredClone(baseReport);
     const listTemplates = missingTemplateListing.operations.find(

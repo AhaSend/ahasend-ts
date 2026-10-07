@@ -19,7 +19,7 @@ import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
-const EXPECTED_NODE_SAMPLE_COUNT = 75;
+const EXPECTED_NODE_SAMPLE_COUNT = 76;
 const EXPECTED_ITERATOR_COUNT = 14;
 const SUPPORTING_EXAMPLE_PATHS = Object.freeze([
   "examples/next-webhook-route/create-webhook-route.mjs",

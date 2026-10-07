@@ -55,15 +55,16 @@ function messagePathId(messageId: string): string {
 /** A value in a Jinja2 substitution context, including nested objects and arrays. */
 export type SubstitutionValue = unknown;
 
-/** A single recipient of a `messages.send()` call. */
+/** A single recipient of a `messages.send()` or `messages.sendTemplate()` call. */
 export interface Recipient {
   email: string;
   /** Display name rendered alongside the address. */
   name?: string | undefined;
   /**
    * Per-recipient template variables, rendered with Jinja2 syntax
-   * (`{{ first_name }}`) in the subject and body. Overrides keys of the
-   * same name in the request-level `substitutions`.
+   * (`{{ first_name }}`) in the subject and body. On `send()` they override
+   * keys of the same name in the request-level `substitutions`; on
+   * `sendTemplate()` they are the only values for the template's variables.
    */
   substitutions?: Record<string, SubstitutionValue> | undefined;
 }
@@ -138,42 +139,17 @@ export type SandboxResult = "deliver" | "bounce" | "defer" | "fail" | "suppress"
  * multiple To/Cc/Bcc recipients, with Bcc recipients hidden.
  */
 export interface CreateMessageRequest {
-  /**
-   * Sender — must be on a verified sending domain of your account. Required,
-   * with an `email`, unless `template_id` names a template that carries a
-   * default sender of its own, which the type cannot express: then leave
-   * `from` out to send from the template's sender. A `from` given here is used
-   * even when the template has one.
-   *
-   * On a templated request a `from` that is `null`, has no `email` or has an
-   * empty one counts as absent, `name` included. On any other request the API
-   * refuses a `from` without an `email` with HTTP 400.
-   */
-  from?: { email?: string | undefined; name?: string | undefined } | null | undefined;
+  /** Sender — must be on a verified sending domain of your account. */
+  from: Address;
   /** 1–100 recipients (the API rejects an empty array). */
   recipients: readonly Recipient[];
-  /**
-   * Subject line. Required unless `template_id` names a template that carries
-   * one of its own, which the type cannot express; a subject given here is
-   * used even when the template has one.
-   */
-  subject?: string | undefined;
-  /**
-   * A transactional template to send, which supplies the subject, the preview
-   * text and both bodies. Cannot be combined with `text_content`,
-   * `html_content` or `amp_content`, and a templated message carries no AMP
-   * part. Values for the template's variables come from `substitutions`.
-   */
-  template_id?: string | undefined;
-  /**
-   * Reply-To address. Cannot be combined with a `reply-to` entry in `headers`.
-   * On a templated request either one is used instead of the template's
-   * reply-to.
-   */
+  /** Subject line. */
+  subject: string;
+  /** Reply-To address. Cannot be combined with a `reply-to` entry in `headers`. */
   reply_to?: Address | undefined;
-  /** Plain-text body. Required if `html_content` and `template_id` are empty. */
+  /** Plain-text body. Required if `html_content` is empty. */
   text_content?: string | undefined;
-  /** HTML body. Required if `text_content` and `template_id` are empty. */
+  /** HTML body. Required if `text_content` is empty. */
   html_content?: string | undefined;
   /** AMP HTML variant. */
   amp_content?: string | undefined;
@@ -181,9 +157,8 @@ export interface CreateMessageRequest {
   /**
    * Custom email headers. Each name must be visible ASCII with no space and no
    * colon. A `reply-to` header takes the place of `reply_to` and cannot be
-   * combined with it; on a templated request it is used instead of the
-   * template's reply-to, as `reply_to` is. A `message-id` header is ignored, and
-   * the API generates one.
+   * combined with it. A `message-id` header is ignored, and the API generates
+   * one.
    */
   headers?: Record<string, string> | undefined;
   /** Request-level template variables; per-recipient substitutions win. */
@@ -192,8 +167,68 @@ export interface CreateMessageRequest {
   tags?: readonly string[] | undefined;
   /**
    * Sandbox mode: the API validates and accepts the request but no
+   * email leaves the platform. The `from` domain must still be verified.
+   */
+  sandbox?: boolean | undefined;
+  /** Simulated outcome when `sandbox: true`. Defaults to `deliver`. */
+  sandbox_result?: SandboxResult | undefined;
+  /** Open/click tracking overrides; `null` fields fall back to account defaults. */
+  tracking?: Tracking | undefined;
+  /** Data-retention overrides; `null` fields fall back to account defaults. */
+  retention?: Retention | undefined;
+  schedule?: MessageSchedule | undefined;
+}
+
+/**
+ * Body for {@link MessagesClient.sendTemplate}. The transactional template
+ * supplies the subject, the preview text and both bodies; each recipient
+ * receives a **separate** message rendered with that recipient's
+ * `substitutions`.
+ *
+ * The request takes no body and no request-level `substitutions`: the API
+ * refuses `text_content`, `html_content`, `amp_content` and `substitutions`
+ * with HTTP 400.
+ */
+export interface CreateTemplateMessageRequest {
+  /** The ID of one of the account's transactional templates. */
+  template_id: string;
+  /**
+   * 1–100 recipients (the API rejects an empty array). A recipient's
+   * `substitutions` are the only place for its values of the template's
+   * variables, and every required variable needs a value on every recipient.
+   */
+  recipients: readonly Recipient[];
+  /**
+   * Sender — must be on a verified sending domain of your account. Leave it
+   * out to send from the template's default sender; a `from` given here is
+   * used even when the template has one.
+   */
+  from?: Address | undefined;
+  /**
+   * Subject line. Leave it out to use the template's subject; a subject given
+   * here is used even when the template has one.
+   */
+  subject?: string | undefined;
+  /**
+   * Reply-To address. Cannot be combined with a `reply-to` entry in `headers`.
+   * Either one is used instead of the template's reply-to.
+   */
+  reply_to?: Address | undefined;
+  attachments?: readonly Attachment[] | undefined;
+  /**
+   * Custom email headers. Each name must be visible ASCII with no space and no
+   * colon. A `reply-to` header takes the place of `reply_to` and cannot be
+   * combined with it. A `message-id` header is ignored, and the API generates
+   * one. On a template whose design uses `unsubscribe_url`, a
+   * `List-Unsubscribe` or `List-Unsubscribe-Post` header given here is dropped.
+   */
+  headers?: Record<string, string> | undefined;
+  /** Free-form tags for filtering in lists, statistics, and webhooks. */
+  tags?: readonly string[] | undefined;
+  /**
+   * Sandbox mode: the API validates and accepts the request but no
    * email leaves the platform. The sender's domain (the request's `from`, or
-   * the template's sender) must still be verified.
+   * the template's default sender) must still be verified.
    */
   sandbox?: boolean | undefined;
   /** Simulated outcome when `sandbox: true`. Defaults to `deliver`. */
@@ -343,17 +378,59 @@ export interface MessagesClient {
    * key for your own retries; stored non-server-error results can be replayed
    * for 24 hours, while server errors release the key for re-execution.
    *
-   * While sending from the sender's domain is paused, the API refuses the
+   * While sending from the `from.email` domain is paused, the API refuses the
    * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a
-   * paused domain is accepted. A templated request that names no sender is
-   * refused with HTTP 403 when the API key cannot send from any domain.
+   * paused domain is accepted.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
-   * matching the domain of the sender: `from.email`, or the template's sender
-   * on a templated request that names none.
+   * matching the domain in `from.email`.
    */
   send(
     body: CreateMessageRequest,
+    options?: IdempotencyRequestOptions,
+  ): AhaSendPromise<SendMessageResponse>;
+
+  /**
+   * Send a transactional template to 1–100 recipients. Each recipient gets a
+   * separate email rendered with their own `substitutions`, which must give a
+   * value for every required variable of the template; otherwise the API
+   * refuses the request with HTTP 400 and sends nothing.
+   *
+   * **This is a multi-status operation.** A 202 does not mean every recipient
+   * was accepted: the promise resolves with one {@link SendMessageResult} per
+   * recipient, and an individual entry can carry `status: "error"` with a
+   * non-null `error` and a null `id` (for example a suppressed address).
+   * Inspect every entry — treating a resolved promise as full success silently
+   * reports dropped mail as delivered:
+   *
+   * ```ts
+   * const res = await client.messages.sendTemplate({ ... });
+   * const failed = res.data.filter((r) => r.status === "error");
+   * if (failed.length > 0) {
+   *   log.warn("some recipients were not queued", failed);
+   * }
+   * ```
+   *
+   * When automatic idempotency is enabled (the default), the SDK generates an
+   * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
+   * key for your own retries; stored non-server-error results can be replayed
+   * for 24 hours, while server errors release the key for re-execution.
+   *
+   * A `template_id` that is not one of the account's transactional templates
+   * is refused with HTTP 404 (`AhaSendNotFoundError`). While sending from the
+   * sender's domain is paused, the API refuses the message with HTTP 403
+   * (`AhaSendPermissionError`); a sandbox message from a paused domain is
+   * accepted. A request that names no sender is refused with HTTP 403 when the
+   * API key cannot send from any domain. A request is refused with HTTP 400
+   * (`AhaSendBadRequestError`) when neither it nor the template gives a sender
+   * or a subject.
+   *
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain of the sender: `from.email`, or the template's default
+   * sender when the request names none.
+   */
+  sendTemplate(
+    body: CreateTemplateMessageRequest,
     options?: IdempotencyRequestOptions,
   ): AhaSendPromise<SendMessageResponse>;
 
@@ -448,14 +525,12 @@ class MessagesClientImplementation implements MessagesClient {
    * key for your own retries; stored non-server-error results can be replayed
    * for 24 hours, while server errors release the key for re-execution.
    *
-   * While sending from the sender's domain is paused, the API refuses the
+   * While sending from the `from.email` domain is paused, the API refuses the
    * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a
-   * paused domain is accepted. A templated request that names no sender is
-   * refused with HTTP 403 when the API key cannot send from any domain.
+   * paused domain is accepted.
    *
    * Authorization requires `messages:send:all` or `messages:send:{domain}`
-   * matching the domain of the sender: `from.email`, or the template's sender
-   * on a templated request that names none.
+   * matching the domain in `from.email`.
    */
   send(
     body: CreateMessageRequest,
@@ -465,6 +540,43 @@ class MessagesClientImplementation implements MessagesClient {
     assertNonEmptyArray(body?.recipients, "recipients");
     return this.#operations.execute(
       "createMessage",
+      { path: { account_id: this.#accountId }, body },
+      forwarded,
+    );
+  }
+
+  /**
+   * Send a transactional template to 1–100 recipients. Each recipient gets a
+   * separate email rendered with their own `substitutions`, which must give a
+   * value for every required variable of the template; otherwise the API
+   * refuses the request with HTTP 400 and sends nothing.
+   *
+   * When automatic idempotency is enabled (the default), the SDK generates an
+   * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
+   * key for your own retries; stored non-server-error results can be replayed
+   * for 24 hours, while server errors release the key for re-execution.
+   *
+   * A `template_id` that is not one of the account's transactional templates
+   * is refused with HTTP 404 (`AhaSendNotFoundError`). While sending from the
+   * sender's domain is paused, the API refuses the message with HTTP 403
+   * (`AhaSendPermissionError`); a sandbox message from a paused domain is
+   * accepted. A request that names no sender is refused with HTTP 403 when the
+   * API key cannot send from any domain. A request is refused with HTTP 400
+   * (`AhaSendBadRequestError`) when neither it nor the template gives a sender
+   * or a subject.
+   *
+   * Authorization requires `messages:send:all` or `messages:send:{domain}`
+   * matching the domain of the sender: `from.email`, or the template's default
+   * sender when the request names none.
+   */
+  sendTemplate(
+    body: CreateTemplateMessageRequest,
+    options: IdempotencyRequestOptions = {},
+  ): AhaSendPromise<SendMessageResponse> {
+    const forwarded = forwardWithIdempotency(options);
+    assertNonEmptyArray(body?.recipients, "recipients");
+    return this.#operations.execute(
+      "createTemplateMessage",
       { path: { account_id: this.#accountId }, body },
       forwarded,
     );

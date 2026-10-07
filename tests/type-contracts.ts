@@ -47,6 +47,7 @@ interface PublicSchemaContracts {
   Retention: SDK.Retention;
   MessageSchedule: SDK.MessageSchedule;
   CreateMessageRequest: SDK.CreateMessageRequest;
+  CreateTemplateMessageRequest: SDK.CreateTemplateMessageRequest;
   CreateConversationMessageRequest: SDK.CreateConversationMessageRequest;
   CreateSingleMessageResponse: SDK.SendMessageResult;
   CreateMessageResponse: SDK.SendMessageResponse;
@@ -136,6 +137,7 @@ interface ReadonlyPublicSchemaRefinements {
   CreateAPIKeyRequest: "ip_allow_list is readonly in the public request model";
   UpdateAPIKeyRequest: "ip_allow_list is readonly in the public request model";
   CreateMessageRequest: "attachments and tags are readonly in the public request model";
+  CreateTemplateMessageRequest: "attachments and tags are readonly in the public request model";
   CreateConversationMessageRequest: "attachments and tags are readonly in the public request model";
   CreateWebhookRequest: "global webhook domains are readonly in the public request model";
   UpdateWebhookRequest: "domains is readonly in the public request model";
@@ -293,6 +295,15 @@ type MessageSignatures = [
   >,
   Expect<
     Equal<
+      SDK.MessagesClient["sendTemplate"],
+      (
+        body: SDK.CreateTemplateMessageRequest,
+        options?: SDK.IdempotencyRequestOptions,
+      ) => SDK.AhaSendPromise<SDK.SendMessageResponse>
+    >
+  >,
+  Expect<
+    Equal<
       SDK.MessagesClient["sendConversation"],
       (
         body: SDK.CreateConversationMessageRequest,
@@ -340,6 +351,7 @@ declare const messageCancelResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
 
 const structuralMessageMock: SDK.MessagesClient = {
   send: () => sendMessageResult,
+  sendTemplate: () => sendMessageResult,
   sendConversation: () => sendMessageResult,
   list: () => messageListResult,
   iterate: () => messageIteratorResult,
@@ -1359,6 +1371,11 @@ type RefinementContracts = [
   Expect<Equal<SDK.CreateConversationMessageRequest["cc"], readonly SDK.Address[] | undefined>>,
   Expect<Equal<SDK.CreateMessageRequest["attachments"], readonly SDK.Attachment[] | undefined>>,
   Expect<Equal<SDK.CreateMessageRequest["tags"], readonly string[] | undefined>>,
+  Expect<Equal<SDK.CreateTemplateMessageRequest["recipients"], readonly SDK.Recipient[]>>,
+  Expect<
+    Equal<SDK.CreateTemplateMessageRequest["attachments"], readonly SDK.Attachment[] | undefined>
+  >,
+  Expect<Equal<SDK.CreateTemplateMessageRequest["tags"], readonly string[] | undefined>>,
   Expect<Equal<SDK.CreateAPIKeyRequest["scopes"], readonly string[]>>,
   Expect<Equal<{} extends SDK.UpdateAPIKeyRequest ? true : false, false>>,
   Expect<
@@ -1485,6 +1502,12 @@ const messageBody: SDK.CreateMessageRequest = {
   attachments: readonlyAttachments,
   tags: readonlyTags,
 };
+const templateMessageBody: SDK.CreateTemplateMessageRequest = {
+  template_id: "33333333-3333-4333-8333-333333333333",
+  recipients: readonlyRecipients,
+  attachments: readonlyAttachments,
+  tags: readonlyTags,
+};
 const conversationBody: SDK.CreateConversationMessageRequest = {
   from: { email: "sender@example.com" },
   to: readonlyAddresses,
@@ -1519,6 +1542,10 @@ const messageExecution: SDK.AhaSendPromise<SDK.SendMessageResponse> = operations
   "createMessage",
   { path: { account_id: "22222222-2222-4222-8222-222222222222" }, body: messageBody },
 );
+operations.execute("createTemplateMessage", {
+  path: { account_id: "22222222-2222-4222-8222-222222222222" },
+  body: templateMessageBody,
+});
 operations.execute("createConversationMessage", {
   path: { account_id: "22222222-2222-4222-8222-222222222222" },
   body: conversationBody,

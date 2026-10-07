@@ -678,9 +678,9 @@ describe("release candidate validation", () => {
       }),
     ).toEqual({
       profileDigest: sourceProfileSidecar.toString("utf8").trim(),
-      operations: 75,
+      operations: 76,
       iterators: 14,
-      resourceAuthorizationRules: 22,
+      resourceAuthorizationRules: 23,
     });
 
     const transformed = Buffer.from(
@@ -713,7 +713,7 @@ describe("release candidate validation", () => {
         sourceProfileSidecar: invalidProfileSidecar,
         openApiSource,
       }),
-    ).toThrow("75 primary mappings");
+    ).toThrow("76 primary mappings");
 
     const invalidSecurity = Buffer.from(
       openApiSource.toString("utf8").replace("scheme: bearer", "scheme: basic"),
