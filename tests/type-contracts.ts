@@ -60,6 +60,18 @@ interface PublicSchemaContracts {
   PaginatedMessagesResponse: SDK.PaginatedResponse<SDK.MessageSummary>;
   TemplateVariable: SDK.TemplateVariable;
   Template: SDK.Template;
+  TemplateEditor: SDK.TemplateEditor;
+  TemplateContent: SDK.TemplateContent;
+  TemplateDraft: SDK.TemplateDraft;
+  TemplatePublisher: SDK.TemplatePublisher;
+  TemplateVersion: SDK.TemplateVersion;
+  TemplateVersionDetail: SDK.TemplateVersionDetail;
+  TemplateContentInput: SDK.TemplateContentInput;
+  TemplateAddressInput: SDK.Address;
+  CreateTemplateRequest: SDK.CreateTemplateRequest;
+  UpdateTemplateRequest: SDK.UpdateTemplateRequest;
+  RestoreTemplateVersionRequest: SDK.RestoreTemplateVersionRequest;
+  TemplateVersionsResponse: SDK.ListTemplateVersionsResponse;
   PaginatedTemplatesResponse: SDK.PaginatedResponse<SDK.Template>;
   Account: SDK.Account;
   SubAccount: SDK.SubAccount;

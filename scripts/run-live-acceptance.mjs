@@ -411,6 +411,12 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
             template_id: config.templateId,
             sandbox: true,
           },
+          createRequest: {
+            name: `AhaSend SDK live acceptance template ${suffix}`,
+            subject: `AhaSend SDK live acceptance template ${suffix}`,
+            content: { html: "<p>AhaSend SDK live acceptance template.</p>" },
+          },
+          updateRequest: { subject: `AhaSend SDK live acceptance template ${suffix} v2` },
           pagination,
         }),
       ),

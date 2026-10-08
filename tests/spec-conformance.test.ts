@@ -21,7 +21,9 @@ import type {
   CreateMessageRequest,
   CreateSMTPCredentialRequest,
   CreateTemplateMessageRequest,
+  CreateTemplateRequest,
   CreateWebhookRequest,
+  UpdateTemplateRequest,
 } from "../src/index.js";
 import type { OperationId, RetryMode } from "../src/generated/operations.js";
 import { OPERATION_DESCRIPTORS } from "../src/generated/operations.js";
@@ -40,6 +42,7 @@ import {
   SMTP_CREDENTIAL_ID,
   SUB_ACCOUNT_ID,
   TEMPLATE_ID,
+  TEMPLATE_VERSION_ID,
   USER_ID,
   WEBHOOK_ID,
 } from "./helpers/resource-call.js";
@@ -64,6 +67,7 @@ const IDS = {
   contact: "User+Tag/Segment@Example.COM",
   list: LIST_ID,
   template: TEMPLATE_ID,
+  templateVersion: TEMPLATE_VERSION_ID,
 } as const;
 
 const REQUEST_OPTIONS: RequestOptions = {
@@ -291,10 +295,73 @@ const PRIMARY_MATRIX = [
     result: client.templates.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/templates`, query: PAGINATION_QUERY },
   })),
+  primary("createTemplate", "templates", "create", (client) => {
+    const body = {
+      name: "Matrix template",
+      subject: "Hello {{ first_name }}",
+      from: { email: "sender@example.test", name: "Matrix" },
+      content: { mjml: "<mjml><mj-body></mj-body></mjml>", text: null },
+      publish: true,
+    } satisfies CreateTemplateRequest;
+    return {
+      result: client.templates.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/templates`, body },
+    };
+  }),
   primary("getTemplate", "templates", "get", (client) => ({
     result: client.templates.get(IDS.template, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}` },
   })),
+  primary("updateTemplate", "templates", "update", (client) => {
+    const body = {
+      subject: null,
+      reply_to: null,
+      content: { text: "Hello" },
+    } satisfies UpdateTemplateRequest;
+    return {
+      result: client.templates.update(IDS.template, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}`, body },
+    };
+  }),
+  primary("deleteTemplate", "templates", "delete", (client) => ({
+    result: client.templates.delete(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}` },
+  })),
+  primary("getTemplateDraft", "templates", "getDraft", (client) => ({
+    result: client.templates.getDraft(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/draft` },
+  })),
+  primary("discardTemplateDraft", "templates", "discardDraft", (client) => ({
+    result: client.templates.discardDraft(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/draft` },
+  })),
+  primary("publishTemplate", "templates", "publish", (client) => ({
+    result: client.templates.publish(IDS.template, IDEMPOTENCY_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/publish` },
+  })),
+  primary("listTemplateVersions", "templates", "listVersions", (client) => ({
+    result: client.templates.listVersions(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/versions` },
+  })),
+  primary("getTemplateVersion", "templates", "getVersion", (client) => ({
+    result: client.templates.getVersion(IDS.template, IDS.templateVersion, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/versions/${TEMPLATE_VERSION_ID}` },
+  })),
+  primary("restoreTemplateVersion", "templates", "restoreVersion", (client) => {
+    const body = { publish: true };
+    return {
+      result: client.templates.restoreVersion(
+        IDS.template,
+        IDS.templateVersion,
+        body,
+        IDEMPOTENCY_OPTIONS,
+      ),
+      input: {
+        path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/versions/${TEMPLATE_VERSION_ID}/restore`,
+        body,
+      },
+    };
+  }),
   primary("getAccount", "accounts", "get", (client) => ({
     result: client.accounts.get(REQUEST_OPTIONS),
     input: { path: ACCOUNT_PATH },
@@ -803,10 +870,10 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for all 76 implemented operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(76);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(76);
-    expect(OPERATION_PROFILE.operations).toHaveLength(76);
+  it("accounts for all 85 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(85);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(85);
+    expect(OPERATION_PROFILE.operations).toHaveLength(85);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -882,7 +949,7 @@ describe("Non-empty request array coverage", () => {
 describe("Generated operation inventory", () => {
   it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(76);
+    expect(operationIds).toHaveLength(85);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
     expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
       operationIds,

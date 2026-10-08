@@ -190,24 +190,24 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 
 ## Resources
 
-| Resource                 | Methods                                                                                                                         |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `client.messages`        | `send`, `sendTemplate`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                  |
-| `client.templates`       | `list`, `iterate`, `get` (read-only transactional templates)                                                                    |
-| `client.domains`         | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                                              |
-| `client.apiKeys`         | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                          |
-| `client.webhooks`        | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`)                 |
-| `client.statistics`      | `deliverability`, `bounces`, `deliveryTimes`                                                                                    |
-| `client.contacts`        | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists`                                      |
-| `client.contacts.lists`  | `list`, `iterate` (the lists one contact is on)                                                                                 |
-| `client.lists`           | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                                  |
-| `client.lists.contacts`  | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                                            |
-| `client.suppressions`    | `list`, `iterate`, `create`, `delete`, `wipe`                                                                                   |
-| `client.routes`          | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                                        |
-| `client.accounts`        | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                                     |
-| `client.smtpCredentials` | `list`, `iterate`, `create`, `get`, `delete`                                                                                    |
-| `client.subAccounts`     | `list`, `iterate`, `create`, `usage`, `get`, `update`, `delete`, `suspend`, `unsuspend`, `unpauseDomain`, plus nested `apiKeys` |
-| `client.ping()`          | Health check (`GET /v2/ping`)                                                                                                   |
+| Resource                 | Methods                                                                                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.messages`        | `send`, `sendTemplate`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                                |
+| `client.templates`       | `list`, `iterate`, `create`, `get`, `update`, `delete`, `getDraft`, `discardDraft`, `publish`, `listVersions`, `getVersion`, `restoreVersion` |
+| `client.domains`         | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                                                            |
+| `client.apiKeys`         | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                        |
+| `client.webhooks`        | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`)                               |
+| `client.statistics`      | `deliverability`, `bounces`, `deliveryTimes`                                                                                                  |
+| `client.contacts`        | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists`                                                    |
+| `client.contacts.lists`  | `list`, `iterate` (the lists one contact is on)                                                                                               |
+| `client.lists`           | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                                                |
+| `client.lists.contacts`  | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                                                          |
+| `client.suppressions`    | `list`, `iterate`, `create`, `delete`, `wipe`                                                                                                 |
+| `client.routes`          | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                                                      |
+| `client.accounts`        | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                                                   |
+| `client.smtpCredentials` | `list`, `iterate`, `create`, `get`, `delete`                                                                                                  |
+| `client.subAccounts`     | `list`, `iterate`, `create`, `usage`, `get`, `update`, `delete`, `suspend`, `unsuspend`, `unpauseDomain`, plus nested `apiKeys`               |
+| `client.ping()`          | Health check (`GET /v2/ping`)                                                                                                                 |
 
 Every method carries JSDoc — hover in your editor for parameter
 constraints, required scopes, and behavioural notes.
@@ -225,24 +225,24 @@ await client.messages.send(body, {
   timeoutMs: 2_000, // override the timeout for each attempt in this call
   retry: { maxRetries: 1 }, // restrict this call's retry policy (or use false)
   headers: { "x-trace-id": traceId }, // extra headers for this call
-  idempotencyKey: `receipt-${orderId}`, // create and batch operations only
+  idempotencyKey: `receipt-${orderId}`, // create, batch, publish and restore operations only
 });
 ```
 
-| Field            | Applies to                  | Effect                                                        |
-| ---------------- | --------------------------- | ------------------------------------------------------------- |
-| `signal`         | all methods                 | `AbortSignal` — cancels the request (and any retry sleep)     |
-| `timeoutMs`      | all methods                 | Per-attempt timeout override for fetch and response-body read |
-| `retry`          | all methods                 | Disable or restrict the client retry policy for this call     |
-| `headers`        | all methods                 | Additional request headers                                    |
-| `idempotencyKey` | create and batch operations | Explicit idempotency key; otherwise one is auto-generated     |
+| Field            | Applies to               | Effect                                                        |
+| ---------------- | ------------------------ | ------------------------------------------------------------- |
+| `signal`         | all methods              | `AbortSignal` — cancels the request (and any retry sleep)     |
+| `timeoutMs`      | all methods              | Per-attempt timeout override for fetch and response-body read |
+| `retry`          | all methods              | Disable or restrict the client retry policy for this call     |
+| `headers`        | all methods              | Additional request headers                                    |
+| `idempotencyKey` | keyed operations (below) | Explicit idempotency key; otherwise one is auto-generated     |
 
 ## Cross-cutting behaviour
 
 ### Automatic idempotency
 
-The SDK attaches a UUID `Idempotency-Key` to every **create and batch** operation
-(all 15 endpoints whose generated operation profile marks them idempotent,
+The SDK attaches a UUID `Idempotency-Key` to every **create, batch, publish and restore** operation
+(all 19 endpoints whose generated operation profile marks them idempotent,
 including message sends, resource creations, and the contact and list batches). The key is generated once per
 call and reused across the SDK's internal retries. Stored outcomes — 2xx and
 deterministic 4xx — are replayed for 24 hours, so a retry cannot duplicate them.
@@ -265,7 +265,7 @@ for retention windows, replay classification, and recovery after an uncertain re
 When an operation's generated retry profile permits another attempt, the SDK
 retries `408`, `429`, `5xx`, network failures, timeouts, and eligible keyed
 `409` responses while an idempotent operation is still in progress — never
-other 4xx. Key-protected create and batch operations require an idempotency key to be
+other 4xx. Key-protected operations require an idempotency key to be
 retryable; the SDK supplies one unless automatic key generation is disabled.
 A valid server `Retry-After` on 429 (seconds or HTTP-date) or an eligible keyed
 409 (positive integer seconds) is authoritative and capped at the configured
@@ -707,7 +707,8 @@ console.log("Template send accepted.", { count: res.data.length });
 
 - `client.templates.list()` and `iterate()` page through the account's transactional templates,
   newest first; `get()` returns one with the `variables` its design uses, its default sender in
-  `from` and its default `reply_to`, each an `Address` or `null` when it has none.
+  `from` and its default `reply_to`, each an `Address` or `null` when it has none. To create and
+  change templates, see "Manage templates".
 - `from` is required unless the template has a default sender. The template's sender is checked
   exactly like a `from` in the request: a domain that is not the account's, has invalid DNS records
   or is paused fails the send with the same error. A request without a sender from an API key that
@@ -728,6 +729,53 @@ console.log("Template send accepted.", { count: res.data.length });
 - A `template_id` that does not name one of the account's transactional templates answers `404`
   (`AhaSendNotFoundError`). Reading templates needs `templates:read`; sending one needs only the
   usual send scope.
+
+## Manage templates
+
+`client.templates` creates and changes transactional templates. A template has a published copy,
+which is what a send uses, and a draft, the same draft the dashboard edits. A write changes the
+draft; pass `publish: true`, or call `publish()`, to make sends use it. Every write but `delete()`
+returns the published copy, whose `has_draft` says whether changes are still waiting.
+
+```ts
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const template = await client.templates.create({
+  name: "Welcome email",
+  subject: "Welcome, {{ first_name }}",
+  from: { email: "hello@yourdomain.com", name: "Your App" },
+  content: { html: "<p>Hello {{ first_name }}, welcome aboard.</p>" },
+  publish: true,
+});
+
+// A field left out is not changed; null clears it. This change waits in the draft.
+const updated = await client.templates.update(template.id, {
+  subject: "Welcome to Your App, {{ first_name }}",
+  preheader: null,
+});
+console.log("Template drafted.", { id: updated.id });
+
+const draft = await client.templates.getDraft(template.id);
+console.log("Draft read.", { templateId: draft.template_id });
+await client.templates.publish(template.id);
+```
+
+- `content.mjml` makes an `advanced` template and `content.html` an `html` template; a template
+  with neither must name its `editor`. The editor never changes after create, and the design of a
+  `simple` template can be changed only in the dashboard.
+- MJML is compiled in strict mode. Images and stylesheets must use full URLs, such as
+  `https://example.com/logo.png`, as the API cannot upload files.
+- `content.text` is the plain text version. `null` makes it from the HTML, and so does leaving it
+  out beside a new `mjml` or `html`.
+  A non-null `content` of `getDraft()`, or of `get()` when `has_draft` is false, can be sent back as it
+  is for an `advanced` or `html` template. While a draft exists, `get()` returns the published
+  `content`, and sending it back replaces the draft's design.
+- The draft is shared with the dashboard, so `publish()` publishes changes made there too.
+  `discardDraft()` drops the draft.
+- `listVersions()` lists the published versions, newest first, without paging; a template keeps
+  its most recent versions. `getVersion()` returns one with its content, and `restoreVersion()` copies it
+  into the draft, publishing it too with `{ publish: true }`.
+- A write that keeps meeting other changes to the same template answers `503`. The SDK retries it; you see the `503` only when the retries run out.
+- Creating and changing templates needs `templates:write`, and `delete()` needs `templates:delete`.
 
 ## Domain sending type and pauses
 

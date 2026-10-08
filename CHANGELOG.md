@@ -11,9 +11,17 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 - `client.contacts` manages account-global contacts: `list`, `iterate`, `create`, `batchUpsert` (up
   to 1,000 contacts, one result per entry), `get`, `update`, and `delete`. A contact is named by
   UUID or by raw email, which the SDK percent-encodes once as a path segment.
-- `client.templates` reads the account's transactional templates (`list`, `iterate`, `get`), each
-  with the `variables` a send must supply and its default sender and reply-to: `from`, an `Address`
-  or `null` when the template has none, and `reply_to`, likewise an `Address` or `null`.
+- `client.templates` manages the account's transactional templates. `list`, `iterate` and `get`
+  read them, each with the `variables` a send must supply and its default sender and reply-to:
+  `from`, an `Address` or `null` when the template has none, and `reply_to`, likewise an `Address`
+  or `null`. A `Template` also carries its `editor`, `has_draft` and, outside `list` and `iterate`,
+  its published `content`. `create`, `update` and `delete` write templates; a write changes the
+  template's draft, the one the dashboard edits, and `publish: true` publishes it. `getDraft`,
+  `discardDraft` and `publish` act on the draft, and `listVersions`, `getVersion` and
+  `restoreVersion` read and restore published versions. `update` leaves out a field it is not
+  given and clears one given as `null`. `create`, `publish` and `restoreVersion` send an
+  `Idempotency-Key`. Writes need `templates:write`, and `delete` needs `templates:delete`. See
+  "Manage templates" in the README.
 - `messages.sendTemplate()` sends a transactional template, taking `CreateTemplateMessageRequest`:
   `template_id` and `recipients` are required, and the values for the template's variables go in
   each recipient's `substitutions`. `from` and `subject` are optional: a request that leaves `from`

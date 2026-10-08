@@ -90,10 +90,21 @@ export type {
 } from "./resources/messages.js";
 
 export type {
+  CreateTemplateRequest,
   ListTemplatesParams,
+  ListTemplateVersionsResponse,
+  RestoreTemplateVersionRequest,
   Template,
+  TemplateContent,
+  TemplateContentInput,
+  TemplateDraft,
+  TemplateEditor,
+  TemplatePublisher,
   TemplatesClient,
   TemplateVariable,
+  TemplateVersion,
+  TemplateVersionDetail,
+  UpdateTemplateRequest,
 } from "./resources/templates.js";
 
 export type {

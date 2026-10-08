@@ -12,8 +12,8 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 76;
-const EXPECTED_SCHEMA_COUNT = 95;
+const EXPECTED_OPERATION_COUNT = 85;
+const EXPECTED_SCHEMA_COUNT = 107;
 const EXPECTED_ITERATOR_COUNT = 14;
 const EXPECTED_WEBHOOK_COUNT = 11;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
@@ -116,7 +116,16 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["getMessage", "messages", "get"],
   ["cancelMessage", "messages", "cancel"],
   ["listTemplates", "templates", "list"],
+  ["createTemplate", "templates", "create"],
   ["getTemplate", "templates", "get"],
+  ["updateTemplate", "templates", "update"],
+  ["deleteTemplate", "templates", "delete"],
+  ["getTemplateDraft", "templates", "getDraft"],
+  ["discardTemplateDraft", "templates", "discardDraft"],
+  ["publishTemplate", "templates", "publish"],
+  ["listTemplateVersions", "templates", "listVersions"],
+  ["getTemplateVersion", "templates", "getVersion"],
+  ["restoreTemplateVersion", "templates", "restoreVersion"],
   ["getAccount", "accounts", "get"],
   ["updateAccount", "accounts", "update"],
   ["getAccountMembers", "accounts", "listMembers"],
@@ -1758,10 +1767,12 @@ export type RequestInput<Value> = Value extends readonly [infer Head, ...infer T
       : Value;
 
 export type OperationRequestBodyById = {
-  readonly [Operation in OperationId]: operations[Operation] extends {
-    requestBody: { content: { "application/json": infer Body } };
-  }
-    ? RequestInput<Body>
+  readonly [Operation in OperationId]: "requestBody" extends keyof operations[Operation]
+    ? operations[Operation] extends {
+        requestBody?: { content: { "application/json": infer Body } };
+      }
+      ? RequestInput<Body>
+      : never
     : never;
 };
 
@@ -1769,7 +1780,9 @@ export type OperationInputById = {
   readonly [Operation in OperationId]: OperationParametersById[Operation] &
     (OperationRequestBodyById[Operation] extends never
       ? { body?: never }
-      : { body: OperationRequestBodyById[Operation] });
+      : operations[Operation] extends { requestBody: unknown }
+        ? { body: OperationRequestBodyById[Operation] }
+        : { body?: OperationRequestBodyById[Operation] | undefined });
 };
 
 type JsonSuccess<ResponseMap> = {

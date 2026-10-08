@@ -818,6 +818,21 @@ export interface CreateTemplateMessageRequest {
 }
 
 // @public
+export interface CreateTemplateRequest {
+    // (undocumented)
+    content?: TemplateContentInput | undefined;
+    editor?: TemplateEditor | undefined;
+    from?: Address | null | undefined;
+    name: string;
+    // (undocumented)
+    preheader?: string | null | undefined;
+    publish?: boolean | undefined;
+    reply_to?: Address | null | undefined;
+    // (undocumented)
+    subject?: string | null | undefined;
+}
+
+// @public
 export type CreateWebhookRequest = {
     name: string;
     url: string;
@@ -1175,6 +1190,14 @@ export type ListSuppressionsParams = PaginationParams & {
 // @public
 export type ListTemplatesParams = PaginationParams;
 
+// @public
+export interface ListTemplateVersionsResponse {
+    // (undocumented)
+    data: TemplateVersion[];
+    // (undocumented)
+    object: "list";
+}
+
 // @public (undocumented)
 export type ListWebhooksParams = PaginationParams & {
     enabled?: boolean | undefined;
@@ -1417,6 +1440,11 @@ export interface ResponseEvent extends RequestEvent {
     requestId?: string;
     // (undocumented)
     status: number;
+}
+
+// @public
+export interface RestoreTemplateVersionRequest {
+    publish?: boolean | undefined;
 }
 
 // @public
@@ -1764,9 +1792,13 @@ export interface TelemetryHooks {
 
 // @public
 export interface Template {
+    content?: TemplateContent | null;
     // (undocumented)
     created_at: ISODateTime;
+    // (undocumented)
+    editor: TemplateEditor;
     from: Address | null;
+    has_draft: boolean;
     // (undocumented)
     id: string;
     // (undocumented)
@@ -1783,10 +1815,62 @@ export interface Template {
 }
 
 // @public
+export interface TemplateContent {
+    html?: string;
+    mjml?: string;
+    text?: string;
+    text_is_custom: boolean;
+}
+
+// @public
+export interface TemplateContentInput {
+    html?: string | undefined;
+    mjml?: string | undefined;
+    text?: string | null | undefined;
+    text_is_custom?: boolean | undefined;
+}
+
+// @public
+export interface TemplateDraft {
+    content: TemplateContent | null;
+    // (undocumented)
+    from: Address | null;
+    // (undocumented)
+    object: "template_draft";
+    // (undocumented)
+    preheader: string;
+    reply_to: Address | null;
+    // (undocumented)
+    subject: string;
+    // (undocumented)
+    template_id: UUID;
+    updated_at: ISODateTime;
+    variables: TemplateVariable[];
+}
+
+// @public
+export type TemplateEditor = "advanced" | "simple" | "html";
+
+// @public
+export interface TemplatePublisher {
+    id: UUID;
+    type: "user" | "api_key";
+}
+
+// @public
 export interface TemplatesClient {
+    create(body: CreateTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
+    delete(templateId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    discardDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>;
     get(templateId: string, options?: RequestOptions): AhaSendPromise<Template>;
+    getDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<TemplateDraft>;
+    getVersion(templateId: UUID, versionId: UUID, options?: RequestOptions): AhaSendPromise<TemplateVersionDetail>;
     iterate(params?: ListTemplatesParams, options?: RequestOptions): AsyncGenerator<Template, void, undefined>;
     list(params?: ListTemplatesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Template>>;
+    listVersions(templateId: UUID, options?: RequestOptions): AhaSendPromise<ListTemplateVersionsResponse>;
+    publish(templateId: UUID, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
+    restoreVersion(templateId: UUID, versionId: UUID, body?: RestoreTemplateVersionRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
+    update(templateId: UUID, body: UpdateTemplateRequest, options?: RequestOptions): AhaSendPromise<Template>;
 }
 
 // @public
@@ -1794,6 +1878,32 @@ export interface TemplateVariable {
     // (undocumented)
     name: string;
     required: boolean;
+}
+
+// @public
+export interface TemplateVersion {
+    // (undocumented)
+    id: UUID;
+    // (undocumented)
+    object: "template_version";
+    // (undocumented)
+    published_at: ISODateTime;
+    published_by: TemplatePublisher | null;
+    version: number;
+}
+
+// @public
+export interface TemplateVersionDetail extends TemplateVersion {
+    content: TemplateContent | null;
+    // (undocumented)
+    from: Address | null;
+    // (undocumented)
+    preheader: string;
+    reply_to: Address | null;
+    // (undocumented)
+    subject: string;
+    // (undocumented)
+    variables: TemplateVariable[];
 }
 
 // @public
@@ -1912,6 +2022,17 @@ export type UpdateSubAccountRequest = {
 } | {
     monthly_credit: number;
 });
+
+// @public
+export interface UpdateTemplateRequest {
+    content?: TemplateContentInput | undefined;
+    from?: Address | null | undefined;
+    name?: string | undefined;
+    preheader?: string | null | undefined;
+    publish?: boolean | undefined;
+    reply_to?: Address | null | undefined;
+    subject?: string | null | undefined;
+}
 
 // @public (undocumented)
 export interface UpdateWebhookRequest {

@@ -16,7 +16,7 @@ import {
   validateOperationProfile,
 } from "./generate-sdk.mjs";
 
-const EXPECTED_OPERATION_COUNT = 76;
+const EXPECTED_OPERATION_COUNT = 85;
 const EXPECTED_ITERATOR_COUNT = 14;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
 const GENERATED_HEADER =

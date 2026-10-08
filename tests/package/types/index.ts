@@ -236,6 +236,15 @@ const templates: SDK.ListTemplatesParams = {
   limit: 25,
   before: "template-cursor",
 };
+const templateBody: SDK.CreateTemplateRequest = {
+  name: "Package template",
+  content: { mjml: "<mjml><mj-body></mj-body></mjml>", text: null },
+};
+const templateUpdate: SDK.UpdateTemplateRequest = {
+  subject: null,
+  from: { email: "sender@example.com" },
+  publish: true,
+};
 const contacts: SDK.ListContactsParams = {
   limit: 25,
   before: "contact-cursor",
@@ -382,7 +391,17 @@ void client.statistics.bounces(statistics).withResponse();
 void client.statistics.deliveryTimes(statistics).withResponse();
 
 void client.templates.list(templates).withResponse();
+void client.templates.create(templateBody, { idempotencyKey: "package-template" }).withResponse();
 void client.templates.get(uuid).withResponse();
+void client.templates.update(uuid, templateUpdate).withResponse();
+void client.templates.delete(uuid).withResponse();
+void client.templates.getDraft(uuid).withResponse();
+void client.templates.discardDraft(uuid).withResponse();
+void client.templates.publish(uuid, { idempotencyKey: "package-template-publish" }).withResponse();
+void client.templates.listVersions(uuid).withResponse();
+void client.templates.getVersion(uuid, uuid).withResponse();
+void client.templates.restoreVersion(uuid, uuid).withResponse();
+void client.templates.restoreVersion(uuid, uuid, { publish: true }).withResponse();
 
 void client.contacts.list(contacts).withResponse();
 void client.contacts.create(contactBody).withResponse();
@@ -494,7 +513,16 @@ const statisticsMock: SDK.StatisticsClient = {
 const templatesMock: SDK.TemplatesClient = {
   list: () => result<SDK.PaginatedResponse<SDK.Template>>(),
   iterate: () => iterator<SDK.Template>(),
+  create: () => result<SDK.Template>(),
   get: () => result<SDK.Template>(),
+  update: () => result<SDK.Template>(),
+  delete: () => result<SDK.SuccessResponse>(),
+  getDraft: () => result<SDK.TemplateDraft>(),
+  discardDraft: () => result<SDK.Template>(),
+  publish: () => result<SDK.Template>(),
+  listVersions: () => result<SDK.ListTemplateVersionsResponse>(),
+  getVersion: () => result<SDK.TemplateVersionDetail>(),
+  restoreVersion: () => result<SDK.Template>(),
 };
 
 const contactsMock: SDK.ContactsClient = {

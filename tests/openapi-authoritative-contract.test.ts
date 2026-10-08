@@ -193,9 +193,28 @@ describe("authoritative OpenAPI model contracts", () => {
       "variables",
       "from",
       "reply_to",
+      "editor",
+      "has_draft",
     ]);
-    expect(Object.keys(properties("Template"))).toEqual(schema("Template").required);
+    // List items leave `content` out, so it is the one optional field.
+    expect(Object.keys(properties("Template"))).toEqual([
+      ...(schema("Template").required as string[]),
+      "content",
+    ]);
     expect(nullableProperties("Template")).toEqual([]);
+    expect(property("Template", "editor").$ref).toBe("#/components/schemas/TemplateEditor");
+    expect(schema("TemplateEditor").enum).toEqual(["advanced", "simple", "html"]);
+    expect(property("Template", "content").oneOf).toEqual([
+      { $ref: "#/components/schemas/TemplateContent" },
+      { type: "null" },
+    ]);
+    expect(schema("TemplateContent").required).toEqual(["text_is_custom"]);
+    expect(Object.keys(properties("TemplateContent"))).toEqual([
+      "mjml",
+      "html",
+      "text",
+      "text_is_custom",
+    ]);
     expect(property("Template", "object").enum).toEqual(["template"]);
     expect(property("Template", "variables")).toMatchObject({
       type: "array",
@@ -223,6 +242,51 @@ describe("authoritative OpenAPI model contracts", () => {
       type: "array",
       items: { $ref: "#/components/schemas/Template" },
     });
+  });
+
+  it("pins the template draft, version and write models", () => {
+    expect(schema("TemplateDraft").required).toEqual([
+      "object",
+      "template_id",
+      "updated_at",
+      "subject",
+      "preheader",
+      "variables",
+      "from",
+      "reply_to",
+      "content",
+    ]);
+    expect(schema("TemplateVersion").required).toEqual([
+      "object",
+      "id",
+      "version",
+      "published_at",
+      "published_by",
+    ]);
+    expect(property("TemplateVersion", "published_by").oneOf).toEqual([
+      { $ref: "#/components/schemas/TemplatePublisher" },
+      { type: "null" },
+    ]);
+    expect(property("TemplatePublisher", "type").enum).toEqual(["user", "api_key"]);
+    expect(schema("TemplateVersionsResponse").required).toEqual(["object", "data"]);
+    expect(properties("TemplateVersionsResponse")).not.toHaveProperty("pagination");
+
+    // An update tells a missing field from null: null clears these fields.
+    expect(nullableProperties("UpdateTemplateRequest")).toEqual(["subject", "preheader"]);
+    for (const field of ["from", "reply_to"]) {
+      expect(property("UpdateTemplateRequest", field).oneOf).toEqual([
+        { $ref: "#/components/schemas/TemplateAddressInput" },
+        { type: "null" },
+      ]);
+    }
+    expect(property("UpdateTemplateRequest", "content").$ref).toBe(
+      "#/components/schemas/TemplateContentInput",
+    );
+    expect(properties("UpdateTemplateRequest")).not.toHaveProperty("editor");
+    expect(schema("CreateTemplateRequest").required).toEqual(["name"]);
+    expect(nullableProperties("TemplateContentInput")).toEqual(["text"]);
+    expect(schema("RestoreTemplateVersionRequest").required).toBeUndefined();
+    expect(Object.keys(properties("RestoreTemplateVersionRequest"))).toEqual(["publish"]);
   });
 
   it("gives template sends a request schema of their own", () => {

@@ -1063,6 +1063,32 @@ export const OPERATION_DESCRIPTORS = {
     security: [["templates:read"]],
     resourceAuthorization: null,
   },
+  createTemplate: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/templates",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "CreateTemplateRequest",
+    },
+    success: [
+      {
+        status: 201,
+        schema: "Template",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["templates:write"]],
+    resourceAuthorization: null,
+  },
   getTemplate: {
     method: "GET",
     path: "/v2/accounts/{account_id}/templates/{template_id}",
@@ -1089,6 +1115,246 @@ export const OPERATION_DESCRIPTORS = {
     idempotency: false,
     retry: "safe",
     security: [["templates:read"]],
+    resourceAuthorization: null,
+  },
+  updateTemplate: {
+    method: "PUT",
+    path: "/v2/accounts/{account_id}/templates/{template_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "UpdateTemplateRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "Template",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["templates:write"]],
+    resourceAuthorization: null,
+  },
+  deleteTemplate: {
+    method: "DELETE",
+    path: "/v2/accounts/{account_id}/templates/{template_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "SuccessResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["templates:delete"]],
+    resourceAuthorization: null,
+  },
+  getTemplateDraft: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/templates/{template_id}/draft",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "TemplateDraft",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["templates:read"]],
+    resourceAuthorization: null,
+  },
+  discardTemplateDraft: {
+    method: "DELETE",
+    path: "/v2/accounts/{account_id}/templates/{template_id}/draft",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "Template",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["templates:write"]],
+    resourceAuthorization: null,
+  },
+  publishTemplate: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/templates/{template_id}/publish",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "Template",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["templates:write"]],
+    resourceAuthorization: null,
+  },
+  listTemplateVersions: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/templates/{template_id}/versions",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "TemplateVersionsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["templates:read"]],
+    resourceAuthorization: null,
+  },
+  getTemplateVersion: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/templates/{template_id}/versions/{version_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "version_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "TemplateVersionDetail",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["templates:read"]],
+    resourceAuthorization: null,
+  },
+  restoreTemplateVersion: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/templates/{template_id}/versions/{version_id}/restore",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "version_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: false,
+      schema: "RestoreTemplateVersionRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "Template",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["templates:write"]],
     resourceAuthorization: null,
   },
   getAccount: {
@@ -3240,10 +3506,12 @@ export type RequestInput<Value> = Value extends readonly [infer Head, ...infer T
       : Value;
 
 export type OperationRequestBodyById = {
-  readonly [Operation in OperationId]: operations[Operation] extends {
-    requestBody: { content: { "application/json": infer Body } };
-  }
-    ? RequestInput<Body>
+  readonly [Operation in OperationId]: "requestBody" extends keyof operations[Operation]
+    ? operations[Operation] extends {
+        requestBody?: { content: { "application/json": infer Body } };
+      }
+      ? RequestInput<Body>
+      : never
     : never;
 };
 
@@ -3251,7 +3519,9 @@ export type OperationInputById = {
   readonly [Operation in OperationId]: OperationParametersById[Operation] &
     (OperationRequestBodyById[Operation] extends never
       ? { body?: never }
-      : { body: OperationRequestBodyById[Operation] });
+      : operations[Operation] extends { requestBody: unknown }
+        ? { body: OperationRequestBodyById[Operation] }
+        : { body?: OperationRequestBodyById[Operation] | undefined });
 };
 
 type JsonSuccess<ResponseMap> = {

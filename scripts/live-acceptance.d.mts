@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-export const EXPECTED_LIVE_OPERATION_COUNT: 76;
+export const EXPECTED_LIVE_OPERATION_COUNT: 85;
 export const EXPECTED_LIVE_ITERATOR_COUNT: 14;
 
 export interface LiveMapping {
@@ -416,6 +416,15 @@ export interface TemplateLiveClient {
     readonly list: (...args: never[]) => unknown;
     readonly iterate: (...args: never[]) => unknown;
     readonly get: (...args: never[]) => unknown;
+    readonly create: (...args: never[]) => unknown;
+    readonly update: (...args: never[]) => unknown;
+    readonly delete: (...args: never[]) => unknown;
+    readonly getDraft: (...args: never[]) => unknown;
+    readonly discardDraft: (...args: never[]) => unknown;
+    readonly publish: (...args: never[]) => unknown;
+    readonly listVersions: (...args: never[]) => unknown;
+    readonly getVersion: (...args: never[]) => unknown;
+    readonly restoreVersion: (...args: never[]) => unknown;
   };
   readonly messages: {
     readonly sendTemplate: (...args: never[]) => unknown;
@@ -430,12 +439,29 @@ export interface TemplateLiveSendRequest {
   readonly subject?: string;
 }
 
+export interface TemplateLiveCreateRequest {
+  readonly name: string;
+  readonly subject: string;
+  readonly content: { readonly html: string };
+}
+
+export interface TemplateLiveUpdateRequest {
+  /** Must differ from the create request's subject. */
+  readonly subject: string;
+}
+
 export interface CreateTemplateScenarioRegistryOptions {
   readonly profile: LiveProfile;
   readonly client: TemplateLiveClient;
-  /** A template the release account holds; the API cannot create one. */
+  /**
+   * A template the release account holds, with a design and a default sender
+   * set in the dashboard, for the read and send scenarios.
+   */
   readonly templateId: string;
   readonly sendRequest: TemplateLiveSendRequest;
+  /** The disposable template the write scenarios create, publish and delete. */
+  readonly createRequest: TemplateLiveCreateRequest;
+  readonly updateRequest: TemplateLiveUpdateRequest;
   readonly pagination?: DomainLivePagination;
 }
 

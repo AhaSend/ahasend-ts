@@ -193,6 +193,19 @@ function completeLiveResults(candidate: LiveCandidate) {
     templateSend: { accepted: true, requiredVariables: 0, results: 1 },
     templateSenderSend: { accepted: true, results: 1 },
   };
+  byId.get("createTemplate")!.evidence = {
+    cleanupRegistered: true,
+    editor: "html",
+    hasDraft: false,
+  };
+  byId.get("updateTemplate")!.evidence = { hasDraft: true };
+  byId.get("getTemplateDraft")!.evidence = { matched: true };
+  byId.get("publishTemplate")!.evidence = { published: true };
+  byId.get("listTemplateVersions")!.evidence = { publishedBy: "api_key", versions: 2 };
+  byId.get("getTemplateVersion")!.evidence = { matched: true, version: 1 };
+  byId.get("restoreTemplateVersion")!.evidence = { hasDraft: true };
+  byId.get("discardTemplateDraft")!.evidence = { discarded: true };
+  byId.get("deleteTemplate")!.evidence = { cleanupVerified: true, deleted: true };
   byId.get("createDomain")!.evidence = {
     created: true,
     paused: false,
@@ -373,11 +386,16 @@ function templateClientFixture(
     getTemplateId?: string;
     listed?: boolean;
     variables?: Array<{ name: string; required: boolean }>;
+    loseCreateResponse?: boolean;
+    versionPublisher?: "user" | "api_key";
   } = {},
 ) {
   const templateId = "0a1b2c3d-0000-4000-8000-0000000000aa";
+  const disposableId = "0a1b2c3d-0000-4000-8000-0000000000bb";
   const calls: string[] = [];
   const sends: Array<Record<string, unknown>> = [];
+  const writes: Array<[string, ...unknown[]]> = [];
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
   const template = (id: string) => ({
     object: "template" as const,
     id,
@@ -389,12 +407,69 @@ function templateClientFixture(
     variables: options.variables ?? [{ name: "email", required: false }],
     from: options.from === undefined ? { email: "templates@verified.example" } : options.from,
     reply_to: null,
+    editor: "advanced" as const,
+    has_draft: false,
   });
   const others = [
     "0a1b2c3d-0000-4000-8000-000000000001",
     "0a1b2c3d-0000-4000-8000-000000000002",
   ].map(template);
   const all = options.listed === false ? others : [...others, template(templateId)];
+  const createRequest = {
+    name: "SDK live template",
+    subject: "SDK live template",
+    content: { html: "<p>SDK live template</p>" },
+  };
+  const updateRequest = { subject: "SDK live template v2" };
+
+  // The disposable template the write scenarios create: its published subject,
+  // its draft subject, and its versions, newest first.
+  const disposable = {
+    exists: false,
+    name: "",
+    published: "",
+    draft: null as string | null,
+    versions: [] as Array<{ id: string; version: number; subject: string }>,
+  };
+  const content = {
+    html: "<p>SDK live template</p>",
+    text: "SDK live template",
+    text_is_custom: false,
+  };
+  const disposableView = () => ({
+    ...template(disposableId),
+    name: disposable.name,
+    subject: disposable.published,
+    from: null,
+    editor: "html" as const,
+    has_draft: disposable.draft !== null,
+    content,
+  });
+  const requireDisposable = (id: string) => {
+    if (id !== disposableId || !disposable.exists) throw notFound();
+  };
+  const publishVersion = (subject: string) => {
+    const version = disposable.versions.length + 1;
+    disposable.versions.unshift({
+      id: `0a1b2c3d-0000-4000-8000-00000000010${version}`,
+      version,
+      subject,
+    });
+    disposable.published = subject;
+    disposable.draft = null;
+  };
+  const versionView = (entry: { id: string; version: number }) => ({
+    object: "template_version" as const,
+    id: entry.id,
+    version: entry.version,
+    published_at: "2026-10-01T00:00:00Z",
+    published_by: {
+      type: options.versionPublisher ?? "api_key",
+      id: "0a1b2c3d-0000-4000-8000-0000000000cc",
+    },
+  });
+  const listed = () => [...(disposable.exists ? [disposableView()] : []), ...all];
+
   const client: TemplateLiveClient = {
     templates: {
       list: vi.fn(async (params: { limit: number }) => {
@@ -407,11 +482,88 @@ function templateClientFixture(
       }),
       iterate: vi.fn(async function* (params: { limit: number }) {
         calls.push(`iterate:${JSON.stringify(params)}`);
-        for (const entry of all) yield entry;
+        for (const entry of listed()) yield entry;
       }),
       get: vi.fn(async (id: string) => {
         calls.push(`get:${id}`);
+        if (id === disposableId) {
+          requireDisposable(id);
+          return disposableView();
+        }
         return template(options.getTemplateId ?? id);
+      }),
+      create: vi.fn(async (body: { name: string; subject: string }) => {
+        writes.push(["create", body]);
+        disposable.exists = true;
+        disposable.name = body.name;
+        publishVersion(body.subject);
+        if (options.loseCreateResponse === true) throw new Error("connection reset");
+        return disposableView();
+      }),
+      update: vi.fn(async (id: string, body: { subject: string }) => {
+        writes.push(["update", id, body]);
+        requireDisposable(id);
+        disposable.draft = body.subject;
+        return disposableView();
+      }),
+      delete: vi.fn(async (id: string) => {
+        writes.push(["delete", id]);
+        requireDisposable(id);
+        disposable.exists = false;
+        return { message: "template deleted" };
+      }),
+      getDraft: vi.fn(async (id: string) => {
+        requireDisposable(id);
+        if (disposable.draft === null) throw notFound();
+        return {
+          object: "template_draft",
+          template_id: id,
+          updated_at: "2026-10-01T00:00:00Z",
+          subject: disposable.draft,
+          preheader: "",
+          variables: [],
+          from: null,
+          reply_to: null,
+          content,
+        };
+      }),
+      discardDraft: vi.fn(async (id: string) => {
+        writes.push(["discardDraft", id]);
+        requireDisposable(id);
+        disposable.draft = null;
+        return disposableView();
+      }),
+      publish: vi.fn(async (id: string) => {
+        writes.push(["publish", id]);
+        requireDisposable(id);
+        if (disposable.draft !== null) publishVersion(disposable.draft);
+        return disposableView();
+      }),
+      listVersions: vi.fn(async (id: string) => {
+        requireDisposable(id);
+        return { object: "list", data: disposable.versions.map(versionView) };
+      }),
+      getVersion: vi.fn(async (id: string, versionId: string) => {
+        requireDisposable(id);
+        const entry = disposable.versions.find((version) => version.id === versionId);
+        if (entry === undefined) throw notFound();
+        return {
+          ...versionView(entry),
+          subject: entry.subject,
+          preheader: "",
+          variables: [],
+          from: null,
+          reply_to: null,
+          content,
+        };
+      }),
+      restoreVersion: vi.fn(async (id: string, versionId: string) => {
+        writes.push(["restoreVersion", id, versionId]);
+        requireDisposable(id);
+        const entry = disposable.versions.find((version) => version.id === versionId);
+        if (entry === undefined) throw notFound();
+        disposable.draft = entry.subject === disposable.published ? null : entry.subject;
+        return disposableView();
       }),
     },
     messages: {
@@ -428,7 +580,33 @@ function templateClientFixture(
     template_id: templateId,
     sandbox: true as const,
   };
-  return { calls, client, sendRequest, sends, templateId };
+  return {
+    calls,
+    client,
+    createRequest,
+    disposable,
+    disposableId,
+    sendRequest,
+    sends,
+    templateId,
+    updateRequest,
+    writes,
+  };
+}
+
+function templateRegistry(
+  fixture: ReturnType<typeof templateClientFixture>,
+  overrides: Partial<Parameters<typeof createTemplateScenarioRegistry>[0]> = {},
+) {
+  return createTemplateScenarioRegistry({
+    profile: inspectFixture().profile,
+    client: fixture.client,
+    templateId: fixture.templateId,
+    sendRequest: fixture.sendRequest,
+    createRequest: fixture.createRequest,
+    updateRequest: fixture.updateRequest,
+    ...overrides,
+  });
 }
 
 function messageClientFixture(
@@ -2082,9 +2260,9 @@ describe("live candidate foundation", () => {
       name: "@ahasend/sdk",
       version: "0.1.0-live-test",
     });
-    expect(candidate.profile.operations).toHaveLength(76);
+    expect(candidate.profile.operations).toHaveLength(85);
     expect(candidate.profile.iterators).toHaveLength(14);
-    expect(candidate.registry.primary.size).toBe(76);
+    expect(candidate.registry.primary.size).toBe(85);
     expect(candidate.registry.iterators).toHaveLength(14);
     expect(Object.isFrozen(candidate.manifest)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.contractSha256)).toBe(true);
@@ -2168,7 +2346,7 @@ describe("live candidate foundation", () => {
     expect(candidate.package.version).toBe("0.1.0-archive-test");
     expect(candidate.profileSource).toEqual(profile.source);
     expect(candidate.profileSidecar).toEqual(profile.sidecar);
-    expect(candidate.profile.operations).toHaveLength(76);
+    expect(candidate.profile.operations).toHaveLength(85);
     expect(candidate.profile.iterators).toHaveLength(14);
   });
 
@@ -2225,7 +2403,7 @@ describe("live candidate foundation", () => {
 
     expect(runCommand).toHaveBeenCalledOnce();
     expect(readFileSync(resolve(installDirectory, basename(tarballPath)))).toEqual(fixture.tarball);
-    expect(installed.profile.operations).toHaveLength(76);
+    expect(installed.profile.operations).toHaveLength(85);
 
     const badDirectory = join(directory, "bad-install");
     writeFileSync(tarballPath, Buffer.from("substituted after candidate creation"));
@@ -2247,7 +2425,7 @@ describe("live candidate foundation", () => {
 });
 
 describe("live scenario inventory", () => {
-  it("creates 76 primary scenarios and fourteen attached iterator subcases from the profile", () => {
+  it("creates 85 primary scenarios and fourteen attached iterator subcases from the profile", () => {
     const profile = inspectFixture().profile;
     const registry = createScenarioRegistry(
       profile,
@@ -2257,7 +2435,7 @@ describe("live scenario inventory", () => {
       })),
     );
 
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expect(registry.iterators).toHaveLength(14);
     expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(14);
     for (const iterator of registry.iterators) {
@@ -2274,7 +2452,7 @@ describe("live scenario inventory", () => {
     expect(Object.isFrozen(registry.primary)).toBe(true);
     expect(() => mutablePrimary.delete(profile.operations[0]!.operationId)).toThrow();
     expect(() => mutablePrimary.set("orphan", {})).toThrow();
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
   });
 
   it("rejects missing, orphaned, duplicate, and mapping-redefining scenarios", () => {
@@ -2346,7 +2524,7 @@ describe("live scenario inventory", () => {
     );
     expect(domainEntries).toHaveLength(6);
     expect(domainEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, DomainLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2536,7 +2714,7 @@ describe("live scenario inventory", () => {
       operationId: "getContacts",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, ContactLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2686,44 +2864,41 @@ describe("live scenario inventory", () => {
 
   it("registers the template primaries and the template send, and links the template iterator", () => {
     const fixture = templateClientFixture();
-    const registry = createTemplateScenarioRegistry({
-      profile: inspectFixture().profile,
-      client: fixture.client,
-      templateId: fixture.templateId,
-      sendRequest: fixture.sendRequest,
-    });
+    const registry = templateRegistry(fixture);
     const entries = [...registry.primary.values()].filter(
       ({ facade, operationId }) =>
         facade === "templates" || operationId === "createTemplateMessage",
     );
 
     expect(entries.map(({ operationId }) => operationId).sort()).toEqual([
+      "createTemplate",
       "createTemplateMessage",
+      "deleteTemplate",
+      "discardTemplateDraft",
       "getTemplate",
+      "getTemplateDraft",
+      "getTemplateVersion",
+      "listTemplateVersions",
       "listTemplates",
+      "publishTemplate",
+      "restoreTemplateVersion",
+      "updateTemplate",
     ]);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
     expect(registry.primary.get("listTemplates")?.iterator).toMatchObject({
       operationId: "listTemplates",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, TemplateLiveClient>>().toEqualTypeOf<true>();
   });
 
   it("finds the fixture template through the iterator, reads it, and sends it sandboxed with and without a sender", async () => {
     const fixture = templateClientFixture();
-    const result = await runTemplateLiveScenarios(
-      createTemplateScenarioRegistry({
-        profile: inspectFixture().profile,
-        client: fixture.client,
-        templateId: fixture.templateId,
-        sendRequest: fixture.sendRequest,
-      }),
-    );
+    const result = await runTemplateLiveScenarios(templateRegistry(fixture));
 
     expect(result.failure).toBeNull();
-    expect(result.operationResults).toEqual([
+    expect(result.operationResults.slice(0, 3)).toEqual([
       {
         operationId: "listTemplates",
         status: "passed",
@@ -2753,6 +2928,95 @@ describe("live scenario inventory", () => {
     expect(fixture.sends[1]).not.toHaveProperty("from");
   });
 
+  it("creates, drafts, publishes, restores, discards and deletes a disposable template", async () => {
+    const fixture = templateClientFixture();
+    const result = await runTemplateLiveScenarios(templateRegistry(fixture));
+
+    expect(result.failure).toBeNull();
+    expect(result.operationResults.slice(3)).toEqual([
+      {
+        operationId: "createTemplate",
+        status: "passed",
+        evidence: { cleanupRegistered: true, editor: "html", hasDraft: false },
+      },
+      { operationId: "updateTemplate", status: "passed", evidence: { hasDraft: true } },
+      { operationId: "getTemplateDraft", status: "passed", evidence: { matched: true } },
+      { operationId: "publishTemplate", status: "passed", evidence: { published: true } },
+      {
+        operationId: "listTemplateVersions",
+        status: "passed",
+        evidence: { publishedBy: "api_key", versions: 2 },
+      },
+      {
+        operationId: "getTemplateVersion",
+        status: "passed",
+        evidence: { matched: true, version: 1 },
+      },
+      { operationId: "restoreTemplateVersion", status: "passed", evidence: { hasDraft: true } },
+      { operationId: "discardTemplateDraft", status: "passed", evidence: { discarded: true } },
+      {
+        operationId: "deleteTemplate",
+        status: "passed",
+        evidence: { cleanupVerified: true, deleted: true },
+      },
+    ]);
+    const firstVersionId = "0a1b2c3d-0000-4000-8000-000000000101";
+    expect(fixture.writes).toEqual([
+      ["create", { ...fixture.createRequest, publish: true }],
+      ["update", fixture.disposableId, fixture.updateRequest],
+      ["publish", fixture.disposableId],
+      ["restoreVersion", fixture.disposableId, firstVersionId],
+      ["discardDraft", fixture.disposableId],
+      ["delete", fixture.disposableId],
+      // Cleanup deletes again and accepts the 404.
+      ["delete", fixture.disposableId],
+    ]);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable template", status: "passed" },
+    ]);
+    expect(fixture.disposable.exists).toBe(false);
+  });
+
+  it("finds and deletes the disposable template by name when the create response is lost", async () => {
+    const fixture = templateClientFixture({ loseCreateResponse: true });
+    const result = await runTemplateLiveScenarios(templateRegistry(fixture));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createTemplate" });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable template", status: "passed" },
+    ]);
+    expect(fixture.writes.at(-1)).toEqual(["delete", fixture.disposableId]);
+    expect(fixture.disposable.exists).toBe(false);
+  });
+
+  it("fails the versions scenario when the API key is not named as the publisher, and still deletes the template", async () => {
+    const fixture = templateClientFixture({ versionPublisher: "user" });
+    const registry = templateRegistry(fixture);
+    const result = await runTemplateLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "listTemplateVersions" });
+    expect(fixture.disposable.exists).toBe(false);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable template", status: "passed" },
+    ]);
+  });
+
+  it("refuses write requests the scenarios cannot check", () => {
+    const fixture = templateClientFixture();
+
+    expect(() =>
+      templateRegistry(fixture, {
+        createRequest: { ...fixture.createRequest, publish: true } as never,
+      }),
+    ).toThrow("must not set publish");
+    expect(() =>
+      templateRegistry(fixture, { createRequest: { name: "x", subject: "x" } as never }),
+    ).toThrow("content must be an object");
+    expect(() =>
+      templateRegistry(fixture, { updateRequest: { subject: fixture.createRequest.subject } }),
+    ).toThrow("must differ from the create subject");
+  });
+
   it("supplies each recipient a placeholder for every variable the template requires", async () => {
     const fixture = templateClientFixture({
       variables: [
@@ -2761,14 +3025,7 @@ describe("live scenario inventory", () => {
         { name: "order_id", required: true },
       ],
     });
-    const result = await runTemplateLiveScenarios(
-      createTemplateScenarioRegistry({
-        profile: inspectFixture().profile,
-        client: fixture.client,
-        templateId: fixture.templateId,
-        sendRequest: fixture.sendRequest,
-      }),
-    );
+    const result = await runTemplateLiveScenarios(templateRegistry(fixture));
 
     expect(result.failure).toBeNull();
     const substitutions = {
@@ -2804,14 +3061,7 @@ describe("live scenario inventory", () => {
     ],
   ] as const)("fails the template scenarios when %s", async (_case, options, operationId) => {
     const fixture = templateClientFixture(options);
-    const result = await runTemplateLiveScenarios(
-      createTemplateScenarioRegistry({
-        profile: inspectFixture().profile,
-        client: fixture.client,
-        templateId: fixture.templateId,
-        sendRequest: fixture.sendRequest,
-      }),
-    );
+    const result = await runTemplateLiveScenarios(templateRegistry(fixture));
 
     expect(result.failure).toEqual({ phase: "operation", operationId });
     expect(fixture.sends).toEqual([]);
@@ -2830,12 +3080,7 @@ describe("live scenario inventory", () => {
     "names the domains and the Sender card when the default sender is %j",
     async (options, message) => {
       const fixture = templateClientFixture(options);
-      const registry = createTemplateScenarioRegistry({
-        profile: inspectFixture().profile,
-        client: fixture.client,
-        templateId: fixture.templateId,
-        sendRequest: fixture.sendRequest,
-      });
+      const registry = templateRegistry(fixture);
 
       const run = registry.primary.get("getTemplate")!["run"] as () => Promise<unknown>;
       await expect(run()).rejects.toThrow(message);
@@ -2867,18 +3112,15 @@ describe("live scenario inventory", () => {
         variables: [],
         from: { email: "templates@verified.example" },
         reply_to: null,
+        editor: "advanced",
+        has_draft: false,
         ...override,
       };
       if (template["from"] === undefined) delete template["from"];
       if (template["reply_to"] === undefined) delete template["reply_to"];
       return template;
     });
-    const registry = createTemplateScenarioRegistry({
-      profile: inspectFixture().profile,
-      client: fixture.client,
-      templateId: fixture.templateId,
-      sendRequest: fixture.sendRequest,
-    });
+    const registry = templateRegistry(fixture);
 
     // The run reports a failed operation without its error, so call the
     // scenario directly to see which check refused the template.
@@ -2890,12 +3132,7 @@ describe("live scenario inventory", () => {
   it("refuses a template send that is not sandboxed or carries its own content", () => {
     const fixture = templateClientFixture();
     const create = (sendRequest: Record<string, unknown>) =>
-      createTemplateScenarioRegistry({
-        profile: inspectFixture().profile,
-        client: fixture.client,
-        templateId: fixture.templateId,
-        sendRequest: sendRequest as never,
-      });
+      templateRegistry(fixture, { sendRequest: sendRequest as never });
 
     expect(() => create({ ...fixture.sendRequest, sandbox: false })).toThrow(
       "sandbox must be true",
@@ -2940,7 +3177,7 @@ describe("live scenario inventory", () => {
         .filter(({ facade }) => ["lists", "lists.contacts", "contacts.lists"].includes(facade))
         .map(({ operationId, method }) => `${operationId}.${method}`),
     ).toEqual(["getLists.iterate", "getListContacts.iterate", "getContactLists.iterate"]);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, ListLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3144,7 +3381,7 @@ describe("live scenario inventory", () => {
     );
     expect(messageEntries).toHaveLength(6);
     expect(messageEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, MessageLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3486,7 +3723,7 @@ describe("live scenario inventory", () => {
     );
     expect(apiKeyEntries).toHaveLength(5);
     expect(apiKeyEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, APIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3699,7 +3936,7 @@ describe("live scenario inventory", () => {
     );
     expect(routeEntries).toHaveLength(5);
     expect(routeEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, RouteLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3948,7 +4185,7 @@ describe("live scenario inventory", () => {
     );
     expect(webhookEntries).toHaveLength(5);
     expect(webhookEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, WebhookLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4197,7 +4434,7 @@ describe("live scenario inventory", () => {
         ({ operationId, method }) => operationId.includes("update") || method === "update",
       ),
     ).toBe(false);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, SMTPCredentialLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4402,7 +4639,7 @@ describe("live scenario inventory", () => {
     expect(accountEntries).toHaveLength(5);
     expect(accountEntries.every(({ run }) => typeof run === "function")).toBe(true);
     expect(registry.iterators.filter(({ facade }) => facade === "accounts")).toHaveLength(0);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, AccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4593,7 +4830,7 @@ describe("live scenario inventory", () => {
     );
     expect(suppressionEntries).toHaveLength(4);
     expect(suppressionEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, SuppressionLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4800,7 +5037,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(9);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5234,7 +5471,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(5);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountAPIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5500,7 +5737,7 @@ describe("live scenario inventory", () => {
     );
     expect(statisticsEntries).toHaveLength(3);
     expect(statisticsEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(76);
+    expect(registry.primary.size).toBe(85);
     expectTypeOf<IsAssignable<AhaSendClient, StatisticsLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -6257,15 +6494,15 @@ describe("live cleanup and reporting", () => {
       package: candidate.package,
       tarballSha256: candidate.tarballSha256,
     });
-    expect(parsed.operations).toHaveLength(76);
-    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(76);
+    expect(parsed.operations).toHaveLength(85);
+    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(85);
     expect(parsed.iterators).toHaveLength(14);
     expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(14);
     expect(
       validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
     ).toMatchObject({
       reportSha256: written.reportSha256,
-      operations: 76,
+      operations: 85,
       iterators: 14,
       authorizationOutcomes: 11,
       sandboxOutcomes: 3,
@@ -6399,7 +6636,7 @@ describe("live cleanup and reporting", () => {
 
     const missing = structuredClone(report);
     missing.operations.pop();
-    expect(() => validate(missing)).toThrow("must contain exactly 76 results");
+    expect(() => validate(missing)).toThrow("must contain exactly 85 results");
 
     const missingIterator = structuredClone(report);
     missingIterator.iterators.pop();
@@ -6486,6 +6723,15 @@ describe("live cleanup and reporting", () => {
     )!;
     delete (listTemplates.evidence as Record<string, unknown>).templateFound;
     expect(() => validate(missingTemplateListing)).toThrow("listTemplates templateFound");
+
+    const userPublishedVersions = structuredClone(baseReport);
+    const listTemplateVersions = userPublishedVersions.operations.find(
+      ({ operationId }) => operationId === "listTemplateVersions",
+    )!;
+    (listTemplateVersions.evidence as Record<string, unknown>).publishedBy = "user";
+    expect(() => validate(userPublishedVersions)).toThrow(
+      'listTemplateVersions publishedBy must be "api_key"',
+    );
 
     const missingUnpause = structuredClone(baseReport);
     const unpause = missingUnpause.operations.find(

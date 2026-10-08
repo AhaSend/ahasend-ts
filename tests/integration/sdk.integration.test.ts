@@ -314,6 +314,9 @@ const OPERATION_CASES = [
       text_content: "Hello from the packed SDK",
     },
   ]),
+  operation("createTemplateMessage", ["messages"], "sendTemplate", [
+    { template_id: RESOURCE_ID, recipients: [{ email: `recipient@${DOMAIN}` }] },
+  ]),
   operation("createConversationMessage", ["messages"], "sendConversation", [
     {
       from: { email: `sender@${DOMAIN}` },
@@ -325,7 +328,25 @@ const OPERATION_CASES = [
   operation("getMessage", ["messages"], "get", [RESOURCE_ID]),
   operation("cancelMessage", ["messages"], "cancel", [RESOURCE_ID]),
   operation("listTemplates", ["templates"], "list", [PAGINATION]),
+  operation("createTemplate", ["templates"], "create", [
+    { name: "Integration template", content: { html: "<p>Hello from the packed SDK</p>" } },
+  ]),
   operation("getTemplate", ["templates"], "get", [RESOURCE_ID]),
+  operation("updateTemplate", ["templates"], "update", [
+    RESOURCE_ID,
+    { subject: null, content: { text: "Hello from the packed SDK" } },
+  ]),
+  operation("deleteTemplate", ["templates"], "delete", [RESOURCE_ID]),
+  operation("getTemplateDraft", ["templates"], "getDraft", [RESOURCE_ID]),
+  operation("discardTemplateDraft", ["templates"], "discardDraft", [RESOURCE_ID]),
+  operation("publishTemplate", ["templates"], "publish", [RESOURCE_ID]),
+  operation("listTemplateVersions", ["templates"], "listVersions", [RESOURCE_ID]),
+  operation("getTemplateVersion", ["templates"], "getVersion", [RESOURCE_ID, RESOURCE_ID]),
+  operation("restoreTemplateVersion", ["templates"], "restoreVersion", [
+    RESOURCE_ID,
+    RESOURCE_ID,
+    { publish: true },
+  ]),
   operation("getAccount", ["accounts"], "get"),
   operation("updateAccount", ["accounts"], "update", [{ name: "Integration account" }]),
   operation("getAccountMembers", ["accounts"], "listMembers"),
@@ -966,8 +987,8 @@ describe("packed SDK operation contract", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
     const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
-    expect(OPERATION_CASES).toHaveLength(75);
-    expect(new Set(implementedOperationIds).size).toBe(75);
+    expect(OPERATION_CASES).toHaveLength(85);
+    expect(new Set(implementedOperationIds).size).toBe(85);
     expect([...implementedOperationIds].sort()).toEqual(operationIds.sort());
   });
 
