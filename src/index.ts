@@ -69,6 +69,7 @@ export type {
   Attachment,
   CreateConversationMessageRequest,
   CreateMessageRequest,
+  CreateTemplateMessageRequest,
   DeliveryAttempt,
   ListMessagesParams,
   Message,
@@ -89,16 +90,29 @@ export type {
 } from "./resources/messages.js";
 
 export type {
+  CreateTemplateRequest,
   ListTemplatesParams,
+  ListTemplateVersionsResponse,
+  RestoreTemplateVersionRequest,
   Template,
+  TemplateContent,
+  TemplateContentInput,
+  TemplateDraft,
+  TemplateEditor,
+  TemplatePublisher,
   TemplatesClient,
   TemplateVariable,
+  TemplateVersion,
+  TemplateVersionDetail,
+  UpdateTemplateRequest,
 } from "./resources/templates.js";
 
 export type {
   CreateDomainRequest,
   DNSRecord,
   Domain,
+  DomainPauseReason,
+  DomainSendingType,
   DomainsClient,
   ListDomainsParams,
   UpdateDomainRequest,

@@ -690,6 +690,7 @@ export interface CreateDomainRequest {
     media_subdomain?: string | undefined;
     // (undocumented)
     return_path_subdomain?: string | undefined;
+    sending_type?: DomainSendingType | undefined;
     // (undocumented)
     subscription_subdomain?: string | undefined;
     // (undocumented)
@@ -723,17 +724,15 @@ export interface CreateMessageRequest {
     headers?: Record<string, string> | undefined;
     html_content?: string | undefined;
     recipients: readonly Recipient[];
-    // (undocumented)
     reply_to?: Address | undefined;
     retention?: Retention | undefined;
     sandbox?: boolean | undefined;
     sandbox_result?: SandboxResult | undefined;
     // (undocumented)
     schedule?: MessageSchedule | undefined;
-    subject?: string | undefined;
+    subject: string;
     substitutions?: Record<string, SubstitutionValue> | undefined;
     tags?: readonly string[] | undefined;
-    template_id?: string | undefined;
     text_content?: string | undefined;
     tracking?: Tracking | undefined;
 }
@@ -797,6 +796,40 @@ export interface CreateSuppressionResponse {
     data: Suppression[];
     // (undocumented)
     object: "list";
+}
+
+// @public
+export interface CreateTemplateMessageRequest {
+    // (undocumented)
+    attachments?: readonly Attachment[] | undefined;
+    from?: Address | undefined;
+    headers?: Record<string, string> | undefined;
+    recipients: readonly Recipient[];
+    reply_to?: Address | undefined;
+    retention?: Retention | undefined;
+    sandbox?: boolean | undefined;
+    sandbox_result?: SandboxResult | undefined;
+    // (undocumented)
+    schedule?: MessageSchedule | undefined;
+    subject?: string | undefined;
+    tags?: readonly string[] | undefined;
+    template_id: string;
+    tracking?: Tracking | undefined;
+}
+
+// @public
+export interface CreateTemplateRequest {
+    // (undocumented)
+    content?: TemplateContentInput | undefined;
+    editor?: TemplateEditor | undefined;
+    from?: Address | null | undefined;
+    name: string;
+    // (undocumented)
+    preheader?: string | null | undefined;
+    publish?: boolean | undefined;
+    reply_to?: Address | null | undefined;
+    // (undocumented)
+    subject?: string | null | undefined;
 }
 
 // @public
@@ -949,10 +982,15 @@ export interface Domain {
     media_subdomain: string | null;
     // (undocumented)
     object: "domain";
+    pause_reason: DomainPauseReason | null;
+    paused: boolean;
+    paused_at: ISODateTime | null;
     // (undocumented)
     return_path_subdomain: string | null;
     // (undocumented)
     rotation_ready: boolean;
+    // (undocumented)
+    sending_type: DomainSendingType;
     // (undocumented)
     subscription_subdomain: string | null;
     // (undocumented)
@@ -960,6 +998,9 @@ export interface Domain {
     // (undocumented)
     updated_at: ISODateTime;
 }
+
+// @public
+export type DomainPauseReason = "bounce_rate" | (string & {});
 
 // @public
 export interface DomainsClient {
@@ -971,6 +1012,9 @@ export interface DomainsClient {
     list(params?: ListDomainsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Domain>>;
     update(domain: string, body: UpdateDomainRequest, options?: RequestOptions): AhaSendPromise<Domain>;
 }
+
+// @public
+export type DomainSendingType = "transactional" | "marketing";
 
 // @public
 export interface EmbeddedContactList {
@@ -1088,7 +1132,8 @@ export type ListContactSubscriptionStatus = "unconfirmed" | "confirmed" | "unsub
 
 // @public (undocumented)
 export type ListDomainsParams = PaginationParams & {
-    dns_valid?: boolean | undefined;
+    dns_valid?: boolean | null | undefined;
+    sending_type?: DomainSendingType | undefined;
 };
 
 // @public
@@ -1144,6 +1189,14 @@ export type ListSuppressionsParams = PaginationParams & {
 
 // @public
 export type ListTemplatesParams = PaginationParams;
+
+// @public
+export interface ListTemplateVersionsResponse {
+    // (undocumented)
+    data: TemplateVersion[];
+    // (undocumented)
+    object: "list";
+}
 
 // @public (undocumented)
 export type ListWebhooksParams = PaginationParams & {
@@ -1212,6 +1265,7 @@ export interface MessagesClient {
     list(params?: ListMessagesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<MessageSummary>>;
     send(body: CreateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
     sendConversation(body: CreateConversationMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
+    sendTemplate(body: CreateTemplateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>;
 }
 
 // @public (undocumented)
@@ -1260,6 +1314,7 @@ export interface MessageSummary {
     subject: string;
     // (undocumented)
     tags: string[];
+    template_id: UUID | null;
     // (undocumented)
     updated_at: ISODateTime;
 }
@@ -1385,6 +1440,11 @@ export interface ResponseEvent extends RequestEvent {
     requestId?: string;
     // (undocumented)
     status: number;
+}
+
+// @public
+export interface RestoreTemplateVersionRequest {
+    publish?: boolean | undefined;
 }
 
 // @public
@@ -1632,6 +1692,7 @@ export interface SubAccountsClient {
     iterate(params?: ListSubAccountsParams, options?: RequestOptions): AsyncGenerator<SubAccount, void, undefined>;
     list(params?: ListSubAccountsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SubAccount>>;
     suspend(subAccountId: UUID, body: SuspendSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>;
+    unpauseDomain(subAccountId: UUID, domain: string, options?: RequestOptions): AhaSendPromise<Domain>;
     unsuspend(subAccountId: UUID, options?: RequestOptions): AhaSendPromise<SubAccount>;
     update(subAccountId: UUID, body: UpdateSubAccountRequest, options?: RequestOptions): AhaSendPromise<SubAccount>;
     usage(options?: RequestOptions): AhaSendPromise<SubAccountUsageResponse>;
@@ -1718,7 +1779,6 @@ export interface SuppressionsClient {
 
 // @public (undocumented)
 export interface SuspendSubAccountRequest {
-    // (undocumented)
     reason: string;
 }
 
@@ -1732,8 +1792,13 @@ export interface TelemetryHooks {
 
 // @public
 export interface Template {
+    content?: TemplateContent | null;
     // (undocumented)
     created_at: ISODateTime;
+    // (undocumented)
+    editor: TemplateEditor;
+    from: Address | null;
+    has_draft: boolean;
     // (undocumented)
     id: string;
     // (undocumented)
@@ -1741,6 +1806,7 @@ export interface Template {
     // (undocumented)
     object: "template";
     preheader: string;
+    reply_to: Address | null;
     subject: string;
     // (undocumented)
     updated_at: ISODateTime;
@@ -1749,10 +1815,62 @@ export interface Template {
 }
 
 // @public
+export interface TemplateContent {
+    html?: string;
+    mjml?: string;
+    text?: string;
+    text_is_custom: boolean;
+}
+
+// @public
+export interface TemplateContentInput {
+    html?: string | undefined;
+    mjml?: string | undefined;
+    text?: string | null | undefined;
+    text_is_custom?: boolean | undefined;
+}
+
+// @public
+export interface TemplateDraft {
+    content: TemplateContent | null;
+    // (undocumented)
+    from: Address | null;
+    // (undocumented)
+    object: "template_draft";
+    // (undocumented)
+    preheader: string;
+    reply_to: Address | null;
+    // (undocumented)
+    subject: string;
+    // (undocumented)
+    template_id: UUID;
+    updated_at: ISODateTime;
+    variables: TemplateVariable[];
+}
+
+// @public
+export type TemplateEditor = "advanced" | "simple" | "html";
+
+// @public
+export interface TemplatePublisher {
+    id: UUID;
+    type: "user" | "api_key";
+}
+
+// @public
 export interface TemplatesClient {
+    create(body: CreateTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
+    delete(templateId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    discardDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>;
     get(templateId: string, options?: RequestOptions): AhaSendPromise<Template>;
+    getDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<TemplateDraft>;
+    getVersion(templateId: UUID, versionId: UUID, options?: RequestOptions): AhaSendPromise<TemplateVersionDetail>;
     iterate(params?: ListTemplatesParams, options?: RequestOptions): AsyncGenerator<Template, void, undefined>;
     list(params?: ListTemplatesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Template>>;
+    listVersions(templateId: UUID, options?: RequestOptions): AhaSendPromise<ListTemplateVersionsResponse>;
+    publish(templateId: UUID, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
+    restoreVersion(templateId: UUID, versionId: UUID, body?: RestoreTemplateVersionRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
+    update(templateId: UUID, body: UpdateTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
 }
 
 // @public
@@ -1760,6 +1878,32 @@ export interface TemplateVariable {
     // (undocumented)
     name: string;
     required: boolean;
+}
+
+// @public
+export interface TemplateVersion {
+    // (undocumented)
+    id: UUID;
+    // (undocumented)
+    object: "template_version";
+    // (undocumented)
+    published_at: ISODateTime;
+    published_by: TemplatePublisher | null;
+    version: number;
+}
+
+// @public
+export interface TemplateVersionDetail extends TemplateVersion {
+    content: TemplateContent | null;
+    // (undocumented)
+    from: Address | null;
+    // (undocumented)
+    preheader: string;
+    reply_to: Address | null;
+    // (undocumented)
+    subject: string;
+    // (undocumented)
+    variables: TemplateVariable[];
 }
 
 // @public
@@ -1839,6 +1983,7 @@ export interface UpdateDomainRequest {
     media_subdomain?: string | undefined;
     // (undocumented)
     return_path_subdomain?: string | undefined;
+    sending_type?: DomainSendingType | undefined;
     // (undocumented)
     subscription_subdomain?: string | undefined;
     // (undocumented)
@@ -1877,6 +2022,17 @@ export type UpdateSubAccountRequest = {
 } | {
     monthly_credit: number;
 });
+
+// @public
+export interface UpdateTemplateRequest {
+    content?: TemplateContentInput | undefined;
+    from?: Address | null | undefined;
+    name?: string | undefined;
+    preheader?: string | null | undefined;
+    publish?: boolean | undefined;
+    reply_to?: Address | null | undefined;
+    subject?: string | null | undefined;
+}
 
 // @public (undocumented)
 export interface UpdateWebhookRequest {

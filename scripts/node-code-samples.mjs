@@ -141,6 +141,18 @@ const result = await client.messages.send({
 console.log("Sandbox message accepted.", { count: result.data.length });`,
   ),
   entry(
+    "createTemplateMessage",
+    "POST /v2/accounts/{account_id}/messages/template",
+    "client.messages.sendTemplate",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const result = await client.messages.sendTemplate({
+  template_id: "00000000-0000-4000-8000-000000000009",
+  recipients: [{ email: "recipient@example.net", substitutions: { first_name: "Ada" } }],
+  sandbox: true,
+});
+console.log("Sandbox template message accepted.", { count: result.data.length });`,
+  ),
+  entry(
     "createConversationMessage",
     "POST /v2/accounts/{account_id}/messages/conversation",
     "client.messages.sendConversation",
@@ -178,12 +190,99 @@ console.log("Message cancellation requested.", { message: result.message });`,
 console.log("Templates listed.", { count: page.data.length });`,
   ),
   entry(
+    "createTemplate",
+    "POST /v2/accounts/{account_id}/templates",
+    "client.templates.create",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const template = await client.templates.create({
+  name: "Welcome email",
+  subject: "Welcome, {{ first_name }}",
+  content: { html: "<p>Hello {{ first_name }}, welcome aboard.</p>" },
+  publish: true,
+});
+console.log("Template created.", { id: template.id, editor: template.editor });`,
+  ),
+  entry(
     "getTemplate",
     "GET /v2/accounts/{account_id}/templates/{template_id}",
     "client.templates.get",
     `const templateId = "00000000-0000-4000-8000-000000000009";
 const template = await client.templates.get(templateId);
 console.log("Template found.", { id: template.id, name: template.name });`,
+  ),
+  entry(
+    "updateTemplate",
+    "PUT /v2/accounts/{account_id}/templates/{template_id}",
+    "client.templates.update",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
+// Fields go to the template's draft; publish: true also publishes it.
+const template = await client.templates.update(templateId, {
+  subject: "Welcome to the team, {{ first_name }}",
+  preheader: null,
+  publish: true,
+});
+console.log("Template updated.", { id: template.id, hasDraft: template.has_draft });`,
+  ),
+  entry(
+    "deleteTemplate",
+    "DELETE /v2/accounts/{account_id}/templates/{template_id}",
+    "client.templates.delete",
+    `const templateId = "00000000-0000-4000-8000-000000000009";
+const result = await client.templates.delete(templateId);
+console.log("Template deleted.", { message: result.message });`,
+  ),
+  entry(
+    "getTemplateDraft",
+    "GET /v2/accounts/{account_id}/templates/{template_id}/draft",
+    "client.templates.getDraft",
+    `const templateId = "00000000-0000-4000-8000-000000000009";
+const draft = await client.templates.getDraft(templateId);
+console.log("Template draft found.", { templateId: draft.template_id, subject: draft.subject });`,
+  ),
+  entry(
+    "discardTemplateDraft",
+    "DELETE /v2/accounts/{account_id}/templates/{template_id}/draft",
+    "client.templates.discardDraft",
+    `const templateId = "00000000-0000-4000-8000-000000000009";
+const template = await client.templates.discardDraft(templateId);
+console.log("Template draft discarded.", { id: template.id, hasDraft: template.has_draft });`,
+  ),
+  entry(
+    "publishTemplate",
+    "POST /v2/accounts/{account_id}/templates/{template_id}/publish",
+    "client.templates.publish",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
+const template = await client.templates.publish(templateId);
+console.log("Template published.", { id: template.id, hasDraft: template.has_draft });`,
+  ),
+  entry(
+    "listTemplateVersions",
+    "GET /v2/accounts/{account_id}/templates/{template_id}/versions",
+    "client.templates.listVersions",
+    `const templateId = "00000000-0000-4000-8000-000000000009";
+const versions = await client.templates.listVersions(templateId);
+console.log("Template versions listed.", { count: versions.data.length });`,
+  ),
+  entry(
+    "getTemplateVersion",
+    "GET /v2/accounts/{account_id}/templates/{template_id}/versions/{version_id}",
+    "client.templates.getVersion",
+    `const templateId = "00000000-0000-4000-8000-000000000009";
+const versionId = "00000000-0000-4000-8000-000000000012";
+const version = await client.templates.getVersion(templateId, versionId);
+console.log("Template version found.", { id: version.id, version: version.version });`,
+  ),
+  entry(
+    "restoreTemplateVersion",
+    "POST /v2/accounts/{account_id}/templates/{template_id}/versions/{version_id}/restore",
+    "client.templates.restoreVersion",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
+const versionId = "00000000-0000-4000-8000-000000000012";
+const template = await client.templates.restoreVersion(templateId, versionId, { publish: true });
+console.log("Template version restored.", { id: template.id, hasDraft: template.has_draft });`,
   ),
   entry(
     "getAccount",
@@ -296,6 +395,14 @@ console.log("Sub-account suspended.", { id: subAccount.id, status: subAccount.st
     `const subAccountId = "00000000-0000-4000-8000-000000000004";
 const subAccount = await client.subAccounts.unsuspend(subAccountId);
 console.log("Sub-account unsuspended.", { id: subAccount.id, status: subAccount.status });`,
+  ),
+  entry(
+    "unpauseSubAccountDomain",
+    "POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/domains/{domain}/unpause",
+    "client.subAccounts.unpauseDomain",
+    `const subAccountId = "00000000-0000-4000-8000-000000000004";
+const domain = await client.subAccounts.unpauseDomain(subAccountId, "mail.example.com");
+console.log("Sub-account domain unpaused.", { name: domain.domain, paused: domain.paused });`,
   ),
   entry(
     "listSubAccountAPIKeys",

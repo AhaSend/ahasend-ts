@@ -4,7 +4,7 @@
 
 This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
-It contains exactly 74 API methods and 14 async iterators.
+It contains exactly 85 API methods and 14 async iterators.
 
 ## Contact management
 
@@ -466,6 +466,41 @@ const result = await client.messages.send({
 console.log("Sandbox message accepted.", { count: result.data.length });
 ```
 
+<!-- operation: createTemplateMessage -->
+
+### messages.sendTemplate
+
+```ts
+client.messages.sendTemplate(body: CreateTemplateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>
+```
+
+- **Operation ID:** `createTemplateMessage`
+- **HTTP:** `POST /v2/accounts/{account_id}/messages/template`
+- **Models:** [CreateTemplateMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
+- **OpenAPI models:** `request: CreateTemplateMessageRequest`, `202: CreateMessageResponse`
+- **Scopes:** `messages:send:all`, `messages:send:{domain}`
+- **Security alternatives:** `BearerAuth: messages:send:all` **or** `BearerAuth: messages:send:{domain}`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's default sender when the request names none.
+- **Authorization rule:** `body_domain`; global role `messages:send:all`; domain role `messages:send:{domain}`
+
+<!-- sdk-sample: createTemplateMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const result = await client.messages.sendTemplate({
+  template_id: "00000000-0000-4000-8000-000000000009",
+  recipients: [{ email: "recipient@example.net", substitutions: { first_name: "Ada" } }],
+  sandbox: true,
+});
+console.log("Sandbox template message accepted.", { count: result.data.length });
+```
+
 <!-- operation: createConversationMessage -->
 
 ### messages.sendConversation
@@ -596,6 +631,42 @@ const page = await client.templates.list({ limit: 20 });
 console.log("Templates listed.", { count: page.data.length });
 ```
 
+<!-- operation: createTemplate -->
+
+### templates.create
+
+```ts
+client.templates.create(body: CreateTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `createTemplate`
+- **HTTP:** `POST /v2/accounts/{account_id}/templates`
+- **Models:** [CreateTemplateRequest](../src/resources/templates.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `request: CreateTemplateRequest`, `201: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: createTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const template = await client.templates.create({
+  name: "Welcome email",
+  subject: "Welcome, {{ first_name }}",
+  content: { html: "<p>Hello {{ first_name }}, welcome aboard.</p>" },
+  publish: true,
+});
+console.log("Template created.", { id: template.id, editor: template.editor });
+```
+
 <!-- operation: getTemplate -->
 
 ### templates.get
@@ -625,6 +696,264 @@ const client = AhaSendClient.fromEnv();
 const templateId = "00000000-0000-4000-8000-000000000009";
 const template = await client.templates.get(templateId);
 console.log("Template found.", { id: template.id, name: template.name });
+```
+
+<!-- operation: updateTemplate -->
+
+### templates.update
+
+```ts
+client.templates.update(templateId: UUID, body: UpdateTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `updateTemplate`
+- **HTTP:** `PUT /v2/accounts/{account_id}/templates/{template_id}`
+- **Models:** [UUID](../src/types/common.ts), [UpdateTemplateRequest](../src/resources/templates.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `request: UpdateTemplateRequest`, `200: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: updateTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
+// Fields go to the template's draft; publish: true also publishes it.
+const template = await client.templates.update(templateId, {
+  subject: "Welcome to the team, {{ first_name }}",
+  preheader: null,
+  publish: true,
+});
+console.log("Template updated.", { id: template.id, hasDraft: template.has_draft });
+```
+
+<!-- operation: deleteTemplate -->
+
+### templates.delete
+
+```ts
+client.templates.delete(templateId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
+```
+
+- **Operation ID:** `deleteTemplate`
+- **HTTP:** `DELETE /v2/accounts/{account_id}/templates/{template_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **OpenAPI models:** `200: SuccessResponse`
+- **Scopes:** `templates:delete`
+- **Security alternatives:** `BearerAuth: templates:delete`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const result = await client.templates.delete(templateId);
+console.log("Template deleted.", { message: result.message });
+```
+
+<!-- operation: getTemplateDraft -->
+
+### templates.getDraft
+
+```ts
+client.templates.getDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<TemplateDraft>
+```
+
+- **Operation ID:** `getTemplateDraft`
+- **HTTP:** `GET /v2/accounts/{account_id}/templates/{template_id}/draft`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [TemplateDraft](../src/resources/templates.ts)
+- **OpenAPI models:** `200: TemplateDraft`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getTemplateDraft -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const draft = await client.templates.getDraft(templateId);
+console.log("Template draft found.", { templateId: draft.template_id, subject: draft.subject });
+```
+
+<!-- operation: discardTemplateDraft -->
+
+### templates.discardDraft
+
+```ts
+client.templates.discardDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `discardTemplateDraft`
+- **HTTP:** `DELETE /v2/accounts/{account_id}/templates/{template_id}/draft`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `200: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: discardTemplateDraft -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const template = await client.templates.discardDraft(templateId);
+console.log("Template draft discarded.", { id: template.id, hasDraft: template.has_draft });
+```
+
+<!-- operation: publishTemplate -->
+
+### templates.publish
+
+```ts
+client.templates.publish(templateId: UUID, options?: IdempotencyRequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `publishTemplate`
+- **HTTP:** `POST /v2/accounts/{account_id}/templates/{template_id}/publish`
+- **Models:** [UUID](../src/types/common.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `200: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: publishTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
+const template = await client.templates.publish(templateId);
+console.log("Template published.", { id: template.id, hasDraft: template.has_draft });
+```
+
+<!-- operation: listTemplateVersions -->
+
+### templates.listVersions
+
+```ts
+client.templates.listVersions(templateId: UUID, options?: RequestOptions): AhaSendPromise<ListTemplateVersionsResponse>
+```
+
+- **Operation ID:** `listTemplateVersions`
+- **HTTP:** `GET /v2/accounts/{account_id}/templates/{template_id}/versions`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [ListTemplateVersionsResponse](../src/resources/templates.ts)
+- **OpenAPI models:** `200: TemplateVersionsResponse`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: listTemplateVersions -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const versions = await client.templates.listVersions(templateId);
+console.log("Template versions listed.", { count: versions.data.length });
+```
+
+<!-- operation: getTemplateVersion -->
+
+### templates.getVersion
+
+```ts
+client.templates.getVersion(templateId: UUID, versionId: UUID, options?: RequestOptions): AhaSendPromise<TemplateVersionDetail>
+```
+
+- **Operation ID:** `getTemplateVersion`
+- **HTTP:** `GET /v2/accounts/{account_id}/templates/{template_id}/versions/{version_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [TemplateVersionDetail](../src/resources/templates.ts)
+- **OpenAPI models:** `200: TemplateVersionDetail`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getTemplateVersion -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const versionId = "00000000-0000-4000-8000-000000000012";
+const version = await client.templates.getVersion(templateId, versionId);
+console.log("Template version found.", { id: version.id, version: version.version });
+```
+
+<!-- operation: restoreTemplateVersion -->
+
+### templates.restoreVersion
+
+```ts
+client.templates.restoreVersion(templateId: UUID, versionId: UUID, body?: RestoreTemplateVersionRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `restoreTemplateVersion`
+- **HTTP:** `POST /v2/accounts/{account_id}/templates/{template_id}/versions/{version_id}/restore`
+- **Models:** [UUID](../src/types/common.ts), [RestoreTemplateVersionRequest](../src/resources/templates.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `request: RestoreTemplateVersionRequest`, `200: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: restoreTemplateVersion -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
+const versionId = "00000000-0000-4000-8000-000000000012";
+const template = await client.templates.restoreVersion(templateId, versionId, { publish: true });
+console.log("Template version restored.", { id: template.id, hasDraft: template.has_draft });
 ```
 
 <!-- operation: getAccount -->
@@ -1037,6 +1366,37 @@ const client = AhaSendClient.fromEnv();
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const subAccount = await client.subAccounts.unsuspend(subAccountId);
 console.log("Sub-account unsuspended.", { id: subAccount.id, status: subAccount.status });
+```
+
+<!-- operation: unpauseSubAccountDomain -->
+
+### subAccounts.unpauseDomain
+
+```ts
+client.subAccounts.unpauseDomain(subAccountId: UUID, domain: string, options?: RequestOptions): AhaSendPromise<Domain>
+```
+
+- **Operation ID:** `unpauseSubAccountDomain`
+- **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/domains/{domain}/unpause`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **OpenAPI models:** `200: Domain`
+- **Scopes:** `sub-accounts:suspend`
+- **Security alternatives:** `BearerAuth: sub-accounts:suspend`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: unpauseSubAccountDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const domain = await client.subAccounts.unpauseDomain(subAccountId, "mail.example.com");
+console.log("Sub-account domain unpaused.", { name: domain.domain, paused: domain.paused });
 ```
 
 <!-- operation: listSubAccountAPIKeys -->

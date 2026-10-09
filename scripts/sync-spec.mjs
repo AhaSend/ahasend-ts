@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { collectContractInventory, parseOpenApi } from "./generate-contracts.mjs";
+import {
+  collectContractInventory,
+  parseOpenApi,
+  parseWebhookContract,
+  validateWebhookContract,
+} from "./generate-contracts.mjs";
 import { ITERATOR_MAPPINGS, PRIMARY_OPERATION_MAPPINGS } from "./generate-sdk.mjs";
 import { NODE_OPERATION_KEYS } from "./node-code-samples.mjs";
 
@@ -14,11 +19,12 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const SPEC_REPOSITORY = "AhaSend/AhaSend";
 export const DEFAULT_SPEC_REF = "master";
+export const SPEC_FILES = Object.freeze(["openapi.yaml", "webhooks.yaml"]);
 
 /**
- * The server repository owns everything in openapi.yaml except the code
- * samples. Each SDK owns its own language's samples, so this repository
- * regenerates the Node ones after the copy.
+ * The server repository owns webhooks.yaml and everything in openapi.yaml
+ * except the code samples. Each SDK owns its own language's samples, so this
+ * repository regenerates the Node ones after the copy.
  *
  * The SDK generator runs twice: first so the operation profile carries any new
  * facade mapping the sample check reads, then again so the contract digests
@@ -39,14 +45,14 @@ export function parseSyncArguments(arguments_) {
   throw new TypeError("Usage: node scripts/sync-spec.mjs [--ref <branch>]");
 }
 
-async function downloadSpec(ref) {
+async function downloadSpec(file, ref) {
   const { stdout } = await execFileAsync(
     "gh",
     [
       "api",
       "-H",
       "Accept: application/vnd.github.raw",
-      `repos/${SPEC_REPOSITORY}/contents/openapi.yaml?ref=${encodeURIComponent(ref)}`,
+      `repos/${SPEC_REPOSITORY}/contents/${file}?ref=${encodeURIComponent(ref)}`,
     ],
     { cwd: repositoryRoot, maxBuffer: 64 * 1024 * 1024 },
   );
@@ -111,23 +117,65 @@ async function runGenerators() {
   }
 }
 
-async function run({ ref }) {
-  const source = await downloadSpec(ref);
-  const lock = JSON.parse(await readFile(resolve(repositoryRoot, "contracts.lock.json"), "utf8"));
-  await writeFile(resolve(repositoryRoot, "openapi.yaml"), source);
-  process.stdout.write(`Copied openapi.yaml from ${SPEC_REPOSITORY}@${ref}\n`);
+/**
+ * Write the downloaded files into `root` without leaving a mixed pair behind: every file goes to
+ * a temporary sibling first, and only once all of them are written are they renamed into place.
+ */
+export async function writeSpecFiles(sources, root = repositoryRoot) {
+  const staged = [...sources].map(([file, source]) => ({
+    source,
+    target: resolve(root, file),
+    temporary: resolve(root, `${file}.sync-tmp`),
+  }));
+  const written = [];
+  try {
+    for (const { source, temporary } of staged) {
+      await writeFile(temporary, source);
+      written.push(temporary);
+    }
+  } catch (error) {
+    await Promise.allSettled(written.map((temporary) => rm(temporary, { force: true })));
+    throw error;
+  }
+  for (const { target, temporary } of staged) await rename(temporary, target);
+}
 
-  const problems = describeUnmappedContract(parseOpenApi(source), lock);
+const defaultSyncSteps = Object.freeze({
+  download: downloadSpec,
+  readLock: async () =>
+    JSON.parse(await readFile(resolve(repositoryRoot, "contracts.lock.json"), "utf8")),
+  writeFiles: (sources) => writeSpecFiles(sources),
+  generate: runGenerators,
+});
+
+/**
+ * Copy both spec files from `ref` and regenerate. Both files are downloaded and checked before
+ * either is written, so a failed download, an unparseable file, or a contract change the
+ * repository is not ready for leaves the committed pair as it was. The steps default to gh, the
+ * repository files and the generators; tests replace them.
+ */
+export async function syncSpec({ ref }, steps = defaultSyncSteps) {
+  const sources = new Map();
+  for (const file of SPEC_FILES) sources.set(file, await steps.download(file, ref));
+  const lock = await steps.readLock();
+
+  validateWebhookContract(parseWebhookContract(sources.get("webhooks.yaml")));
+  const problems = describeUnmappedContract(parseOpenApi(sources.get("openapi.yaml")), lock);
   if (problems.length > 0) {
     throw new TypeError(
       `the new spec changes the contract; update these before generating:\n- ${problems.join("\n- ")}`,
     );
   }
-  await runGenerators();
+
+  await steps.writeFiles(sources);
+  for (const file of sources.keys()) {
+    process.stdout.write(`Copied ${file} from ${SPEC_REPOSITORY}@${ref}\n`);
+  }
+  await steps.generate();
 }
 
 async function main() {
-  await run(parseSyncArguments(process.argv.slice(2)));
+  await syncSpec(parseSyncArguments(process.argv.slice(2)));
 }
 
 if (

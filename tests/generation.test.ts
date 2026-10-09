@@ -80,13 +80,13 @@ describe("SDK artifact generation", () => {
     expect(OPERATION_PROFILE).toEqual(profile);
   });
 
-  it("pins 94 wire schemas and validates complete profile parity", () => {
+  it("pins 107 wire schemas and validates complete profile parity", () => {
     const components = document["components"] as JsonRecord;
     const schemas = components["schemas"] as JsonRecord;
 
-    expect(Object.keys(schemas)).toHaveLength(94);
+    expect(Object.keys(schemas)).toHaveLength(107);
     expect(() => validateOperationProfile(document, profile)).not.toThrow();
-    expect(OPERATION_PROFILE.operations).toHaveLength(74);
+    expect(OPERATION_PROFILE.operations).toHaveLength(85);
     expect(OPERATION_PROFILE.iterators).toHaveLength(14);
   });
 
@@ -129,6 +129,54 @@ describe("SDK artifact generation", () => {
     );
   });
 
+  it("carries the template write scopes, idempotency and optional restore body", () => {
+    const templateOperations = Object.fromEntries(
+      Object.entries(OPERATION_DESCRIPTORS)
+        .filter(([, descriptor]) =>
+          descriptor.path.startsWith("/v2/accounts/{account_id}/templates"),
+        )
+        .map(([operationId, descriptor]) => [
+          operationId,
+          [descriptor.security, descriptor.idempotency, descriptor.retry],
+        ]),
+    );
+    expect(templateOperations).toEqual({
+      listTemplates: [[["templates:read"]], false, "safe"],
+      createTemplate: [[["templates:write"]], true, "idempotency_key"],
+      getTemplate: [[["templates:read"]], false, "safe"],
+      updateTemplate: [[["templates:write"]], true, "idempotency_key"],
+      deleteTemplate: [[["templates:delete"]], false, "idempotent"],
+      getTemplateDraft: [[["templates:read"]], false, "safe"],
+      discardTemplateDraft: [[["templates:write"]], false, "idempotent"],
+      publishTemplate: [[["templates:write"]], true, "idempotency_key"],
+      listTemplateVersions: [[["templates:read"]], false, "safe"],
+      getTemplateVersion: [[["templates:read"]], false, "safe"],
+      restoreTemplateVersion: [[["templates:write"]], true, "idempotency_key"],
+    });
+    expect(OPERATION_DESCRIPTORS.publishTemplate.body).toBeNull();
+    expect(OPERATION_DESCRIPTORS.restoreTemplateVersion.body).toEqual({
+      required: false,
+      schema: "RestoreTemplateVersionRequest",
+    });
+    expect(OPERATION_DESCRIPTORS.listTemplateVersions.success).toEqual([
+      { status: 200, schema: "TemplateVersionsResponse" },
+    ]);
+  });
+
+  it("types an optional request body as an optional input", () => {
+    type RestoreInput = OperationInputById["restoreTemplateVersion"];
+    type CreateInput = OperationInputById["createTemplate"];
+
+    expectTypeOf<RestoreInput["body"]>().toEqualTypeOf<
+      OperationRequestBodyById["restoreTemplateVersion"] | undefined
+    >();
+    expectTypeOf<OperationRequestBodyById["restoreTemplateVersion"]>().toEqualTypeOf<{
+      publish?: boolean | undefined;
+    }>();
+    expectTypeOf<CreateInput["body"]>().toEqualTypeOf<OperationRequestBodyById["createTemplate"]>();
+    expectTypeOf<OperationRequestBodyById["publishTemplate"]>().toBeNever();
+  });
+
   it("preserves hostname metadata for every domain path parameter", () => {
     const domainPathDescriptors = Object.entries(OPERATION_DESCRIPTORS)
       .filter(([, descriptor]) => descriptor.path.includes("{domain}"))
@@ -137,7 +185,7 @@ describe("SDK artifact generation", () => {
         parameter: descriptor.pathParameters.find(({ name }) => name === "domain"),
       }));
 
-    expect(domainPathDescriptors).toHaveLength(4);
+    expect(domainPathDescriptors).toHaveLength(5);
     expect(domainPathDescriptors).toEqual([
       {
         operationId: "getDomain",
@@ -153,6 +201,10 @@ describe("SDK artifact generation", () => {
       },
       {
         operationId: "checkDomainDNS",
+        parameter: { name: "domain", required: true, format: "hostname" },
+      },
+      {
+        operationId: "unpauseSubAccountDomain",
         parameter: { name: "domain", required: true, format: "hostname" },
       },
     ]);
@@ -293,8 +345,8 @@ describe("SDK artifact generation", () => {
     expectTypeOf<readonly []>().toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
   });
 
-  it("indexes parameters, request bodies, inputs, and successes for all 74 operations", () => {
-    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(74);
+  it("indexes parameters, request bodies, inputs, and successes for all 85 operations", () => {
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(85);
     expectTypeOf<keyof OperationParametersById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationRequestBodyById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationInputById>().toEqualTypeOf<OperationId>();

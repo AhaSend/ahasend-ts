@@ -12,8 +12,8 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 74;
-const EXPECTED_SCHEMA_COUNT = 94;
+const EXPECTED_OPERATION_COUNT = 85;
+const EXPECTED_SCHEMA_COUNT = 107;
 const EXPECTED_ITERATOR_COUNT = 14;
 const EXPECTED_WEBHOOK_COUNT = 11;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
@@ -111,11 +111,21 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["checkDomainDNS", "domains", "checkDns"],
   ["getMessages", "messages", "list"],
   ["createMessage", "messages", "send"],
+  ["createTemplateMessage", "messages", "sendTemplate"],
   ["createConversationMessage", "messages", "sendConversation"],
   ["getMessage", "messages", "get"],
   ["cancelMessage", "messages", "cancel"],
   ["listTemplates", "templates", "list"],
+  ["createTemplate", "templates", "create"],
   ["getTemplate", "templates", "get"],
+  ["updateTemplate", "templates", "update"],
+  ["deleteTemplate", "templates", "delete"],
+  ["getTemplateDraft", "templates", "getDraft"],
+  ["discardTemplateDraft", "templates", "discardDraft"],
+  ["publishTemplate", "templates", "publish"],
+  ["listTemplateVersions", "templates", "listVersions"],
+  ["getTemplateVersion", "templates", "getVersion"],
+  ["restoreTemplateVersion", "templates", "restoreVersion"],
   ["getAccount", "accounts", "get"],
   ["updateAccount", "accounts", "update"],
   ["getAccountMembers", "accounts", "listMembers"],
@@ -129,6 +139,7 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["deleteSubAccount", "subAccounts", "delete"],
   ["suspendSubAccount", "subAccounts", "suspend"],
   ["unsuspendSubAccount", "subAccounts", "unsuspend"],
+  ["unpauseSubAccountDomain", "subAccounts", "unpauseDomain"],
   ["listSubAccountAPIKeys", "subAccounts.apiKeys", "list"],
   ["createSubAccountAPIKey", "subAccounts.apiKeys", "create"],
   ["getSubAccountAPIKey", "subAccounts.apiKeys", "get"],
@@ -203,6 +214,14 @@ export const AUTHORIZATION_REGISTRY = Object.freeze({
     roles: { global: "messages:send:all", domain: "messages:send:{domain}" },
     summary:
       "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain in `from.email`.",
+  },
+  createTemplateMessage: {
+    kind: "body_domain",
+    bodyPath: "from.email",
+    quantifier: "one",
+    roles: { global: "messages:send:all", domain: "messages:send:{domain}" },
+    summary:
+      "Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's default sender when the request names none.",
   },
   createConversationMessage: {
     kind: "body_domain",
@@ -1263,8 +1282,16 @@ function commonWebhookEnvelopeSchema(webhooks, schemas) {
   };
 }
 
-// Reads a documented-but-unenforced value list off one property, the same way
-// `x-deprecated-values` is read off the event `type` properties above. The
+/**
+ * Event types the SDK still accepts as input although webhooks.yaml no longer
+ * lists them. A route delivery once carried `route.message`; it is validated
+ * against the `message.routing` schema and returned as `message.routing`.
+ * The list is fixed here rather than read from the spec so that dropping it
+ * there does not break callers that still handle it.
+ */
+export const LEGACY_ROUTE_EVENT_TYPES = Object.freeze(["route.message"]);
+
+// Reads a documented-but-unenforced value list off one property. The
 // runtime validator never sees these — `validationSchema()`'s whitelist drops
 // the extension — so they document what the producer emits today without
 // constraining what it may emit tomorrow.
@@ -1289,20 +1316,7 @@ function generateWebhookTypes(document, webhookDigest) {
     eventType,
     webhookSchemaName(eventType, webhook),
   ]);
-  const deprecatedTypes = [
-    ...new Set(
-      Object.values(schemas).flatMap((schemaValue) => {
-        const schema = assertRecord(schemaValue, "webhook schema");
-        const properties = schema.properties;
-        if (properties === undefined) return [];
-        const typeValue = assertRecord(properties, "webhook schema properties").type;
-        if (typeValue === undefined) return [];
-        const typeSchema = assertRecord(typeValue, "webhook type schema");
-        const values = typeSchema["x-deprecated-values"];
-        return Array.isArray(values) ? values.filter((value) => typeof value === "string") : [];
-      }),
-    ),
-  ];
+  const deprecatedTypes = [...LEGACY_ROUTE_EVENT_TYPES];
   const canonicalTypes = entries.map(([eventType]) => eventType);
   const knownTypes = [...canonicalTypes, ...deprecatedTypes];
   const knownClassifications = knownValues(
@@ -1373,10 +1387,17 @@ function generateWebhookValidators(document) {
   );
   const routeSchemaName = eventSchemas["message.routing"];
   if (routeSchemaName === undefined) throw new TypeError("message.routing webhook is required");
-  eventSchemas["route.message"] = routeSchemaName;
+  for (const legacyType of LEGACY_ROUTE_EVENT_TYPES) eventSchemas[legacyType] = routeSchemaName;
   const normalizedSchemas = Object.fromEntries(
     Object.entries(schemas).map(([name, schema]) => [name, validationSchema(schema)]),
   );
+  // A legacy route delivery is validated against the full route schema, so its
+  // type enum admits the legacy names too.
+  const routeType = normalizedSchemas[routeSchemaName]?.properties?.type;
+  if (!Array.isArray(routeType?.enum)) {
+    throw new TypeError(`${routeSchemaName}.type must declare an enum`);
+  }
+  routeType.enum = [...routeType.enum, ...LEGACY_ROUTE_EVENT_TYPES];
   const commonEnvelopeSchema = commonWebhookEnvelopeSchema(webhooks, schemas);
 
   return `${GENERATED_HEADER}import {
@@ -1588,8 +1609,8 @@ function successFacts(document, operation) {
 
 function retryMode(method, idempotency) {
   if (method === "get") return "safe";
-  if (method === "put" || method === "delete") return "idempotent";
   if (idempotency) return "idempotency_key";
+  if (method === "put" || method === "delete") return "idempotent";
   return "never";
 }
 
@@ -1746,10 +1767,12 @@ export type RequestInput<Value> = Value extends readonly [infer Head, ...infer T
       : Value;
 
 export type OperationRequestBodyById = {
-  readonly [Operation in OperationId]: operations[Operation] extends {
-    requestBody: { content: { "application/json": infer Body } };
-  }
-    ? RequestInput<Body>
+  readonly [Operation in OperationId]: "requestBody" extends keyof operations[Operation]
+    ? operations[Operation] extends {
+        requestBody?: { content: { "application/json": infer Body } };
+      }
+      ? RequestInput<Body>
+      : never
     : never;
 };
 
@@ -1757,7 +1780,9 @@ export type OperationInputById = {
   readonly [Operation in OperationId]: OperationParametersById[Operation] &
     (OperationRequestBodyById[Operation] extends never
       ? { body?: never }
-      : { body: OperationRequestBodyById[Operation] });
+      : operations[Operation] extends { requestBody: unknown }
+        ? { body: OperationRequestBodyById[Operation] }
+        : { body?: OperationRequestBodyById[Operation] | undefined });
 };
 
 type JsonSuccess<ResponseMap> = {

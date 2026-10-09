@@ -785,9 +785,13 @@ describe("single-run release workflow", () => {
     expect(liveCommands).toContain("/tmp/gate-report/live-report.sha256");
     expect(liveCommands).toContain("liveReportSha256");
     expect(liveRunnerSource).toContain("validateLiveReportArtifacts");
-    expect(liveRunnerSource.match(/await run[A-Z][A-Za-z]+LiveScenarios/gu)).toHaveLength(12);
+    expect(liveRunnerSource.match(/await run[A-Z][A-Za-z]+LiveScenarios/gu)).toHaveLength(13);
     expect(liveRunnerSource).toContain("await runContactLiveScenarios");
     expect(liveRunnerSource).toContain("await runListLiveScenarios");
+    expect(liveRunnerSource).toContain("await runTemplateLiveScenarios");
+    // The template scenarios create their own templates; the config names none.
+    expect(liveRunnerSource).toContain("sendTemplateRequest: {");
+    expect(liveRunnerSource).not.toContain("templateId");
     expect(liveRunnerSource).toContain("combined.subAccounts.operationResults");
     expect(liveRunnerSource).toContain("combined.subAccountAPIKeys.operationResults");
     expect(liveRunnerSource).toContain(

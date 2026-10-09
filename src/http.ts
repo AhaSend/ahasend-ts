@@ -46,9 +46,10 @@ export interface RequestOptions {
   /** Per-call restriction of the configured retry policy. */
   retry?: false | Partial<RetryConfig>;
   /**
-   * Resource clients set this on the 15 spec-documented idempotency
-   * endpoints (the create and batch operations) so the transport layer will
-   * inject an `Idempotency-Key` when the caller hasn't supplied one.
+   * Resource clients set this on the 20 spec-documented idempotency
+   * endpoints (the create, batch, publish, restore and template update
+   * operations) so the transport layer will inject an `Idempotency-Key`
+   * when the caller hasn't supplied one.
    * Other POSTs — notably `domains.checkDns()` and inbound webhook
    * handlers — leave this unset and never receive an auto-generated key.
    */
@@ -410,7 +411,7 @@ export class HttpClient {
   private shouldAutoIdempotency(options: RequestOptions): boolean {
     if (!(options.execution?.idempotency ?? options.autoIdempotency)) return false;
     if (!this.config.idempotency.autoGenerate) return false;
-    return options.method === "POST";
+    return options.method === "POST" || options.method === "PUT";
   }
 
   private buildExecutionRecord(

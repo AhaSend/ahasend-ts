@@ -88,6 +88,10 @@ describe("authoritative OpenAPI model contracts", () => {
       "dkim_selector",
       "rotation_ready",
       "dsn_recipient",
+      "sending_type",
+      "paused",
+      "paused_at",
+      "pause_reason",
     ]);
     expect(nullableProperties("Domain")).toEqual([
       "last_dns_check_at",
@@ -98,6 +102,8 @@ describe("authoritative OpenAPI model contracts", () => {
       "dkim_rotation_interval_days",
       "dkim_selector",
       "dsn_recipient",
+      "paused_at",
+      "pause_reason",
     ]);
 
     expect(schema("Route").required).toEqual([
@@ -185,13 +191,50 @@ describe("authoritative OpenAPI model contracts", () => {
       "subject",
       "preheader",
       "variables",
+      "from",
+      "reply_to",
+      "editor",
+      "has_draft",
     ]);
-    expect(Object.keys(properties("Template"))).toEqual(schema("Template").required);
+    // List items leave `content` out, so it is the one optional field.
+    expect(Object.keys(properties("Template"))).toEqual([
+      ...(schema("Template").required as string[]),
+      "content",
+    ]);
     expect(nullableProperties("Template")).toEqual([]);
+    expect(property("Template", "editor").$ref).toBe("#/components/schemas/TemplateEditor");
+    expect(schema("TemplateEditor").enum).toEqual(["advanced", "simple", "html"]);
+    expect(property("Template", "content").oneOf).toEqual([
+      { $ref: "#/components/schemas/TemplateContent" },
+      { type: "null" },
+    ]);
+    expect(schema("TemplateContent").required).toEqual(["text_is_custom"]);
+    expect(Object.keys(properties("TemplateContent"))).toEqual([
+      "mjml",
+      "html",
+      "text",
+      "text_is_custom",
+    ]);
     expect(property("Template", "object").enum).toEqual(["template"]);
     expect(property("Template", "variables")).toMatchObject({
       type: "array",
       items: { $ref: "#/components/schemas/TemplateVariable" },
+    });
+    // A template without a default sender reads as a null `from` and a null `reply_to`,
+    // and both take the shape of a send's address fields.
+    expect(property("Template", "from").oneOf).toEqual([
+      { $ref: "#/components/schemas/Address" },
+      { type: "null" },
+    ]);
+    expect(property("Template", "reply_to").oneOf).toEqual([
+      { $ref: "#/components/schemas/Address" },
+      { type: "null" },
+    ]);
+
+    expect(schema("MessageSummary").required).toContain("template_id");
+    expect(property("MessageSummary", "template_id")).toMatchObject({
+      type: ["string", "null"],
+      format: "uuid",
     });
 
     expect(schema("PaginatedTemplatesResponse").required).toEqual(["object", "data", "pagination"]);
@@ -201,18 +244,82 @@ describe("authoritative OpenAPI model contracts", () => {
     });
   });
 
-  it("frees the send request from `subject` without weakening the conversation request", () => {
-    // A templated send carries the template's subject, so the send request can
-    // no longer require one. The conversational endpoint takes no template and
-    // keeps its subject required.
-    expect(schema("CreateMessageRequest").required).toEqual(["from", "recipients"]);
-    expect(property("CreateMessageRequest", "template_id")).toMatchObject({
+  it("pins the template draft, version and write models", () => {
+    expect(schema("TemplateDraft").required).toEqual([
+      "object",
+      "template_id",
+      "updated_at",
+      "subject",
+      "preheader",
+      "variables",
+      "from",
+      "reply_to",
+      "content",
+    ]);
+    expect(schema("TemplateVersion").required).toEqual([
+      "object",
+      "id",
+      "version",
+      "published_at",
+      "published_by",
+    ]);
+    expect(property("TemplateVersion", "published_by").oneOf).toEqual([
+      { $ref: "#/components/schemas/TemplatePublisher" },
+      { type: "null" },
+    ]);
+    expect(property("TemplatePublisher", "type").enum).toEqual(["user", "api_key"]);
+    expect(schema("TemplateVersionsResponse").required).toEqual(["object", "data"]);
+    expect(properties("TemplateVersionsResponse")).not.toHaveProperty("pagination");
+
+    // An update tells a missing field from null: null clears these fields.
+    expect(nullableProperties("UpdateTemplateRequest")).toEqual(["subject", "preheader"]);
+    for (const field of ["from", "reply_to"]) {
+      expect(property("UpdateTemplateRequest", field).oneOf).toEqual([
+        { $ref: "#/components/schemas/TemplateAddressInput" },
+        { type: "null" },
+      ]);
+    }
+    expect(property("UpdateTemplateRequest", "content").$ref).toBe(
+      "#/components/schemas/TemplateContentInput",
+    );
+    expect(properties("UpdateTemplateRequest")).not.toHaveProperty("editor");
+    expect(schema("CreateTemplateRequest").required).toEqual(["name"]);
+    expect(nullableProperties("TemplateContentInput")).toEqual(["text"]);
+    expect(schema("RestoreTemplateVersionRequest").required).toBeUndefined();
+    expect(Object.keys(properties("RestoreTemplateVersionRequest"))).toEqual(["publish"]);
+  });
+
+  it("gives template sends a request schema of their own", () => {
+    // The inline send requires its sender and subject and names no template;
+    // the template send requires only the template and the recipients.
+    expect(schema("CreateMessageRequest").required).toEqual(["from", "recipients", "subject"]);
+    expect(property("CreateMessageRequest", "from").$ref).toBe("#/components/schemas/Address");
+    expect(properties("CreateMessageRequest")).not.toHaveProperty("template_id");
+
+    expect(schema("CreateTemplateMessageRequest").required).toEqual(["template_id", "recipients"]);
+    expect(property("CreateTemplateMessageRequest", "template_id")).toMatchObject({
       type: "string",
       format: "uuid",
     });
-    expect(property("CreateMessageRequest", "template_id").description).toContain(
-      "Cannot be combined with `text_content`, `html_content` or `amp_content`",
+    expect(property("CreateTemplateMessageRequest", "from").$ref).toBe(
+      "#/components/schemas/Address",
     );
+    expect(Object.keys(properties("CreateTemplateMessageRequest"))).toEqual([
+      "template_id",
+      "from",
+      "recipients",
+      "reply_to",
+      "subject",
+      "attachments",
+      "headers",
+      "tags",
+      "sandbox",
+      "sandbox_result",
+      "tracking",
+      "retention",
+      "schedule",
+    ]);
+
     expect(schema("CreateConversationMessageRequest").required).toEqual(["from", "to", "subject"]);
     expect(properties("CreateConversationMessageRequest")).not.toHaveProperty("template_id");
   });

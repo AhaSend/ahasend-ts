@@ -72,6 +72,11 @@
       "method": "send"
     },
     {
+      "operationId": "createTemplateMessage",
+      "facade": "messages",
+      "method": "sendTemplate"
+    },
+    {
       "operationId": "createConversationMessage",
       "facade": "messages",
       "method": "sendConversation"
@@ -92,9 +97,54 @@
       "method": "list"
     },
     {
+      "operationId": "createTemplate",
+      "facade": "templates",
+      "method": "create"
+    },
+    {
       "operationId": "getTemplate",
       "facade": "templates",
       "method": "get"
+    },
+    {
+      "operationId": "updateTemplate",
+      "facade": "templates",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteTemplate",
+      "facade": "templates",
+      "method": "delete"
+    },
+    {
+      "operationId": "getTemplateDraft",
+      "facade": "templates",
+      "method": "getDraft"
+    },
+    {
+      "operationId": "discardTemplateDraft",
+      "facade": "templates",
+      "method": "discardDraft"
+    },
+    {
+      "operationId": "publishTemplate",
+      "facade": "templates",
+      "method": "publish"
+    },
+    {
+      "operationId": "listTemplateVersions",
+      "facade": "templates",
+      "method": "listVersions"
+    },
+    {
+      "operationId": "getTemplateVersion",
+      "facade": "templates",
+      "method": "getVersion"
+    },
+    {
+      "operationId": "restoreTemplateVersion",
+      "facade": "templates",
+      "method": "restoreVersion"
     },
     {
       "operationId": "getAccount",
@@ -160,6 +210,11 @@
       "operationId": "unsuspendSubAccount",
       "facade": "subAccounts",
       "method": "unsuspend"
+    },
+    {
+      "operationId": "unpauseSubAccountDomain",
+      "facade": "subAccounts",
+      "method": "unpauseDomain"
     },
     {
       "operationId": "listSubAccountAPIKeys",

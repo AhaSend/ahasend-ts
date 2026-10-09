@@ -24,7 +24,7 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 74;
+export const EXPECTED_LIVE_OPERATION_COUNT = 85;
 export const EXPECTED_LIVE_ITERATOR_COUNT = 14;
 
 const packageName = "@ahasend/sdk";
@@ -70,6 +70,32 @@ const listOperationIds = Object.freeze([
   "deleteList",
 ]);
 const listIteratorOperationIds = Object.freeze(["getLists", "getListContacts", "getContactLists"]);
+const templateReadOperationIds = Object.freeze(["listTemplates", "getTemplate"]);
+// The template send is a messages method, but it needs the template the read
+// scenarios create and check, so the template scenarios own it and run it after them.
+const templateSendOperationId = "createTemplateMessage";
+// The write scenarios act on a second disposable template, never on the one the
+// send uses, in this order: each one needs the state the one before it leaves.
+const templateWriteOperationIds = Object.freeze([
+  "createTemplate",
+  "updateTemplate",
+  "getTemplateDraft",
+  "publishTemplate",
+  "listTemplateVersions",
+  "getTemplateVersion",
+  "restoreTemplateVersion",
+  "discardTemplateDraft",
+  "deleteTemplate",
+]);
+const templateOperationIds = Object.freeze([
+  ...templateReadOperationIds,
+  templateSendOperationId,
+  ...templateWriteOperationIds,
+]);
+const templateEditors = Object.freeze(["advanced", "simple", "html"]);
+// The release account can hold other templates, so a search for a template
+// this run created stops after this many of the newest.
+const templateSearchLimit = 200;
 const apiKeyOperationIds = Object.freeze([
   "getAPIKeys",
   "createAPIKey",
@@ -118,6 +144,7 @@ const subAccountOperationIds = Object.freeze([
   "updateSubAccount",
   "suspendSubAccount",
   "unsuspendSubAccount",
+  "unpauseSubAccountDomain",
   "deleteSubAccount",
 ]);
 const subAccountAPIKeyOperationIds = Object.freeze([
@@ -643,6 +670,32 @@ function requireDomainResult(value, expectedDomain, label) {
   return result;
 }
 
+const domainSendingTypes = Object.freeze(["transactional", "marketing"]);
+
+function requireDomainSendingType(value, label) {
+  const request = requireObject(value, label);
+  if (
+    Object.hasOwn(request, "sending_type") &&
+    !domainSendingTypes.includes(request.sending_type)
+  ) {
+    throw new TypeError(`${label} sending_type must be transactional or marketing.`);
+  }
+  return request.sending_type;
+}
+
+function requireDomainSendingState(value, expectedDomain, expectedSendingType, label) {
+  const result = requireDomainResult(value, expectedDomain, label);
+  if (result.sending_type !== expectedSendingType) {
+    throw new TypeError(`${label} must report sending_type ${expectedSendingType}.`);
+  }
+  if (result.paused !== false || result.paused_at !== null || result.pause_reason !== null) {
+    throw new TypeError(
+      `${label} must report the domain as not paused, with null paused_at and pause_reason.`,
+    );
+  }
+  return result;
+}
+
 function requireDnsInvalidDomainResult(value, expectedDomain, label) {
   const result = requireDomainResult(value, expectedDomain, label);
   if (result.dns_valid !== false) {
@@ -736,6 +789,10 @@ export function createDomainScenarioRegistry({
   });
   const createBody = requireDomainRequest(createRequest, "Domain live create request", ["domain"]);
   const updateBody = requireDomainRequest(updateRequest, "Domain live update request", []);
+  const createdSendingType =
+    requireDomainSendingType(createBody, "Domain live create request") ?? "transactional";
+  const updatedSendingType =
+    requireDomainSendingType(updateBody, "Domain live update request") ?? createdSendingType;
   const pageParams = requireLivePagination(pagination, "Domain");
   const domain = createBody.domain;
 
@@ -745,7 +802,32 @@ export function createDomainScenarioRegistry({
       {
         operationId: "getDomains",
         async run() {
-          return runListIteratorScenario(methods.list, methods.iterate, pageParams, "Domain");
+          const result = await runListIteratorScenario(
+            methods.list,
+            methods.iterate,
+            pageParams,
+            "Domain",
+          );
+          const filtered = requireObject(
+            await methods.list({ ...pageParams, sending_type: "transactional" }),
+            "Domain sending_type filter response",
+          );
+          if (
+            !Array.isArray(filtered.data) ||
+            filtered.data.some(
+              (entry) =>
+                requireObject(entry, "Domain sending_type filter item").sending_type !==
+                "transactional",
+            )
+          ) {
+            throw new TypeError(
+              "Domain sending_type filter response must hold only transactional domains.",
+            );
+          }
+          return Object.freeze({
+            ...result,
+            evidence: Object.freeze({ ...result.evidence, sendingTypeFilterVerified: true }),
+          });
         },
       },
     ],
@@ -768,8 +850,19 @@ export function createDomainScenarioRegistry({
               "domain",
             );
           });
-          requireDomainResult(result, domain, "Domain create scenario response");
-          return Object.freeze({ evidence: Object.freeze({ created: true }) });
+          requireDomainSendingState(
+            result,
+            domain,
+            createdSendingType,
+            "Domain create scenario response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              created: true,
+              paused: false,
+              sendingType: createdSendingType,
+            }),
+          });
         },
       },
     ],
@@ -788,12 +881,15 @@ export function createDomainScenarioRegistry({
       {
         operationId: "updateDomain",
         async run() {
-          requireDomainResult(
+          requireDomainSendingState(
             await methods.update(domain, updateBody),
             domain,
+            updatedSendingType,
             "Domain update scenario response",
           );
-          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+          return Object.freeze({
+            evidence: Object.freeze({ matched: true, sendingType: updatedSendingType }),
+          });
         },
       },
     ],
@@ -1014,7 +1110,8 @@ function requireEmailDomain(value, label) {
 function assertMessageMappings(profile) {
   const expected = new Set(messageOperationIds);
   const actual = profile.operations.filter(
-    ({ facade, operationId }) => facade === "messages" || operationId === "ping",
+    ({ facade, operationId }) =>
+      (facade === "messages" && operationId !== templateSendOperationId) || operationId === "ping",
   );
   const actualIds = new Set(actual.map(({ operationId }) => operationId));
   const missing = messageOperationIds.filter((operationId) => !actualIds.has(operationId));
@@ -1074,6 +1171,25 @@ function requireSuccessfulSandboxSend(value, label, expectedStatus) {
     id: firstResult.id,
     results: results.length,
   });
+}
+
+/**
+ * Every message carries `template_id`: the template's UUID, or null for a
+ * message sent without one. `expected` pins the value when the scenario knows it.
+ */
+function requireMessageTemplateId(value, label, expected) {
+  const message = requireObject(value, label);
+  if (!Object.hasOwn(message, "template_id")) {
+    throw new TypeError(`${label} must carry template_id.`);
+  }
+  const templateId = message.template_id;
+  if (templateId !== null && typeof templateId !== "string") {
+    throw new TypeError(`${label} template_id must be a string or null.`);
+  }
+  if (expected !== undefined && templateId !== expected) {
+    throw new TypeError(`${label} template_id must be ${JSON.stringify(expected)}.`);
+  }
+  return message;
 }
 
 async function requireExpectedSandboxRejection(action, label) {
@@ -1273,7 +1389,13 @@ export function createMessageScenarioRegistry({
       {
         operationId: "getMessages",
         async run() {
-          return runListIteratorScenario(methods.list, methods.iterate, pageParams, "Message");
+          return runListIteratorScenario(
+            methods.list,
+            methods.iterate,
+            pageParams,
+            "Message",
+            requireMessageTemplateId,
+          );
         },
       },
     ],
@@ -1285,7 +1407,12 @@ export function createMessageScenarioRegistry({
           if (state.messageId === null) {
             throw new TypeError("Message get scenario requires the verified sandbox message.");
           }
-          requireObject(await methods.get(state.messageId), "Message get response");
+          // The verified send is inline, so the message names no template.
+          requireMessageTemplateId(
+            await methods.get(state.messageId),
+            "Message get response",
+            null,
+          );
           return Object.freeze({ evidence: Object.freeze({ retrieved: true }) });
         },
       },
@@ -2447,6 +2574,640 @@ export function createListScenarioRegistry({
 /** Execute list scenarios in lifecycle order and always drain cleanup. */
 export function runListLiveScenarios(registry) {
   return runLiveScenarios(registry, listOperationIds, listIteratorOperationIds, "List");
+}
+
+function requireTemplateResult(value, label, expectedId) {
+  const template = requireObject(value, label);
+  if (template.object !== "template") {
+    throw new TypeError(`${label} object must be template.`);
+  }
+  const id = requireString(template.id, `${label} id`);
+  if (expectedId !== undefined && id !== expectedId) {
+    throw new TypeError(`${label} returned the wrong template.`);
+  }
+  for (const field of ["created_at", "updated_at", "name"]) {
+    requireString(template[field], `${label} ${field}`);
+  }
+  // A template without a subject or preview text carries empty strings.
+  for (const field of ["subject", "preheader"]) {
+    if (typeof template[field] !== "string") {
+      throw new TypeError(`${label} ${field} must be a string.`);
+    }
+  }
+  if (!Array.isArray(template.variables)) {
+    throw new TypeError(`${label} variables must be an array.`);
+  }
+  const variables = template.variables.map((value, index) => {
+    const variable = requireObject(value, `${label} variable ${index}`);
+    const name = requireString(variable.name, `${label} variable ${index} name`);
+    if (typeof variable.required !== "boolean") {
+      throw new TypeError(`${label} variable ${index} required must be a boolean.`);
+    }
+    return Object.freeze({ name, required: variable.required });
+  });
+  // A template without a default sender carries a null `from` and a null `reply_to`.
+  if (!Object.hasOwn(template, "from")) {
+    throw new TypeError(`${label} must carry from.`);
+  }
+  let senderEmail = null;
+  if (template.from !== null) {
+    const from = requireObject(template.from, `${label} from`);
+    senderEmail = requireString(from.email, `${label} from.email`);
+    if (Object.hasOwn(from, "name") && typeof from.name !== "string") {
+      throw new TypeError(`${label} from.name must be a string.`);
+    }
+  }
+  if (!Object.hasOwn(template, "reply_to")) {
+    throw new TypeError(`${label} must carry reply_to.`);
+  }
+  let replyToEmail = null;
+  if (template.reply_to !== null) {
+    const replyTo = requireObject(template.reply_to, `${label} reply_to`);
+    replyToEmail = requireString(replyTo.email, `${label} reply_to.email`);
+  }
+  if (!templateEditors.includes(template.editor)) {
+    throw new TypeError(`${label} editor must be one of ${templateEditors.join(", ")}.`);
+  }
+  if (typeof template.has_draft !== "boolean") {
+    throw new TypeError(`${label} has_draft must be a boolean.`);
+  }
+  // List items leave the content out; every other answer carries it.
+  const content = Object.hasOwn(template, "content")
+    ? requireTemplateContent(template.content, `${label} content`)
+    : undefined;
+  return Object.freeze({
+    id,
+    subject: template.subject,
+    senderEmail,
+    replyToEmail,
+    variables: Object.freeze(variables),
+    editor: template.editor,
+    hasDraft: template.has_draft,
+    content,
+  });
+}
+
+function requireTemplateContent(value, label) {
+  if (value === null) return null;
+  const content = requireObject(value, label);
+  for (const field of ["mjml", "html", "text"]) {
+    if (Object.hasOwn(content, field) && typeof content[field] !== "string") {
+      throw new TypeError(`${label} ${field} must be a string.`);
+    }
+  }
+  if (typeof content.text_is_custom !== "boolean") {
+    throw new TypeError(`${label} text_is_custom must be a boolean.`);
+  }
+  return Object.freeze({ ...content });
+}
+
+function requireTemplateVersionResult(value, label) {
+  const version = requireObject(value, label);
+  if (version.object !== "template_version") {
+    throw new TypeError(`${label} object must be template_version.`);
+  }
+  const id = requireString(version.id, `${label} id`);
+  if (!Number.isInteger(version.version) || version.version < 1) {
+    throw new TypeError(`${label} version must be a positive integer.`);
+  }
+  requireString(version.published_at, `${label} published_at`);
+  if (!Object.hasOwn(version, "published_by")) {
+    throw new TypeError(`${label} must carry published_by.`);
+  }
+  let publishedBy = null;
+  if (version.published_by !== null) {
+    const publisher = requireObject(version.published_by, `${label} published_by`);
+    if (publisher.type !== "user" && publisher.type !== "api_key") {
+      throw new TypeError(`${label} published_by.type must be user or api_key.`);
+    }
+    requireString(publisher.id, `${label} published_by.id`);
+    publishedBy = publisher.type;
+  }
+  return Object.freeze({ id, version: version.version, publishedBy, subject: version.subject });
+}
+
+function requireTemplateCreateRequest(value, label) {
+  const request = requireObject(value, label);
+  requireString(request.name, `${label} name`);
+  requireString(request.subject, `${label} subject`);
+  const content = requireObject(request.content, `${label} content`);
+  requireString(content.html, `${label} content.html`);
+  if (Object.hasOwn(request, "publish")) {
+    throw new TypeError(`${label} must not set publish; the scenario does.`);
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireSendTemplateCreateRequest(value, createBody) {
+  const label = "Template live send template request";
+  const request = requireTemplateCreateRequest(value, label);
+  if (request.name === createBody.name) {
+    throw new TypeError(`${label} name must differ from the create request name.`);
+  }
+  const from = requireObject(request.from, `${label} from`);
+  const senderEmail = requireString(from.email, `${label} from.email`);
+  const replyTo = requireObject(request.reply_to, `${label} reply_to`);
+  const replyToEmail = requireString(replyTo.email, `${label} reply_to.email`);
+  return Object.freeze({ request, senderEmail, replyToEmail });
+}
+
+function requireTemplateUpdateRequest(value, createBody) {
+  const request = requireObject(value, "Template live update request");
+  const subject = requireString(request.subject, "Template live update request subject");
+  if (subject === createBody.subject) {
+    throw new TypeError(
+      "Template live update request subject must differ from the create subject.",
+    );
+  }
+  if (Object.hasOwn(request, "publish")) {
+    throw new TypeError("Template live update request must not set publish.");
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireTemplateSendRequest(value) {
+  const parsed = requireSandboxMessageRequest(value, "Template live send request");
+  const { request } = parsed;
+  if (Object.hasOwn(request, "template_id")) {
+    throw new TypeError(
+      "Template live send request must not set template_id; the scenario sends the template it creates.",
+    );
+  }
+  if (!Array.isArray(request.recipients) || request.recipients.length === 0) {
+    throw new TypeError("Template live send request recipients must be a non-empty array.");
+  }
+  for (const field of ["text_content", "html_content", "amp_content", "substitutions"]) {
+    if (Object.hasOwn(request, field)) {
+      throw new TypeError(`Template live send request must not set ${field}.`);
+    }
+  }
+  return parsed;
+}
+
+/**
+ * Build the template scenarios. The read and send scenarios create and publish
+ * a disposable HTML template with a default sender, a reply-to and a design
+ * that uses a variable. The listing must reach it through the iterator, and the
+ * read must return it with the fields the spec gives, the sender and reply-to
+ * it was created with, and at least one required variable. Two sandboxed
+ * template sends must accept it: the request as given, and the same request
+ * without `from`, which sends from the template's sender. Each recipient gets a
+ * placeholder value for every variable the template requires.
+ *
+ * The write scenarios create a second disposable HTML template and publish it
+ * as version 1, draft a new subject, read the draft, publish it as version 2,
+ * list both versions and read version 1, restore version 1 into the draft,
+ * discard that draft, and delete the template.
+ */
+export function createTemplateScenarioRegistry({
+  profile,
+  client,
+  sendTemplateRequest,
+  sendRequest,
+  createRequest,
+  updateRequest,
+  pagination = { limit: 1 },
+}) {
+  const mappings = requireLifecycleMappings(
+    profile,
+    [...templateReadOperationIds, ...templateWriteOperationIds],
+    "templates",
+    "listTemplates",
+    "template",
+  );
+  const mappedOperation = (operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Template ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mappedOperation("listTemplates"),
+    iterate: requireMappedClientMethod(client, mappings.iterator, "Template iterator scenario"),
+    get: mappedOperation("getTemplate"),
+    send: requireMappedOperation(profile, client, templateSendOperationId, "Template send"),
+    create: mappedOperation("createTemplate"),
+    update: mappedOperation("updateTemplate"),
+    delete: mappedOperation("deleteTemplate"),
+    getDraft: mappedOperation("getTemplateDraft"),
+    discardDraft: mappedOperation("discardTemplateDraft"),
+    publish: mappedOperation("publishTemplate"),
+    listVersions: mappedOperation("listTemplateVersions"),
+    getVersion: mappedOperation("getTemplateVersion"),
+    restoreVersion: mappedOperation("restoreTemplateVersion"),
+  });
+  const send = requireTemplateSendRequest(sendRequest);
+  const createBody = requireTemplateCreateRequest(createRequest, "Template live create request");
+  const sendTemplate = requireSendTemplateCreateRequest(sendTemplateRequest, createBody);
+  const updateBody = requireTemplateUpdateRequest(updateRequest, createBody);
+  const pageParams = requireLivePagination(pagination, "Template");
+  const validateEntry = (entry, label) => requireTemplateResult(entry, label);
+  // The read scenario records the variables the send must fill.
+  let requiredVariables = null;
+  const state = { sendTemplateId: null, writeTemplateId: null, firstVersionId: null };
+  const requireSendTemplateId = () => {
+    if (state.sendTemplateId === null) {
+      throw new TypeError("Template read and send scenarios require the created send template.");
+    }
+    return state.sendTemplateId;
+  };
+  const requireWriteTemplateId = () => {
+    if (state.writeTemplateId === null) {
+      throw new TypeError("Template write scenarios require the created template.");
+    }
+    return state.writeTemplateId;
+  };
+  const requireFirstVersionId = () => {
+    if (state.firstVersionId === null) {
+      throw new TypeError("Template version scenarios require the listed versions.");
+    }
+    return state.firstVersionId;
+  };
+  const deleteTemplateById = async (id) => {
+    try {
+      await methods.delete(id);
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
+    }
+    await requireResourceAbsent(methods.get, id, "Template cleanup verification", "template");
+  };
+  // Registered before the create: a create whose response is lost is still
+  // found by its unique name, among the newest templates.
+  const registerTemplateCleanup = (cleanup, label, name, createdId) => {
+    cleanup.register(label, async () => {
+      const id = createdId();
+      const templateIds = new Set(id === null ? [] : [id]);
+      if (id === null) {
+        let searched = 0;
+        for await (const entry of methods.iterate({ limit: 100 })) {
+          if (entry?.name === name) templateIds.add(entry.id);
+          searched += 1;
+          if (searched >= templateSearchLimit) break;
+        }
+      }
+      for (const templateId of templateIds) await deleteTemplateById(templateId);
+    });
+  };
+
+  const scenarios = new Map([
+    [
+      "listTemplates",
+      {
+        operationId: "listTemplates",
+        async run({ cleanup }) {
+          registerTemplateCleanup(
+            cleanup,
+            "delete and verify send template",
+            sendTemplate.request.name,
+            () => state.sendTemplateId,
+          );
+          const created = requireTemplateResult(
+            await methods.create({ ...sendTemplate.request, publish: true }),
+            "Template send template create response",
+          );
+          state.sendTemplateId = created.id;
+          if (created.editor !== "html" || created.hasDraft) {
+            throw new TypeError("Template send template must be a published html template.");
+          }
+
+          const page = requireObject(await methods.list(pageParams), "Template list response");
+          if (!Array.isArray(page.data)) {
+            throw new TypeError("Template list response data must be an array.");
+          }
+          requireObject(page.pagination, "Template list response pagination");
+          page.data.forEach((entry, index) =>
+            validateEntry(entry, `Template list response item ${index}`),
+          );
+
+          let itemCount = 0;
+          let found = false;
+          for await (const entry of methods.iterate(pageParams)) {
+            const template = validateEntry(entry, `Template iterator item ${itemCount}`);
+            itemCount += 1;
+            if (template.id === state.sendTemplateId) {
+              found = true;
+              break;
+            }
+            if (itemCount >= templateSearchLimit) break;
+          }
+          if (!found) {
+            throw new TypeError(
+              `Template iterator did not reach the send template within ${templateSearchLimit} templates.`,
+            );
+          }
+          const direction = pageParams.before === undefined ? "forward" : "backward";
+          return Object.freeze({
+            evidence: Object.freeze({
+              direction,
+              limit: pageParams.limit,
+              pageItems: page.data.length,
+              templateFound: true,
+            }),
+            iteratorEvidence: Object.freeze({
+              direction,
+              items: itemCount,
+              limit: pageParams.limit,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getTemplate",
+      {
+        operationId: "getTemplate",
+        async run() {
+          const id = requireSendTemplateId();
+          const template = requireTemplateResult(
+            await methods.get(id),
+            "Template get scenario response",
+            id,
+          );
+          if (
+            template.editor !== "html" ||
+            template.hasDraft ||
+            template.subject !== sendTemplate.request.subject
+          ) {
+            throw new TypeError("Template get scenario must return the published send template.");
+          }
+          if (template.senderEmail !== sendTemplate.senderEmail) {
+            throw new TypeError(
+              "Template get scenario must return the default sender the template was created with.",
+            );
+          }
+          if (template.replyToEmail !== sendTemplate.replyToEmail) {
+            throw new TypeError(
+              "Template get scenario must return the reply-to the template was created with.",
+            );
+          }
+          requiredVariables = Object.freeze(
+            template.variables.filter((variable) => variable.required).map(({ name }) => name),
+          );
+          if (requiredVariables.length === 0) {
+            throw new TypeError(
+              "Template get scenario must mark the variable the send template's design uses as required.",
+            );
+          }
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      templateSendOperationId,
+      {
+        operationId: templateSendOperationId,
+        async run() {
+          if (requiredVariables === null) {
+            throw new TypeError("Template send scenario requires the template read to pass first.");
+          }
+          const substitutions = Object.fromEntries(
+            requiredVariables.map((name) => [name, "AhaSend SDK live acceptance"]),
+          );
+          const request = {
+            ...send.request,
+            template_id: requireSendTemplateId(),
+            recipients: send.request.recipients.map((recipient) => ({
+              ...recipient,
+              substitutions: { ...recipient.substitutions, ...substitutions },
+            })),
+          };
+          const result = requireSuccessfulSandboxSend(
+            await methods.send(request),
+            "Template sandbox send response",
+          );
+          const { from: _from, ...withoutSender } = request;
+          const senderResult = requireSuccessfulSandboxSend(
+            await methods.send(withoutSender),
+            "Template default-sender sandbox send response",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              templateSend: Object.freeze({
+                accepted: true,
+                requiredVariables: requiredVariables.length,
+                results: result.results,
+              }),
+              templateSenderSend: Object.freeze({
+                accepted: true,
+                results: senderResult.results,
+              }),
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "createTemplate",
+      {
+        operationId: "createTemplate",
+        async run({ cleanup }) {
+          registerTemplateCleanup(
+            cleanup,
+            "delete and verify disposable template",
+            createBody.name,
+            () => state.writeTemplateId,
+          );
+          const template = requireTemplateResult(
+            await methods.create({ ...createBody, publish: true }),
+            "Template create scenario response",
+          );
+          state.writeTemplateId = template.id;
+          if (template.editor !== "html") {
+            throw new TypeError("Template create scenario must make an html template.");
+          }
+          if (template.hasDraft || template.subject !== createBody.subject) {
+            throw new TypeError("Template create scenario must publish the created template.");
+          }
+          if (typeof template.content?.html !== "string") {
+            throw new TypeError("Template create scenario must answer the published HTML.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupRegistered: true, editor: "html", hasDraft: false }),
+          });
+        },
+      },
+    ],
+    [
+      "updateTemplate",
+      {
+        operationId: "updateTemplate",
+        async run() {
+          const id = requireWriteTemplateId();
+          const template = requireTemplateResult(
+            await methods.update(id, updateBody),
+            "Template update scenario response",
+            id,
+          );
+          // The update goes to the draft; the answer is the published copy.
+          if (!template.hasDraft || template.subject !== createBody.subject) {
+            throw new TypeError(
+              "Template update scenario must leave a draft and answer the published copy.",
+            );
+          }
+          return Object.freeze({ evidence: Object.freeze({ hasDraft: true }) });
+        },
+      },
+    ],
+    [
+      "getTemplateDraft",
+      {
+        operationId: "getTemplateDraft",
+        async run() {
+          const id = requireWriteTemplateId();
+          const draft = requireObject(
+            await methods.getDraft(id),
+            "Template draft scenario response",
+          );
+          if (draft.object !== "template_draft" || draft.template_id !== id) {
+            throw new TypeError("Template draft scenario returned the wrong draft.");
+          }
+          if (draft.subject !== updateBody.subject) {
+            throw new TypeError("Template draft scenario must carry the updated subject.");
+          }
+          requireTemplateContent(draft.content, "Template draft scenario response content");
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "publishTemplate",
+      {
+        operationId: "publishTemplate",
+        async run() {
+          const id = requireWriteTemplateId();
+          const template = requireTemplateResult(
+            await methods.publish(id),
+            "Template publish scenario response",
+            id,
+          );
+          if (template.hasDraft || template.subject !== updateBody.subject) {
+            throw new TypeError("Template publish scenario must publish the updated subject.");
+          }
+          return Object.freeze({ evidence: Object.freeze({ published: true }) });
+        },
+      },
+    ],
+    [
+      "listTemplateVersions",
+      {
+        operationId: "listTemplateVersions",
+        async run() {
+          const response = requireObject(
+            await methods.listVersions(requireWriteTemplateId()),
+            "Template versions scenario response",
+          );
+          if (response.object !== "list" || !Array.isArray(response.data)) {
+            throw new TypeError("Template versions scenario response must be a list.");
+          }
+          const versions = response.data.map((entry, index) =>
+            requireTemplateVersionResult(entry, `Template versions scenario item ${index}`),
+          );
+          if (versions.map(({ version }) => version).join(",") !== "2,1") {
+            throw new TypeError(
+              "Template versions scenario must list versions 2 and 1, newest first.",
+            );
+          }
+          if (versions.some(({ publishedBy }) => publishedBy !== "api_key")) {
+            throw new TypeError(
+              "Template versions scenario must name the API key as the publisher of both versions.",
+            );
+          }
+          state.firstVersionId = versions[1].id;
+          return Object.freeze({
+            evidence: Object.freeze({ publishedBy: "api_key", versions: 2 }),
+          });
+        },
+      },
+    ],
+    [
+      "getTemplateVersion",
+      {
+        operationId: "getTemplateVersion",
+        async run() {
+          const versionId = requireFirstVersionId();
+          const version = requireTemplateVersionResult(
+            await methods.getVersion(requireWriteTemplateId(), versionId),
+            "Template version scenario response",
+          );
+          if (version.id !== versionId || version.version !== 1) {
+            throw new TypeError("Template version scenario returned the wrong version.");
+          }
+          if (version.subject !== createBody.subject) {
+            throw new TypeError("Template version scenario must carry the created subject.");
+          }
+          return Object.freeze({ evidence: Object.freeze({ matched: true, version: 1 }) });
+        },
+      },
+    ],
+    [
+      "restoreTemplateVersion",
+      {
+        operationId: "restoreTemplateVersion",
+        async run() {
+          const id = requireWriteTemplateId();
+          const template = requireTemplateResult(
+            await methods.restoreVersion(id, requireFirstVersionId()),
+            "Template restore scenario response",
+            id,
+          );
+          // Version 1 differs from the published version 2, so it stays a draft.
+          if (!template.hasDraft || template.subject !== updateBody.subject) {
+            throw new TypeError(
+              "Template restore scenario must restore version 1 into the draft and keep the published copy.",
+            );
+          }
+          return Object.freeze({ evidence: Object.freeze({ hasDraft: true }) });
+        },
+      },
+    ],
+    [
+      "discardTemplateDraft",
+      {
+        operationId: "discardTemplateDraft",
+        async run() {
+          const id = requireWriteTemplateId();
+          const template = requireTemplateResult(
+            await methods.discardDraft(id),
+            "Template discard scenario response",
+            id,
+          );
+          if (template.hasDraft) {
+            throw new TypeError("Template discard scenario must leave no draft.");
+          }
+          await requireResourceAbsent(
+            methods.getDraft,
+            id,
+            "Template discard verification",
+            "template draft",
+          );
+          return Object.freeze({ evidence: Object.freeze({ discarded: true }) });
+        },
+      },
+    ],
+    [
+      "deleteTemplate",
+      {
+        operationId: "deleteTemplate",
+        async run() {
+          const id = requireWriteTemplateId();
+          requireObject(await methods.delete(id), "Template delete scenario response");
+          await requireResourceAbsent(methods.get, id, "Template delete verification", "template");
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupVerified: true, deleted: true }),
+          });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+export function runTemplateLiveScenarios(registry) {
+  return runLiveScenarios(registry, templateOperationIds, "listTemplates", "Template");
 }
 
 function requireAPIKeyCreateRequest(value, label) {
@@ -4392,6 +5153,7 @@ export function createSubAccountScenarioRegistry({
   createRequest,
   updateRequest,
   suspendRequest,
+  absentDomain,
   pagination = { limit: 1 },
 }) {
   const mappings = requireLifecycleMappings(
@@ -4419,10 +5181,12 @@ export function createSubAccountScenarioRegistry({
     delete: mappedOperation("deleteSubAccount"),
     suspend: mappedOperation("suspendSubAccount"),
     unsuspend: mappedOperation("unsuspendSubAccount"),
+    unpauseDomain: mappedOperation("unpauseSubAccountDomain"),
   });
   const createBody = requireSubAccountCreateRequest(createRequest);
   const updateBody = requireSubAccountUpdateRequest(updateRequest, createBody);
   const suspendBody = requireSubAccountSuspendRequest(suspendRequest);
+  const unpauseDomain = requireString(absentDomain, "Sub-account live unpause domain");
   const pageParams = requireLivePagination(pagination, "Sub-account");
   let subAccountId;
   const fixtureId = () => requireString(subAccountId, "Disposable sub-account fixture id");
@@ -4614,6 +5378,27 @@ export function createSubAccountScenarioRegistry({
           return Object.freeze({
             evidence: Object.freeze({ status: "active", transitionVerified: true }),
           });
+        },
+      },
+    ],
+    [
+      "unpauseSubAccountDomain",
+      {
+        operationId: "unpauseSubAccountDomain",
+        async run() {
+          // The disposable child owns no domain, so the API answers 404. Its own
+          // "domain not found" body separates that from a server without the route.
+          try {
+            await methods.unpauseDomain(fixtureId(), unpauseDomain);
+          } catch (error) {
+            if (isNotFoundError(error) && error.body?.message === "domain not found") {
+              return Object.freeze({
+                evidence: Object.freeze({ absentDomainNotFound: true, status: 404 }),
+              });
+            }
+            throw error;
+          }
+          throw new TypeError("Sub-account unpause scenario found a domain on the new child.");
         },
       },
     ],
@@ -5420,6 +6205,52 @@ function requireListOutcomes(operations) {
   ]);
 }
 
+function requireDomainOutcomes(operations) {
+  requireOperationOutcomes(operations, "getDomains", [["sendingTypeFilterVerified", true]]);
+  requireOperationOutcomes(operations, "createDomain", [
+    ["paused", false],
+    ["sendingType", "transactional"],
+  ]);
+  requireOperationOutcomes(operations, "updateDomain", [["sendingType", "marketing"]]);
+  requireOperationOutcomes(operations, "unpauseSubAccountDomain", [
+    ["absentDomainNotFound", true],
+    ["status", 404],
+  ]);
+}
+
+function requireTemplateOutcomes(operations) {
+  requireOperationOutcomes(operations, "listTemplates", [["templateFound", true]]);
+  requireOperationOutcomes(operations, "getTemplate", [["matched", true]]);
+  requireOperationOutcomes(operations, templateSendOperationId, [
+    ["templateSend.accepted", true],
+    ["templateSend.requiredVariables", positiveIntegerOutcome],
+    ["templateSend.results", positiveIntegerOutcome],
+    ["templateSenderSend.accepted", true],
+    ["templateSenderSend.results", positiveIntegerOutcome],
+  ]);
+  requireOperationOutcomes(operations, "createTemplate", [
+    ["editor", "html"],
+    ["hasDraft", false],
+  ]);
+  requireOperationOutcomes(operations, "updateTemplate", [["hasDraft", true]]);
+  requireOperationOutcomes(operations, "getTemplateDraft", [["matched", true]]);
+  requireOperationOutcomes(operations, "publishTemplate", [["published", true]]);
+  requireOperationOutcomes(operations, "listTemplateVersions", [
+    ["versions", 2],
+    ["publishedBy", "api_key"],
+  ]);
+  requireOperationOutcomes(operations, "getTemplateVersion", [
+    ["matched", true],
+    ["version", 1],
+  ]);
+  requireOperationOutcomes(operations, "restoreTemplateVersion", [["hasDraft", true]]);
+  requireOperationOutcomes(operations, "discardTemplateDraft", [["discarded", true]]);
+  requireOperationOutcomes(operations, "deleteTemplate", [
+    ["cleanupVerified", true],
+    ["deleted", true],
+  ]);
+}
+
 function requireContactOutcomes(operations) {
   requireOperationOutcomes(operations, "batchUpsertContacts", [
     ["created", 1],
@@ -5699,6 +6530,8 @@ function validateLiveReportArtifactContract(
     requirePassedResults(report.iterators, "Iterator inventory");
     validateReportIteratorLinks(report.operations, report.iterators);
     requireSandboxOutcomes(report.operations);
+    requireDomainOutcomes(report.operations);
+    requireTemplateOutcomes(report.operations);
     requireContactOutcomes(report.operations);
     requireListOutcomes(report.operations);
     requireAuthorizationOutcomes(report.operations);

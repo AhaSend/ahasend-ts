@@ -181,13 +181,13 @@ describe("REST contract normalization", () => {
   it("matches the pinned operation, schema, idempotency, subaccount, and role inventories", () => {
     const inventory = collectContractInventory(document);
 
-    expect(inventory.operationIds).toHaveLength(74);
-    expect(new Set(inventory.operationIds)).toHaveLength(74);
-    expect(inventory.schemaNames).toHaveLength(94);
-    expect(inventory.idempotencyOperationIds).toHaveLength(15);
-    expect(inventory.subAccountOperationIds).toHaveLength(13);
+    expect(inventory.operationIds).toHaveLength(85);
+    expect(new Set(inventory.operationIds)).toHaveLength(85);
+    expect(inventory.schemaNames).toHaveLength(107);
+    expect(inventory.idempotencyOperationIds).toHaveLength(20);
+    expect(inventory.subAccountOperationIds).toHaveLength(14);
     expect(inventory.subAccountSchemaNames).toHaveLength(7);
-    expect(inventory.roleAlternativeOperationIds).toHaveLength(23);
+    expect(inventory.roleAlternativeOperationIds).toHaveLength(24);
     expect(() => assertInventoryMatches(inventory, lock.inventories)).not.toThrow();
   });
 
@@ -204,15 +204,15 @@ describe("REST contract normalization", () => {
     expect(() => validateCodeSamples(document)).not.toThrow();
   });
 
-  it("retains one Go sample and adds one deterministic SDK sample to every operation", () => {
+  it("retains each Go sample and adds one deterministic SDK sample to every operation", () => {
     let shellSamples = 0;
+    const withoutGoSample: string[] = [];
 
     for (const { operationId, operation } of collectOperations(document)) {
       const samples = samplesFor(operation);
-      expect(
-        samples.filter(({ lang }) => lang === "go"),
-        operationId,
-      ).toHaveLength(1);
+      const goSamples = samples.filter(({ lang }) => lang === "go");
+      expect(goSamples.length, operationId).toBeLessThanOrEqual(1);
+      if (goSamples.length === 0) withoutGoSample.push(operationId);
       expect(
         samples.filter(({ lang }) => lang === "javascript"),
         operationId,
@@ -221,7 +221,19 @@ describe("REST contract normalization", () => {
     }
 
     expect(shellSamples).toBe(1);
-    expect(NODE_SAMPLE_REGISTRY).toHaveLength(74);
+    // The Go SDK adds its own sample, and the next spec sync brings it here.
+    expect(withoutGoSample).toEqual([
+      "createTemplate",
+      "updateTemplate",
+      "deleteTemplate",
+      "getTemplateDraft",
+      "discardTemplateDraft",
+      "publishTemplate",
+      "listTemplateVersions",
+      "getTemplateVersion",
+      "restoreTemplateVersion",
+    ]);
+    expect(NODE_SAMPLE_REGISTRY).toHaveLength(85);
     expect(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId)).toEqual(
       lock.inventories.operationIds,
     );
@@ -276,9 +288,16 @@ describe("REST contract normalization", () => {
 
     const operations = collectOperations(document);
     const createMessage = operations.find(({ operationId }) => operationId === "createMessage");
+    const createTemplateMessage = operations.find(
+      ({ operationId }) => operationId === "createTemplateMessage",
+    );
     const getRoutes = operations.find(({ operationId }) => operationId === "getRoutes");
     expect(createMessage?.operation.security).toHaveLength(2);
     expect(createMessage?.operation.description).toMatch(/domain in `from\.email`/);
+    expect(createTemplateMessage?.operation.security).toHaveLength(2);
+    expect(createTemplateMessage?.operation.description).toMatch(
+      /domain of the sender, `from\.email` or the\s+template's default sender/,
+    );
     expect(getRoutes?.operation.description).toMatch(/matching `domain` query parameter/);
   });
 });
@@ -324,7 +343,7 @@ describe("REST contract rejection checks", () => {
     expect(collectOperations(changed)).toContainEqual(
       expect.objectContaining({ method: "head", path: "/v2/ping", operationId: "headPing" }),
     );
-    expect(collectContractInventory(changed).operationIds).toHaveLength(75);
+    expect(collectContractInventory(changed).operationIds).toHaveLength(86);
     expect(() =>
       assertInventoryMatches(collectContractInventory(changed), lock.inventories),
     ).toThrow(/inventory drift/);
@@ -748,7 +767,7 @@ function nodeSampleLines(operationId: string): string[] {
 describe("Node sample placement for operations the Go SDK has not reached", () => {
   const lines = source.split("\n");
 
-  it("opens a samples block after the operation's last line, before its trailing blank lines", () => {
+  it("opens a samples block after the operation's last line, in place of its trailing blank lines", () => {
     // An operation followed by a blank line before the next path.
     const operationId = collectOperations(document)
       .map((entry) => entry.operationId)
@@ -768,14 +787,16 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
 
     const injected = injectNodeSamples(bare, bareDocument);
 
+    // The sample's own trailing blank line ends the operation.
     expect(injected).toBe(
       [
         ...withoutBlock.slice(0, lastContent),
         "      x-code-samples:",
         ...nodeSampleLines(operationId),
-        ...withoutBlock.slice(lastContent),
+        ...withoutBlock.slice(bareRange.end),
       ].join("\n"),
     );
+    expect(injectNodeSamples(injected, parseOpenApi(injected))).toBe(injected);
     const samples = samplesFor(
       collectOperations(parseOpenApi(injected)).find((entry) => entry.operationId === operationId)!
         .operation,
@@ -784,7 +805,7 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
     expect(() => validateCodeSamples(parseOpenApi(injected))).not.toThrow();
   });
 
-  it("appends a missing Node sample after the block's last line, before trailing blank lines", () => {
+  it("appends a missing Node sample as the block's last item, after the item before it", () => {
     const range = operationLines(lines, "getContactLists");
     const javascript = range.item("javascript");
     expect(javascript.end).toBe(range.samplesEnd);
@@ -795,6 +816,9 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
       ...lines.slice(javascript.end),
     ];
 
+    // The blank lines that end the Go item stay between it and the Node item.
+    const blockEnd = javascript.start + 2;
+
     const injected = injectNodeSamples(
       withoutNode.join("\n"),
       parseOpenApi(withoutNode.join("\n")),
@@ -802,12 +826,51 @@ describe("Node sample placement for operations the Go SDK has not reached", () =
 
     expect(injected).toBe(
       [
-        ...withoutNode.slice(0, javascript.start),
+        ...withoutNode.slice(0, blockEnd),
         ...nodeSampleLines("getContactLists"),
-        ...withoutNode.slice(javascript.start),
+        ...withoutNode.slice(blockEnd),
       ].join("\n"),
     );
+    expect(injectNodeSamples(injected, parseOpenApi(injected))).toBe(injected);
   });
+
+  it.each([0, 1, 2])(
+    "restores a Node-only samples block the server spec lacks in one pass, with %i blank lines after the operation",
+    (blankLines) => {
+      // The server spec carries no sample at all for an operation neither SDK
+      // has reached; spec:sync runs the contract generator once, so one pass
+      // must already be normalized. The fixture is an operation whose block
+      // holds only its Node sample, opened right after the operation's last
+      // line as the generator writes it.
+      const full = operationLines(lines, "unpauseSubAccountDomain");
+      const go = full.item("go");
+      let blockStart = full.samples;
+      while (lines[blockStart - 1] === "") blockStart -= 1;
+      const nodeOnlyLines = [
+        ...lines.slice(0, blockStart),
+        ...lines.slice(full.samples, go.start),
+        ...lines.slice(go.end),
+      ];
+      const nodeOnly = nodeOnlyLines.join("\n");
+      const range = operationLines(nodeOnlyLines, "unpauseSubAccountDomain");
+      expect(range.item("javascript")).toEqual({
+        start: range.samples + 1,
+        end: range.samplesEnd,
+      });
+      let contentEnd = range.samples;
+      while (nodeOnlyLines[contentEnd - 1] === "") contentEnd -= 1;
+      const bare = [
+        ...nodeOnlyLines.slice(0, contentEnd),
+        ...Array.from({ length: blankLines }, () => ""),
+        ...nodeOnlyLines.slice(range.samplesEnd),
+      ].join("\n");
+
+      const injected = injectNodeSamples(bare, parseOpenApi(bare));
+
+      expect(injected).toBe(nodeOnly);
+      expect(injectNodeSamples(injected, parseOpenApi(injected))).toBe(injected);
+    },
+  );
 
   it("accepts an operation with no Go sample and still rejects two", () => {
     const range = operationLines(lines, "getContactLists");
@@ -850,18 +913,15 @@ describe("webhook delivery contract", () => {
     );
   });
 
-  it("uses message.routing canonically while accepting route.message as deprecated input", () => {
+  it("names only the canonical message.routing type; the SDK owns legacy route.message", () => {
     const webhookDefinitions = record(webhookDocument.webhooks);
     expect(webhookDefinitions).toHaveProperty("message.routing");
     expect(webhookDefinitions).not.toHaveProperty("route.message");
 
     const routeProperties = record(webhookSchema("RouteWebhookPayload").properties);
     const routeType = record(routeProperties.type);
-    expect(routeType.enum).toEqual(["message.routing", "route.message"]);
-    expect(routeType["x-deprecated-values"]).toEqual(["route.message"]);
-    expect(routeType.description).toMatch(
-      /message\.routing.*canonical.*route\.message.*deprecated/,
-    );
+    expect(routeType.enum).toEqual(["message.routing"]);
+    expect(routeType).not.toHaveProperty("x-deprecated-values");
   });
 
   it("defines is_bot as an optional boolean for open and click event data", () => {
@@ -1042,14 +1102,27 @@ describe("webhook delivery contract", () => {
 });
 
 describe("webhook delivery contract rejection checks", () => {
-  it("rejects route aliases that are not explicitly accepted and deprecated", () => {
-    const changed = structuredClone(webhookDocument);
-    const schemas = record(record(changed.components).schemas);
-    const routeProperties = record(record(schemas.RouteWebhookPayload).properties);
-    const routeType = record(routeProperties.type);
-    routeType.enum = ["message.routing"];
+  it("rejects a route type the SDK would accept twice or not at all", () => {
+    const routeTypeOf = (document: JsonRecord) => {
+      const schemas = record(record(document.components).schemas);
+      return record(record(record(schemas.RouteWebhookPayload).properties).type);
+    };
 
-    expect(() => validateWebhookContract(changed)).toThrow(/deprecated route\.message/);
+    const withLegacy = structuredClone(webhookDocument);
+    routeTypeOf(withLegacy).enum = ["message.routing", "route.message"];
+    expect(() => validateWebhookContract(withLegacy)).toThrow(/only canonical message\.routing/);
+
+    const withoutCanonical = structuredClone(webhookDocument);
+    routeTypeOf(withoutCanonical).enum = ["route.message"];
+    expect(() => validateWebhookContract(withoutCanonical)).toThrow(
+      /only canonical message\.routing/,
+    );
+
+    const withDeprecatedValues = structuredClone(webhookDocument);
+    routeTypeOf(withDeprecatedValues)["x-deprecated-values"] = ["route.message"];
+    expect(() => validateWebhookContract(withDeprecatedValues)).toThrow(
+      /the SDK owns legacy route\.message/,
+    );
   });
 
   it("rejects required is_bot fields", () => {

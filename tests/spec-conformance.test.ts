@@ -20,7 +20,10 @@ import type {
   CreateConversationMessageRequest,
   CreateMessageRequest,
   CreateSMTPCredentialRequest,
+  CreateTemplateMessageRequest,
+  CreateTemplateRequest,
   CreateWebhookRequest,
+  UpdateTemplateRequest,
 } from "../src/index.js";
 import type { OperationId, RetryMode } from "../src/generated/operations.js";
 import { OPERATION_DESCRIPTORS } from "../src/generated/operations.js";
@@ -39,6 +42,7 @@ import {
   SMTP_CREDENTIAL_ID,
   SUB_ACCOUNT_ID,
   TEMPLATE_ID,
+  TEMPLATE_VERSION_ID,
   USER_ID,
   WEBHOOK_ID,
 } from "./helpers/resource-call.js";
@@ -63,6 +67,7 @@ const IDS = {
   contact: "User+Tag/Segment@Example.COM",
   list: LIST_ID,
   template: TEMPLATE_ID,
+  templateVersion: TEMPLATE_VERSION_ID,
 } as const;
 
 const REQUEST_OPTIONS: RequestOptions = {
@@ -191,10 +196,13 @@ const PRIMARY_MATRIX = [
     input: { path: `${ACCOUNT_PATH}/api-keys/${API_KEY_ID}` },
   })),
   primary("getDomains", "domains", "list", (client) => ({
-    result: client.domains.list({ ...PAGINATION_PARAMS, dns_valid: true }, REQUEST_OPTIONS),
+    result: client.domains.list(
+      { ...PAGINATION_PARAMS, dns_valid: true, sending_type: "marketing" },
+      REQUEST_OPTIONS,
+    ),
     input: {
       path: `${ACCOUNT_PATH}/domains`,
-      query: { dns_valid: "true", ...PAGINATION_QUERY },
+      query: { dns_valid: "true", sending_type: "marketing", ...PAGINATION_QUERY },
     },
   })),
   primary("createDomain", "domains", "create", (client) => {
@@ -250,6 +258,18 @@ const PRIMARY_MATRIX = [
       input: { path: `${ACCOUNT_PATH}/messages`, body },
     };
   }),
+  primary("createTemplateMessage", "messages", "sendTemplate", (client) => {
+    const body = {
+      template_id: TEMPLATE_ID,
+      recipients: [{ email: "recipient@example.test", substitutions: { first_name: "Matrix" } }],
+      attachments: [{ data: "hello", content_type: "text/plain", file_name: "hello.txt" }],
+      tags: ["transactional"],
+    } satisfies CreateTemplateMessageRequest;
+    return {
+      result: client.messages.sendTemplate(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/messages/template`, body },
+    };
+  }),
   primary("createConversationMessage", "messages", "sendConversation", (client) => {
     const body = {
       from: { email: "sender@example.test" },
@@ -275,10 +295,73 @@ const PRIMARY_MATRIX = [
     result: client.templates.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/templates`, query: PAGINATION_QUERY },
   })),
+  primary("createTemplate", "templates", "create", (client) => {
+    const body = {
+      name: "Matrix template",
+      subject: "Hello {{ first_name }}",
+      from: { email: "sender@example.test", name: "Matrix" },
+      content: { mjml: "<mjml><mj-body></mj-body></mjml>", text: null },
+      publish: true,
+    } satisfies CreateTemplateRequest;
+    return {
+      result: client.templates.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/templates`, body },
+    };
+  }),
   primary("getTemplate", "templates", "get", (client) => ({
     result: client.templates.get(IDS.template, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}` },
   })),
+  primary("updateTemplate", "templates", "update", (client) => {
+    const body = {
+      subject: null,
+      reply_to: null,
+      content: { text: "Hello" },
+    } satisfies UpdateTemplateRequest;
+    return {
+      result: client.templates.update(IDS.template, body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}`, body },
+    };
+  }),
+  primary("deleteTemplate", "templates", "delete", (client) => ({
+    result: client.templates.delete(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}` },
+  })),
+  primary("getTemplateDraft", "templates", "getDraft", (client) => ({
+    result: client.templates.getDraft(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/draft` },
+  })),
+  primary("discardTemplateDraft", "templates", "discardDraft", (client) => ({
+    result: client.templates.discardDraft(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/draft` },
+  })),
+  primary("publishTemplate", "templates", "publish", (client) => ({
+    result: client.templates.publish(IDS.template, IDEMPOTENCY_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/publish` },
+  })),
+  primary("listTemplateVersions", "templates", "listVersions", (client) => ({
+    result: client.templates.listVersions(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/versions` },
+  })),
+  primary("getTemplateVersion", "templates", "getVersion", (client) => ({
+    result: client.templates.getVersion(IDS.template, IDS.templateVersion, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/versions/${TEMPLATE_VERSION_ID}` },
+  })),
+  primary("restoreTemplateVersion", "templates", "restoreVersion", (client) => {
+    const body = { publish: true };
+    return {
+      result: client.templates.restoreVersion(
+        IDS.template,
+        IDS.templateVersion,
+        body,
+        IDEMPOTENCY_OPTIONS,
+      ),
+      input: {
+        path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/versions/${TEMPLATE_VERSION_ID}/restore`,
+        body,
+      },
+    };
+  }),
   primary("getAccount", "accounts", "get", (client) => ({
     result: client.accounts.get(REQUEST_OPTIONS),
     input: { path: ACCOUNT_PATH },
@@ -348,6 +431,10 @@ const PRIMARY_MATRIX = [
   primary("unsuspendSubAccount", "subAccounts", "unsuspend", (client) => ({
     result: client.subAccounts.unsuspend(IDS.subAccount, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/unsuspend` },
+  })),
+  primary("unpauseSubAccountDomain", "subAccounts", "unpauseDomain", (client) => ({
+    result: client.subAccounts.unpauseDomain(IDS.subAccount, IDS.domain, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/sub-accounts/${SUB_ACCOUNT_ID}/domains/${HOSTNAME}/unpause` },
   })),
   primary("listSubAccountAPIKeys", "subAccounts.apiKeys", "list", (client) => ({
     result: client.subAccounts.apiKeys.list(IDS.subAccount, PAGINATION_PARAMS, REQUEST_OPTIONS),
@@ -783,10 +870,10 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for all 74 implemented operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(74);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(74);
-    expect(OPERATION_PROFILE.operations).toHaveLength(74);
+  it("accounts for all 85 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(85);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(85);
+    expect(OPERATION_PROFILE.operations).toHaveLength(85);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -862,7 +949,7 @@ describe("Non-empty request array coverage", () => {
 describe("Generated operation inventory", () => {
   it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(74);
+    expect(operationIds).toHaveLength(85);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
     expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
       operationIds,
@@ -1042,6 +1129,7 @@ function successFacts(
 
 function expectedRetryMode(method: SpecOperation["httpMethod"], idempotency: boolean): RetryMode {
   if (method === "GET") return "safe";
+  if (idempotency) return "idempotency_key";
   if (method === "PUT" || method === "DELETE") return "idempotent";
-  return idempotency ? "idempotency_key" : "never";
+  return "never";
 }

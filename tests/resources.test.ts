@@ -20,6 +20,8 @@ import type {
   CreateDomainRequest,
   DNSRecord,
   Domain,
+  DomainPauseReason,
+  DomainSendingType,
   ListDomainsParams,
   UpdateDomainRequest,
 } from "../src/resources/domains.js";
@@ -29,6 +31,7 @@ import type {
   Attachment,
   CreateConversationMessageRequest,
   CreateMessageRequest,
+  CreateTemplateMessageRequest,
   ListMessagesParams,
   Message,
   MessageSummary,
@@ -360,14 +363,19 @@ describe("MessagesClient", () => {
       reference_message_id: null,
       domain_id: "domain_1",
       account_id: ACCOUNT_ID,
+      template_id: null,
     };
     const message: Message = { ...summary, content: "raw message" };
     const { sent_at: _sentAt, ...withoutSentAt } = summary;
     const { reference_message_id: _referenceId, ...withoutReferenceId } = summary;
+    const { template_id: _templateId, ...withoutTemplateId } = summary;
     // @ts-expect-error sent_at is a required serialized timestamp.
     const missingSentAt: MessageSummary = withoutSentAt;
     // @ts-expect-error reference_message_id is a required nullable key.
     const missingReferenceId: MessageSummary = withoutReferenceId;
+    // @ts-expect-error template_id is a required nullable key.
+    const missingTemplateId: MessageSummary = withoutTemplateId;
+    const templated: MessageSummary = { ...summary, template_id: TEMPLATE_ID };
 
     expectTypeOf<
       Awaited<ReturnType<import("../src/index.js").MessagesClient["list"]>>
@@ -384,7 +392,9 @@ describe("MessagesClient", () => {
       created_at: "2026-07-21T08:00:00Z",
       sent_at: null,
       reference_message_id: null,
+      template_id: null,
     });
+    expect(templated.template_id).toBe(TEMPLATE_ID);
 
     // Keep compile-only negative cases referenced without treating their runtime values as evidence.
     void [
@@ -392,10 +402,12 @@ describe("MessagesClient", () => {
       missingError,
       missingSentAt,
       missingReferenceId,
+      missingTemplateId,
       _id,
       _error,
       _sentAt,
       _referenceId,
+      _templateId,
     ];
   });
 
@@ -449,67 +461,91 @@ describe("MessagesClient", () => {
     expect(message.data[0]).toHaveProperty("error");
   });
 
-  it("send() forwards template_id and omits the key when the caller sends none", async () => {
+  it("sendTemplate() posts the template and recipient substitutions to /messages/template", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    await client.messages.send({
-      from: { email: "a@b.com" },
-      recipients: [{ email: "x@y.com" }],
-      subject: "Overrides the template subject",
+    await client.messages.sendTemplate({
       template_id: TEMPLATE_ID,
-      substitutions: { first_name: "Pat" },
-    });
-    await client.messages.send({
       from: { email: "a@b.com" },
-      recipients: [{ email: "x@y.com" }],
-      subject: "hi",
-      text_content: "hi",
+      recipients: [{ email: "x@y.com", substitutions: { first_name: "Pat" } }],
+      subject: "Overrides the template subject",
     });
 
-    const templated = JSON.parse(calls[0]!.body!) as Record<string, unknown>;
-    const inline = JSON.parse(calls[1]!.body!) as Record<string, unknown>;
-
-    expect(templated["template_id"]).toBe(TEMPLATE_ID);
-    expect(templated["subject"]).toBe("Overrides the template subject");
-    expect(inline).not.toHaveProperty("template_id");
-    expect(calls.map(({ operationId }) => operationId)).toEqual(["createMessage", "createMessage"]);
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages/template`);
+    expect(calls[0]!.operationId).toBe("createTemplateMessage");
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      template_id: TEMPLATE_ID,
+      from: { email: "a@b.com" },
+      recipients: [{ email: "x@y.com", substitutions: { first_name: "Pat" } }],
+      subject: "Overrides the template subject",
+    });
   });
 
-  it("send() accepts a templated request with no subject and sends no subject key", async () => {
-    // The widening the optional subject exists for: the template carries the
-    // subject, so the request has none to send.
+  it("sendTemplate() leaves the sender and subject to the template when the request names none", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
-    const templated: CreateMessageRequest = {
-      from: { email: "a@b.com" },
-      recipients: [{ email: "x@y.com" }],
+    const templated: CreateTemplateMessageRequest = {
       template_id: TEMPLATE_ID,
-      substitutions: { first_name: "Pat" },
+      recipients: [{ email: "x@y.com" }],
     };
 
-    await client.messages.send(templated);
+    await client.messages.sendTemplate(templated);
 
     const body = JSON.parse(calls[0]!.body!) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("from");
     expect(body).not.toHaveProperty("subject");
     expect(body["template_id"]).toBe(TEMPLATE_ID);
   });
 
-  it("keeps the optional subject and template on the fan-out request only", () => {
+  it("sendTemplate() rejects an empty recipients array before sending", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() =>
+      client.messages.sendTemplate({ template_id: TEMPLATE_ID, recipients: [] }),
+    ).toThrow(/`recipients` must contain at least one item/);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toHaveLength(0);
+  });
+
+  it("gives each send its own request type", () => {
     type RequiredKeys<Body> = {
       [Key in keyof Body]-?: object extends Pick<Body, Key> ? never : Key;
     }[keyof Body];
 
-    expectTypeOf<RequiredKeys<CreateMessageRequest>>().toEqualTypeOf<"from" | "recipients">();
+    expectTypeOf<RequiredKeys<CreateMessageRequest>>().toEqualTypeOf<
+      "from" | "recipients" | "subject"
+    >();
+    expectTypeOf<RequiredKeys<CreateTemplateMessageRequest>>().toEqualTypeOf<
+      "template_id" | "recipients"
+    >();
     expectTypeOf<RequiredKeys<CreateConversationMessageRequest>>().toEqualTypeOf<
       "from" | "to" | "subject"
     >();
 
-    // @ts-expect-error The conversation endpoint takes no template, so its subject stays required.
-    const conversationWithoutSubject: CreateConversationMessageRequest = {
+    const inlineWithTemplate: CreateMessageRequest = {
       from: { email: "a@b.com" },
-      to: [{ email: "x@y.com" }],
+      recipients: [{ email: "x@y.com" }],
+      subject: "hi",
       text_content: "hi",
+      // @ts-expect-error A template is sent with sendTemplate, not send.
+      template_id: TEMPLATE_ID,
+    };
+    const templateWithBody: CreateTemplateMessageRequest = {
+      template_id: TEMPLATE_ID,
+      recipients: [{ email: "x@y.com" }],
+      // @ts-expect-error The template supplies the body.
+      html_content: "<p>hi</p>",
+    };
+    const templateWithRequestSubstitutions: CreateTemplateMessageRequest = {
+      template_id: TEMPLATE_ID,
+      recipients: [{ email: "x@y.com" }],
+      // @ts-expect-error Template values go on each recipient.
+      substitutions: { first_name: "Pat" },
     };
     const conversationWithTemplate: CreateConversationMessageRequest = {
       from: { email: "a@b.com" },
@@ -519,7 +555,9 @@ describe("MessagesClient", () => {
       template_id: TEMPLATE_ID,
     };
 
-    expect(conversationWithoutSubject.to).toHaveLength(1);
+    expect(inlineWithTemplate.subject).toBe("hi");
+    expect(templateWithBody.template_id).toBe(TEMPLATE_ID);
+    expect(templateWithRequestSubstitutions.template_id).toBe(TEMPLATE_ID);
     expect(conversationWithTemplate.subject).toBe("hi");
   });
 
@@ -814,6 +852,10 @@ describe("DomainsClient", () => {
       dkim_selector: null,
       rotation_ready: false,
       dsn_recipient: null,
+      sending_type: "transactional",
+      paused: false,
+      paused_at: null,
+      pause_reason: null,
     };
     const { last_dns_check_at: _lastDnsCheckAt, ...withoutLastDnsCheckAt } = domain;
     // @ts-expect-error last_dns_check_at is a required nullable response key.
@@ -823,7 +865,16 @@ describe("DomainsClient", () => {
     // @ts-expect-error DNS record labels are optional but cannot be null when present.
     const nullDnsRecordLabel: DNSRecord = { ...dnsRecord, label: null };
 
-    expectTypeOf<Domain>().toEqualTypeOf<components["schemas"]["Domain"]>();
+    // pause_reason names its known value but stays open to reasons added later.
+    expectTypeOf<Omit<Domain, "pause_reason">>().toEqualTypeOf<
+      Omit<components["schemas"]["Domain"], "pause_reason">
+    >();
+    expectTypeOf<components["schemas"]["Domain"]["pause_reason"]>().toExtend<
+      Domain["pause_reason"]
+    >();
+    expectTypeOf<Domain["pause_reason"]>().toExtend<
+      components["schemas"]["Domain"]["pause_reason"]
+    >();
     expectTypeOf<DNSRecord>().toEqualTypeOf<components["schemas"]["DNSRecord"]>();
     expectTypeOf<RemovedDomainRequestOptions>().toEqualTypeOf<RemovedDomainRequestOptions>();
     expect(domain.last_dns_check_at).toBeNull();
@@ -851,6 +902,87 @@ describe("DomainsClient", () => {
     await client.domains.create({ domain: "example.com", dkim_selector: null });
 
     expect(calls[0]!.body).toBe(JSON.stringify({ domain: "example.com", dkim_selector: null }));
+  });
+
+  it("models the sending type on create, update, and the list filter", () => {
+    const marketing: CreateDomainRequest = { domain: "example.com", sending_type: "marketing" };
+    const unchanged: UpdateDomainRequest = { tracking_subdomain: "track" };
+    const filter: ListDomainsParams = { sending_type: "transactional", dns_valid: null };
+    // @ts-expect-error The sending type is transactional or marketing.
+    const unknownType: CreateDomainRequest = { domain: "example.com", sending_type: "bulk" };
+    // @ts-expect-error The API refuses a null sending type; omit it instead.
+    const nullType: UpdateDomainRequest = { sending_type: null };
+
+    expectTypeOf<ListDomainsParams["sending_type"]>().toEqualTypeOf<
+      DomainSendingType | undefined
+    >();
+    expectTypeOf<Domain["sending_type"]>().toEqualTypeOf<DomainSendingType>();
+    expectTypeOf<"bounce_rate">().toExtend<DomainPauseReason>();
+    expectTypeOf<"a_reason_added_later">().toExtend<DomainPauseReason>();
+    expect([marketing, unchanged, filter]).toHaveLength(3);
+    void [unknownType, nullType];
+  });
+
+  it("create() and update() send sending_type only when it is given", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.domains.create({ domain: "example.com", sending_type: "marketing" });
+    await client.domains.update(HOSTNAME, { sending_type: "transactional" });
+    await client.domains.update(HOSTNAME, { tracking_subdomain: "track" });
+
+    expect(calls.map(({ body }) => JSON.parse(body!) as unknown)).toEqual([
+      { domain: "example.com", sending_type: "marketing" },
+      { sending_type: "transactional" },
+      { tracking_subdomain: "track" },
+    ]);
+  });
+
+  it("list() sends the sending_type filter and drops a null dns_valid", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.domains.list({ sending_type: "marketing", dns_valid: null, limit: 10 });
+
+    const url = new URL(calls[0]!.url);
+    expect(url.searchParams.get("sending_type")).toBe("marketing");
+    expect(url.searchParams.has("dns_valid")).toBe(false);
+    expect(url.searchParams.get("limit")).toBe("10");
+  });
+
+  it.each([
+    [
+      "a paused marketing domain",
+      {
+        sending_type: "marketing",
+        paused: true,
+        paused_at: "2026-10-06T08:00:00Z",
+        pause_reason: "bounce_rate",
+      },
+    ],
+    [
+      "a pause reason added after this release",
+      {
+        sending_type: "transactional",
+        paused: true,
+        paused_at: "2026-10-06T08:00:00Z",
+        pause_reason: "a_reason_added_later",
+      },
+    ],
+    // A server deployed before these fields existed omits them; the SDK does not
+    // validate response bodies, so the domain still comes back as sent.
+    ["a domain from a server without the sending type and pause fields", {}],
+  ])("get() returns %s unchanged", async (_case, fields) => {
+    const body = { object: "domain", domain: HOSTNAME, dns_valid: true, ...fields };
+    const { fetch } = captureFetch(
+      () =>
+        new Response(JSON.stringify(body), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = makeClient(fetch);
+
+    await expect(client.domains.get(HOSTNAME)).resolves.toEqual(body);
   });
 
   it("list() dispatches getDomains with filters, limit, and one cursor", async () => {

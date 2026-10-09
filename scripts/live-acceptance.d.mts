@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-export const EXPECTED_LIVE_OPERATION_COUNT: 74;
+export const EXPECTED_LIVE_OPERATION_COUNT: 85;
 export const EXPECTED_LIVE_ITERATOR_COUNT: 14;
 
 export interface LiveMapping {
@@ -148,6 +148,7 @@ export interface DomainLiveCreateRequest {
   readonly subscription_subdomain?: string;
   readonly media_subdomain?: string;
   readonly dkim_rotation_interval_days?: number;
+  readonly sending_type?: "transactional" | "marketing";
 }
 
 export interface DomainLiveUpdateRequest {
@@ -156,6 +157,7 @@ export interface DomainLiveUpdateRequest {
   readonly subscription_subdomain?: string;
   readonly media_subdomain?: string;
   readonly dkim_rotation_interval_days?: number;
+  readonly sending_type?: "transactional" | "marketing";
 }
 
 export type DomainLivePagination =
@@ -408,6 +410,77 @@ export function createListScenarioRegistry(
 export type ListLiveRun = DomainLiveRun;
 
 export function runListLiveScenarios(registry: ScenarioRegistry): Promise<ListLiveRun>;
+
+export interface TemplateLiveClient {
+  readonly templates: {
+    readonly list: (...args: never[]) => unknown;
+    readonly iterate: (...args: never[]) => unknown;
+    readonly get: (...args: never[]) => unknown;
+    readonly create: (...args: never[]) => unknown;
+    readonly update: (...args: never[]) => unknown;
+    readonly delete: (...args: never[]) => unknown;
+    readonly getDraft: (...args: never[]) => unknown;
+    readonly discardDraft: (...args: never[]) => unknown;
+    readonly publish: (...args: never[]) => unknown;
+    readonly listVersions: (...args: never[]) => unknown;
+    readonly getVersion: (...args: never[]) => unknown;
+    readonly restoreVersion: (...args: never[]) => unknown;
+  };
+  readonly messages: {
+    readonly sendTemplate: (...args: never[]) => unknown;
+  };
+}
+
+export interface TemplateLiveSendRequest {
+  readonly from: { readonly email: string; readonly name?: string };
+  readonly recipients: readonly { readonly email: string; readonly name?: string }[];
+  readonly sandbox: true;
+  readonly subject?: string;
+}
+
+export interface TemplateLiveCreateRequest {
+  readonly name: string;
+  readonly subject: string;
+  readonly content: { readonly html: string };
+}
+
+export interface TemplateLiveSendTemplateRequest extends TemplateLiveCreateRequest {
+  /** Must differ from the create request's name. */
+  readonly name: string;
+  readonly editor?: "html";
+  readonly from: { readonly email: string; readonly name?: string };
+  readonly reply_to: { readonly email: string };
+}
+
+export interface TemplateLiveUpdateRequest {
+  /** Must differ from the create request's subject. */
+  readonly subject: string;
+}
+
+export interface CreateTemplateScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: TemplateLiveClient;
+  /**
+   * The disposable template the read and send scenarios create, publish, send
+   * and delete. Its design should use a variable, which the read must mark
+   * required.
+   */
+  readonly sendTemplateRequest: TemplateLiveSendTemplateRequest;
+  /** The send of that template; the scenario sets its `template_id`. */
+  readonly sendRequest: TemplateLiveSendRequest;
+  /** The disposable template the write scenarios create, publish and delete. */
+  readonly createRequest: TemplateLiveCreateRequest;
+  readonly updateRequest: TemplateLiveUpdateRequest;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createTemplateScenarioRegistry(
+  options: CreateTemplateScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type TemplateLiveRun = DomainLiveRun;
+
+export function runTemplateLiveScenarios(registry: ScenarioRegistry): Promise<TemplateLiveRun>;
 
 export interface APIKeyLiveFacade {
   readonly list: (...args: never[]) => unknown;
@@ -812,6 +885,7 @@ export interface SubAccountLiveFacade {
   readonly delete: (...args: never[]) => unknown;
   readonly suspend: (...args: never[]) => unknown;
   readonly unsuspend: (...args: never[]) => unknown;
+  readonly unpauseDomain: (...args: never[]) => unknown;
 }
 
 export interface SubAccountLiveClient {
@@ -841,6 +915,8 @@ export interface CreateSubAccountScenarioRegistryOptions {
   readonly createRequest: SubAccountLiveCreateRequest;
   readonly updateRequest: SubAccountLiveUpdateRequest;
   readonly suspendRequest: SubAccountLiveSuspendRequest;
+  /** A domain the disposable child does not own; unpausing it must answer 404. */
+  readonly absentDomain: string;
   readonly pagination?: DomainLivePagination;
 }
 
