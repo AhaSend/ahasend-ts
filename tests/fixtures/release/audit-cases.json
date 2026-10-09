@@ -1,5 +1,8 @@
 {
   "today": "2026-07-24",
+  "installedVersions": {
+    "unpatched-development-tool": "2.4.0"
+  },
   "reports": {
     "clean": {
       "auditReportVersion": 2,
@@ -214,6 +217,444 @@
           "total": 10
         }
       }
+    },
+    "directUnpatched": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "unpatched-development-tool": {
+          "name": "unpatched-development-tool",
+          "severity": "moderate",
+          "isDirect": true,
+          "via": ["unpatched-dependency"],
+          "effects": [],
+          "range": ">=2.0.0",
+          "nodes": ["node_modules/unpatched-development-tool"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "1.0.0",
+            "isSemVerMajor": true
+          }
+        },
+        "unpatched-dependency": {
+          "name": "unpatched-dependency",
+          "severity": "moderate",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1000004,
+              "name": "unpatched-dependency",
+              "dependency": "unpatched-dependency",
+              "title": "Unpatched dependency issue",
+              "url": "https://github.com/advisories/GHSA-unpatched-test",
+              "severity": "moderate",
+              "cwe": ["CWE-1284"],
+              "cvss": {
+                "score": 5.3,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+              },
+              "range": "<=1.1.3"
+            }
+          ],
+          "effects": ["unpatched-development-tool"],
+          "range": "*",
+          "nodes": ["node_modules/unpatched-development-tool/node_modules/unpatched-dependency"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "1.0.0",
+            "isSemVerMajor": true
+          }
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 2,
+          "high": 0,
+          "critical": 0,
+          "total": 2
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
+    },
+    "directUnpatchedHigh": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "unpatched-development-tool": {
+          "name": "unpatched-development-tool",
+          "severity": "high",
+          "isDirect": true,
+          "via": ["unpatched-dependency"],
+          "effects": [],
+          "range": ">=2.0.0",
+          "nodes": ["node_modules/unpatched-development-tool"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "1.0.0",
+            "isSemVerMajor": true
+          }
+        },
+        "unpatched-dependency": {
+          "name": "unpatched-dependency",
+          "severity": "high",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1000004,
+              "name": "unpatched-dependency",
+              "dependency": "unpatched-dependency",
+              "title": "Unpatched dependency issue",
+              "url": "https://github.com/advisories/GHSA-unpatched-test",
+              "severity": "high",
+              "cwe": ["CWE-1284"],
+              "cvss": {
+                "score": 5.3,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+              },
+              "range": "<=1.1.3"
+            }
+          ],
+          "effects": ["unpatched-development-tool"],
+          "range": "*",
+          "nodes": ["node_modules/unpatched-development-tool/node_modules/unpatched-dependency"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "1.0.0",
+            "isSemVerMajor": true
+          }
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 2,
+          "critical": 0,
+          "total": 2
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
+    },
+    "directUnpatchedCritical": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "unpatched-development-tool": {
+          "name": "unpatched-development-tool",
+          "severity": "critical",
+          "isDirect": true,
+          "via": ["unpatched-dependency"],
+          "effects": [],
+          "range": ">=2.0.0",
+          "nodes": ["node_modules/unpatched-development-tool"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "1.0.0",
+            "isSemVerMajor": true
+          }
+        },
+        "unpatched-dependency": {
+          "name": "unpatched-dependency",
+          "severity": "critical",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1000004,
+              "name": "unpatched-dependency",
+              "dependency": "unpatched-dependency",
+              "title": "Unpatched dependency issue",
+              "url": "https://github.com/advisories/GHSA-unpatched-test",
+              "severity": "critical",
+              "cwe": ["CWE-1284"],
+              "cvss": {
+                "score": 5.3,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+              },
+              "range": "<=1.1.3"
+            }
+          ],
+          "effects": ["unpatched-development-tool"],
+          "range": "*",
+          "nodes": ["node_modules/unpatched-development-tool/node_modules/unpatched-dependency"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "1.0.0",
+            "isSemVerMajor": true
+          }
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 2,
+          "total": 2
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
+    },
+    "directPatchedDependency": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "unpatched-development-tool": {
+          "name": "unpatched-development-tool",
+          "severity": "moderate",
+          "isDirect": true,
+          "via": ["unpatched-dependency"],
+          "effects": [],
+          "range": ">=2.0.0",
+          "nodes": ["node_modules/unpatched-development-tool"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "1.0.0",
+            "isSemVerMajor": true
+          }
+        },
+        "unpatched-dependency": {
+          "name": "unpatched-dependency",
+          "severity": "moderate",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1000004,
+              "name": "unpatched-dependency",
+              "dependency": "unpatched-dependency",
+              "title": "Unpatched dependency issue",
+              "url": "https://github.com/advisories/GHSA-unpatched-test",
+              "severity": "moderate",
+              "cwe": ["CWE-1284"],
+              "cvss": {
+                "score": 5.3,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+              },
+              "range": "<=1.1.3"
+            }
+          ],
+          "effects": ["unpatched-development-tool"],
+          "range": "1.0.0 - 1.1.3",
+          "nodes": ["node_modules/unpatched-development-tool/node_modules/unpatched-dependency"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "1.0.0",
+            "isSemVerMajor": true
+          }
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 2,
+          "high": 0,
+          "critical": 0,
+          "total": 2
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
+    },
+    "directBreakingUpgrade": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "unpatched-development-tool": {
+          "name": "unpatched-development-tool",
+          "severity": "moderate",
+          "isDirect": true,
+          "via": ["unpatched-dependency"],
+          "effects": [],
+          "range": ">=2.0.0",
+          "nodes": ["node_modules/unpatched-development-tool"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "3.0.0",
+            "isSemVerMajor": true
+          }
+        },
+        "unpatched-dependency": {
+          "name": "unpatched-dependency",
+          "severity": "moderate",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1000004,
+              "name": "unpatched-dependency",
+              "dependency": "unpatched-dependency",
+              "title": "Unpatched dependency issue",
+              "url": "https://github.com/advisories/GHSA-unpatched-test",
+              "severity": "moderate",
+              "cwe": ["CWE-1284"],
+              "cvss": {
+                "score": 5.3,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+              },
+              "range": "<=1.1.3"
+            }
+          ],
+          "effects": ["unpatched-development-tool"],
+          "range": "*",
+          "nodes": ["node_modules/unpatched-development-tool/node_modules/unpatched-dependency"],
+          "fixAvailable": {
+            "name": "unpatched-development-tool",
+            "version": "3.0.0",
+            "isSemVerMajor": true
+          }
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 2,
+          "high": 0,
+          "critical": 0,
+          "total": 2
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
+    },
+    "sprintfJsChain": {
+      "auditReportVersion": 2,
+      "vulnerabilities": {
+        "@microsoft/api-extractor": {
+          "name": "@microsoft/api-extractor",
+          "severity": "moderate",
+          "isDirect": true,
+          "via": ["@rushstack/ts-command-line"],
+          "effects": ["tsup"],
+          "range": "7.7.9 - 7.59.4",
+          "nodes": ["node_modules/@microsoft/api-extractor"],
+          "fixAvailable": {
+            "name": "@microsoft/api-extractor",
+            "version": "7.7.8",
+            "isSemVerMajor": true
+          }
+        },
+        "@rushstack/ts-command-line": {
+          "name": "@rushstack/ts-command-line",
+          "severity": "moderate",
+          "isDirect": false,
+          "via": ["argparse"],
+          "effects": ["@microsoft/api-extractor"],
+          "range": ">=4.3.11",
+          "nodes": ["node_modules/@rushstack/ts-command-line"],
+          "fixAvailable": {
+            "name": "@microsoft/api-extractor",
+            "version": "7.7.8",
+            "isSemVerMajor": true
+          }
+        },
+        "argparse": {
+          "name": "argparse",
+          "severity": "moderate",
+          "isDirect": false,
+          "via": ["sprintf-js"],
+          "effects": ["@rushstack/ts-command-line"],
+          "range": "1.0.0 - 1.0.10",
+          "nodes": ["node_modules/@rushstack/ts-command-line/node_modules/argparse"],
+          "fixAvailable": {
+            "name": "@microsoft/api-extractor",
+            "version": "7.7.8",
+            "isSemVerMajor": true
+          }
+        },
+        "sprintf-js": {
+          "name": "sprintf-js",
+          "severity": "moderate",
+          "isDirect": false,
+          "via": [
+            {
+              "source": 1241202,
+              "name": "sprintf-js",
+              "dependency": "sprintf-js",
+              "title": "sprintf-js vulnerable to denial of service through unbounded precision specifiers",
+              "url": "https://github.com/advisories/GHSA-hp3w-g68c-fv3c",
+              "severity": "moderate",
+              "cwe": ["CWE-1284"],
+              "cvss": {
+                "score": 5.3,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+              },
+              "range": "<=1.1.3"
+            }
+          ],
+          "effects": ["argparse"],
+          "range": "*",
+          "nodes": ["node_modules/sprintf-js"],
+          "fixAvailable": {
+            "name": "@microsoft/api-extractor",
+            "version": "7.7.8",
+            "isSemVerMajor": true
+          }
+        },
+        "tsup": {
+          "name": "tsup",
+          "severity": "moderate",
+          "isDirect": true,
+          "via": ["@microsoft/api-extractor"],
+          "effects": [],
+          "range": ">=8.0.0",
+          "nodes": ["node_modules/tsup"],
+          "fixAvailable": {
+            "name": "tsup",
+            "version": "7.2.0",
+            "isSemVerMajor": true
+          }
+        }
+      },
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 5,
+          "high": 0,
+          "critical": 0,
+          "total": 5
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 10,
+          "optional": 0,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 10
+        }
+      }
     }
   },
   "exceptionSets": {
@@ -231,7 +672,7 @@
           "range": "<4.0.0",
           "via": [1000003],
           "reviewedOn": "2026-07-01",
-          "expiresOn": "2026-10-01",
+          "expiresOn": "2026-09-29",
           "reason": "The vulnerable path is confined to local development tooling."
         }
       ]
@@ -245,9 +686,57 @@
           "severity": "moderate",
           "range": "<4.0.0",
           "via": [1000003],
-          "reviewedOn": "2026-04-01",
+          "reviewedOn": "2026-04-25",
           "expiresOn": "2026-07-24",
           "reason": "The vulnerable path was confined to local development tooling."
+        }
+      ]
+    },
+    "directUnpatched": {
+      "version": 1,
+      "exceptions": [
+        {
+          "id": "unpatched-dependency-1000004",
+          "packageName": "unpatched-dependency",
+          "severity": "moderate",
+          "range": "*",
+          "via": [1000004],
+          "reviewedOn": "2026-07-01",
+          "expiresOn": "2026-09-29",
+          "reason": "The unpatched advisory is confined to a local development tool."
+        },
+        {
+          "id": "unpatched-development-tool-1000004",
+          "packageName": "unpatched-development-tool",
+          "severity": "moderate",
+          "via": ["unpatched-dependency"],
+          "reviewedOn": "2026-07-01",
+          "expiresOn": "2026-09-29",
+          "reason": "The unpatched advisory is confined to a local development tool."
+        }
+      ]
+    },
+    "directUnpatchedExpired": {
+      "version": 1,
+      "exceptions": [
+        {
+          "id": "unpatched-dependency-1000004",
+          "packageName": "unpatched-dependency",
+          "severity": "moderate",
+          "range": "*",
+          "via": [1000004],
+          "reviewedOn": "2026-04-25",
+          "expiresOn": "2026-07-24",
+          "reason": "The unpatched advisory is confined to a local development tool."
+        },
+        {
+          "id": "unpatched-development-tool-1000004",
+          "packageName": "unpatched-development-tool",
+          "severity": "moderate",
+          "via": ["unpatched-dependency"],
+          "reviewedOn": "2026-04-25",
+          "expiresOn": "2026-07-24",
+          "reason": "The unpatched advisory is confined to a local development tool."
         }
       ]
     }
@@ -268,11 +757,11 @@
       "expectedError": "Production advisories are forbidden"
     },
     {
-      "name": "direct development advisory",
+      "name": "direct development advisory with a fix",
       "fullReport": "directDevelopment",
       "productionReport": "clean",
       "exceptions": "none",
-      "expectedError": "Direct development advisories are forbidden"
+      "expectedError": "Direct development advisories are forbidden unless provably unpatched: direct-development-tool"
     },
     {
       "name": "allowed transitive development advisory",
@@ -294,6 +783,55 @@
       "productionReport": "clean",
       "exceptions": "allowed",
       "expectedError": "non-eligible severity high"
+    },
+    {
+      "name": "allowed direct development advisory with no patched release",
+      "fullReport": "directUnpatched",
+      "productionReport": "clean",
+      "exceptions": "directUnpatched",
+      "expectedError": null
+    },
+    {
+      "name": "unpatched direct development advisory without an exception",
+      "fullReport": "directUnpatched",
+      "productionReport": "clean",
+      "exceptions": "none",
+      "expectedError": "Direct development advisory unpatched-development-tool has no exact exception"
+    },
+    {
+      "name": "direct development advisory whose dependency has a patched release",
+      "fullReport": "directPatchedDependency",
+      "productionReport": "clean",
+      "exceptions": "directUnpatched",
+      "expectedError": "Direct development advisories are forbidden unless provably unpatched: unpatched-development-tool"
+    },
+    {
+      "name": "direct development advisory fixed by a breaking upgrade",
+      "fullReport": "directBreakingUpgrade",
+      "productionReport": "clean",
+      "exceptions": "directUnpatched",
+      "expectedError": "Direct development advisories are forbidden unless provably unpatched: unpatched-development-tool"
+    },
+    {
+      "name": "expired direct development exception",
+      "fullReport": "directUnpatched",
+      "productionReport": "clean",
+      "exceptions": "directUnpatchedExpired",
+      "expectedError": "expired on 2026-07-24"
+    },
+    {
+      "name": "escalated unpatched direct development advisory",
+      "fullReport": "directUnpatchedHigh",
+      "productionReport": "clean",
+      "exceptions": "directUnpatched",
+      "expectedError": "Direct development advisory unpatched-development-tool has non-eligible severity high"
+    },
+    {
+      "name": "critical unpatched direct development advisory",
+      "fullReport": "directUnpatchedCritical",
+      "productionReport": "clean",
+      "exceptions": "directUnpatched",
+      "expectedError": "Direct development advisory unpatched-development-tool has non-eligible severity critical"
     }
   ]
 }

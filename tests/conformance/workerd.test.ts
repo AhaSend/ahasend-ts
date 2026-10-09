@@ -15,10 +15,10 @@ import {
 import { CONFORMANCE_CASES, type ConformanceOutcome } from "./suite.js";
 
 const WORKERD_VERSION = "1.20260801.1";
-const WRANGLER_VERSION = "4.131.1";
+const WRANGLER_VERSION = "4.149.0";
 // The workerd wrangler declares is not the one this package pins: wrangler
 // carries its own nested copy, and the conformance run uses the pinned one.
-const WRANGLER_WORKERD_VERSION = "1.20260911.1";
+const WRANGLER_WORKERD_VERSION = "1.20261006.1";
 const STARTUP_TIMEOUT_MS = 20_000;
 const EXECUTION_TIMEOUT_MS = 15_000;
 const FORBIDDEN_DATE_DIAGNOSTIC =

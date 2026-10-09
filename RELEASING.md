@@ -157,6 +157,54 @@ Account preconditions:
 
 ---
 
+## Dependency audit policy
+
+`npm run verify:audit` (`scripts/verify-audit.mjs`) runs `npm audit` twice,
+without and with development dependencies, and applies
+`security/audit-policy.json`:
+
+- A production advisory always fails.
+- A development advisory passes only with a matching entry in
+  `security/audit-exceptions.json`. Each entry has a `reason`, a `reviewedOn`
+  date, and an `expiresOn` date at most `maxExceptionDays` (90) days later. An
+  entry fails once it expires, and it also fails when npm no longer reports
+  the finding.
+- Only the severities in `exceptionSeverities` (info, low, moderate) can have
+  an exception. High and critical advisories always fail.
+- An advisory on a direct development dependency can have an exception only
+  when it is provably unpatched:
+  - Every package on its chain with an advisory filed against it must be
+    affected in all published versions, so npm reports its range as `*`.
+  - npm offers no remedy, or only a rollback of the direct dependency to a
+    release older than the installed one. The installed version comes from
+    `package-lock.json`. Any upgrade that npm offers, breaking or not, is a
+    fix: take the upgrade.
+
+An entry always matches the package name, severity, and via entries that npm
+reports. For a transitive finding, or a direct finding that npm can fix, it
+also matches the exact vulnerable `range`. For a provably unpatched direct
+finding, the entry has no `range`: npm computes that range from the published
+versions, so it changes with each upstream release while the advisory stays
+the same.
+
+The rule trusts what npm reports, which has two limits:
+
+- npm reports one range per package, for all of its advisories together. The
+  `*` range proves an advisory unpatched only when it is the only via entry of
+  its package. If a package on the chain has a second advisory, or an
+  advisory next to a dependency, the direct finding fails, even when the
+  second advisory has no fix either.
+- npm also reports `fixAvailable: false` for a dependency that does not come
+  from the registry, and it can copy the value from a parent finding. The rule
+  accepts that value as it is. All current dependencies come from the
+  registry.
+
+The register has one entry per finding on the chain. A single advisory on a
+deep dependency can therefore need several entries. Remove the entries when
+upstream ships a fix.
+
+---
+
 ## Cutting a release
 
 ### 1. Before you tag
