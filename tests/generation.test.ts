@@ -144,7 +144,7 @@ describe("SDK artifact generation", () => {
       listTemplates: [[["templates:read"]], false, "safe"],
       createTemplate: [[["templates:write"]], true, "idempotency_key"],
       getTemplate: [[["templates:read"]], false, "safe"],
-      updateTemplate: [[["templates:write"]], false, "idempotent"],
+      updateTemplate: [[["templates:write"]], true, "idempotency_key"],
       deleteTemplate: [[["templates:delete"]], false, "idempotent"],
       getTemplateDraft: [[["templates:read"]], false, "safe"],
       discardTemplateDraft: [[["templates:write"]], false, "idempotent"],

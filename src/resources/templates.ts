@@ -147,15 +147,19 @@ export interface ListTemplateVersionsResponse {
  */
 export interface TemplateContentInput {
   /**
-   * The MJML source; only for `advanced` templates. It is compiled in strict mode. Images must
-   * use full URLs, such as `https://`.
+   * The MJML source; only for `advanced` templates. It is compiled in strict mode. Images and
+   * stylesheets must use `https://` URLs; a URL that starts with a `{{ variable }}` is accepted.
    */
   mjml?: string | undefined;
-  /** The HTML; only for `html` templates. Images and stylesheets must use full URLs. */
+  /**
+   * The HTML; only for `html` templates. Images and stylesheets must use `https://` URLs; a URL
+   * that starts with a `{{ variable }}` is accepted.
+   */
   html?: string | undefined;
   /**
-   * The plain text version. `null`, or leaving it out beside a new `mjml` or `html`, makes the
-   * text from the HTML.
+   * The plain text version. `null` makes the text from the HTML. Left out beside a new `mjml` or
+   * `html`, it keeps the draft's text when that text is custom, and that text must still render;
+   * otherwise, and on a create, the text is made from the new HTML.
    */
   text?: string | null | undefined;
   /** Accepted so a read `content` can be sent back, and ignored. */
@@ -186,8 +190,9 @@ export interface CreateTemplateRequest {
 }
 
 /**
- * Changes to a template. A field left out is neither changed nor checked; `null` clears the
- * field. Every field but `name` goes to the draft, and `name` changes at once.
+ * Changes to a template. A field left out is neither changed nor checked, apart from a custom
+ * text kept beside a new design (see {@link TemplateContentInput.text}); `null` clears the field.
+ * Every field but `name` goes to the draft, and `name` changes at once.
  */
 export interface UpdateTemplateRequest {
   /** 1–255 characters after trimming. */
@@ -243,8 +248,8 @@ export interface TemplatesClient {
   ): AsyncGenerator<Template, void, undefined>;
 
   /**
-   * Create a template. MJML is compiled in strict mode, and HTML must use full URLs for its
-   * images and stylesheets. Authorization requires `templates:write`.
+   * Create a template. MJML is compiled in strict mode, and images and stylesheets must use
+   * `https://` URLs. Authorization requires `templates:write`.
    */
   create(
     body: CreateTemplateRequest,
@@ -259,14 +264,14 @@ export interface TemplatesClient {
 
   /**
    * Change a template and return its published copy; `has_draft` says whether a draft is left.
-   * Sending the same request again changes nothing more. A 503 means the template kept changing
-   * while the request wrote it; the request can be sent again.
-   * Authorization requires `templates:write`.
+   * Sending the same request again changes nothing more, and a retry with the same idempotency
+   * key replays the first answer. A 503 means the template kept changing while the request wrote
+   * it; the request can be sent again. Authorization requires `templates:write`.
    */
   update(
     templateId: UUID,
     body: UpdateTemplateRequest,
-    options?: RequestOptions,
+    options?: IdempotencyRequestOptions,
   ): AhaSendPromise<Template>;
 
   /** Delete a template; sends of it fail from then on. Authorization requires `templates:delete`. */
@@ -373,12 +378,12 @@ class TemplatesClientImplementation implements TemplatesClient {
   update(
     templateId: UUID,
     body: UpdateTemplateRequest,
-    options: RequestOptions = {},
+    options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<Template> {
     return this.#operations.execute(
       "updateTemplate",
       { path: { account_id: this.#accountId, template_id: templateId }, body },
-      forwardOptions(options),
+      forwardWithIdempotency(options),
     );
   }
 

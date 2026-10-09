@@ -703,16 +703,16 @@ console.log("Template found.", { id: template.id, name: template.name });
 ### templates.update
 
 ```ts
-client.templates.update(templateId: UUID, body: UpdateTemplateRequest, options?: RequestOptions): AhaSendPromise<Template>
+client.templates.update(templateId: UUID, body: UpdateTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>
 ```
 
 - **Operation ID:** `updateTemplate`
 - **HTTP:** `PUT /v2/accounts/{account_id}/templates/{template_id}`
-- **Models:** [UUID](../src/types/common.ts), [UpdateTemplateRequest](../src/resources/templates.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **Models:** [UUID](../src/types/common.ts), [UpdateTemplateRequest](../src/resources/templates.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
 - **OpenAPI models:** `request: UpdateTemplateRequest`, `200: Template`
 - **Scopes:** `templates:write`
 - **Security alternatives:** `BearerAuth: templates:write`
-- **Idempotency:** Not supported by this operation.
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
@@ -724,6 +724,7 @@ client.templates.update(templateId: UUID, body: UpdateTemplateRequest, options?:
 import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const templateId = "00000000-0000-4000-8000-000000000009";
 // Fields go to the template's draft; publish: true also publishes it.
 const template = await client.templates.update(templateId, {

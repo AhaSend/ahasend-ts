@@ -1609,8 +1609,8 @@ function successFacts(document, operation) {
 
 function retryMode(method, idempotency) {
   if (method === "get") return "safe";
-  if (method === "put" || method === "delete") return "idempotent";
   if (idempotency) return "idempotency_key";
+  if (method === "put" || method === "delete") return "idempotent";
   return "never";
 }
 

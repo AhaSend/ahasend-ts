@@ -1870,7 +1870,7 @@ export interface TemplatesClient {
     listVersions(templateId: UUID, options?: RequestOptions): AhaSendPromise<ListTemplateVersionsResponse>;
     publish(templateId: UUID, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
     restoreVersion(templateId: UUID, versionId: UUID, body?: RestoreTemplateVersionRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
-    update(templateId: UUID, body: UpdateTemplateRequest, options?: RequestOptions): AhaSendPromise<Template>;
+    update(templateId: UUID, body: UpdateTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>;
 }
 
 // @public

@@ -214,7 +214,8 @@ console.log("Template found.", { id: template.id, name: template.name });`,
     "updateTemplate",
     "PUT /v2/accounts/{account_id}/templates/{template_id}",
     "client.templates.update",
-    `const templateId = "00000000-0000-4000-8000-000000000009";
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
 // Fields go to the template's draft; publish: true also publishes it.
 const template = await client.templates.update(templateId, {
   subject: "Welcome to the team, {{ first_name }}",

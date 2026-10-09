@@ -225,7 +225,7 @@ await client.messages.send(body, {
   timeoutMs: 2_000, // override the timeout for each attempt in this call
   retry: { maxRetries: 1 }, // restrict this call's retry policy (or use false)
   headers: { "x-trace-id": traceId }, // extra headers for this call
-  idempotencyKey: `receipt-${orderId}`, // create, batch, publish and restore operations only
+  idempotencyKey: `receipt-${orderId}`, // create, batch, publish, restore and template update only
 });
 ```
 
@@ -241,8 +241,8 @@ await client.messages.send(body, {
 
 ### Automatic idempotency
 
-The SDK attaches a UUID `Idempotency-Key` to every **create, batch, publish and restore** operation
-(all 19 endpoints whose generated operation profile marks them idempotent,
+The SDK attaches a UUID `Idempotency-Key` to every **create, batch, publish, restore and template update** operation
+(all 20 endpoints whose generated operation profile marks them idempotent,
 including message sends, resource creations, and the contact and list batches). The key is generated once per
 call and reused across the SDK's internal retries. Stored outcomes — 2xx and
 deterministic 4xx — are replayed for 24 hours, so a retry cannot duplicate them.
@@ -762,10 +762,13 @@ await client.templates.publish(template.id);
 - `content.mjml` makes an `advanced` template and `content.html` an `html` template; a template
   with neither must name its `editor`. The editor never changes after create, and the design of a
   `simple` template can be changed only in the dashboard.
-- MJML is compiled in strict mode. Images and stylesheets must use full URLs, such as
-  `https://example.com/logo.png`, as the API cannot upload files.
-- `content.text` is the plain text version. `null` makes it from the HTML, and so does leaving it
-  out beside a new `mjml` or `html`.
+- MJML is compiled in strict mode. Images and stylesheets must use `https://` URLs, such as
+  `https://example.com/logo.png`, as the API cannot upload files; any other absolute URL, such as
+  `http:`, `//`, `data:` or `cid:`, answers `400`. A URL that starts with a `{{ variable }}` is
+  accepted.
+- `content.text` is the plain text version. `null` makes it from the HTML. Left out beside a new
+  `mjml` or `html`, it keeps a custom text, which must still render; otherwise the text is made
+  from the new HTML.
   A non-null `content` of `getDraft()`, or of `get()` when `has_draft` is false, can be sent back as it
   is for an `advanced` or `html` template. While a draft exists, `get()` returns the published
   `content`, and sending it back replaces the draft's design.

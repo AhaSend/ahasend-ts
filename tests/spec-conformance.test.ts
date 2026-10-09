@@ -319,7 +319,7 @@ const PRIMARY_MATRIX = [
       content: { text: "Hello" },
     } satisfies UpdateTemplateRequest;
     return {
-      result: client.templates.update(IDS.template, body, REQUEST_OPTIONS),
+      result: client.templates.update(IDS.template, body, IDEMPOTENCY_OPTIONS),
       input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}`, body },
     };
   }),
@@ -1129,6 +1129,7 @@ function successFacts(
 
 function expectedRetryMode(method: SpecOperation["httpMethod"], idempotency: boolean): RetryMode {
   if (method === "GET") return "safe";
+  if (idempotency) return "idempotency_key";
   if (method === "PUT" || method === "DELETE") return "idempotent";
-  return idempotency ? "idempotency_key" : "never";
+  return "never";
 }

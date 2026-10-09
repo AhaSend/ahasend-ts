@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { AhaSendClient } from "../src/client.js";
 import { AhaSendNotFoundError } from "../src/errors.js";
 import type {
   BatchUpsertContactInput,
@@ -1205,10 +1206,62 @@ describe("TemplatesClient", () => {
     expect(calls[0]!.url).toBe(
       `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}`,
     );
-    expect(calls[0]!.headers).not.toHaveProperty("idempotency-key");
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
     expect(calls[0]!.body).toBe(
       '{"subject":null,"from":{"email":"hello@example.com"},"content":{"text":null}}',
     );
+  });
+
+  it("update() sends an idempotency key and reuses it when it retries", async () => {
+    const { fetch, calls } = captureFetch((_call, index) =>
+      index % 2 === 0
+        ? templatePage({ message: "template kept changing" }, 503)
+        : templatePage(TEMPLATE_RESPONSE),
+    );
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: ACCOUNT_ID,
+      baseUrl: "https://api.test",
+      fetch,
+      retry: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+    });
+    const body: UpdateTemplateRequest = { subject: "Welcome back" };
+
+    await client.templates.update(TEMPLATE_ID, body);
+    await client.templates.update(TEMPLATE_ID, body, { idempotencyKey: "template-update-1" });
+
+    expect(calls.map(({ operationId, method }) => [operationId, method])).toEqual([
+      ["updateTemplate", "PUT"],
+      ["updateTemplate", "PUT"],
+      ["updateTemplate", "PUT"],
+      ["updateTemplate", "PUT"],
+    ]);
+    const generated = calls[0]!.headers["idempotency-key"];
+    expect(generated).toMatch(/^[0-9a-f-]{36}$/);
+    expect(calls[1]!.headers["idempotency-key"]).toBe(generated);
+    expect(calls[2]!.headers["idempotency-key"]).toBe("template-update-1");
+    expect(calls[3]!.headers["idempotency-key"]).toBe("template-update-1");
+  });
+
+  it("update() is not retried when automatic keys are off and the caller gives none", async () => {
+    const { fetch, calls } = captureFetch(() =>
+      templatePage({ message: "template kept changing" }, 503),
+    );
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: ACCOUNT_ID,
+      baseUrl: "https://api.test",
+      fetch,
+      idempotency: { autoGenerate: false },
+      retry: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+    });
+
+    await expect(
+      client.templates.update(TEMPLATE_ID, { subject: "Welcome back" }),
+    ).rejects.toMatchObject({ status: 503 });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.headers).not.toHaveProperty("idempotency-key");
   });
 
   it("update() does not accept an editor or a null content", () => {

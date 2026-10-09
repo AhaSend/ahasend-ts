@@ -393,7 +393,9 @@ void client.statistics.deliveryTimes(statistics).withResponse();
 void client.templates.list(templates).withResponse();
 void client.templates.create(templateBody, { idempotencyKey: "package-template" }).withResponse();
 void client.templates.get(uuid).withResponse();
-void client.templates.update(uuid, templateUpdate).withResponse();
+void client.templates
+  .update(uuid, templateUpdate, { idempotencyKey: "package-template-update" })
+  .withResponse();
 void client.templates.delete(uuid).withResponse();
 void client.templates.getDraft(uuid).withResponse();
 void client.templates.discardDraft(uuid).withResponse();

@@ -1053,7 +1053,7 @@ logger.error(output);`,
     ["lower webhook deployment cap", "`maxBodyBytes` is only a lower deployment cap"],
     [
       "idempotent-operation inventory",
-      "all 19 endpoints whose generated operation profile marks them idempotent",
+      "all 20 endpoints whose generated operation profile marks them idempotent",
     ],
     ["parsed webhook body behavior", "The adapters treat an already-parsed body as a setup error"],
     [

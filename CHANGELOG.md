@@ -19,7 +19,7 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   template's draft, the one the dashboard edits, and `publish: true` publishes it. `getDraft`,
   `discardDraft` and `publish` act on the draft, and `listVersions`, `getVersion` and
   `restoreVersion` read and restore published versions. `update` leaves out a field it is not
-  given and clears one given as `null`. `create`, `publish` and `restoreVersion` send an
+  given and clears one given as `null`. `create`, `update`, `publish` and `restoreVersion` send an
   `Idempotency-Key`. Writes need `templates:write`, and `delete` needs `templates:delete`. See
   "Manage templates" in the README.
 - `messages.sendTemplate()` sends a transactional template, taking `CreateTemplateMessageRequest`:

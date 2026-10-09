@@ -71,7 +71,7 @@ signals.
 
 ## Idempotency keys
 
-Every create, batch, publish and restore operation documented by the API as idempotent receives an automatically generated
+Every create, batch, publish, restore and template update operation documented by the API as idempotent receives an automatically generated
 UUID `Idempotency-Key` by default. The SDK generates it once for the logical call and reuses the
 same value across all internal retry attempts.
 
