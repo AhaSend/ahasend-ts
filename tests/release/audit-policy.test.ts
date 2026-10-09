@@ -187,7 +187,7 @@ describe("dependency audit policy", () => {
     expect(packageJson.devDependencies["esbuild"]).toBe("0.28.1");
     expect(packageJson.devDependencies["js-yaml"]).toBe("4.3.2");
     expect(packageJson.devDependencies["workerd"]).toBe("1.20260801.1");
-    expect(packageJson.devDependencies["wrangler"]).toBe("4.147.0");
+    expect(packageJson.devDependencies["wrangler"]).toBe("4.149.0");
 
     const rootPackage = lockfilePackage("");
     expect(rootPackage.dependencies ?? {}).toEqual({});
@@ -195,7 +195,7 @@ describe("dependency audit policy", () => {
     expect(rootPackage.devDependencies?.["esbuild"]).toBe("0.28.1");
     expect(rootPackage.devDependencies?.["js-yaml"]).toBe("4.3.2");
     expect(rootPackage.devDependencies?.["workerd"]).toBe("1.20260801.1");
-    expect(rootPackage.devDependencies?.["wrangler"]).toBe("4.147.0");
+    expect(rootPackage.devDependencies?.["wrangler"]).toBe("4.149.0");
     for (const path of ["node_modules/@edge-runtime/vm", "node_modules/@edge-runtime/primitives"]) {
       expect(lockfilePackage(path)).toMatchObject({
         dev: true,
@@ -223,10 +223,10 @@ describe("dependency audit policy", () => {
       engines: { node: ">=16" },
     });
     expect(lockfilePackage("node_modules/wrangler")).toMatchObject({
-      version: "4.147.0",
+      version: "4.149.0",
       dev: true,
       engines: { node: ">=22.0.0" },
-      dependencies: { workerd: "1.20261001.1" },
+      dependencies: { workerd: "1.20261006.1" },
     });
   });
 
