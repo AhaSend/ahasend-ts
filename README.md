@@ -775,9 +775,12 @@ await client.templates.publish(template.id);
 - The draft is shared with the dashboard, so `publish()` publishes changes made there too.
   `discardDraft()` drops the draft.
 - `listVersions()` lists the published versions, newest first, without paging; a template keeps
-  its most recent versions. `getVersion()` returns one with its content, and `restoreVersion()` copies it
+  its 50 most recent versions. `getVersion()` returns one with its content, and `restoreVersion()` copies it
   into the draft, publishing it too with `{ publish: true }`.
-- A write that keeps meeting other changes to the same template answers `503`. The SDK retries it; you see the `503` only when the retries run out.
+- A write that keeps meeting other changes to the same template answers `503`. The SDK retries
+  `discardDraft()`, and retries `update()`, `publish()` and `restoreVersion()` when they carry an
+  idempotency key, which they do unless you turn `autoGenerate` off and pass none. You see the
+  `503` only when the retries run out.
 - Creating and changing templates needs `templates:write`, and `delete()` needs `templates:delete`.
 
 ## Domain sending type and pauses

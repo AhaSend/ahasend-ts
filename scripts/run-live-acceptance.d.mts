@@ -40,7 +40,6 @@ export interface LiveConfig {
   readonly lifecycleDomain: string;
   readonly suppressionDomain: string;
   readonly disposableMailbox: string;
-  readonly templateId: string;
   readonly webhookUrl: string;
 }
 

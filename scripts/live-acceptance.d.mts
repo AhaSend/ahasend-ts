@@ -434,7 +434,6 @@ export interface TemplateLiveClient {
 export interface TemplateLiveSendRequest {
   readonly from: { readonly email: string; readonly name?: string };
   readonly recipients: readonly { readonly email: string; readonly name?: string }[];
-  readonly template_id: string;
   readonly sandbox: true;
   readonly subject?: string;
 }
@@ -443,6 +442,14 @@ export interface TemplateLiveCreateRequest {
   readonly name: string;
   readonly subject: string;
   readonly content: { readonly html: string };
+}
+
+export interface TemplateLiveSendTemplateRequest extends TemplateLiveCreateRequest {
+  /** Must differ from the create request's name. */
+  readonly name: string;
+  readonly editor?: "html";
+  readonly from: { readonly email: string; readonly name?: string };
+  readonly reply_to: { readonly email: string };
 }
 
 export interface TemplateLiveUpdateRequest {
@@ -454,10 +461,12 @@ export interface CreateTemplateScenarioRegistryOptions {
   readonly profile: LiveProfile;
   readonly client: TemplateLiveClient;
   /**
-   * A template the release account holds, with a design and a default sender
-   * set in the dashboard, for the read and send scenarios.
+   * The disposable template the read and send scenarios create, publish, send
+   * and delete. Its design should use a variable, which the read must mark
+   * required.
    */
-  readonly templateId: string;
+  readonly sendTemplateRequest: TemplateLiveSendTemplateRequest;
+  /** The send of that template; the scenario sets its `template_id`. */
   readonly sendRequest: TemplateLiveSendRequest;
   /** The disposable template the write scenarios create, publish and delete. */
   readonly createRequest: TemplateLiveCreateRequest;

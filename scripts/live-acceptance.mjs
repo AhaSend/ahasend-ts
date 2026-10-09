@@ -71,11 +71,11 @@ const listOperationIds = Object.freeze([
 ]);
 const listIteratorOperationIds = Object.freeze(["getLists", "getListContacts", "getContactLists"]);
 const templateReadOperationIds = Object.freeze(["listTemplates", "getTemplate"]);
-// The template send is a messages method, but it needs the fixture template the
-// read scenarios check, so the template scenarios own it and run it after them.
+// The template send is a messages method, but it needs the template the read
+// scenarios create and check, so the template scenarios own it and run it after them.
 const templateSendOperationId = "createTemplateMessage";
-// The write scenarios act on a disposable template, never on the fixture, in
-// this order: each one needs the state the one before it leaves.
+// The write scenarios act on a second disposable template, never on the one the
+// send uses, in this order: each one needs the state the one before it leaves.
 const templateWriteOperationIds = Object.freeze([
   "createTemplate",
   "updateTemplate",
@@ -93,8 +93,8 @@ const templateOperationIds = Object.freeze([
   ...templateWriteOperationIds,
 ]);
 const templateEditors = Object.freeze(["advanced", "simple", "html"]);
-// The release account's template list is not ours to bound, so the search for
-// the fixture template stops after this many templates.
+// The release account can hold other templates, so a search for a template
+// this run created stops after this many of the newest.
 const templateSearchLimit = 200;
 const apiKeyOperationIds = Object.freeze([
   "getAPIKeys",
@@ -2620,9 +2620,10 @@ function requireTemplateResult(value, label, expectedId) {
   if (!Object.hasOwn(template, "reply_to")) {
     throw new TypeError(`${label} must carry reply_to.`);
   }
+  let replyToEmail = null;
   if (template.reply_to !== null) {
     const replyTo = requireObject(template.reply_to, `${label} reply_to`);
-    requireString(replyTo.email, `${label} reply_to.email`);
+    replyToEmail = requireString(replyTo.email, `${label} reply_to.email`);
   }
   if (!templateEditors.includes(template.editor)) {
     throw new TypeError(`${label} editor must be one of ${templateEditors.join(", ")}.`);
@@ -2638,6 +2639,7 @@ function requireTemplateResult(value, label, expectedId) {
     id,
     subject: template.subject,
     senderEmail,
+    replyToEmail,
     variables: Object.freeze(variables),
     editor: template.editor,
     hasDraft: template.has_draft,
@@ -2684,16 +2686,29 @@ function requireTemplateVersionResult(value, label) {
   return Object.freeze({ id, version: version.version, publishedBy, subject: version.subject });
 }
 
-function requireTemplateCreateRequest(value) {
-  const request = requireObject(value, "Template live create request");
-  requireString(request.name, "Template live create request name");
-  requireString(request.subject, "Template live create request subject");
-  const content = requireObject(request.content, "Template live create request content");
-  requireString(content.html, "Template live create request content.html");
+function requireTemplateCreateRequest(value, label) {
+  const request = requireObject(value, label);
+  requireString(request.name, `${label} name`);
+  requireString(request.subject, `${label} subject`);
+  const content = requireObject(request.content, `${label} content`);
+  requireString(content.html, `${label} content.html`);
   if (Object.hasOwn(request, "publish")) {
-    throw new TypeError("Template live create request must not set publish; the scenario does.");
+    throw new TypeError(`${label} must not set publish; the scenario does.`);
   }
   return Object.freeze({ ...request });
+}
+
+function requireSendTemplateCreateRequest(value, createBody) {
+  const label = "Template live send template request";
+  const request = requireTemplateCreateRequest(value, label);
+  if (request.name === createBody.name) {
+    throw new TypeError(`${label} name must differ from the create request name.`);
+  }
+  const from = requireObject(request.from, `${label} from`);
+  const senderEmail = requireString(from.email, `${label} from.email`);
+  const replyTo = requireObject(request.reply_to, `${label} reply_to`);
+  const replyToEmail = requireString(replyTo.email, `${label} reply_to.email`);
+  return Object.freeze({ request, senderEmail, replyToEmail });
 }
 
 function requireTemplateUpdateRequest(value, createBody) {
@@ -2710,11 +2725,13 @@ function requireTemplateUpdateRequest(value, createBody) {
   return Object.freeze({ ...request });
 }
 
-function requireTemplateSendRequest(value, templateId) {
+function requireTemplateSendRequest(value) {
   const parsed = requireSandboxMessageRequest(value, "Template live send request");
   const { request } = parsed;
-  if (request.template_id !== templateId) {
-    throw new TypeError("Template live send request template_id must name the fixture template.");
+  if (Object.hasOwn(request, "template_id")) {
+    throw new TypeError(
+      "Template live send request must not set template_id; the scenario sends the template it creates.",
+    );
   }
   if (!Array.isArray(request.recipients) || request.recipients.length === 0) {
     throw new TypeError("Template live send request recipients must be a non-empty array.");
@@ -2728,25 +2745,24 @@ function requireTemplateSendRequest(value, templateId) {
 }
 
 /**
- * Build the template scenarios. The read and send scenarios use a template the
- * release account already holds, so the send has a design and a default sender
- * set in the dashboard. The listing must reach it through the iterator, and the
- * read must return it with the fields the spec gives. The template must carry a
- * default sender on the request's sender domain. Two sandboxed template sends
- * must accept it: the request as given, and the same request without `from`,
- * which sends from the template's sender. Each recipient gets a placeholder
- * value for every variable the template requires; a template that requires
- * none is sent without substitutions.
+ * Build the template scenarios. The read and send scenarios create and publish
+ * a disposable HTML template with a default sender, a reply-to and a design
+ * that uses a variable. The listing must reach it through the iterator, and the
+ * read must return it with the fields the spec gives, the sender and reply-to
+ * it was created with, and at least one required variable. Two sandboxed
+ * template sends must accept it: the request as given, and the same request
+ * without `from`, which sends from the template's sender. Each recipient gets a
+ * placeholder value for every variable the template requires.
  *
- * The write scenarios create a disposable HTML template and publish it as
- * version 1, draft a new subject, read the draft, publish it as version 2,
+ * The write scenarios create a second disposable HTML template and publish it
+ * as version 1, draft a new subject, read the draft, publish it as version 2,
  * list both versions and read version 1, restore version 1 into the draft,
  * discard that draft, and delete the template.
  */
 export function createTemplateScenarioRegistry({
   profile,
   client,
-  templateId,
+  sendTemplateRequest,
   sendRequest,
   createRequest,
   updateRequest,
@@ -2780,21 +2796,26 @@ export function createTemplateScenarioRegistry({
     getVersion: mappedOperation("getTemplateVersion"),
     restoreVersion: mappedOperation("restoreTemplateVersion"),
   });
-  const fixtureId = requireString(templateId, "Template live fixture id");
-  const send = requireTemplateSendRequest(sendRequest, fixtureId);
-  const senderDomain = requireEmailDomain(send.email, "Template live send request from.email");
-  const createBody = requireTemplateCreateRequest(createRequest);
+  const send = requireTemplateSendRequest(sendRequest);
+  const createBody = requireTemplateCreateRequest(createRequest, "Template live create request");
+  const sendTemplate = requireSendTemplateCreateRequest(sendTemplateRequest, createBody);
   const updateBody = requireTemplateUpdateRequest(updateRequest, createBody);
   const pageParams = requireLivePagination(pagination, "Template");
   const validateEntry = (entry, label) => requireTemplateResult(entry, label);
   // The read scenario records the variables the send must fill.
   let requiredVariables = null;
-  const state = { templateId: null, firstVersionId: null };
-  const requireTemplateId = () => {
-    if (state.templateId === null) {
+  const state = { sendTemplateId: null, writeTemplateId: null, firstVersionId: null };
+  const requireSendTemplateId = () => {
+    if (state.sendTemplateId === null) {
+      throw new TypeError("Template read and send scenarios require the created send template.");
+    }
+    return state.sendTemplateId;
+  };
+  const requireWriteTemplateId = () => {
+    if (state.writeTemplateId === null) {
       throw new TypeError("Template write scenarios require the created template.");
     }
-    return state.templateId;
+    return state.writeTemplateId;
   };
   const requireFirstVersionId = () => {
     if (state.firstVersionId === null) {
@@ -2810,13 +2831,45 @@ export function createTemplateScenarioRegistry({
     }
     await requireResourceAbsent(methods.get, id, "Template cleanup verification", "template");
   };
+  // Registered before the create: a create whose response is lost is still
+  // found by its unique name, among the newest templates.
+  const registerTemplateCleanup = (cleanup, label, name, createdId) => {
+    cleanup.register(label, async () => {
+      const id = createdId();
+      const templateIds = new Set(id === null ? [] : [id]);
+      if (id === null) {
+        let searched = 0;
+        for await (const entry of methods.iterate({ limit: 100 })) {
+          if (entry?.name === name) templateIds.add(entry.id);
+          searched += 1;
+          if (searched >= templateSearchLimit) break;
+        }
+      }
+      for (const templateId of templateIds) await deleteTemplateById(templateId);
+    });
+  };
 
   const scenarios = new Map([
     [
       "listTemplates",
       {
         operationId: "listTemplates",
-        async run() {
+        async run({ cleanup }) {
+          registerTemplateCleanup(
+            cleanup,
+            "delete and verify send template",
+            sendTemplate.request.name,
+            () => state.sendTemplateId,
+          );
+          const created = requireTemplateResult(
+            await methods.create({ ...sendTemplate.request, publish: true }),
+            "Template send template create response",
+          );
+          state.sendTemplateId = created.id;
+          if (created.editor !== "html" || created.hasDraft) {
+            throw new TypeError("Template send template must be a published html template.");
+          }
+
           const page = requireObject(await methods.list(pageParams), "Template list response");
           if (!Array.isArray(page.data)) {
             throw new TypeError("Template list response data must be an array.");
@@ -2831,7 +2884,7 @@ export function createTemplateScenarioRegistry({
           for await (const entry of methods.iterate(pageParams)) {
             const template = validateEntry(entry, `Template iterator item ${itemCount}`);
             itemCount += 1;
-            if (template.id === fixtureId) {
+            if (template.id === state.sendTemplateId) {
               found = true;
               break;
             }
@@ -2839,7 +2892,7 @@ export function createTemplateScenarioRegistry({
           }
           if (!found) {
             throw new TypeError(
-              `Template iterator did not reach the fixture template within ${templateSearchLimit} templates.`,
+              `Template iterator did not reach the send template within ${templateSearchLimit} templates.`,
             );
           }
           const direction = pageParams.before === undefined ? "forward" : "backward";
@@ -2864,28 +2917,37 @@ export function createTemplateScenarioRegistry({
       {
         operationId: "getTemplate",
         async run() {
+          const id = requireSendTemplateId();
           const template = requireTemplateResult(
-            await methods.get(fixtureId),
+            await methods.get(id),
             "Template get scenario response",
-            fixtureId,
+            id,
           );
-          if (template.senderEmail === null) {
+          if (
+            template.editor !== "html" ||
+            template.hasDraft ||
+            template.subject !== sendTemplate.request.subject
+          ) {
+            throw new TypeError("Template get scenario must return the published send template.");
+          }
+          if (template.senderEmail !== sendTemplate.senderEmail) {
             throw new TypeError(
-              `Template has no default sender; set one on ${senderDomain} in the "Sender" card of the template's page.`,
+              "Template get scenario must return the default sender the template was created with.",
             );
           }
-          const templateSenderDomain = requireEmailDomain(
-            template.senderEmail,
-            "Template default sender",
-          );
-          if (templateSenderDomain !== senderDomain) {
+          if (template.replyToEmail !== sendTemplate.replyToEmail) {
             throw new TypeError(
-              `Template default sender is on ${templateSenderDomain}, not ${senderDomain}; change it in the "Sender" card of the template's page.`,
+              "Template get scenario must return the reply-to the template was created with.",
             );
           }
           requiredVariables = Object.freeze(
             template.variables.filter((variable) => variable.required).map(({ name }) => name),
           );
+          if (requiredVariables.length === 0) {
+            throw new TypeError(
+              "Template get scenario must mark the variable the send template's design uses as required.",
+            );
+          }
           return Object.freeze({ evidence: Object.freeze({ matched: true }) });
         },
       },
@@ -2901,16 +2963,14 @@ export function createTemplateScenarioRegistry({
           const substitutions = Object.fromEntries(
             requiredVariables.map((name) => [name, "AhaSend SDK live acceptance"]),
           );
-          const request =
-            requiredVariables.length === 0
-              ? send.request
-              : {
-                  ...send.request,
-                  recipients: send.request.recipients.map((recipient) => ({
-                    ...recipient,
-                    substitutions: { ...recipient.substitutions, ...substitutions },
-                  })),
-                };
+          const request = {
+            ...send.request,
+            template_id: requireSendTemplateId(),
+            recipients: send.request.recipients.map((recipient) => ({
+              ...recipient,
+              substitutions: { ...recipient.substitutions, ...substitutions },
+            })),
+          };
           const result = requireSuccessfulSandboxSend(
             await methods.send(request),
             "Template sandbox send response",
@@ -2941,25 +3001,17 @@ export function createTemplateScenarioRegistry({
       {
         operationId: "createTemplate",
         async run({ cleanup }) {
-          // Registered before the write: a create whose response is lost is
-          // still found by its unique name, among the newest templates.
-          cleanup.register("delete and verify disposable template", async () => {
-            const templateIds = new Set(state.templateId === null ? [] : [state.templateId]);
-            if (state.templateId === null) {
-              let searched = 0;
-              for await (const entry of methods.iterate({ limit: 100 })) {
-                if (entry?.name === createBody.name) templateIds.add(entry.id);
-                searched += 1;
-                if (searched >= templateSearchLimit) break;
-              }
-            }
-            for (const id of templateIds) await deleteTemplateById(id);
-          });
+          registerTemplateCleanup(
+            cleanup,
+            "delete and verify disposable template",
+            createBody.name,
+            () => state.writeTemplateId,
+          );
           const template = requireTemplateResult(
             await methods.create({ ...createBody, publish: true }),
             "Template create scenario response",
           );
-          state.templateId = template.id;
+          state.writeTemplateId = template.id;
           if (template.editor !== "html") {
             throw new TypeError("Template create scenario must make an html template.");
           }
@@ -2980,7 +3032,7 @@ export function createTemplateScenarioRegistry({
       {
         operationId: "updateTemplate",
         async run() {
-          const id = requireTemplateId();
+          const id = requireWriteTemplateId();
           const template = requireTemplateResult(
             await methods.update(id, updateBody),
             "Template update scenario response",
@@ -3001,7 +3053,7 @@ export function createTemplateScenarioRegistry({
       {
         operationId: "getTemplateDraft",
         async run() {
-          const id = requireTemplateId();
+          const id = requireWriteTemplateId();
           const draft = requireObject(
             await methods.getDraft(id),
             "Template draft scenario response",
@@ -3022,7 +3074,7 @@ export function createTemplateScenarioRegistry({
       {
         operationId: "publishTemplate",
         async run() {
-          const id = requireTemplateId();
+          const id = requireWriteTemplateId();
           const template = requireTemplateResult(
             await methods.publish(id),
             "Template publish scenario response",
@@ -3041,7 +3093,7 @@ export function createTemplateScenarioRegistry({
         operationId: "listTemplateVersions",
         async run() {
           const response = requireObject(
-            await methods.listVersions(requireTemplateId()),
+            await methods.listVersions(requireWriteTemplateId()),
             "Template versions scenario response",
           );
           if (response.object !== "list" || !Array.isArray(response.data)) {
@@ -3074,7 +3126,7 @@ export function createTemplateScenarioRegistry({
         async run() {
           const versionId = requireFirstVersionId();
           const version = requireTemplateVersionResult(
-            await methods.getVersion(requireTemplateId(), versionId),
+            await methods.getVersion(requireWriteTemplateId(), versionId),
             "Template version scenario response",
           );
           if (version.id !== versionId || version.version !== 1) {
@@ -3092,7 +3144,7 @@ export function createTemplateScenarioRegistry({
       {
         operationId: "restoreTemplateVersion",
         async run() {
-          const id = requireTemplateId();
+          const id = requireWriteTemplateId();
           const template = requireTemplateResult(
             await methods.restoreVersion(id, requireFirstVersionId()),
             "Template restore scenario response",
@@ -3113,7 +3165,7 @@ export function createTemplateScenarioRegistry({
       {
         operationId: "discardTemplateDraft",
         async run() {
-          const id = requireTemplateId();
+          const id = requireWriteTemplateId();
           const template = requireTemplateResult(
             await methods.discardDraft(id),
             "Template discard scenario response",
@@ -3137,7 +3189,7 @@ export function createTemplateScenarioRegistry({
       {
         operationId: "deleteTemplate",
         async run() {
-          const id = requireTemplateId();
+          const id = requireWriteTemplateId();
           requireObject(await methods.delete(id), "Template delete scenario response");
           await requireResourceAbsent(methods.get, id, "Template delete verification", "template");
           return Object.freeze({
@@ -6171,6 +6223,7 @@ function requireTemplateOutcomes(operations) {
   requireOperationOutcomes(operations, "getTemplate", [["matched", true]]);
   requireOperationOutcomes(operations, templateSendOperationId, [
     ["templateSend.accepted", true],
+    ["templateSend.requiredVariables", positiveIntegerOutcome],
     ["templateSend.results", positiveIntegerOutcome],
     ["templateSenderSend.accepted", true],
     ["templateSenderSend.results", positiveIntegerOutcome],

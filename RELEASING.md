@@ -56,7 +56,7 @@ That message, not the bare status, shows the server has the route; an API
 without it answers 404 too, with a different body. No domain of the child is
 paused or unpaused, so the run changes nothing there.
 
-The run therefore needs a server that has the marketing-sending domain fields,
+The run therefore needs a server that has the domain sending type and pause fields,
 the unpause route, the template send route, the template write routes, the
 template default sender and the message `template_id`:
 deploy the API before tagging a release that includes them, or live-gates fails
@@ -64,19 +64,22 @@ on `getDomains`, `createDomain`, `unpauseSubAccountDomain`, `listTemplates`,
 `getTemplate`, `createTemplateMessage`, `createTemplate`, `getMessages` and
 `getMessage`.
 
-The template read and send scenarios use the template named by `templateId`
-(see the account preconditions below), whose design and default sender are
-set in the dashboard. They walk the template
+The template scenarios create their own templates, so the account needs none.
+The read and send scenarios first create and publish a disposable `html`
+template with a unique name, a plain ASCII subject, a body that uses one
+variable (`{{ first_name }}`) and has no unsubscribe or view-in-browser link,
+and a default sender and reply-to on `verifiedDomain`. They walk the template
 listing through the iterator until it reaches that template, read it and check
-the fields the spec gives, including its default sender (`from`) and
-`reply_to`. They then send it twice with `messages.sendTemplate()` and
+the fields the spec gives, including the default sender (`from`) and
+`reply_to` it was created with, and that it marks at least one variable
+`required`. They then send it twice with `messages.sendTemplate()` and
 `sandbox: true` to `disposableMailbox`: once from `verifiedDomain`, and once
-without `from`, so the API sends from the template's default sender. A variable
-the template marks `required` gets the placeholder value
-`AhaSend SDK live acceptance` in the recipient's `substitutions`; a template
-that requires none is sent with no `substitutions`.
+without `from`, so the API sends from the template's default sender. Each
+required variable gets the placeholder value `AhaSend SDK live acceptance` in
+the recipient's `substitutions`. Cleanup deletes the template, and finds it by
+name among the newest templates when the create response was lost.
 
-The template write scenarios never touch that template. They create a
+The template write scenarios never touch that template. They create a second
 disposable `html` template with a unique name and publish it as version 1,
 update its subject into the draft and read the draft, publish it as version 2,
 list both versions (each must name the API key as its publisher) and read
@@ -134,7 +137,7 @@ no real mail" covers the messages API, which this repo controls — not that.
 
 ### `AHASEND_LIVE_CONFIG_JSON`
 
-Exactly these nine keys — no more, no fewer
+Exactly these eight keys — no more, no fewer
 (`configKeys` in `scripts/run-live-acceptance.mjs`):
 
 ```json
@@ -146,7 +149,6 @@ Exactly these nine keys — no more, no fewer
   "lifecycleDomain": "lifecycle.example.com",
   "suppressionDomain": "suppression.example.com",
   "disposableMailbox": "sdk-live@example.com",
-  "templateId": "00000000-0000-4000-8000-000000000000",
   "webhookUrl": "https://webhook.example.com/ahasend"
 }
 ```
@@ -161,12 +163,13 @@ Validation rules the script enforces:
   removed in cleanup — so it must be an address you are willing to grant account
   access to, not a shared alias.
 - `webhookUrl` must be **HTTPS**.
-- `templateId` must be a UUID. It is lowercased before use.
+- Any other key is refused.
 
 Account preconditions:
 
 - `verifiedDomain` and `replacementVerifiedDomain` are real, DNS-verified
-  sending domains on the account.
+  sending domains on the account. `verifiedDomain` must not be paused: the
+  template scenarios give their send template a default sender on it.
 - `dnslessDomain` must **not** exist on the account. The run creates it
   (`createMessageScenarioRegistry` in `scripts/live-acceptance.mjs`), asserts it
   is DNS-invalid, checks that a
@@ -199,26 +202,6 @@ Account preconditions:
   own — the next `addAccountMember` then fails on the duplicate. Remove the
   member in the dashboard before re-running.
 - `webhookUrl` must accept POSTs and return 2xx.
-- `templateId` is the ID of a **transactional template** on the release
-  account. Create it in the AhaSend dashboard under the transactional
-  templates, and save a design that:
-  - has a plain ASCII subject with no `{{ }}` variable braces;
-  - has an HTML or text body;
-  - has no unsubscribe link and no view-in-browser link, so the send does not
-    depend on AhaSend minting an unsubscribe link (`unsubscribe_url`) or a
-    hosted view (`view_browser_url`);
-  - uses only optional variables (each with a fallback value), or none.
-
-  Then give the template a default sender on `verifiedDomain` in the "Sender"
-  card of its page. The run sends once without `from`, which needs that
-  sender, and fails `getTemplate` on a template with no sender or a sender on
-  another domain.
-
-  The template's page,
-  `https://dash.ahasend.com/account/<account-id>/transactional/templates/<template-id>`,
-  shows the template ID, and `<template-id>` in its URL is the same value.
-  `client.templates.list()` also returns it as `id`. The template must stay on
-  the account; deleting it fails `listTemplates` and `getTemplate`.
 
 ---
 

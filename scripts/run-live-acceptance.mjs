@@ -49,11 +49,9 @@ const configKeys = Object.freeze([
   "neverRegisteredDomain",
   "replacementVerifiedDomain",
   "suppressionDomain",
-  "templateId",
   "verifiedDomain",
   "webhookUrl",
 ]);
-const UUID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 let failureRedactionSecrets = [];
 
 export function parseLiveConfig(source) {
@@ -85,10 +83,6 @@ export function parseLiveConfig(source) {
   if (!normalized.disposableMailbox.includes("@")) {
     throw new TypeError("Live acceptance disposableMailbox must be an email address.");
   }
-  const templateId = normalized.templateId.toLowerCase();
-  if (!UUID_PATTERN.test(templateId)) {
-    throw new TypeError("Live acceptance templateId must be a template UUID.");
-  }
   const webhookUrl = new URL(normalized.webhookUrl);
   if (webhookUrl.protocol !== "https:") {
     throw new TypeError("Live acceptance webhookUrl must use HTTPS.");
@@ -101,7 +95,6 @@ export function parseLiveConfig(source) {
     dnslessDomain: domains[3],
     lifecycleDomain: domains[4],
     suppressionDomain: domains[5],
-    templateId,
     webhookUrl: webhookUrl.href,
   });
 }
@@ -404,11 +397,19 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
         createTemplateScenarioRegistry({
           profile,
           client,
-          templateId: config.templateId,
+          sendTemplateRequest: {
+            name: `AhaSend SDK live acceptance send template ${suffix}`,
+            subject: `AhaSend SDK live acceptance send template ${suffix}`,
+            editor: "html",
+            content: {
+              html: "<p>Hello {{ first_name }}, from the AhaSend SDK live acceptance.</p>",
+            },
+            from: { email: `sdk-live-template@${config.verifiedDomain}` },
+            reply_to: { email: `sdk-live-reply@${config.verifiedDomain}` },
+          },
           sendRequest: {
             from: { email: verifiedSender },
             recipients: [{ email: config.disposableMailbox }],
-            template_id: config.templateId,
             sandbox: true,
           },
           createRequest: {

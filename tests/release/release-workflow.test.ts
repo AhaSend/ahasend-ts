@@ -789,7 +789,9 @@ describe("single-run release workflow", () => {
     expect(liveRunnerSource).toContain("await runContactLiveScenarios");
     expect(liveRunnerSource).toContain("await runListLiveScenarios");
     expect(liveRunnerSource).toContain("await runTemplateLiveScenarios");
-    expect(liveRunnerSource).toContain('"templateId",');
+    // The template scenarios create their own templates; the config names none.
+    expect(liveRunnerSource).toContain("sendTemplateRequest: {");
+    expect(liveRunnerSource).not.toContain("templateId");
     expect(liveRunnerSource).toContain("combined.subAccounts.operationResults");
     expect(liveRunnerSource).toContain("combined.subAccountAPIKeys.operationResults");
     expect(liveRunnerSource).toContain(

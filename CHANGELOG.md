@@ -75,13 +75,10 @@ must add `unpauseDomain` or `sendTemplate`.
   or a route.
 - `APIKeyScopeName` documents that the braces in a domain scope such as
   `messages:send:{example.com}` are part of the scope string.
-- Repository tooling: `npm run spec:sync` copies `openapi.yaml` and `webhooks.yaml` from the API
-  repository and regenerates everything derived from them, and the contract check accepts an
-  operation that has no Go sample yet. Live acceptance now covers every operation: the template
-  scenarios read and sandbox-send a template the release account holds, named by a new
-  `templateId` key in `AHASEND_LIVE_CONFIG_JSON`, with `messages.sendTemplate()`, once with `from`
-  and once from the template's default sender, which must be on `verifiedDomain`. The message
-  scenarios check `template_id` on every message they read.
+- Release tooling: live acceptance covers every operation. The template scenarios create their own
+  templates: one they list, read, and sandbox-send with `messages.sendTemplate()`, once with `from`
+  and once from the template's default sender, and one they publish, draft, restore, and delete.
+  The message scenarios check `template_id` on every message they read.
 
 ## [0.2.1] — 2026-08-20
 
