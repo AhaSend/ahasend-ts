@@ -24,6 +24,18 @@ export interface DNSRecord {
   label?: string;
 }
 
+/**
+ * The type of email sent from a domain. It affects deliverability: marketing email sent from a
+ * transactional domain can get the account paused.
+ */
+export type DomainSendingType = "transactional" | "marketing";
+
+/**
+ * Why sending from a domain is paused. `bounce_rate` means too many recent emails from the domain
+ * bounced. The set is open: handle values added after this release as an unknown reason.
+ */
+export type DomainPauseReason = "bounce_rate" | (string & {});
+
 export interface Domain {
   object: "domain";
   id: UUID;
@@ -42,10 +54,23 @@ export interface Domain {
   dkim_selector: string | null;
   rotation_ready: boolean;
   dsn_recipient: string | null;
+  sending_type: DomainSendingType;
+  /**
+   * Whether sending from the domain is paused. While it is paused, new email from it is refused
+   * and the domain cannot be deleted or renamed; the account's other domains keep sending.
+   */
+  paused: boolean;
+  /** When sending from the domain was paused; null when it is not paused. */
+  paused_at: ISODateTime | null;
+  /** Why sending from the domain was paused; null when it is not paused. */
+  pause_reason: DomainPauseReason | null;
 }
 
 export type ListDomainsParams = PaginationParams & {
-  dns_valid?: boolean | undefined;
+  /** Filter by DNS validation state; null or omitted returns every domain. */
+  dns_valid?: boolean | null | undefined;
+  /** Return only domains of this sending type; omitted returns every domain. */
+  sending_type?: DomainSendingType | undefined;
 };
 
 export interface CreateDomainRequest {
@@ -58,6 +83,8 @@ export interface CreateDomainRequest {
   dkim_rotation_interval_days?: number | undefined;
   /** Custom selector; null, empty, or whitespace-only uses the default selector on create. */
   dkim_selector?: string | null | undefined;
+  /** Omit to create a transactional domain. */
+  sending_type?: DomainSendingType | undefined;
 }
 
 export interface UpdateDomainRequest {
@@ -68,11 +95,16 @@ export interface UpdateDomainRequest {
   dkim_rotation_interval_days?: number | undefined;
   /** Null leaves the selector unchanged; empty or whitespace-only clears the current override. */
   dkim_selector?: string | null | undefined;
+  /**
+   * Omit to leave the sending type unchanged. A change applies to new messages within five
+   * minutes.
+   */
+  sending_type?: DomainSendingType | undefined;
 }
 
 /** Manage sending domains and their DNS verification state. */
 export interface DomainsClient {
-  /** Fetch one page of domains, optionally filtering by DNS verification state. */
+  /** Fetch one page of domains, optionally filtering by DNS verification state or sending type. */
   list(
     params?: ListDomainsParams,
     options?: RequestOptions,
@@ -88,7 +120,8 @@ export interface DomainsClient {
    * Register a domain for sending.
    *
    * The returned `dns_records` are the records to publish. A null, empty, or
-   * whitespace-only `dkim_selector` selects the default selector on creation.
+   * whitespace-only `dkim_selector` selects the default selector on creation. Without
+   * `sending_type`, the domain is transactional.
    */
   create(body: CreateDomainRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Domain>;
 
@@ -96,7 +129,7 @@ export interface DomainsClient {
   get(domain: string, options?: RequestOptions): AhaSendPromise<Domain>;
 
   /**
-   * Update a domain's optional subdomains, DKIM rotation interval, or DKIM selector.
+   * Update a domain's optional subdomains, DKIM rotation interval, DKIM selector, or sending type.
    *
    * A null `dkim_selector` leaves the selector unchanged; an empty or whitespace-only
    * selector clears the current override.
@@ -107,7 +140,10 @@ export interface DomainsClient {
     options?: RequestOptions,
   ): AhaSendPromise<Domain>;
 
-  /** Delete a domain by domain name. */
+  /**
+   * Delete a domain by domain name. While sending from the domain is paused, the API refuses the
+   * delete with HTTP 403 (`AhaSendPermissionError`).
+   */
   delete(domain: string, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
 
   /**

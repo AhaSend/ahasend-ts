@@ -253,6 +253,7 @@ describe("AhaSendClient", () => {
 
     expect(Object.getOwnPropertyNames(facade)).toEqual([
       "send",
+      "sendTemplate",
       "sendConversation",
       "list",
       "iterate",
@@ -597,6 +598,7 @@ describe("AhaSendClient", () => {
       "delete",
       "suspend",
       "unsuspend",
+      "unpauseDomain",
       "apiKeys",
     ]);
     expect(Object.getOwnPropertySymbols(facade)).toEqual([]);

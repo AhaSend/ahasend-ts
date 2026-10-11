@@ -14,6 +14,9 @@ export const USER_ID = "66666666-6666-4666-8666-666666666666";
 export const SMTP_CREDENTIAL_ID = "77777777-7777-4777-8777-777777777777";
 export const LIST_ID = "88888888-8888-4888-8888-888888888888";
 export const TEMPLATE_ID = "99999999-9999-4999-8999-999999999999";
+export const TEMPLATE_VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+export const CAMPAIGN_TEMPLATE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+export const CAMPAIGN_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 export const HOSTNAME = "mail.example.test";
 
 export interface ResourceCall {

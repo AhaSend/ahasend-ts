@@ -7,6 +7,7 @@ import { canonicalizeJson, sha256Hex } from "./digest-artifact.mjs";
 import {
   createAccountScenarioRegistry,
   createAPIKeyScenarioRegistry,
+  createCampaignScenarioRegistry,
   createContactScenarioRegistry,
   createListScenarioRegistry,
   createDomainScenarioRegistry,
@@ -18,11 +19,13 @@ import {
   createSubAccountAPIKeyScenarioRegistry,
   createSubAccountScenarioRegistry,
   createSuppressionScenarioRegistry,
+  createTemplateScenarioRegistry,
   createWebhookScenarioRegistry,
   installLiveCandidate,
   redactLiveValue,
   runAccountLiveScenarios,
   runAPIKeyLiveScenarios,
+  runCampaignLiveScenarios,
   runContactLiveScenarios,
   runListLiveScenarios,
   runDomainLiveScenarios,
@@ -32,6 +35,7 @@ import {
   runStatisticsLiveScenarios,
   runSubAccountAndAPIKeyLiveScenarios,
   runSuppressionLiveScenarios,
+  runTemplateLiveScenarios,
   runWebhookLiveScenarios,
   unwrapLiveFailure,
   validateLiveReportArtifacts,
@@ -52,7 +56,7 @@ const configKeys = Object.freeze([
 ]);
 let failureRedactionSecrets = [];
 
-function parseLiveConfig(source) {
+export function parseLiveConfig(source) {
   let parsed;
   try {
     parsed = JSON.parse(source);
@@ -353,7 +357,7 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
           profile,
           client,
           createRequest: { domain: config.lifecycleDomain },
-          updateRequest: { tracking_subdomain: "sdk-live" },
+          updateRequest: { tracking_subdomain: "sdk-live", sending_type: "marketing" },
           pagination,
         }),
       ),
@@ -383,6 +387,72 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
           },
           neverRegisteredDomain: config.neverRegisteredDomain,
           dnslessCreateRequest: { domain: config.dnslessDomain },
+          pagination,
+        }),
+      ),
+    ),
+  );
+  runs.push(
+    collectRun(
+      "template scenarios",
+      await runTemplateLiveScenarios(
+        createTemplateScenarioRegistry({
+          profile,
+          client,
+          sendTemplateRequest: {
+            name: `AhaSend SDK live acceptance send template ${suffix}`,
+            subject: `AhaSend SDK live acceptance send template ${suffix}`,
+            editor: "html",
+            content: {
+              html: "<p>Hello {{ first_name }}, from the AhaSend SDK live acceptance.</p>",
+            },
+            from: { email: `sdk-live-template@${config.verifiedDomain}` },
+            reply_to: { email: `sdk-live-reply@${config.verifiedDomain}` },
+          },
+          sendRequest: {
+            from: { email: verifiedSender },
+            recipients: [{ email: config.disposableMailbox }],
+            sandbox: true,
+          },
+          createRequest: {
+            name: `AhaSend SDK live acceptance template ${suffix}`,
+            subject: `AhaSend SDK live acceptance template ${suffix}`,
+            content: { html: "<p>AhaSend SDK live acceptance template.</p>" },
+          },
+          updateRequest: { subject: `AhaSend SDK live acceptance template ${suffix} v2` },
+          pagination,
+        }),
+      ),
+    ),
+  );
+  runs.push(
+    collectRun(
+      "campaign scenarios",
+      await runCampaignLiveScenarios(
+        createCampaignScenarioRegistry({
+          profile,
+          client,
+          templateCreateRequest: {
+            name: `AhaSend SDK live acceptance campaign template ${suffix}`,
+            content: {
+              html: '<p>AhaSend SDK live acceptance campaign.</p><p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>',
+            },
+          },
+          templateUpdateRequest: {
+            name: `AhaSend SDK live acceptance campaign template ${suffix} v2`,
+          },
+          listCreateRequest: {
+            name: `SDK live campaign list ${suffix}`,
+            description: "AhaSend SDK live acceptance campaign list; it stays empty",
+          },
+          createRequest: {
+            name: `AhaSend SDK live acceptance campaign ${suffix}`,
+            subject: `AhaSend SDK live acceptance campaign ${suffix}`,
+            preheader: "AhaSend SDK live acceptance test send",
+            from: { email: `sdk-live-campaign@${config.verifiedDomain}`, name: "AhaSend SDK" },
+          },
+          updateRequest: { subject: `AhaSend SDK live acceptance campaign ${suffix} v2` },
+          testRecipient: config.disposableMailbox,
           pagination,
         }),
       ),
@@ -617,6 +687,7 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
         monthly_credit: 75_000,
       },
       suspendRequest: { reason: "AhaSend SDK live lifecycle verification" },
+      absentDomain: config.neverRegisteredDomain,
       pagination,
     }),
     (subAccountId) =>

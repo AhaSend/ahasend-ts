@@ -146,7 +146,7 @@ interface components {
             dns_last_checked_at: string;
         };
         RouteWebhookPayload: {
-            type: "message.routing" | "route.message";
+            type: "message.routing";
             timestamp: string;
             route_id: string;
             data: components["schemas"]["RouteWebhookData"];

@@ -69,6 +69,7 @@ export type {
   Attachment,
   CreateConversationMessageRequest,
   CreateMessageRequest,
+  CreateTemplateMessageRequest,
   DeliveryAttempt,
   ListMessagesParams,
   Message,
@@ -89,16 +90,64 @@ export type {
 } from "./resources/messages.js";
 
 export type {
+  CreateTemplateRequest,
   ListTemplatesParams,
+  ListTemplateVersionsResponse,
+  RestoreTemplateVersionRequest,
   Template,
+  TemplateContent,
+  TemplateContentInput,
+  TemplateDraft,
+  TemplateEditor,
+  TemplatePublisher,
   TemplatesClient,
   TemplateVariable,
+  TemplateVersion,
+  TemplateVersionDetail,
+  UpdateTemplateRequest,
 } from "./resources/templates.js";
+
+export type {
+  CampaignTemplate,
+  CampaignTemplatesClient,
+  CreateCampaignTemplateRequest,
+  ListCampaignTemplatesParams,
+  UpdateCampaignTemplateRequest,
+} from "./resources/campaign-templates.js";
+
+export type {
+  Campaign,
+  CampaignIssue,
+  CampaignIssueCode,
+  CampaignListItem,
+  CampaignNotReady,
+  CampaignSend,
+  CampaignsClient,
+  CampaignStats,
+  CampaignStatsRates,
+  CampaignStatsReport,
+  CampaignStatus,
+  CampaignTest,
+  CampaignTestFailure,
+  CreateCampaignRequest,
+  DuplicateCampaignRequest,
+  ListCampaignsParams,
+  SendCampaignRequest,
+  TestCampaignRequest,
+  UpdateCampaignRequest,
+} from "./resources/campaigns.js";
+export type {
+  CampaignRecipient,
+  CampaignRecipientsClient,
+  ListCampaignRecipientsParams,
+} from "./resources/campaign-recipients.js";
 
 export type {
   CreateDomainRequest,
   DNSRecord,
   Domain,
+  DomainPauseReason,
+  DomainSendingType,
   DomainsClient,
   ListDomainsParams,
   UpdateDomainRequest,

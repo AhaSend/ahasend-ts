@@ -25,12 +25,19 @@ Caller cancellation is never retried. Ordinary 4xx responses, including an API-k
 `accounts.addMember()` for an existing member, `suppressions.create()` for an existing
 suppression — surface as terminal `AhaSendConflictError` (`error.code === "conflict_error"`):
 they carry neither `Idempotent-Replayed` nor `Retry-After`, which is what distinguishes them
-from the retryable in-progress state on the same status code. `domains.checkDns()`, `subAccounts.suspend()`, and
-`subAccounts.unsuspend()` are also never retried because the API does not declare them retry-safe.
+from the retryable in-progress state on the same status code. A campaign whose status refuses the
+request — a change, delete, send or test of a campaign that is not a draft, or an unschedule of one
+that is not `validating` or `scheduled`, or that has already queued mail — answers a terminal
+`AhaSendConflictError` too. The status conflict of a campaign update, send or unschedule is stored,
+so a retry with the same key replays it with `Idempotent-Replayed: true`; a test's status conflict
+is never stored or replayed. `domains.checkDns()`, `subAccounts.suspend()`,
+`subAccounts.unsuspend()`, and `subAccounts.unpauseDomain()` are also never retried because the API
+does not declare them retry-safe.
 
-For HTTP 429, a valid `Retry-After` in seconds or HTTP-date form is authoritative and capped at
-`maxDelayMs`. An eligible idempotency-in-progress 409 accepts only the positive integer seconds
-form. Other retryable responses use the configured backoff.
+For HTTP 408, 429 and 5xx, a valid `Retry-After` in seconds or HTTP-date form is authoritative
+and capped at `maxDelayMs`. An eligible idempotency-in-progress 409 accepts only the positive
+integer seconds form. Other retryable responses, and these without a valid `Retry-After`, use the
+configured backoff.
 
 ```ts
 const client = new AhaSendClient({
@@ -69,7 +76,9 @@ signals.
 
 ## Idempotency keys
 
-Every create and batch operation documented by the API as idempotent receives an automatically generated
+Every create, batch, send, publish and restore operation, every template, campaign template and
+campaign update, and the campaign duplicate, unschedule and test, documented by the API as
+idempotent receives an automatically generated
 UUID `Idempotency-Key` by default. The SDK generates it once for the logical call and reuses the
 same value across all internal retry attempts.
 
@@ -103,8 +112,8 @@ one-time secret and have a 5-minute replay window; an exact replay during that w
 same secret. Persist that secret immediately. Do not assume a key prevents a second operation
 after its server retention window expires.
 
-`idempotency.autoGenerate: false` disables automatic keys. Create operations without a key are
-then attempted only once because they are no longer retry-safe. `IdempotencyKeyBuilder` is useful
+`idempotency.autoGenerate: false` disables automatic keys. Key-protected operations without a key
+are then attempted only once because they are no longer retry-safe. `IdempotencyKeyBuilder` is useful
 for related but distinct operations. Its first `next()` call returns the base key unchanged.
 `IdempotencyKeyBuilder` inserts a hyphen between its prefix and the generated key remainder on each
 later `next()` call; `withSuffix()` inserts the same separator before an explicit suffix. By contrast,

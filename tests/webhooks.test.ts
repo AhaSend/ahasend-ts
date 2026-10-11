@@ -23,6 +23,7 @@ import {
 import { isKnownWebhookEvent } from "../src/webhooks/events.js";
 import {
   isKnownDeliveryAttemptClassification,
+  type DeprecatedWebhookEventType,
   type KnownDeliveryAttemptClassification,
   type MessageBouncedEvent,
   type MessageClickedEventData,
@@ -34,6 +35,7 @@ import {
   type MessageSuppressedEvent,
   type MessageTransientErrorEvent,
   type WebhookDeliveryAttempt,
+  type WebhookEventType,
 } from "../src/webhooks/index.js";
 import { AhaSendConfigurationError } from "../src/errors.js";
 import {
@@ -312,12 +314,12 @@ describe("generated webhook schema", () => {
     expectTypeOf<WebhookComponents["schemas"]["MessageWebhookData"]["is_bot"]>().toEqualTypeOf<
       boolean | undefined
     >();
-    expectTypeOf<{
-      type: "route.message";
-      route_id: string;
-      timestamp: string;
-      data: WebhookComponents["schemas"]["RouteWebhookData"];
-    }>().toExtend<WebhookComponents["schemas"]["RouteWebhookPayload"]>();
+    // The spec names only the canonical type; the SDK keeps accepting route.message on its own.
+    expectTypeOf<
+      WebhookComponents["schemas"]["RouteWebhookPayload"]["type"]
+    >().toEqualTypeOf<"message.routing">();
+    expectTypeOf<DeprecatedWebhookEventType>().toEqualTypeOf<"route.message">();
+    expectTypeOf<"route.message">().toExtend<WebhookEventType>();
   });
 
   it("tolerates the values it forwards and rejects what is not an attempt", () => {
@@ -1516,6 +1518,66 @@ describe("WebhookVerifier", () => {
 
     expect(event).toEqual({ ...payload, type: "message.routing" });
     expect(isKnownWebhookEvent(event)).toBe(true);
+  });
+
+  it("parses a campaign message event whose from carries the sender's name", async () => {
+    const delivered = {
+      ...validDelivery,
+      data: { ...validDelivery.data, from: "Acme News <news@example.com>" },
+    };
+    const clicked = {
+      type: "message.clicked" as const,
+      webhook_id: BODY_WEBHOOK_ID,
+      timestamp: validDelivery.timestamp,
+      data: {
+        ...validDelivery.data,
+        event: "on_clicked" as const,
+        from: '"Acme, Inc." <news@example.com>',
+        url: "https://example.com/offer",
+        user_agent: "Mozilla/5.0",
+        ip: "192.0.2.10",
+      },
+    };
+    const verifier = new WebhookVerifier(SECRET);
+
+    for (const payload of [delivered, clicked]) {
+      const { headers, body } = buildEnvelope(SECRET, payload);
+      const event = await verifier.parse(headers, body);
+      expect(event, payload.type).toEqual(payload);
+      expect(isKnownWebhookEvent(event), payload.type).toBe(true);
+    }
+  });
+
+  it("parses route to and reply_to headers with display names and several addresses", async () => {
+    const verifier = new WebhookVerifier(SECRET);
+    for (const [to, replyTo] of [
+      ['"Support" <support@example.com>, Sales <sales@example.com>', ""],
+      [
+        "inbound@example.com",
+        'Customer <customer@example.net>, "Billing, Team" <billing@example.net>',
+      ],
+    ] as const) {
+      const payload = routeEventWithAttachments([]);
+      payload.data.to = to;
+      payload.data.reply_to = replyTo;
+      const { headers, body } = buildEnvelope(SECRET, payload);
+
+      const event = await verifier.parse(headers, body);
+
+      expect(event, to).toEqual(payload);
+      expect(isKnownWebhookEvent(event), to).toBe(true);
+    }
+  });
+
+  it.each([-1.5, 12.25])("parses a route spam_score of %s outside 0 to 10", async (spamScore) => {
+    const payload = routeEventWithAttachments([]);
+    payload.data.spam_score = spamScore;
+    const { headers, body } = buildEnvelope(SECRET, payload);
+
+    const event = await new WebhookVerifier(SECRET).parse(headers, body);
+
+    expect(event).toEqual(payload);
+    expect(isKnownWebhookEvent(event) && event.type === "message.routing").toBe(true);
   });
 
   it("validates complete known payloads and complete unknown envelopes", async () => {

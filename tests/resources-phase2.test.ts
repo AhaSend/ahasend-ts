@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { AhaSendClient } from "../src/client.js";
 import { AhaSendNotFoundError } from "../src/errors.js";
 import type {
   BatchUpsertContactInput,
@@ -20,7 +21,15 @@ import type {
   DeliveryTimeStatistics,
 } from "../src/resources/statistics.js";
 import type { ListSuppressionsParams, Suppression } from "../src/resources/suppressions.js";
-import type { ListTemplatesParams, Template } from "../src/resources/templates.js";
+import type {
+  ListTemplatesParams,
+  ListTemplateVersionsResponse,
+  Template,
+  TemplateDraft,
+  TemplateVersionDetail,
+  UpdateTemplateRequest,
+} from "../src/resources/templates.js";
+import type { Address } from "../src/types/common.js";
 import type {
   CreatedWebhook,
   CreateWebhookRequest,
@@ -35,6 +44,7 @@ import {
   ROUTE_ID,
   SMTP_CREDENTIAL_ID,
   TEMPLATE_ID,
+  TEMPLATE_VERSION_ID,
   USER_ID,
   WEBHOOK_ID,
 } from "./helpers/resource-call.js";
@@ -976,6 +986,17 @@ const TEMPLATE_RESPONSE = {
     { name: "first_name", required: true },
     { name: "unsubscribe_url", required: false },
   ],
+  from: { email: "hello@example.com", name: "Example" },
+  reply_to: { email: "support@example.com", name: "" },
+  editor: "advanced",
+  has_draft: false,
+} as const;
+
+const TEMPLATE_CONTENT = {
+  mjml: "<mjml><mj-body></mj-body></mjml>",
+  html: "<html></html>",
+  text: "Welcome",
+  text_is_custom: false,
 } as const;
 
 function templatePage(body: unknown, status = 200): Response {
@@ -1049,6 +1070,22 @@ describe("TemplatesClient", () => {
     expect(calls[0]!.headers["x-trace-id"]).toBe("template-get-1");
     expect(calls[0]!.body).toBeUndefined();
     expect(template.subject).toBe("Welcome, {{ first_name }}");
+    expect(template.from).toEqual({ email: "hello@example.com", name: "Example" });
+    expect(template.reply_to).toEqual({ email: "support@example.com", name: "" });
+  });
+
+  it("get() returns a null sender and a null reply-to for a template without defaults", async () => {
+    const { fetch } = captureFetch(() =>
+      templatePage({ ...TEMPLATE_RESPONSE, from: null, reply_to: null }),
+    );
+    const client = makeClient(fetch);
+
+    const template: Template = await client.templates.get(TEMPLATE_ID);
+
+    expect(template.from).toBeNull();
+    expect(template.reply_to).toBeNull();
+    expectTypeOf(template.from).toEqualTypeOf<Address | null>();
+    expectTypeOf(template.reply_to).toEqualTypeOf<Address | null>();
   });
 
   it("get() rejects an identifier that is not a template UUID before dispatch", () => {
@@ -1108,6 +1145,283 @@ describe("TemplatesClient", () => {
     expect((rejection as AhaSendNotFoundError).body).toEqual({ message: "Template not found" });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.operationId).toBe("getTemplate");
+  });
+
+  it("get() returns the editor, the draft flag and the published content", async () => {
+    const { fetch } = captureFetch(() =>
+      templatePage({ ...TEMPLATE_RESPONSE, has_draft: true, content: TEMPLATE_CONTENT }),
+    );
+    const client = makeClient(fetch);
+
+    const template = await client.templates.get(TEMPLATE_ID);
+
+    expect(template.editor).toBe("advanced");
+    expect(template.has_draft).toBe(true);
+    expect(template.content).toEqual(TEMPLATE_CONTENT);
+  });
+
+  it("create() posts the template with an idempotency key", async () => {
+    const { fetch, calls } = captureFetch(() => templatePage(TEMPLATE_RESPONSE, 201));
+    const client = makeClient(fetch);
+    const body = {
+      name: "Welcome",
+      editor: "html",
+      content: { html: "<p>Hello</p>" },
+      publish: true,
+    } as const;
+
+    const template = await client.templates.create(body, { idempotencyKey: "template-create-1" });
+
+    expect(calls[0]!.operationId).toBe("createTemplate");
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/templates`);
+    expect(calls[0]!.headers["idempotency-key"]).toBe("template-create-1");
+    expect(JSON.parse(calls[0]!.body!)).toEqual(body);
+    expect(template.id).toBe(TEMPLATE_ID);
+  });
+
+  it("create() generates an idempotency key when the caller gives none", async () => {
+    const { fetch, calls } = captureFetch(() => templatePage(TEMPLATE_RESPONSE, 201));
+    const client = makeClient(fetch);
+
+    await client.templates.create({ name: "Welcome", editor: "simple" });
+
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+  });
+
+  it("update() sends null to clear a field and leaves out a field it does not change", async () => {
+    const { fetch, calls } = captureFetch(() => templatePage(TEMPLATE_RESPONSE));
+    const client = makeClient(fetch);
+    const body: UpdateTemplateRequest = {
+      subject: null,
+      preheader: undefined,
+      from: { email: "hello@example.com" },
+      content: { text: null },
+    };
+
+    await client.templates.update(TEMPLATE_ID, body);
+
+    expect(calls[0]!.operationId).toBe("updateTemplate");
+    expect(calls[0]!.method).toBe("PUT");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}`,
+    );
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+    expect(calls[0]!.body).toBe(
+      '{"subject":null,"from":{"email":"hello@example.com"},"content":{"text":null}}',
+    );
+  });
+
+  it("update() sends an idempotency key and reuses it when it retries", async () => {
+    const { fetch, calls } = captureFetch((_call, index) =>
+      index % 2 === 0
+        ? templatePage({ message: "template kept changing" }, 503)
+        : templatePage(TEMPLATE_RESPONSE),
+    );
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: ACCOUNT_ID,
+      baseUrl: "https://api.test",
+      fetch,
+      retry: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+    });
+    const body: UpdateTemplateRequest = { subject: "Welcome back" };
+
+    await client.templates.update(TEMPLATE_ID, body);
+    await client.templates.update(TEMPLATE_ID, body, { idempotencyKey: "template-update-1" });
+
+    expect(calls.map(({ operationId, method }) => [operationId, method])).toEqual([
+      ["updateTemplate", "PUT"],
+      ["updateTemplate", "PUT"],
+      ["updateTemplate", "PUT"],
+      ["updateTemplate", "PUT"],
+    ]);
+    const generated = calls[0]!.headers["idempotency-key"];
+    expect(generated).toMatch(/^[0-9a-f-]{36}$/);
+    expect(calls[1]!.headers["idempotency-key"]).toBe(generated);
+    expect(calls[2]!.headers["idempotency-key"]).toBe("template-update-1");
+    expect(calls[3]!.headers["idempotency-key"]).toBe("template-update-1");
+  });
+
+  it("update() is not retried when automatic keys are off and the caller gives none", async () => {
+    const { fetch, calls } = captureFetch(() =>
+      templatePage({ message: "template kept changing" }, 503),
+    );
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: ACCOUNT_ID,
+      baseUrl: "https://api.test",
+      fetch,
+      idempotency: { autoGenerate: false },
+      retry: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+    });
+
+    await expect(
+      client.templates.update(TEMPLATE_ID, { subject: "Welcome back" }),
+    ).rejects.toMatchObject({ status: 503 });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.headers).not.toHaveProperty("idempotency-key");
+  });
+
+  it("update() does not accept an editor or a null content", () => {
+    const withEditor: UpdateTemplateRequest = {
+      // @ts-expect-error The editor never changes after create.
+      editor: "html",
+    };
+    const withNullContent: UpdateTemplateRequest = {
+      // @ts-expect-error content cannot be null.
+      content: null,
+    };
+
+    expect(withEditor).toBeDefined();
+    expect(withNullContent).toBeDefined();
+  });
+
+  it("delete() removes the template", async () => {
+    const { fetch, calls } = captureFetch(() => templatePage({ message: "template deleted" }));
+    const client = makeClient(fetch);
+
+    const result = await client.templates.delete(TEMPLATE_ID);
+
+    expect(calls[0]!.operationId).toBe("deleteTemplate");
+    expect(calls[0]!.method).toBe("DELETE");
+    expect(calls[0]!.body).toBeUndefined();
+    expect(result).toEqual({ message: "template deleted" });
+  });
+
+  it("getDraft() and discardDraft() address the draft path", async () => {
+    const draft = {
+      object: "template_draft",
+      template_id: TEMPLATE_ID,
+      updated_at: "2026-09-10T12:00:00Z",
+      subject: "Draft subject",
+      preheader: "",
+      variables: [],
+      from: null,
+      reply_to: null,
+      content: null,
+    } as const;
+    const { fetch, calls } = captureFetch((_call, index) =>
+      templatePage(index === 0 ? draft : TEMPLATE_RESPONSE),
+    );
+    const client = makeClient(fetch);
+
+    const read: TemplateDraft = await client.templates.getDraft(TEMPLATE_ID);
+    const discarded: Template = await client.templates.discardDraft(TEMPLATE_ID);
+
+    const draftPath = `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}/draft`;
+    expect(calls.map(({ operationId, method, url }) => [operationId, method, url])).toEqual([
+      ["getTemplateDraft", "GET", draftPath],
+      ["discardTemplateDraft", "DELETE", draftPath],
+    ]);
+    expect(read).toEqual(draft);
+    expect(discarded.has_draft).toBe(false);
+  });
+
+  it("publish() posts no body and sends an idempotency key", async () => {
+    const { fetch, calls } = captureFetch(() => templatePage(TEMPLATE_RESPONSE));
+    const client = makeClient(fetch);
+
+    await client.templates.publish(TEMPLATE_ID, { idempotencyKey: "template-publish-1" });
+
+    expect(calls[0]!.operationId).toBe("publishTemplate");
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}/publish`,
+    );
+    expect(calls[0]!.body).toBeUndefined();
+    expect(calls[0]!.headers["idempotency-key"]).toBe("template-publish-1");
+  });
+
+  it("listVersions() returns the unpaginated version list", async () => {
+    const versions = {
+      object: "list",
+      data: [
+        {
+          object: "template_version",
+          id: TEMPLATE_VERSION_ID,
+          version: 2,
+          published_at: "2026-09-10T12:00:00Z",
+          published_by: { type: "api_key", id: USER_ID },
+        },
+        {
+          object: "template_version",
+          id: TEMPLATE_ID,
+          version: 1,
+          published_at: "2026-09-10T11:00:00Z",
+          published_by: null,
+        },
+      ],
+    } as const;
+    const { fetch, calls } = captureFetch(() => templatePage(versions));
+    const client = makeClient(fetch);
+
+    const result: ListTemplateVersionsResponse = await client.templates.listVersions(TEMPLATE_ID);
+
+    expect(calls[0]!.operationId).toBe("listTemplateVersions");
+    expect(new URL(calls[0]!.url).search).toBe("");
+    expect(result).toEqual(versions);
+  });
+
+  it("getVersion() addresses one version of the template", async () => {
+    const version = {
+      object: "template_version",
+      id: TEMPLATE_VERSION_ID,
+      version: 2,
+      published_at: "2026-09-10T12:00:00Z",
+      published_by: { type: "user", id: USER_ID },
+      subject: "Welcome",
+      preheader: "",
+      variables: [],
+      from: null,
+      reply_to: null,
+      content: TEMPLATE_CONTENT,
+    } as const;
+    const { fetch, calls } = captureFetch(() => templatePage(version));
+    const client = makeClient(fetch);
+
+    const result: TemplateVersionDetail = await client.templates.getVersion(
+      TEMPLATE_ID,
+      TEMPLATE_VERSION_ID,
+    );
+
+    expect(calls[0]!.operationId).toBe("getTemplateVersion");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}/versions/${TEMPLATE_VERSION_ID}`,
+    );
+    expect(result.content).toEqual(TEMPLATE_CONTENT);
+  });
+
+  it("restoreVersion() sends no body unless the caller gives one", async () => {
+    const { fetch, calls } = captureFetch(() => templatePage(TEMPLATE_RESPONSE));
+    const client = makeClient(fetch);
+
+    await client.templates.restoreVersion(TEMPLATE_ID, TEMPLATE_VERSION_ID);
+    await client.templates.restoreVersion(
+      TEMPLATE_ID,
+      TEMPLATE_VERSION_ID,
+      { publish: true },
+      { idempotencyKey: "template-restore-1" },
+    );
+
+    const restorePath = `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}/versions/${TEMPLATE_VERSION_ID}/restore`;
+    expect(calls.map(({ operationId, method, url }) => [operationId, method, url])).toEqual([
+      ["restoreTemplateVersion", "POST", restorePath],
+      ["restoreTemplateVersion", "POST", restorePath],
+    ]);
+    expect(calls[0]!.body).toBeUndefined();
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+    expect(calls[1]!.body).toBe('{"publish":true}');
+    expect(calls[1]!.headers["idempotency-key"]).toBe("template-restore-1");
+  });
+
+  it("rejects a version identifier that is not a UUID before dispatch", () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() => client.templates.getVersion(TEMPLATE_ID, "../draft")).toThrow(/expected uuid/);
+    expect(calls).toHaveLength(0);
   });
 });
 

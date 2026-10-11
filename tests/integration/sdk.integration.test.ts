@@ -295,7 +295,9 @@ const OPERATION_CASES = [
   operation("getAPIKey", ["apiKeys"], "get", [RESOURCE_ID]),
   operation("updateAPIKey", ["apiKeys"], "update", [RESOURCE_ID, { label: "Updated key" }]),
   operation("deleteAPIKey", ["apiKeys"], "delete", [RESOURCE_ID]),
-  operation("getDomains", ["domains"], "list", [{ dns_valid: true, ...PAGINATION }]),
+  operation("getDomains", ["domains"], "list", [
+    { dns_valid: true, sending_type: "marketing", ...PAGINATION },
+  ]),
   operation("createDomain", ["domains"], "create", [{ domain: DOMAIN }]),
   operation("getDomain", ["domains"], "get", [DOMAIN]),
   operation("updateDomain", ["domains"], "update", [DOMAIN, { tracking_subdomain: "track" }]),
@@ -312,6 +314,9 @@ const OPERATION_CASES = [
       text_content: "Hello from the packed SDK",
     },
   ]),
+  operation("createTemplateMessage", ["messages"], "sendTemplate", [
+    { template_id: RESOURCE_ID, recipients: [{ email: `recipient@${DOMAIN}` }] },
+  ]),
   operation("createConversationMessage", ["messages"], "sendConversation", [
     {
       from: { email: `sender@${DOMAIN}` },
@@ -323,7 +328,65 @@ const OPERATION_CASES = [
   operation("getMessage", ["messages"], "get", [RESOURCE_ID]),
   operation("cancelMessage", ["messages"], "cancel", [RESOURCE_ID]),
   operation("listTemplates", ["templates"], "list", [PAGINATION]),
+  operation("createTemplate", ["templates"], "create", [
+    { name: "Integration template", content: { html: "<p>Hello from the packed SDK</p>" } },
+  ]),
   operation("getTemplate", ["templates"], "get", [RESOURCE_ID]),
+  operation("updateTemplate", ["templates"], "update", [
+    RESOURCE_ID,
+    { subject: null, content: { text: "Hello from the packed SDK" } },
+  ]),
+  operation("deleteTemplate", ["templates"], "delete", [RESOURCE_ID]),
+  operation("getTemplateDraft", ["templates"], "getDraft", [RESOURCE_ID]),
+  operation("discardTemplateDraft", ["templates"], "discardDraft", [RESOURCE_ID]),
+  operation("publishTemplate", ["templates"], "publish", [RESOURCE_ID]),
+  operation("listTemplateVersions", ["templates"], "listVersions", [RESOURCE_ID]),
+  operation("getTemplateVersion", ["templates"], "getVersion", [RESOURCE_ID, RESOURCE_ID]),
+  operation("restoreTemplateVersion", ["templates"], "restoreVersion", [
+    RESOURCE_ID,
+    RESOURCE_ID,
+    { publish: true },
+  ]),
+  operation("listCampaignTemplates", ["campaignTemplates"], "list", [PAGINATION]),
+  operation("createCampaignTemplate", ["campaignTemplates"], "create", [
+    {
+      name: "Integration campaign template",
+      content: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' },
+    },
+  ]),
+  operation("getCampaignTemplate", ["campaignTemplates"], "get", [RESOURCE_ID]),
+  operation("updateCampaignTemplate", ["campaignTemplates"], "update", [
+    RESOURCE_ID,
+    { name: "Updated campaign template" },
+  ]),
+  operation("deleteCampaignTemplate", ["campaignTemplates"], "delete", [RESOURCE_ID]),
+  operation("listCampaigns", ["campaigns"], "list", [{ status: "draft", ...PAGINATION }]),
+  operation("createCampaign", ["campaigns"], "create", [
+    {
+      name: "Integration campaign",
+      from: { email: `sender@${DOMAIN}` },
+      list_ids: [RESOURCE_ID],
+      template_id: RESOURCE_ID,
+    },
+  ]),
+  operation("getCampaign", ["campaigns"], "get", [RESOURCE_ID]),
+  operation("updateCampaign", ["campaigns"], "update", [
+    RESOURCE_ID,
+    { subject: null, reply_to: `replies@${DOMAIN}` },
+  ]),
+  operation("deleteCampaign", ["campaigns"], "delete", [RESOURCE_ID]),
+  operation("duplicateCampaign", ["campaigns"], "duplicate", [RESOURCE_ID, { name: "Copy" }]),
+  operation("sendCampaign", ["campaigns"], "send", [
+    RESOURCE_ID,
+    { send_at: "2030-01-01T09:00:00Z" },
+  ]),
+  operation("unscheduleCampaign", ["campaigns"], "unschedule", [RESOURCE_ID]),
+  operation("testCampaign", ["campaigns"], "test", [RESOURCE_ID, { to: [`reviewer@${DOMAIN}`] }]),
+  operation("getCampaignStats", ["campaigns"], "getStats", [RESOURCE_ID]),
+  operation("listCampaignRecipients", ["campaigns", "recipients"], "list", [
+    RESOURCE_ID,
+    { status: "Delivered", ...PAGINATION },
+  ]),
   operation("getAccount", ["accounts"], "get"),
   operation("updateAccount", ["accounts"], "update", [{ name: "Integration account" }]),
   operation("getAccountMembers", ["accounts"], "listMembers"),
@@ -347,6 +410,7 @@ const OPERATION_CASES = [
     { reason: "Integration suspension" },
   ]),
   operation("unsuspendSubAccount", ["subAccounts"], "unsuspend", [RESOURCE_ID]),
+  operation("unpauseSubAccountDomain", ["subAccounts"], "unpauseDomain", [RESOURCE_ID, DOMAIN]),
   operation("listSubAccountAPIKeys", ["subAccounts", "apiKeys"], "list", [RESOURCE_ID, PAGINATION]),
   operation("createSubAccountAPIKey", ["subAccounts", "apiKeys"], "create", [
     RESOURCE_ID,
@@ -963,8 +1027,8 @@ describe("packed SDK operation contract", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
     const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
-    expect(OPERATION_CASES).toHaveLength(74);
-    expect(new Set(implementedOperationIds).size).toBe(74);
+    expect(OPERATION_CASES).toHaveLength(101);
+    expect(new Set(implementedOperationIds).size).toBe(101);
     expect([...implementedOperationIds].sort()).toEqual(operationIds.sort());
   });
 

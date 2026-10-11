@@ -124,8 +124,9 @@ export type DomainEventData = components["schemas"]["DomainWebhookData"];
  * producer's MIME parser — an `application/octet-stream` part, or any
  * single-part binary body, carries its token through verbatim, so
  * `Content-Disposition: form-data` arrives as `"form-data"`. A receiver that
- * rejected it would answer 400, and 100 consecutive errors disable the
- * webhook. Treat an unrecognized value as an attachment.
+ * rejected it would answer 400, and when more than 100 attempts in a row fail,
+ * retries included, AhaSend disables the route. Treat an unrecognized value as
+ * an attachment.
  */
 export type RouteAttachment = components["schemas"]["RouteAttachment"];
 export type RouteEventData = components["schemas"]["RouteWebhookData"];

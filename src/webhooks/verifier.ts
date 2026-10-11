@@ -258,8 +258,8 @@ function parseTimestamp(value: string): number {
  * edge runtime's, or any value that crossed a realm boundary. Such an object
  * then falls through to the plain-record path, where `Object.entries` returns
  * `[]` because the headers live in internal slots, and every header reports as
- * missing. The adapters map that to HTTP 400, and 100 consecutive errors
- * disable the webhook.
+ * missing. The adapters map that to HTTP 400, and when more than 100 attempts
+ * in a row fail, retries included, AhaSend disables the webhook or route.
  *
  * A plain header record cannot collide with this test: its values are
  * `string | string[] | undefined`, so a literal `get` key is never a function.

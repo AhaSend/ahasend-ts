@@ -1,9 +1,12 @@
 import { inspect } from "node:util";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { AhaSendClient, AhaSendNotFoundError, AhaSendServerError } from "../src/index.js";
+import { OPERATION_DESCRIPTORS } from "../src/generated/operations.js";
 import type {
   APIKey,
   AhaSendPromise,
   CreatedAPIKey,
+  Domain,
   IdempotencyRequestOptions,
   PaginationParams,
   RequestOptions,
@@ -95,6 +98,12 @@ describe("SubAccountsClient declarations", () => {
     >();
     expectTypeOf<Parameters<SubAccountsClient["unsuspend"]>[1]>().toEqualTypeOf<
       RequestOptions | undefined
+    >();
+    expectTypeOf<Parameters<SubAccountsClient["unpauseDomain"]>>().toEqualTypeOf<
+      [subAccountId: string, domain: string, options?: RequestOptions]
+    >();
+    expectTypeOf<ReturnType<SubAccountsClient["unpauseDomain"]>>().toEqualTypeOf<
+      AhaSendPromise<Domain>
     >();
   });
 });
@@ -298,6 +307,84 @@ describe("SubAccountsClient operations", () => {
     );
     expect(calls[1]!.body).toBeUndefined();
     expect(calls[1]!.operationId).toBe("unsuspendSubAccount");
+  });
+
+  it("unpauseDomain() posts no body to the child's domain and returns the domain", async () => {
+    const domain = {
+      object: "domain",
+      domain: "mail.example.test",
+      sending_type: "marketing",
+      paused: false,
+      paused_at: null,
+      pause_reason: null,
+    };
+    const { fetch, calls } = captureFetch(
+      () =>
+        new Response(JSON.stringify(domain), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = makeClient(fetch);
+
+    const result = await client.subAccounts.unpauseDomain(SUB_ACCOUNT_ID, "mail.example.test", {
+      headers: { "x-trace-id": "sub-unpause-1" },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/sub-accounts/${SUB_ACCOUNT_ID}/domains/mail.example.test/unpause`,
+    );
+    expect(calls[0]!.body).toBeUndefined();
+    expect(calls[0]!.headers["x-trace-id"]).toBe("sub-unpause-1");
+    expect(calls[0]!.headers).not.toHaveProperty("idempotency-key");
+    expect(calls[0]!.operationId).toBe("unpauseSubAccountDomain");
+    expect(result).toEqual(domain);
+  });
+
+  it("unpauseDomain() refuses a domain that is not one hostname path segment", () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    for (const domain of ["mail.example.test/../other", "mail example.test", "", ".."]) {
+      expect(() => client.subAccounts.unpauseDomain(SUB_ACCOUNT_ID, domain), domain).toThrow(
+        /Invalid path parameter "domain" for unpauseSubAccountDomain/,
+      );
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("unpauseDomain() needs sub-accounts:suspend and, like suspend, is never retried", async () => {
+    expect(OPERATION_DESCRIPTORS.unpauseSubAccountDomain.security).toEqual([
+      ["sub-accounts:suspend"],
+    ]);
+    expect(OPERATION_DESCRIPTORS.unpauseSubAccountDomain.retry).toBe(
+      OPERATION_DESCRIPTORS.suspendSubAccount.retry,
+    );
+
+    const { fetch, calls } = captureFetch(
+      (_call, index) =>
+        new Response(JSON.stringify({ message: index === 0 ? "failed" : "domain not found" }), {
+          status: index === 0 ? 500 : 404,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: ACCOUNT_ID,
+      baseUrl: "https://api.test",
+      fetch,
+      retry: { maxRetries: 2, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+    });
+
+    await expect(
+      client.subAccounts.unpauseDomain(SUB_ACCOUNT_ID, "mail.example.test"),
+    ).rejects.toBeInstanceOf(AhaSendServerError);
+    expect(calls).toHaveLength(1);
+    await expect(
+      client.subAccounts.unpauseDomain(SUB_ACCOUNT_ID, "absent.example.test"),
+    ).rejects.toBeInstanceOf(AhaSendNotFoundError);
   });
 });
 

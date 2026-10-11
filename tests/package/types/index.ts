@@ -59,8 +59,9 @@ const conversationBody: SDK.CreateConversationMessageRequest = {
 const domainBody: SDK.CreateDomainRequest = {
   domain: "example.com",
   dkim_selector: null,
+  sending_type: "marketing",
 };
-const domainUpdate: SDK.UpdateDomainRequest = { dkim_selector: "" };
+const domainUpdate: SDK.UpdateDomainRequest = { dkim_selector: "", sending_type: "transactional" };
 const domainModel: SDK.Domain = {
   object: "domain",
   id: uuid,
@@ -87,6 +88,10 @@ const domainModel: SDK.Domain = {
   dkim_selector: null,
   rotation_ready: false,
   dsn_recipient: null,
+  sending_type: "marketing",
+  paused: true,
+  paused_at: "2026-01-02T00:00:00Z",
+  pause_reason: "bounce_rate",
 };
 const apiKeyBody: SDK.CreateAPIKeyRequest = {
   label: "Package key",
@@ -196,7 +201,12 @@ const listBatch: SDK.BatchAddListContactsRequest = {
 };
 
 const direct: SDK.PaginationParams = { limit: 25, after: "direct-cursor" };
-const domains: SDK.ListDomainsParams = { limit: 25, after: "domain-cursor", dns_valid: true };
+const domains: SDK.ListDomainsParams = {
+  limit: 25,
+  after: "domain-cursor",
+  dns_valid: true,
+  sending_type: "marketing",
+};
 const messages: SDK.ListMessagesParams = {
   limit: 25,
   after: "message-cursor",
@@ -225,6 +235,34 @@ const suppressions: SDK.ListSuppressionsParams = {
 const templates: SDK.ListTemplatesParams = {
   limit: 25,
   before: "template-cursor",
+};
+const templateBody: SDK.CreateTemplateRequest = {
+  name: "Package template",
+  content: { mjml: "<mjml><mj-body></mj-body></mjml>", text: null },
+};
+const templateUpdate: SDK.UpdateTemplateRequest = {
+  subject: null,
+  from: { email: "sender@example.com" },
+  publish: true,
+};
+const campaignTemplateBody: SDK.CreateCampaignTemplateRequest = {
+  name: "Package campaign template",
+  content: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' },
+};
+const campaignTemplateUpdate: SDK.UpdateCampaignTemplateRequest = { content: { text: null } };
+const campaignFilter: SDK.ListCampaignsParams = { status: "draft", limit: 25 };
+const campaignBody: SDK.CreateCampaignRequest = {
+  name: "Package campaign",
+  from: { email: "sender@example.com" },
+  reply_to: "replies@example.com",
+  list_ids: [uuid],
+  template_id: uuid,
+};
+const campaignUpdate: SDK.UpdateCampaignRequest = { subject: null, list_ids: [uuid] };
+const campaignTest: SDK.TestCampaignRequest = { to: ["Ann <ann@example.com>"] };
+const campaignRecipientFilter: SDK.ListCampaignRecipientsParams = {
+  bounce_classification: "Mailbox Full",
+  limit: 25,
 };
 const contacts: SDK.ListContactsParams = {
   limit: 25,
@@ -372,7 +410,41 @@ void client.statistics.bounces(statistics).withResponse();
 void client.statistics.deliveryTimes(statistics).withResponse();
 
 void client.templates.list(templates).withResponse();
+void client.templates.create(templateBody, { idempotencyKey: "package-template" }).withResponse();
 void client.templates.get(uuid).withResponse();
+void client.templates
+  .update(uuid, templateUpdate, { idempotencyKey: "package-template-update" })
+  .withResponse();
+void client.templates.delete(uuid).withResponse();
+void client.templates.getDraft(uuid).withResponse();
+void client.templates.discardDraft(uuid).withResponse();
+void client.templates.publish(uuid, { idempotencyKey: "package-template-publish" }).withResponse();
+void client.templates.listVersions(uuid).withResponse();
+void client.templates.getVersion(uuid, uuid).withResponse();
+void client.templates.restoreVersion(uuid, uuid).withResponse();
+void client.templates.restoreVersion(uuid, uuid, { publish: true }).withResponse();
+
+void client.campaignTemplates.list({ limit: 25 }).withResponse();
+void client.campaignTemplates
+  .create(campaignTemplateBody, { idempotencyKey: "package-campaign-template" })
+  .withResponse();
+void client.campaignTemplates.get(uuid).withResponse();
+void client.campaignTemplates.update(uuid, campaignTemplateUpdate).withResponse();
+void client.campaignTemplates.delete(uuid).withResponse();
+
+void client.campaigns.list(campaignFilter).withResponse();
+void client.campaigns.create(campaignBody, { idempotencyKey: "package-campaign" }).withResponse();
+void client.campaigns.get(uuid).withResponse();
+void client.campaigns.update(uuid, campaignUpdate).withResponse();
+void client.campaigns.delete(uuid).withResponse();
+void client.campaigns.duplicate(uuid).withResponse();
+void client.campaigns.duplicate(uuid, { name: "Package copy" }).withResponse();
+void client.campaigns.send(uuid).withResponse();
+void client.campaigns.send(uuid, { send_at: "2030-01-01T09:00:00Z" }).withResponse();
+void client.campaigns.unschedule(uuid).withResponse();
+void client.campaigns.test(uuid, campaignTest).withResponse();
+void client.campaigns.getStats(uuid).withResponse();
+void client.campaigns.recipients.list(uuid, campaignRecipientFilter).withResponse();
 
 void client.contacts.list(contacts).withResponse();
 void client.contacts.create(contactBody).withResponse();
@@ -429,6 +501,7 @@ void client.subAccounts.update(uuid, subAccountUpdate).withResponse();
 void client.subAccounts.delete(uuid).withResponse();
 void client.subAccounts.suspend(uuid, suspendBody).withResponse();
 void client.subAccounts.unsuspend(uuid).withResponse();
+void client.subAccounts.unpauseDomain(uuid, "example.com").withResponse();
 
 void client.subAccounts.apiKeys.list(uuid, direct).withResponse();
 void client.subAccounts.apiKeys.create(uuid, apiKeyBody).withResponse();
@@ -438,6 +511,7 @@ void client.subAccounts.apiKeys.delete(uuid, uuid).withResponse();
 
 const messagesMock: SDK.MessagesClient = {
   send: () => result<SDK.SendMessageResponse>(),
+  sendTemplate: () => result<SDK.SendMessageResponse>(),
   sendConversation: () => result<SDK.SendMessageResponse>(),
   list: () => result<SDK.PaginatedResponse<SDK.MessageSummary>>(),
   iterate: () => iterator<SDK.MessageSummary>(),
@@ -482,7 +556,45 @@ const statisticsMock: SDK.StatisticsClient = {
 const templatesMock: SDK.TemplatesClient = {
   list: () => result<SDK.PaginatedResponse<SDK.Template>>(),
   iterate: () => iterator<SDK.Template>(),
+  create: () => result<SDK.Template>(),
   get: () => result<SDK.Template>(),
+  update: () => result<SDK.Template>(),
+  delete: () => result<SDK.SuccessResponse>(),
+  getDraft: () => result<SDK.TemplateDraft>(),
+  discardDraft: () => result<SDK.Template>(),
+  publish: () => result<SDK.Template>(),
+  listVersions: () => result<SDK.ListTemplateVersionsResponse>(),
+  getVersion: () => result<SDK.TemplateVersionDetail>(),
+  restoreVersion: () => result<SDK.Template>(),
+};
+
+const campaignTemplatesMock: SDK.CampaignTemplatesClient = {
+  list: () => result<SDK.PaginatedResponse<SDK.CampaignTemplate>>(),
+  iterate: () => iterator<SDK.CampaignTemplate>(),
+  create: () => result<SDK.CampaignTemplate>(),
+  get: () => result<SDK.CampaignTemplate>(),
+  update: () => result<SDK.CampaignTemplate>(),
+  delete: () => result<SDK.SuccessResponse>(),
+};
+
+const campaignRecipientsMock: SDK.CampaignRecipientsClient = {
+  list: () => result<SDK.PaginatedResponse<SDK.CampaignRecipient>>(),
+  iterate: () => iterator<SDK.CampaignRecipient>(),
+};
+
+const campaignsMock: SDK.CampaignsClient = {
+  list: () => result<SDK.PaginatedResponse<SDK.CampaignListItem>>(),
+  iterate: () => iterator<SDK.CampaignListItem>(),
+  create: () => result<SDK.Campaign>(),
+  get: () => result<SDK.Campaign>(),
+  update: () => result<SDK.Campaign>(),
+  delete: () => result<SDK.SuccessResponse>(),
+  duplicate: () => result<SDK.Campaign>(),
+  send: () => result<SDK.CampaignSend>(),
+  unschedule: () => result<SDK.Campaign>(),
+  test: () => result<SDK.CampaignTest>(),
+  getStats: () => result<SDK.CampaignStats>(),
+  recipients: campaignRecipientsMock,
 };
 
 const contactsMock: SDK.ContactsClient = {
@@ -569,6 +681,7 @@ const subAccountsMock: SDK.SubAccountsClient = {
   delete: () => result<SDK.SuccessResponse>(),
   suspend: () => result<SDK.SubAccount>(),
   unsuspend: () => result<SDK.SubAccount>(),
+  unpauseDomain: () => result<SDK.Domain>(),
   apiKeys: subAccountAPIKeysMock,
 };
 
@@ -576,6 +689,8 @@ type ClientResourceSurface = Pick<
   SDK.AhaSendClient,
   | "messages"
   | "templates"
+  | "campaignTemplates"
+  | "campaigns"
   | "domains"
   | "apiKeys"
   | "webhooks"
@@ -592,6 +707,8 @@ type ClientResourceSurface = Pick<
 const clientMock: ClientResourceSurface = {
   messages: messagesMock,
   templates: templatesMock,
+  campaignTemplates: campaignTemplatesMock,
+  campaigns: campaignsMock,
   domains: domainsMock,
   apiKeys: apiKeysMock,
   webhooks: webhooksMock,

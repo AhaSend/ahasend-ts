@@ -72,6 +72,11 @@
       "method": "send"
     },
     {
+      "operationId": "createTemplateMessage",
+      "facade": "messages",
+      "method": "sendTemplate"
+    },
+    {
       "operationId": "createConversationMessage",
       "facade": "messages",
       "method": "sendConversation"
@@ -92,9 +97,134 @@
       "method": "list"
     },
     {
+      "operationId": "createTemplate",
+      "facade": "templates",
+      "method": "create"
+    },
+    {
       "operationId": "getTemplate",
       "facade": "templates",
       "method": "get"
+    },
+    {
+      "operationId": "updateTemplate",
+      "facade": "templates",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteTemplate",
+      "facade": "templates",
+      "method": "delete"
+    },
+    {
+      "operationId": "getTemplateDraft",
+      "facade": "templates",
+      "method": "getDraft"
+    },
+    {
+      "operationId": "discardTemplateDraft",
+      "facade": "templates",
+      "method": "discardDraft"
+    },
+    {
+      "operationId": "publishTemplate",
+      "facade": "templates",
+      "method": "publish"
+    },
+    {
+      "operationId": "listTemplateVersions",
+      "facade": "templates",
+      "method": "listVersions"
+    },
+    {
+      "operationId": "getTemplateVersion",
+      "facade": "templates",
+      "method": "getVersion"
+    },
+    {
+      "operationId": "restoreTemplateVersion",
+      "facade": "templates",
+      "method": "restoreVersion"
+    },
+    {
+      "operationId": "listCampaignTemplates",
+      "facade": "campaignTemplates",
+      "method": "list"
+    },
+    {
+      "operationId": "createCampaignTemplate",
+      "facade": "campaignTemplates",
+      "method": "create"
+    },
+    {
+      "operationId": "getCampaignTemplate",
+      "facade": "campaignTemplates",
+      "method": "get"
+    },
+    {
+      "operationId": "updateCampaignTemplate",
+      "facade": "campaignTemplates",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteCampaignTemplate",
+      "facade": "campaignTemplates",
+      "method": "delete"
+    },
+    {
+      "operationId": "listCampaigns",
+      "facade": "campaigns",
+      "method": "list"
+    },
+    {
+      "operationId": "createCampaign",
+      "facade": "campaigns",
+      "method": "create"
+    },
+    {
+      "operationId": "getCampaign",
+      "facade": "campaigns",
+      "method": "get"
+    },
+    {
+      "operationId": "updateCampaign",
+      "facade": "campaigns",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteCampaign",
+      "facade": "campaigns",
+      "method": "delete"
+    },
+    {
+      "operationId": "duplicateCampaign",
+      "facade": "campaigns",
+      "method": "duplicate"
+    },
+    {
+      "operationId": "sendCampaign",
+      "facade": "campaigns",
+      "method": "send"
+    },
+    {
+      "operationId": "unscheduleCampaign",
+      "facade": "campaigns",
+      "method": "unschedule"
+    },
+    {
+      "operationId": "testCampaign",
+      "facade": "campaigns",
+      "method": "test"
+    },
+    {
+      "operationId": "getCampaignStats",
+      "facade": "campaigns",
+      "method": "getStats"
+    },
+    {
+      "operationId": "listCampaignRecipients",
+      "facade": "campaigns.recipients",
+      "method": "list"
     },
     {
       "operationId": "getAccount",
@@ -160,6 +290,11 @@
       "operationId": "unsuspendSubAccount",
       "facade": "subAccounts",
       "method": "unsuspend"
+    },
+    {
+      "operationId": "unpauseSubAccountDomain",
+      "facade": "subAccounts",
+      "method": "unpauseDomain"
     },
     {
       "operationId": "listSubAccountAPIKeys",
@@ -391,6 +526,21 @@
     {
       "operationId": "listTemplates",
       "facade": "templates",
+      "method": "iterate"
+    },
+    {
+      "operationId": "listCampaignTemplates",
+      "facade": "campaignTemplates",
+      "method": "iterate"
+    },
+    {
+      "operationId": "listCampaigns",
+      "facade": "campaigns",
+      "method": "iterate"
+    },
+    {
+      "operationId": "listCampaignRecipients",
+      "facade": "campaigns.recipients",
       "method": "iterate"
     },
     {

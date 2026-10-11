@@ -22,10 +22,27 @@ await client.subAccounts.suspend(child.id, {
 await client.subAccounts.unsuspend(child.id);
 ```
 
-`monthly_credit` accepts 0 through 1 billion; 0 means no cap. Suspend and unsuspend are deliberate
-state transitions and are not automatically retried. Deletion is soft from the parent's list, but
-usage already incurred by children deleted during the billing period remains in the
-`removed_sub_accounts` aggregate.
+`monthly_credit` accepts 0 through 1 billion; 0 means no cap. `suspend()` pauses sending on the
+child, whose `status` becomes `suspended`, and `unsuspend()` resumes it. When `suspend()` starts the
+pause, the child's dashboard shows its `reason` as a note. Both are deliberate state transitions and
+are not automatically retried. Deletion is soft from the parent's list, but usage already incurred
+by children deleted during the billing period remains in the `removed_sub_accounts` aggregate.
+
+## Unpause a child's domain
+
+AhaSend can pause sending from one of a child's domains, for example when too many recent emails
+from it bounced, while the child's other domains keep sending. The domain then reports
+`paused: true` with `paused_at` and `pause_reason`. A parent credential with
+`sub-accounts:suspend` lifts the pause:
+
+```ts
+const domain = await client.subAccounts.unpauseDomain(child.id, "mail.acme.example");
+console.log("Domain unpaused.", { paused: domain.paused });
+```
+
+The call is idempotent: a domain that is not paused is returned unchanged. It answers `404` when
+the child does not exist under the parent or does not own the domain. The change can take some
+minutes to apply to new email, and the SDK does not retry the call automatically.
 
 ## Bootstrap a child key
 

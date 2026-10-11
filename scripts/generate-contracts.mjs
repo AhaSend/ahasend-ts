@@ -51,7 +51,11 @@ const NODE_LANGUAGES = new Set([
   "node.js",
 ]);
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
-const SANDBOX_OPERATION_IDS = new Set(["createMessage", "createConversationMessage"]);
+const SANDBOX_OPERATION_IDS = new Set([
+  "createMessage",
+  "createTemplateMessage",
+  "createConversationMessage",
+]);
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const GIT_COMMIT_PATTERN = /^[a-f0-9]{40}$/;
 const SIGNATURE_PATTERN = /^v1,[A-Za-z0-9+/]{43}=$/;
@@ -783,13 +787,15 @@ export function validateWebhookContract(document) {
   const routePayload = assertRecord(schemas.RouteWebhookPayload, "RouteWebhookPayload");
   const routeProperties = assertRecord(routePayload.properties, "RouteWebhookPayload.properties");
   const routeType = assertRecord(routeProperties.type, "RouteWebhookPayload.properties.type");
-  if (JSON.stringify(routeType.enum) !== JSON.stringify(["message.routing", "route.message"])) {
-    throw new TypeError(
-      "RouteWebhookPayload.type must accept canonical message.routing and deprecated route.message",
-    );
+  // The SDK accepts legacy route.message input on its own (LEGACY_ROUTE_EVENT_TYPES in
+  // scripts/generate-sdk.mjs), so the spec must name only the canonical type.
+  if (JSON.stringify(routeType.enum) !== JSON.stringify(["message.routing"])) {
+    throw new TypeError("RouteWebhookPayload.type must accept only canonical message.routing");
   }
-  if (JSON.stringify(routeType["x-deprecated-values"]) !== JSON.stringify(["route.message"])) {
-    throw new TypeError("RouteWebhookPayload.type must mark route.message as deprecated input");
+  if (routeType["x-deprecated-values"] !== undefined) {
+    throw new TypeError(
+      "RouteWebhookPayload.type must not declare x-deprecated-values; the SDK owns legacy route.message",
+    );
   }
 
   for (const schemaName of ["MessageWebhookData", "MessageClickedWebhookData"]) {
@@ -1575,7 +1581,11 @@ function locateSampleBlock(lines, operationId) {
       index > operationLine && index < operationEnd && /^ {6}x-code-samples:\s*$/.test(line),
   );
   if (samplesLine < 0) {
-    return { samplesLine, samplesEnd: afterLastContent(lines, operationLine, operationEnd) };
+    return {
+      samplesLine,
+      contentEnd: afterLastContent(lines, operationLine, operationEnd),
+      samplesEnd: operationEnd,
+    };
   }
   return { samplesLine, samplesEnd: blockEnd(lines, samplesLine, 6) };
 }
@@ -1591,12 +1601,15 @@ export function injectNodeSamples(source, document, nodeSamples = NODE_CODE_SAMP
     .reverse();
 
   for (const operationId of operationIds) {
-    const { samplesLine, samplesEnd } = locateSampleBlock(lines, operationId);
+    const { samplesLine, contentEnd, samplesEnd } = locateSampleBlock(lines, operationId);
     const replacement = yamlSampleLines(nodeSamples[operationId]);
+    // Every insertion leaves the layout a replacement of the same sample
+    // leaves, so one pass is already normalized: the sample's own trailing
+    // blank line separates it from what follows.
     if (samplesLine < 0) {
       // No block yet: open one at the end of the operation, after its last
-      // non-blank line.
-      lines.splice(samplesEnd, 0, "      x-code-samples:", ...replacement);
+      // non-blank line, in place of the blank lines that ended it.
+      lines.splice(contentEnd, samplesEnd - contentEnd, "      x-code-samples:", ...replacement);
       continue;
     }
     const itemStarts = [];
@@ -1611,8 +1624,8 @@ export function injectNodeSamples(source, document, nodeSamples = NODE_CODE_SAMP
     }
 
     if (nodeItems.length === 0) {
-      // Last in the block, after its last non-blank line.
-      lines.splice(afterLastContent(lines, samplesLine, samplesEnd), 0, ...replacement);
+      // Last in the block, after the blank lines that end the item before it.
+      lines.splice(samplesEnd, 0, ...replacement);
       continue;
     }
 

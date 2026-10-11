@@ -4,7 +4,7 @@
 
 This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
-It contains exactly 74 API methods and 14 async iterators.
+It contains exactly 101 API methods and 17 async iterators.
 
 ## Contact management
 
@@ -466,6 +466,41 @@ const result = await client.messages.send({
 console.log("Sandbox message accepted.", { count: result.data.length });
 ```
 
+<!-- operation: createTemplateMessage -->
+
+### messages.sendTemplate
+
+```ts
+client.messages.sendTemplate(body: CreateTemplateMessageRequest, options?: IdempotencyRequestOptions): AhaSendPromise<SendMessageResponse>
+```
+
+- **Operation ID:** `createTemplateMessage`
+- **HTTP:** `POST /v2/accounts/{account_id}/messages/template`
+- **Models:** [CreateTemplateMessageRequest](../src/resources/messages.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SendMessageResponse](../src/resources/messages.ts)
+- **OpenAPI models:** `request: CreateTemplateMessageRequest`, `202: CreateMessageResponse`
+- **Scopes:** `messages:send:all`, `messages:send:{domain}`
+- **Security alternatives:** `BearerAuth: messages:send:all` **or** `BearerAuth: messages:send:{domain}`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** Authorization requires `messages:send:all` or `messages:send:{domain}` matching the domain of the sender: `from.email`, or the template's default sender when the request names none.
+- **Authorization rule:** `body_domain`; global role `messages:send:all`; domain role `messages:send:{domain}`
+
+<!-- sdk-sample: createTemplateMessage -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const result = await client.messages.sendTemplate({
+  template_id: "00000000-0000-4000-8000-000000000009",
+  recipients: [{ email: "recipient@example.net", substitutions: { first_name: "Ada" } }],
+  sandbox: true,
+});
+console.log("Sandbox template message accepted.", { count: result.data.length });
+```
+
 <!-- operation: createConversationMessage -->
 
 ### messages.sendConversation
@@ -596,6 +631,42 @@ const page = await client.templates.list({ limit: 20 });
 console.log("Templates listed.", { count: page.data.length });
 ```
 
+<!-- operation: createTemplate -->
+
+### templates.create
+
+```ts
+client.templates.create(body: CreateTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `createTemplate`
+- **HTTP:** `POST /v2/accounts/{account_id}/templates`
+- **Models:** [CreateTemplateRequest](../src/resources/templates.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `request: CreateTemplateRequest`, `201: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: createTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const template = await client.templates.create({
+  name: "Welcome email",
+  subject: "Welcome, {{ first_name }}",
+  content: { html: "<p>Hello {{ first_name }}, welcome aboard.</p>" },
+  publish: true,
+});
+console.log("Template created.", { id: template.id, editor: template.editor });
+```
+
 <!-- operation: getTemplate -->
 
 ### templates.get
@@ -625,6 +696,792 @@ const client = AhaSendClient.fromEnv();
 const templateId = "00000000-0000-4000-8000-000000000009";
 const template = await client.templates.get(templateId);
 console.log("Template found.", { id: template.id, name: template.name });
+```
+
+<!-- operation: updateTemplate -->
+
+### templates.update
+
+```ts
+client.templates.update(templateId: UUID, body: UpdateTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `updateTemplate`
+- **HTTP:** `PUT /v2/accounts/{account_id}/templates/{template_id}`
+- **Models:** [UUID](../src/types/common.ts), [UpdateTemplateRequest](../src/resources/templates.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `request: UpdateTemplateRequest`, `200: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: updateTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
+// Fields go to the template's draft; publish: true also publishes it.
+const template = await client.templates.update(templateId, {
+  subject: "Welcome to the team, {{ first_name }}",
+  preheader: null,
+  publish: true,
+});
+console.log("Template updated.", { id: template.id, hasDraft: template.has_draft });
+```
+
+<!-- operation: deleteTemplate -->
+
+### templates.delete
+
+```ts
+client.templates.delete(templateId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
+```
+
+- **Operation ID:** `deleteTemplate`
+- **HTTP:** `DELETE /v2/accounts/{account_id}/templates/{template_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **OpenAPI models:** `200: SuccessResponse`
+- **Scopes:** `templates:delete`
+- **Security alternatives:** `BearerAuth: templates:delete`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const result = await client.templates.delete(templateId);
+console.log("Template deleted.", { message: result.message });
+```
+
+<!-- operation: getTemplateDraft -->
+
+### templates.getDraft
+
+```ts
+client.templates.getDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<TemplateDraft>
+```
+
+- **Operation ID:** `getTemplateDraft`
+- **HTTP:** `GET /v2/accounts/{account_id}/templates/{template_id}/draft`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [TemplateDraft](../src/resources/templates.ts)
+- **OpenAPI models:** `200: TemplateDraft`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getTemplateDraft -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const draft = await client.templates.getDraft(templateId);
+console.log("Template draft found.", { templateId: draft.template_id, subject: draft.subject });
+```
+
+<!-- operation: discardTemplateDraft -->
+
+### templates.discardDraft
+
+```ts
+client.templates.discardDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `discardTemplateDraft`
+- **HTTP:** `DELETE /v2/accounts/{account_id}/templates/{template_id}/draft`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `200: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: discardTemplateDraft -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const template = await client.templates.discardDraft(templateId);
+console.log("Template draft discarded.", { id: template.id, hasDraft: template.has_draft });
+```
+
+<!-- operation: publishTemplate -->
+
+### templates.publish
+
+```ts
+client.templates.publish(templateId: UUID, options?: IdempotencyRequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `publishTemplate`
+- **HTTP:** `POST /v2/accounts/{account_id}/templates/{template_id}/publish`
+- **Models:** [UUID](../src/types/common.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `200: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: publishTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
+const template = await client.templates.publish(templateId);
+console.log("Template published.", { id: template.id, hasDraft: template.has_draft });
+```
+
+<!-- operation: listTemplateVersions -->
+
+### templates.listVersions
+
+```ts
+client.templates.listVersions(templateId: UUID, options?: RequestOptions): AhaSendPromise<ListTemplateVersionsResponse>
+```
+
+- **Operation ID:** `listTemplateVersions`
+- **HTTP:** `GET /v2/accounts/{account_id}/templates/{template_id}/versions`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [ListTemplateVersionsResponse](../src/resources/templates.ts)
+- **OpenAPI models:** `200: TemplateVersionsResponse`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: listTemplateVersions -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const versions = await client.templates.listVersions(templateId);
+console.log("Template versions listed.", { count: versions.data.length });
+```
+
+<!-- operation: getTemplateVersion -->
+
+### templates.getVersion
+
+```ts
+client.templates.getVersion(templateId: UUID, versionId: UUID, options?: RequestOptions): AhaSendPromise<TemplateVersionDetail>
+```
+
+- **Operation ID:** `getTemplateVersion`
+- **HTTP:** `GET /v2/accounts/{account_id}/templates/{template_id}/versions/{version_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [TemplateVersionDetail](../src/resources/templates.ts)
+- **OpenAPI models:** `200: TemplateVersionDetail`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getTemplateVersion -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000009";
+const versionId = "00000000-0000-4000-8000-000000000012";
+const version = await client.templates.getVersion(templateId, versionId);
+console.log("Template version found.", { id: version.id, version: version.version });
+```
+
+<!-- operation: restoreTemplateVersion -->
+
+### templates.restoreVersion
+
+```ts
+client.templates.restoreVersion(templateId: UUID, versionId: UUID, body?: RestoreTemplateVersionRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Template>
+```
+
+- **Operation ID:** `restoreTemplateVersion`
+- **HTTP:** `POST /v2/accounts/{account_id}/templates/{template_id}/versions/{version_id}/restore`
+- **Models:** [UUID](../src/types/common.ts), [RestoreTemplateVersionRequest](../src/resources/templates.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `request: RestoreTemplateVersionRequest`, `200: Template`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: restoreTemplateVersion -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000009";
+const versionId = "00000000-0000-4000-8000-000000000012";
+const template = await client.templates.restoreVersion(templateId, versionId, { publish: true });
+console.log("Template version restored.", { id: template.id, hasDraft: template.has_draft });
+```
+
+<!-- operation: listCampaignTemplates -->
+
+### campaignTemplates.list
+
+```ts
+client.campaignTemplates.list(params?: ListCampaignTemplatesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<CampaignTemplate>>
+```
+
+- **Operation ID:** `listCampaignTemplates`
+- **HTTP:** `GET /v2/accounts/{account_id}/campaign-templates`
+- **Models:** [ListCampaignTemplatesParams](../src/resources/campaign-templates.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [CampaignTemplate](../src/resources/campaign-templates.ts)
+- **OpenAPI models:** `200: PaginatedCampaignTemplatesResponse`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: listCampaignTemplates -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.campaignTemplates.list({ limit: 20 });
+console.log("Campaign templates listed.", { count: page.data.length });
+```
+
+<!-- operation: createCampaignTemplate -->
+
+### campaignTemplates.create
+
+```ts
+client.campaignTemplates.create(body: CreateCampaignTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CampaignTemplate>
+```
+
+- **Operation ID:** `createCampaignTemplate`
+- **HTTP:** `POST /v2/accounts/{account_id}/campaign-templates`
+- **Models:** [CreateCampaignTemplateRequest](../src/resources/campaign-templates.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CampaignTemplate](../src/resources/campaign-templates.ts)
+- **OpenAPI models:** `request: CreateCampaignTemplateRequest`, `201: CampaignTemplate`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: createCampaignTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const template = await client.campaignTemplates.create({
+  name: "Monthly newsletter",
+  content: {
+    html: '<p>Hello {{ first_name }}.</p><p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>',
+  },
+});
+console.log("Campaign template created.", { id: template.id, editor: template.editor });
+```
+
+<!-- operation: getCampaignTemplate -->
+
+### campaignTemplates.get
+
+```ts
+client.campaignTemplates.get(templateId: UUID, options?: RequestOptions): AhaSendPromise<CampaignTemplate>
+```
+
+- **Operation ID:** `getCampaignTemplate`
+- **HTTP:** `GET /v2/accounts/{account_id}/campaign-templates/{template_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CampaignTemplate](../src/resources/campaign-templates.ts)
+- **OpenAPI models:** `200: CampaignTemplate`
+- **Scopes:** `templates:read`
+- **Security alternatives:** `BearerAuth: templates:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getCampaignTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000013";
+const template = await client.campaignTemplates.get(templateId);
+console.log("Campaign template found.", { id: template.id, name: template.name });
+```
+
+<!-- operation: updateCampaignTemplate -->
+
+### campaignTemplates.update
+
+```ts
+client.campaignTemplates.update(templateId: UUID, body: UpdateCampaignTemplateRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CampaignTemplate>
+```
+
+- **Operation ID:** `updateCampaignTemplate`
+- **HTTP:** `PUT /v2/accounts/{account_id}/campaign-templates/{template_id}`
+- **Models:** [UUID](../src/types/common.ts), [UpdateCampaignTemplateRequest](../src/resources/campaign-templates.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CampaignTemplate](../src/resources/campaign-templates.ts)
+- **OpenAPI models:** `request: UpdateCampaignTemplateRequest`, `200: CampaignTemplate`
+- **Scopes:** `templates:write`
+- **Security alternatives:** `BearerAuth: templates:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: updateCampaignTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000013";
+// Campaigns already made from the template keep their own copies.
+const template = await client.campaignTemplates.update(templateId, {
+  name: "Monthly newsletter (2026)",
+});
+console.log("Campaign template updated.", { id: template.id, name: template.name });
+```
+
+<!-- operation: deleteCampaignTemplate -->
+
+### campaignTemplates.delete
+
+```ts
+client.campaignTemplates.delete(templateId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
+```
+
+- **Operation ID:** `deleteCampaignTemplate`
+- **HTTP:** `DELETE /v2/accounts/{account_id}/campaign-templates/{template_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **OpenAPI models:** `200: SuccessResponse`
+- **Scopes:** `templates:delete`
+- **Security alternatives:** `BearerAuth: templates:delete`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteCampaignTemplate -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const templateId = "00000000-0000-4000-8000-000000000013";
+const result = await client.campaignTemplates.delete(templateId);
+console.log("Campaign template deleted.", { message: result.message });
+```
+
+<!-- operation: listCampaigns -->
+
+### campaigns.list
+
+```ts
+client.campaigns.list(params?: ListCampaignsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<CampaignListItem>>
+```
+
+- **Operation ID:** `listCampaigns`
+- **HTTP:** `GET /v2/accounts/{account_id}/campaigns`
+- **Models:** [ListCampaignsParams](../src/resources/campaigns.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [CampaignListItem](../src/resources/campaigns.ts)
+- **OpenAPI models:** `200: PaginatedCampaignsResponse`
+- **Scopes:** `campaigns:read`
+- **Security alternatives:** `BearerAuth: campaigns:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: listCampaigns -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.campaigns.list({ status: "draft", limit: 20 });
+console.log("Campaigns listed.", { count: page.data.length });
+```
+
+<!-- operation: createCampaign -->
+
+### campaigns.create
+
+```ts
+client.campaigns.create(body: CreateCampaignRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Campaign>
+```
+
+- **Operation ID:** `createCampaign`
+- **HTTP:** `POST /v2/accounts/{account_id}/campaigns`
+- **Models:** [CreateCampaignRequest](../src/resources/campaigns.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Campaign](../src/resources/campaigns.ts)
+- **OpenAPI models:** `request: CreateCampaignRequest`, `201: Campaign`
+- **Scopes:** `campaigns:write`
+- **Security alternatives:** `BearerAuth: campaigns:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: createCampaign -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaign = await client.campaigns.create({
+  name: "October newsletter",
+  subject: "What is new in October",
+  preheader: "Three things we shipped this month",
+  from: { email: "news@example.com", name: "Example" },
+  list_ids: ["00000000-0000-4000-8000-000000000010"],
+  template_id: "00000000-0000-4000-8000-000000000013",
+});
+console.log("Campaign created.", { id: campaign.id, ready: campaign.ready });
+```
+
+<!-- operation: getCampaign -->
+
+### campaigns.get
+
+```ts
+client.campaigns.get(campaignId: UUID, options?: RequestOptions): AhaSendPromise<Campaign>
+```
+
+- **Operation ID:** `getCampaign`
+- **HTTP:** `GET /v2/accounts/{account_id}/campaigns/{campaign_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Campaign](../src/resources/campaigns.ts)
+- **OpenAPI models:** `200: Campaign`
+- **Scopes:** `campaigns:read`
+- **Security alternatives:** `BearerAuth: campaigns:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getCampaign -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const campaignId = "00000000-0000-4000-8000-000000000014";
+const campaign = await client.campaigns.get(campaignId);
+console.log("Campaign found.", { id: campaign.id, status: campaign.status, ready: campaign.ready });
+```
+
+<!-- operation: updateCampaign -->
+
+### campaigns.update
+
+```ts
+client.campaigns.update(campaignId: UUID, body: UpdateCampaignRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Campaign>
+```
+
+- **Operation ID:** `updateCampaign`
+- **HTTP:** `PUT /v2/accounts/{account_id}/campaigns/{campaign_id}`
+- **Models:** [UUID](../src/types/common.ts), [UpdateCampaignRequest](../src/resources/campaigns.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Campaign](../src/resources/campaigns.ts)
+- **OpenAPI models:** `request: UpdateCampaignRequest`, `200: Campaign`
+- **Scopes:** `campaigns:write`
+- **Security alternatives:** `BearerAuth: campaigns:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: updateCampaign -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+// Only a draft can change; null clears the reply-to address.
+const campaign = await client.campaigns.update(campaignId, {
+  subject: "What we shipped in October",
+  reply_to: null,
+});
+console.log("Campaign updated.", { id: campaign.id, ready: campaign.ready });
+```
+
+<!-- operation: deleteCampaign -->
+
+### campaigns.delete
+
+```ts
+client.campaigns.delete(campaignId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
+```
+
+- **Operation ID:** `deleteCampaign`
+- **HTTP:** `DELETE /v2/accounts/{account_id}/campaigns/{campaign_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **OpenAPI models:** `200: SuccessResponse`
+- **Scopes:** `campaigns:delete`
+- **Security alternatives:** `BearerAuth: campaigns:delete`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteCampaign -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const campaignId = "00000000-0000-4000-8000-000000000014";
+const result = await client.campaigns.delete(campaignId);
+console.log("Campaign deleted.", { message: result.message });
+```
+
+<!-- operation: duplicateCampaign -->
+
+### campaigns.duplicate
+
+```ts
+client.campaigns.duplicate(campaignId: UUID, body?: DuplicateCampaignRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Campaign>
+```
+
+- **Operation ID:** `duplicateCampaign`
+- **HTTP:** `POST /v2/accounts/{account_id}/campaigns/{campaign_id}/duplicate`
+- **Models:** [UUID](../src/types/common.ts), [DuplicateCampaignRequest](../src/resources/campaigns.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Campaign](../src/resources/campaigns.ts)
+- **OpenAPI models:** `request: DuplicateCampaignRequest`, `201: Campaign`
+- **Scopes:** `campaigns:write`
+- **Security alternatives:** `BearerAuth: campaigns:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: duplicateCampaign -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+const copy = await client.campaigns.duplicate(campaignId, { name: "November newsletter" });
+console.log("Campaign duplicated.", { id: copy.id, status: copy.status });
+```
+
+<!-- operation: sendCampaign -->
+
+### campaigns.send
+
+```ts
+client.campaigns.send(campaignId: UUID, body?: SendCampaignRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CampaignSend>
+```
+
+- **Operation ID:** `sendCampaign`
+- **HTTP:** `POST /v2/accounts/{account_id}/campaigns/{campaign_id}/send`
+- **Models:** [UUID](../src/types/common.ts), [SendCampaignRequest](../src/resources/campaigns.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CampaignSend](../src/resources/campaigns.ts)
+- **OpenAPI models:** `request: SendCampaignRequest`, `202: CampaignSend`
+- **Scopes:** `campaigns:send`
+- **Security alternatives:** `BearerAuth: campaigns:send`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: sendCampaign -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+// Leave send_at out to send now. The campaign is checked before it sends.
+const campaign = await client.campaigns.send(campaignId, { send_at: "2030-01-01T09:00:00Z" });
+console.log("Campaign send accepted.", { status: campaign.status, warnings: campaign.warnings });
+```
+
+<!-- operation: unscheduleCampaign -->
+
+### campaigns.unschedule
+
+```ts
+client.campaigns.unschedule(campaignId: UUID, options?: IdempotencyRequestOptions): AhaSendPromise<Campaign>
+```
+
+- **Operation ID:** `unscheduleCampaign`
+- **HTTP:** `POST /v2/accounts/{account_id}/campaigns/{campaign_id}/unschedule`
+- **Models:** [UUID](../src/types/common.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Campaign](../src/resources/campaigns.ts)
+- **OpenAPI models:** `200: Campaign`
+- **Scopes:** `campaigns:send`
+- **Security alternatives:** `BearerAuth: campaigns:send`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: unscheduleCampaign -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+const campaign = await client.campaigns.unschedule(campaignId);
+console.log("Campaign unscheduled.", { id: campaign.id, status: campaign.status });
+```
+
+<!-- operation: testCampaign -->
+
+### campaigns.test
+
+```ts
+client.campaigns.test(campaignId: UUID, body: TestCampaignRequest, options?: IdempotencyRequestOptions): AhaSendPromise<CampaignTest>
+```
+
+- **Operation ID:** `testCampaign`
+- **HTTP:** `POST /v2/accounts/{account_id}/campaigns/{campaign_id}/test`
+- **Models:** [UUID](../src/types/common.ts), [TestCampaignRequest](../src/resources/campaigns.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CampaignTest](../src/resources/campaigns.ts)
+- **OpenAPI models:** `request: TestCampaignRequest`, `200: CampaignTest`
+- **Scopes:** `campaigns:send`
+- **Security alternatives:** `BearerAuth: campaigns:send`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: testCampaign -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+const result = await client.campaigns.test(campaignId, { to: ["reviewer@example.com"] });
+console.log("Campaign test sent.", {
+  sentTo: result.sent_to,
+  failed: result.failed.length,
+  resultUnknown: result.result_unknown,
+});
+```
+
+<!-- operation: getCampaignStats -->
+
+### campaigns.getStats
+
+```ts
+client.campaigns.getStats(campaignId: UUID, options?: RequestOptions): AhaSendPromise<CampaignStats>
+```
+
+- **Operation ID:** `getCampaignStats`
+- **HTTP:** `GET /v2/accounts/{account_id}/campaigns/{campaign_id}/stats`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [CampaignStats](../src/resources/campaigns.ts)
+- **OpenAPI models:** `200: CampaignStats`
+- **Scopes:** `campaigns:read`
+- **Security alternatives:** `BearerAuth: campaigns:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getCampaignStats -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const campaignId = "00000000-0000-4000-8000-000000000014";
+const stats = await client.campaigns.getStats(campaignId);
+console.log("Campaign stats loaded.", { delivered: stats.delivered, rates: stats.rates });
+```
+
+<!-- operation: listCampaignRecipients -->
+
+### campaigns.recipients.list
+
+```ts
+client.campaigns.recipients.list(campaignId: UUID, params: ListCampaignRecipientsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<CampaignRecipient>>
+```
+
+- **Operation ID:** `listCampaignRecipients`
+- **HTTP:** `GET /v2/accounts/{account_id}/campaigns/{campaign_id}/recipients`
+- **Models:** [UUID](../src/types/common.ts), [ListCampaignRecipientsParams](../src/resources/campaign-recipients.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [CampaignRecipient](../src/resources/campaign-recipients.ts)
+- **OpenAPI models:** `200: PaginatedCampaignRecipientsResponse`
+- **Scopes:** `campaigns:read`
+- **Security alternatives:** `BearerAuth: campaigns:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: listCampaignRecipients -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const campaignId = "00000000-0000-4000-8000-000000000014";
+// Send exactly one of status and bounce_classification.
+const page = await client.campaigns.recipients.list(campaignId, { status: "Delivered", limit: 20 });
+console.log("Campaign recipients listed.", { count: page.data.length });
 ```
 
 <!-- operation: getAccount -->
@@ -1037,6 +1894,37 @@ const client = AhaSendClient.fromEnv();
 const subAccountId = "00000000-0000-4000-8000-000000000004";
 const subAccount = await client.subAccounts.unsuspend(subAccountId);
 console.log("Sub-account unsuspended.", { id: subAccount.id, status: subAccount.status });
+```
+
+<!-- operation: unpauseSubAccountDomain -->
+
+### subAccounts.unpauseDomain
+
+```ts
+client.subAccounts.unpauseDomain(subAccountId: UUID, domain: string, options?: RequestOptions): AhaSendPromise<Domain>
+```
+
+- **Operation ID:** `unpauseSubAccountDomain`
+- **HTTP:** `POST /v2/accounts/{account_id}/sub-accounts/{sub_account_id}/domains/{domain}/unpause`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Domain](../src/resources/domains.ts)
+- **OpenAPI models:** `200: Domain`
+- **Scopes:** `sub-accounts:suspend`
+- **Security alternatives:** `BearerAuth: sub-accounts:suspend`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: unpauseSubAccountDomain -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const subAccountId = "00000000-0000-4000-8000-000000000004";
+const domain = await client.subAccounts.unpauseDomain(subAccountId, "mail.example.com");
+console.log("Sub-account domain unpaused.", { name: domain.domain, paused: domain.paused });
 ```
 
 <!-- operation: listSubAccountAPIKeys -->
@@ -2452,6 +3340,42 @@ client.templates.iterate(params?: ListTemplatesParams, options?: RequestOptions)
 
 - **Operation ID:** `listTemplates`
 - **Models:** [ListTemplatesParams](../src/resources/templates.ts), [RequestOptions](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: listCampaignTemplates -->
+
+### campaignTemplates.iterate
+
+```ts
+client.campaignTemplates.iterate(params?: ListCampaignTemplatesParams, options?: RequestOptions): AsyncGenerator<CampaignTemplate, void, undefined>
+```
+
+- **Operation ID:** `listCampaignTemplates`
+- **Models:** [ListCampaignTemplatesParams](../src/resources/campaign-templates.ts), [RequestOptions](../src/types/common.ts), [CampaignTemplate](../src/resources/campaign-templates.ts)
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: listCampaigns -->
+
+### campaigns.iterate
+
+```ts
+client.campaigns.iterate(params?: ListCampaignsParams, options?: RequestOptions): AsyncGenerator<CampaignListItem, void, undefined>
+```
+
+- **Operation ID:** `listCampaigns`
+- **Models:** [ListCampaignsParams](../src/resources/campaigns.ts), [RequestOptions](../src/types/common.ts), [CampaignListItem](../src/resources/campaigns.ts)
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: listCampaignRecipients -->
+
+### campaigns.recipients.iterate
+
+```ts
+client.campaigns.recipients.iterate(campaignId: UUID, params: ListCampaignRecipientsParams, options?: RequestOptions): AsyncGenerator<CampaignRecipient, void, undefined>
+```
+
+- **Operation ID:** `listCampaignRecipients`
+- **Models:** [UUID](../src/types/common.ts), [ListCampaignRecipientsParams](../src/resources/campaign-recipients.ts), [RequestOptions](../src/types/common.ts), [CampaignRecipient](../src/resources/campaign-recipients.ts)
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
 <!-- iterator: listSubAccounts -->
