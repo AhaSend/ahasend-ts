@@ -285,6 +285,163 @@ const template = await client.templates.restoreVersion(templateId, versionId, { 
 console.log("Template version restored.", { id: template.id, hasDraft: template.has_draft });`,
   ),
   entry(
+    "listCampaignTemplates",
+    "GET /v2/accounts/{account_id}/campaign-templates",
+    "client.campaignTemplates.list",
+    `const page = await client.campaignTemplates.list({ limit: 20 });
+console.log("Campaign templates listed.", { count: page.data.length });`,
+  ),
+  entry(
+    "createCampaignTemplate",
+    "POST /v2/accounts/{account_id}/campaign-templates",
+    "client.campaignTemplates.create",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const template = await client.campaignTemplates.create({
+  name: "Monthly newsletter",
+  content: {
+    html: '<p>Hello {{ first_name }}.</p><p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>',
+  },
+});
+console.log("Campaign template created.", { id: template.id, editor: template.editor });`,
+  ),
+  entry(
+    "getCampaignTemplate",
+    "GET /v2/accounts/{account_id}/campaign-templates/{template_id}",
+    "client.campaignTemplates.get",
+    `const templateId = "00000000-0000-4000-8000-000000000013";
+const template = await client.campaignTemplates.get(templateId);
+console.log("Campaign template found.", { id: template.id, name: template.name });`,
+  ),
+  entry(
+    "updateCampaignTemplate",
+    "PUT /v2/accounts/{account_id}/campaign-templates/{template_id}",
+    "client.campaignTemplates.update",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const templateId = "00000000-0000-4000-8000-000000000013";
+// Campaigns already made from the template keep their own copies.
+const template = await client.campaignTemplates.update(templateId, {
+  name: "Monthly newsletter (2026)",
+});
+console.log("Campaign template updated.", { id: template.id, name: template.name });`,
+  ),
+  entry(
+    "deleteCampaignTemplate",
+    "DELETE /v2/accounts/{account_id}/campaign-templates/{template_id}",
+    "client.campaignTemplates.delete",
+    `const templateId = "00000000-0000-4000-8000-000000000013";
+const result = await client.campaignTemplates.delete(templateId);
+console.log("Campaign template deleted.", { message: result.message });`,
+  ),
+  entry(
+    "listCampaigns",
+    "GET /v2/accounts/{account_id}/campaigns",
+    "client.campaigns.list",
+    `const page = await client.campaigns.list({ status: "draft", limit: 20 });
+console.log("Campaigns listed.", { count: page.data.length });`,
+  ),
+  entry(
+    "createCampaign",
+    "POST /v2/accounts/{account_id}/campaigns",
+    "client.campaigns.create",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaign = await client.campaigns.create({
+  name: "October newsletter",
+  subject: "What is new in October",
+  preheader: "Three things we shipped this month",
+  from: { email: "news@example.com", name: "Example" },
+  list_ids: ["00000000-0000-4000-8000-000000000010"],
+  template_id: "00000000-0000-4000-8000-000000000013",
+});
+console.log("Campaign created.", { id: campaign.id, ready: campaign.ready });`,
+  ),
+  entry(
+    "getCampaign",
+    "GET /v2/accounts/{account_id}/campaigns/{campaign_id}",
+    "client.campaigns.get",
+    `const campaignId = "00000000-0000-4000-8000-000000000014";
+const campaign = await client.campaigns.get(campaignId);
+console.log("Campaign found.", { id: campaign.id, status: campaign.status, ready: campaign.ready });`,
+  ),
+  entry(
+    "updateCampaign",
+    "PUT /v2/accounts/{account_id}/campaigns/{campaign_id}",
+    "client.campaigns.update",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+// Only a draft can change; null clears the reply-to address.
+const campaign = await client.campaigns.update(campaignId, {
+  subject: "What we shipped in October",
+  reply_to: null,
+});
+console.log("Campaign updated.", { id: campaign.id, ready: campaign.ready });`,
+  ),
+  entry(
+    "deleteCampaign",
+    "DELETE /v2/accounts/{account_id}/campaigns/{campaign_id}",
+    "client.campaigns.delete",
+    `const campaignId = "00000000-0000-4000-8000-000000000014";
+const result = await client.campaigns.delete(campaignId);
+console.log("Campaign deleted.", { message: result.message });`,
+  ),
+  entry(
+    "duplicateCampaign",
+    "POST /v2/accounts/{account_id}/campaigns/{campaign_id}/duplicate",
+    "client.campaigns.duplicate",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+const copy = await client.campaigns.duplicate(campaignId, { name: "November newsletter" });
+console.log("Campaign duplicated.", { id: copy.id, status: copy.status });`,
+  ),
+  entry(
+    "sendCampaign",
+    "POST /v2/accounts/{account_id}/campaigns/{campaign_id}/send",
+    "client.campaigns.send",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+// Leave send_at out to send now. The campaign is checked before it sends.
+const campaign = await client.campaigns.send(campaignId, { send_at: "2030-01-01T09:00:00Z" });
+console.log("Campaign send accepted.", { status: campaign.status, warnings: campaign.warnings });`,
+  ),
+  entry(
+    "unscheduleCampaign",
+    "POST /v2/accounts/{account_id}/campaigns/{campaign_id}/unschedule",
+    "client.campaigns.unschedule",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+const campaign = await client.campaigns.unschedule(campaignId);
+console.log("Campaign unscheduled.", { id: campaign.id, status: campaign.status });`,
+  ),
+  entry(
+    "testCampaign",
+    "POST /v2/accounts/{account_id}/campaigns/{campaign_id}/test",
+    "client.campaigns.test",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const campaignId = "00000000-0000-4000-8000-000000000014";
+const result = await client.campaigns.test(campaignId, { to: ["reviewer@example.com"] });
+console.log("Campaign test sent.", {
+  sentTo: result.sent_to,
+  failed: result.failed.length,
+  resultUnknown: result.result_unknown,
+});`,
+  ),
+  entry(
+    "getCampaignStats",
+    "GET /v2/accounts/{account_id}/campaigns/{campaign_id}/stats",
+    "client.campaigns.getStats",
+    `const campaignId = "00000000-0000-4000-8000-000000000014";
+const stats = await client.campaigns.getStats(campaignId);
+console.log("Campaign stats loaded.", { delivered: stats.delivered, rates: stats.rates });`,
+  ),
+  entry(
+    "listCampaignRecipients",
+    "GET /v2/accounts/{account_id}/campaigns/{campaign_id}/recipients",
+    "client.campaigns.recipients.list",
+    `const campaignId = "00000000-0000-4000-8000-000000000014";
+// Send exactly one of status and bounce_classification.
+const page = await client.campaigns.recipients.list(campaignId, { status: "Delivered", limit: 20 });
+console.log("Campaign recipients listed.", { count: page.data.length });`,
+  ),
+  entry(
     "getAccount",
     "GET /v2/accounts/{account_id}",
     "client.accounts.get",

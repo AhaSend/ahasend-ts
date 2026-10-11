@@ -181,10 +181,10 @@ describe("REST contract normalization", () => {
   it("matches the pinned operation, schema, idempotency, subaccount, and role inventories", () => {
     const inventory = collectContractInventory(document);
 
-    expect(inventory.operationIds).toHaveLength(85);
-    expect(new Set(inventory.operationIds)).toHaveLength(85);
-    expect(inventory.schemaNames).toHaveLength(107);
-    expect(inventory.idempotencyOperationIds).toHaveLength(20);
+    expect(inventory.operationIds).toHaveLength(101);
+    expect(new Set(inventory.operationIds)).toHaveLength(101);
+    expect(inventory.schemaNames).toHaveLength(130);
+    expect(inventory.idempotencyOperationIds).toHaveLength(28);
     expect(inventory.subAccountOperationIds).toHaveLength(14);
     expect(inventory.subAccountSchemaNames).toHaveLength(7);
     expect(inventory.roleAlternativeOperationIds).toHaveLength(24);
@@ -223,17 +223,24 @@ describe("REST contract normalization", () => {
     expect(shellSamples).toBe(1);
     // The Go SDK adds its own sample, and the next spec sync brings it here.
     expect(withoutGoSample).toEqual([
-      "createTemplate",
-      "updateTemplate",
-      "deleteTemplate",
-      "getTemplateDraft",
-      "discardTemplateDraft",
-      "publishTemplate",
-      "listTemplateVersions",
-      "getTemplateVersion",
-      "restoreTemplateVersion",
+      "listCampaignTemplates",
+      "createCampaignTemplate",
+      "getCampaignTemplate",
+      "updateCampaignTemplate",
+      "deleteCampaignTemplate",
+      "listCampaigns",
+      "createCampaign",
+      "getCampaign",
+      "updateCampaign",
+      "deleteCampaign",
+      "duplicateCampaign",
+      "sendCampaign",
+      "unscheduleCampaign",
+      "testCampaign",
+      "getCampaignStats",
+      "listCampaignRecipients",
     ]);
-    expect(NODE_SAMPLE_REGISTRY).toHaveLength(85);
+    expect(NODE_SAMPLE_REGISTRY).toHaveLength(101);
     expect(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId)).toEqual(
       lock.inventories.operationIds,
     );
@@ -343,7 +350,7 @@ describe("REST contract rejection checks", () => {
     expect(collectOperations(changed)).toContainEqual(
       expect.objectContaining({ method: "head", path: "/v2/ping", operationId: "headPing" }),
     );
-    expect(collectContractInventory(changed).operationIds).toHaveLength(86);
+    expect(collectContractInventory(changed).operationIds).toHaveLength(102);
     expect(() =>
       assertInventoryMatches(collectContractInventory(changed), lock.inventories),
     ).toThrow(/inventory drift/);

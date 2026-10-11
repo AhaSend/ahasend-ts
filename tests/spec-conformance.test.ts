@@ -13,6 +13,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { AhaSendClient } from "../src/client.js";
 import type {
   AddAccountMemberRequest,
+  CreateCampaignRequest,
+  CreateCampaignTemplateRequest,
   CreateAPIKeyRequest,
   BatchAddListContactsRequest,
   CreateContactListRequest,
@@ -23,6 +25,8 @@ import type {
   CreateTemplateMessageRequest,
   CreateTemplateRequest,
   CreateWebhookRequest,
+  UpdateCampaignRequest,
+  UpdateCampaignTemplateRequest,
   UpdateTemplateRequest,
 } from "../src/index.js";
 import type { OperationId, RetryMode } from "../src/generated/operations.js";
@@ -34,6 +38,8 @@ import type { ResourceCall } from "./helpers/resource-call.js";
 import {
   ACCOUNT_ID,
   API_KEY_ID,
+  CAMPAIGN_ID,
+  CAMPAIGN_TEMPLATE_ID,
   captureFetch,
   HOSTNAME,
   LIST_ID,
@@ -68,6 +74,8 @@ const IDS = {
   list: LIST_ID,
   template: TEMPLATE_ID,
   templateVersion: TEMPLATE_VERSION_ID,
+  campaignTemplate: CAMPAIGN_TEMPLATE_ID,
+  campaign: CAMPAIGN_ID,
 } as const;
 
 const REQUEST_OPTIONS: RequestOptions = {
@@ -362,6 +370,125 @@ const PRIMARY_MATRIX = [
       },
     };
   }),
+  primary("listCampaignTemplates", "campaignTemplates", "list", (client) => ({
+    result: client.campaignTemplates.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/campaign-templates`, query: PAGINATION_QUERY },
+  })),
+  primary("createCampaignTemplate", "campaignTemplates", "create", (client) => {
+    const body = {
+      name: "Matrix campaign template",
+      editor: "html",
+      content: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>', text: null },
+    } satisfies CreateCampaignTemplateRequest;
+    return {
+      result: client.campaignTemplates.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/campaign-templates`, body },
+    };
+  }),
+  primary("getCampaignTemplate", "campaignTemplates", "get", (client) => ({
+    result: client.campaignTemplates.get(IDS.campaignTemplate, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/campaign-templates/${CAMPAIGN_TEMPLATE_ID}` },
+  })),
+  primary("updateCampaignTemplate", "campaignTemplates", "update", (client) => {
+    const body = {
+      name: "Matrix campaign template v2",
+      content: { text: "Hello" },
+    } satisfies UpdateCampaignTemplateRequest;
+    return {
+      result: client.campaignTemplates.update(IDS.campaignTemplate, body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/campaign-templates/${CAMPAIGN_TEMPLATE_ID}`, body },
+    };
+  }),
+  primary("deleteCampaignTemplate", "campaignTemplates", "delete", (client) => ({
+    result: client.campaignTemplates.delete(IDS.campaignTemplate, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/campaign-templates/${CAMPAIGN_TEMPLATE_ID}` },
+  })),
+  primary("listCampaigns", "campaigns", "list", (client) => ({
+    result: client.campaigns.list(
+      { ...PAGINATION_PARAMS, status: "waiting_for_review" },
+      REQUEST_OPTIONS,
+    ),
+    input: {
+      path: `${ACCOUNT_PATH}/campaigns`,
+      query: { status: "waiting_for_review", ...PAGINATION_QUERY },
+    },
+  })),
+  primary("createCampaign", "campaigns", "create", (client) => {
+    const body = {
+      name: "Matrix campaign",
+      subject: "Hello {{ first_name }}",
+      preheader: null,
+      from: { email: "sender@example.test", name: "Matrix" },
+      reply_to: "replies@example.test",
+      list_ids: [LIST_ID],
+      template_id: CAMPAIGN_TEMPLATE_ID,
+    } satisfies CreateCampaignRequest;
+    return {
+      result: client.campaigns.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/campaigns`, body },
+    };
+  }),
+  primary("getCampaign", "campaigns", "get", (client) => ({
+    result: client.campaigns.get(IDS.campaign, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}` },
+  })),
+  primary("updateCampaign", "campaigns", "update", (client) => {
+    const body = {
+      subject: null,
+      from: null,
+      reply_to: null,
+      list_ids: [LIST_ID],
+      content: { mjml: "<mjml><mj-body></mj-body></mjml>" },
+    } satisfies UpdateCampaignRequest;
+    return {
+      result: client.campaigns.update(IDS.campaign, body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}`, body },
+    };
+  }),
+  primary("deleteCampaign", "campaigns", "delete", (client) => ({
+    result: client.campaigns.delete(IDS.campaign, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}` },
+  })),
+  primary("duplicateCampaign", "campaigns", "duplicate", (client) => {
+    const body = { name: "Matrix copy" };
+    return {
+      result: client.campaigns.duplicate(IDS.campaign, body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}/duplicate`, body },
+    };
+  }),
+  primary("sendCampaign", "campaigns", "send", (client) => {
+    const body = { send_at: "2030-01-01T09:00:00Z" };
+    return {
+      result: client.campaigns.send(IDS.campaign, body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}/send`, body },
+    };
+  }),
+  primary("unscheduleCampaign", "campaigns", "unschedule", (client) => ({
+    result: client.campaigns.unschedule(IDS.campaign, IDEMPOTENCY_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}/unschedule` },
+  })),
+  primary("testCampaign", "campaigns", "test", (client) => {
+    const body = { to: ["Ann <ann@example.test>", "bob@example.test"] };
+    return {
+      result: client.campaigns.test(IDS.campaign, body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}/test`, body },
+    };
+  }),
+  primary("getCampaignStats", "campaigns", "getStats", (client) => ({
+    result: client.campaigns.getStats(IDS.campaign, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}/stats` },
+  })),
+  primary("listCampaignRecipients", "campaigns.recipients", "list", (client) => ({
+    result: client.campaigns.recipients.list(
+      IDS.campaign,
+      { ...PAGINATION_PARAMS, status: "Administratively Bounced" },
+      REQUEST_OPTIONS,
+    ),
+    input: {
+      path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}/recipients`,
+      query: { status: "Administratively Bounced", ...PAGINATION_QUERY },
+    },
+  })),
   primary("getAccount", "accounts", "get", (client) => ({
     result: client.accounts.get(REQUEST_OPTIONS),
     input: { path: ACCOUNT_PATH },
@@ -794,6 +921,29 @@ const ITERATOR_MATRIX = [
     result: client.templates.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
     input: { path: `${ACCOUNT_PATH}/templates`, query: PAGINATION_QUERY },
   })),
+  iterator("listCampaignTemplates", "campaignTemplates", (client) => ({
+    result: client.campaignTemplates.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
+    input: { path: `${ACCOUNT_PATH}/campaign-templates`, query: PAGINATION_QUERY },
+  })),
+  iterator("listCampaigns", "campaigns", (client) => ({
+    result: client.campaigns
+      .iterate({ ...PAGINATION_PARAMS, status: "sent" }, REQUEST_OPTIONS)
+      .next(),
+    input: { path: `${ACCOUNT_PATH}/campaigns`, query: { status: "sent", ...PAGINATION_QUERY } },
+  })),
+  iterator("listCampaignRecipients", "campaigns.recipients", (client) => ({
+    result: client.campaigns.recipients
+      .iterate(
+        IDS.campaign,
+        { ...PAGINATION_PARAMS, bounce_classification: "Mailbox Full" },
+        REQUEST_OPTIONS,
+      )
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}/recipients`,
+      query: { bounce_classification: "Mailbox Full", ...PAGINATION_QUERY },
+    },
+  })),
   iterator("listSubAccounts", "subAccounts", (client) => ({
     result: client.subAccounts.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
     input: { path: `${ACCOUNT_PATH}/sub-accounts`, query: PAGINATION_QUERY },
@@ -870,10 +1020,10 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for all 85 implemented operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(85);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(85);
-    expect(OPERATION_PROFILE.operations).toHaveLength(85);
+  it("accounts for all 101 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(101);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(101);
+    expect(OPERATION_PROFILE.operations).toHaveLength(101);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -885,12 +1035,12 @@ describe("Facade operation conformance matrix", () => {
 });
 
 describe("Facade iterator conformance matrix", () => {
-  it("accounts for all fourteen implemented iterator aliases", () => {
-    expect(ITERATOR_MATRIX).toHaveLength(14);
+  it("accounts for all seventeen implemented iterator aliases", () => {
+    expect(ITERATOR_MATRIX).toHaveLength(17);
     expect(new Set(ITERATOR_MATRIX.map(({ facade, method }) => `${facade}.${method}`)).size).toBe(
-      14,
+      17,
     );
-    expect(OPERATION_PROFILE.iterators).toHaveLength(14);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(17);
     expect(profileShape(OPERATION_PROFILE.iterators)).toEqual(profileShape(ITERATOR_MATRIX));
   });
 
@@ -949,7 +1099,7 @@ describe("Non-empty request array coverage", () => {
 describe("Generated operation inventory", () => {
   it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(85);
+    expect(operationIds).toHaveLength(101);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
     expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
       operationIds,

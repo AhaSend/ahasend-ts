@@ -12,9 +12,9 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 85;
-const EXPECTED_SCHEMA_COUNT = 107;
-const EXPECTED_ITERATOR_COUNT = 14;
+const EXPECTED_OPERATION_COUNT = 101;
+const EXPECTED_SCHEMA_COUNT = 130;
+const EXPECTED_ITERATOR_COUNT = 17;
 const EXPECTED_WEBHOOK_COUNT = 11;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
@@ -126,6 +126,22 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["listTemplateVersions", "templates", "listVersions"],
   ["getTemplateVersion", "templates", "getVersion"],
   ["restoreTemplateVersion", "templates", "restoreVersion"],
+  ["listCampaignTemplates", "campaignTemplates", "list"],
+  ["createCampaignTemplate", "campaignTemplates", "create"],
+  ["getCampaignTemplate", "campaignTemplates", "get"],
+  ["updateCampaignTemplate", "campaignTemplates", "update"],
+  ["deleteCampaignTemplate", "campaignTemplates", "delete"],
+  ["listCampaigns", "campaigns", "list"],
+  ["createCampaign", "campaigns", "create"],
+  ["getCampaign", "campaigns", "get"],
+  ["updateCampaign", "campaigns", "update"],
+  ["deleteCampaign", "campaigns", "delete"],
+  ["duplicateCampaign", "campaigns", "duplicate"],
+  ["sendCampaign", "campaigns", "send"],
+  ["unscheduleCampaign", "campaigns", "unschedule"],
+  ["testCampaign", "campaigns", "test"],
+  ["getCampaignStats", "campaigns", "getStats"],
+  ["listCampaignRecipients", "campaigns.recipients", "list"],
   ["getAccount", "accounts", "get"],
   ["updateAccount", "accounts", "update"],
   ["getAccountMembers", "accounts", "listMembers"],
@@ -189,6 +205,9 @@ export const ITERATOR_MAPPINGS = Object.freeze([
   ["getDomains", "domains", "iterate"],
   ["getMessages", "messages", "iterate"],
   ["listTemplates", "templates", "iterate"],
+  ["listCampaignTemplates", "campaignTemplates", "iterate"],
+  ["listCampaigns", "campaigns", "iterate"],
+  ["listCampaignRecipients", "campaigns.recipients", "iterate"],
   ["listSubAccounts", "subAccounts", "iterate"],
   ["listSubAccountAPIKeys", "subAccounts.apiKeys", "iterate"],
   ["getContacts", "contacts", "iterate"],

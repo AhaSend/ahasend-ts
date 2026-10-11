@@ -65,6 +65,38 @@ export interface paths {
   "/v2/accounts/{account_id}/templates/{template_id}/versions/{version_id}/restore": {
     post: operations["restoreTemplateVersion"];
   };
+  "/v2/accounts/{account_id}/campaign-templates": {
+    get: operations["listCampaignTemplates"];
+    post: operations["createCampaignTemplate"];
+  };
+  "/v2/accounts/{account_id}/campaign-templates/{template_id}": {
+    get: operations["getCampaignTemplate"];
+    put: operations["updateCampaignTemplate"];
+    delete: operations["deleteCampaignTemplate"];
+  };
+  "/v2/accounts/{account_id}/campaigns": {
+    get: operations["listCampaigns"];
+    post: operations["createCampaign"];
+  };
+  "/v2/accounts/{account_id}/campaigns/{campaign_id}": {
+    get: operations["getCampaign"];
+    put: operations["updateCampaign"];
+    delete: operations["deleteCampaign"];
+  };
+  "/v2/accounts/{account_id}/campaigns/{campaign_id}/duplicate": {
+    post: operations["duplicateCampaign"];
+  };
+  "/v2/accounts/{account_id}/campaigns/{campaign_id}/send": { post: operations["sendCampaign"] };
+  "/v2/accounts/{account_id}/campaigns/{campaign_id}/unschedule": {
+    post: operations["unscheduleCampaign"];
+  };
+  "/v2/accounts/{account_id}/campaigns/{campaign_id}/test": { post: operations["testCampaign"] };
+  "/v2/accounts/{account_id}/campaigns/{campaign_id}/stats": {
+    get: operations["getCampaignStats"];
+  };
+  "/v2/accounts/{account_id}/campaigns/{campaign_id}/recipients": {
+    get: operations["listCampaignRecipients"];
+  };
   "/v2/accounts/{account_id}": { get: operations["getAccount"]; put: operations["updateAccount"] };
   "/v2/accounts/{account_id}/members": {
     get: operations["getAccountMembers"];
@@ -551,6 +583,175 @@ export interface components {
     PaginatedTemplatesResponse: {
       object: "list";
       data: Array<components["schemas"]["Template"]>;
+      pagination: components["schemas"]["PaginationInfo"];
+    };
+    CampaignTemplate: {
+      object: "campaign_template";
+      id: string;
+      created_at: string;
+      updated_at: string;
+      name: string;
+      editor: components["schemas"]["TemplateEditor"];
+      content?: components["schemas"]["TemplateContent"] | null;
+    };
+    CreateCampaignTemplateRequest: {
+      name: string;
+      editor?: components["schemas"]["TemplateEditor"] | undefined;
+      content?: components["schemas"]["TemplateContentInput"] | undefined;
+    };
+    UpdateCampaignTemplateRequest: {
+      name?: string | undefined;
+      content?: components["schemas"]["TemplateContentInput"] | undefined;
+    };
+    PaginatedCampaignTemplatesResponse: {
+      object: "list";
+      data: Array<components["schemas"]["CampaignTemplate"]>;
+      pagination: components["schemas"]["PaginationInfo"];
+    };
+    CampaignStatus:
+      | "draft"
+      | "validating"
+      | "waiting_for_review"
+      | "scheduled"
+      | "sending"
+      | "paused"
+      | "sent"
+      | "canceled"
+      | "failed";
+    CampaignIssue: {
+      code:
+        | "sender_missing"
+        | "lists_missing"
+        | "subject_missing"
+        | "preheader_missing"
+        | "design_missing"
+        | "text_broken"
+        | "unsubscribe_link_missing";
+      message: string;
+    };
+    CampaignListItem: {
+      object: "campaign";
+      id: string;
+      created_at: string;
+      updated_at: string;
+      name: string;
+      subject: string | null;
+      preheader: string | null;
+      from: components["schemas"]["Address"] | null;
+      reply_to: string | null;
+      status: components["schemas"]["CampaignStatus"];
+      status_reason: string | null;
+      send_at: string | null;
+      send_resumes_at: string | null;
+      finished_at: string | null;
+    };
+    Campaign: components["schemas"]["CampaignListItem"] & {
+      list_ids: Array<string>;
+      editor: components["schemas"]["TemplateEditor"] | null;
+      content: components["schemas"]["TemplateContent"] | null;
+      ready: boolean | null;
+      issues: Array<components["schemas"]["CampaignIssue"]> | null;
+    };
+    CreateCampaignRequest: {
+      name: string;
+      subject?: string | null | undefined;
+      preheader?: string | null | undefined;
+      from?: components["schemas"]["TemplateAddressInput"] | null | undefined;
+      reply_to?: string | null | undefined;
+      list_ids?: ReadonlyArray<string> | undefined;
+      editor?: components["schemas"]["TemplateEditor"] | undefined;
+      content?: components["schemas"]["TemplateContentInput"] | undefined;
+      template_id?: string | undefined;
+    };
+    UpdateCampaignRequest: {
+      name?: string | undefined;
+      subject?: string | null | undefined;
+      preheader?: string | null | undefined;
+      from?: components["schemas"]["TemplateAddressInput"] | null | undefined;
+      reply_to?: string | null | undefined;
+      list_ids?: ReadonlyArray<string> | undefined;
+      content?: components["schemas"]["TemplateContentInput"] | undefined;
+    };
+    DuplicateCampaignRequest: {
+      name?: string | undefined;
+    };
+    PaginatedCampaignsResponse: {
+      object: "list";
+      data: Array<components["schemas"]["CampaignListItem"]>;
+      pagination: components["schemas"]["PaginationInfo"];
+    };
+    SendCampaignRequest: {
+      send_at?: string | undefined;
+    };
+    CampaignSend: components["schemas"]["Campaign"] & {
+      warnings: Array<string>;
+    };
+    CampaignNotReady: {
+      message: string;
+      issues?: Array<components["schemas"]["CampaignIssue"]>;
+    };
+    TestCampaignRequest: {
+      to: ReadonlyArray<string>;
+    };
+    CampaignTestFailure: {
+      email: string;
+      message: string;
+    };
+    CampaignTest: {
+      object: "campaign_test";
+      sent_to: Array<string>;
+      failed: Array<components["schemas"]["CampaignTestFailure"]>;
+      result_unknown: boolean;
+    };
+    CampaignStatsReport: {
+      computed_at: string;
+      recipients: number;
+      openers: number;
+      clickers: number;
+      bounces: number;
+      deferrals: number;
+      by_status: {
+        [key: string]: number;
+      };
+      by_bounce_classification: {
+        [key: string]: number;
+      };
+    };
+    CampaignStatsRates: {
+      open_rate: number | null;
+      click_rate: number | null;
+      bounce_rate: number | null;
+      deferral_rate: number | null;
+    };
+    CampaignStats: {
+      object: "campaign_stats";
+      campaign_id: string;
+      recipients: number;
+      delivered: number;
+      opens: number;
+      clicks: number;
+      unsubscribes: number;
+      complaints: number;
+      report: components["schemas"]["CampaignStatsReport"] | null;
+      rates: components["schemas"]["CampaignStatsRates"];
+      recount_failed: boolean;
+    };
+    CampaignRecipient: {
+      object: "campaign_recipient";
+      contact_id: string;
+      email: string;
+      list_name: string;
+      status: string;
+      bounce_classification: string | null;
+      bounce_reason: string | null;
+      bounce_message: string | null;
+      attempts: number;
+      created_at: string;
+      updated_at: string;
+    };
+    PaginatedCampaignRecipientsResponse: {
+      object: "list";
+      data: Array<components["schemas"]["CampaignRecipient"]>;
       pagination: components["schemas"]["PaginationInfo"];
     };
     Account: {
@@ -1595,6 +1796,333 @@ export interface operations {
       "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  listCampaignTemplates: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+      query: {
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: {
+          "application/json": components["schemas"]["PaginatedCampaignTemplatesResponse"];
+        };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  createCampaignTemplate: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["CreateCampaignTemplateRequest"] };
+    };
+    responses: {
+      "201": { content: { "application/json": components["schemas"]["CampaignTemplate"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getCampaignTemplate: {
+    parameters: {
+      path: {
+        account_id: string;
+        template_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["CampaignTemplate"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  updateCampaignTemplate: {
+    parameters: {
+      path: {
+        account_id: string;
+        template_id: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["UpdateCampaignTemplateRequest"] };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["CampaignTemplate"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  deleteCampaignTemplate: {
+    parameters: {
+      path: {
+        account_id: string;
+        template_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["SuccessResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  listCampaigns: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+      query: {
+        status?: components["schemas"]["CampaignStatus"] | undefined;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: { "application/json": components["schemas"]["PaginatedCampaignsResponse"] };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  createCampaign: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["CreateCampaignRequest"] };
+    };
+    responses: {
+      "201": { content: { "application/json": components["schemas"]["Campaign"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getCampaign: {
+    parameters: {
+      path: {
+        account_id: string;
+        campaign_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["Campaign"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  updateCampaign: {
+    parameters: {
+      path: {
+        account_id: string;
+        campaign_id: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["UpdateCampaignRequest"] };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["Campaign"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  deleteCampaign: {
+    parameters: {
+      path: {
+        account_id: string;
+        campaign_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["SuccessResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  duplicateCampaign: {
+    parameters: {
+      path: {
+        account_id: string;
+        campaign_id: string;
+      };
+    };
+    requestBody?: {
+      content: { "application/json": components["schemas"]["DuplicateCampaignRequest"] };
+    };
+    responses: {
+      "201": { content: { "application/json": components["schemas"]["Campaign"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  sendCampaign: {
+    parameters: {
+      path: {
+        account_id: string;
+        campaign_id: string;
+      };
+    };
+    requestBody?: { content: { "application/json": components["schemas"]["SendCampaignRequest"] } };
+    responses: {
+      "202": { content: { "application/json": components["schemas"]["CampaignSend"] } };
+      "400": { content: { "application/json": components["schemas"]["CampaignNotReady"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  unscheduleCampaign: {
+    parameters: {
+      path: {
+        account_id: string;
+        campaign_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["Campaign"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  testCampaign: {
+    parameters: {
+      path: {
+        account_id: string;
+        campaign_id: string;
+      };
+    };
+    requestBody: { content: { "application/json": components["schemas"]["TestCampaignRequest"] } };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["CampaignTest"] } };
+      "400": { content: { "application/json": components["schemas"]["CampaignNotReady"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "502": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getCampaignStats: {
+    parameters: {
+      path: {
+        account_id: string;
+        campaign_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["CampaignStats"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  listCampaignRecipients: {
+    parameters: {
+      path: {
+        account_id: string;
+        campaign_id: string;
+      };
+      query: {
+        status?: string | undefined;
+        bounce_classification?: string | undefined;
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: {
+          "application/json": components["schemas"]["PaginatedCampaignRecipientsResponse"];
+        };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   getAccount: {

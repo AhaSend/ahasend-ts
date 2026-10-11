@@ -7,6 +7,7 @@ import { canonicalizeJson, sha256Hex } from "./digest-artifact.mjs";
 import {
   createAccountScenarioRegistry,
   createAPIKeyScenarioRegistry,
+  createCampaignScenarioRegistry,
   createContactScenarioRegistry,
   createListScenarioRegistry,
   createDomainScenarioRegistry,
@@ -24,6 +25,7 @@ import {
   redactLiveValue,
   runAccountLiveScenarios,
   runAPIKeyLiveScenarios,
+  runCampaignLiveScenarios,
   runContactLiveScenarios,
   runListLiveScenarios,
   runDomainLiveScenarios,
@@ -418,6 +420,39 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
             content: { html: "<p>AhaSend SDK live acceptance template.</p>" },
           },
           updateRequest: { subject: `AhaSend SDK live acceptance template ${suffix} v2` },
+          pagination,
+        }),
+      ),
+    ),
+  );
+  runs.push(
+    collectRun(
+      "campaign scenarios",
+      await runCampaignLiveScenarios(
+        createCampaignScenarioRegistry({
+          profile,
+          client,
+          templateCreateRequest: {
+            name: `AhaSend SDK live acceptance campaign template ${suffix}`,
+            content: {
+              html: '<p>AhaSend SDK live acceptance campaign.</p><p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>',
+            },
+          },
+          templateUpdateRequest: {
+            name: `AhaSend SDK live acceptance campaign template ${suffix} v2`,
+          },
+          listCreateRequest: {
+            name: `SDK live campaign list ${suffix}`,
+            description: "AhaSend SDK live acceptance campaign list; it stays empty",
+          },
+          createRequest: {
+            name: `AhaSend SDK live acceptance campaign ${suffix}`,
+            subject: `AhaSend SDK live acceptance campaign ${suffix}`,
+            preheader: "AhaSend SDK live acceptance test send",
+            from: { email: `sdk-live-campaign@${config.verifiedDomain}`, name: "AhaSend SDK" },
+          },
+          updateRequest: { subject: `AhaSend SDK live acceptance campaign ${suffix} v2` },
+          testRecipient: config.disposableMailbox,
           pagination,
         }),
       ),

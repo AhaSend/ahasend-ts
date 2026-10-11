@@ -9,6 +9,10 @@ import { createAccountsClient } from "./resources/accounts.js";
 import type { AccountsClient } from "./resources/accounts.js";
 import { createAPIKeysClient } from "./resources/api-keys.js";
 import type { APIKeysClient } from "./resources/api-keys.js";
+import { createCampaignsClient } from "./resources/campaigns.js";
+import type { CampaignsClient } from "./resources/campaigns.js";
+import { createCampaignTemplatesClient } from "./resources/campaign-templates.js";
+import type { CampaignTemplatesClient } from "./resources/campaign-templates.js";
 import { createDomainsClient } from "./resources/domains.js";
 import type { DomainsClient } from "./resources/domains.js";
 import { createContactsClient } from "./resources/contacts.js";
@@ -66,10 +70,12 @@ export interface PingResponse {
  * one account; instantiate multiple clients for multi-account tooling.
  *
  * The client exposes readonly structural facades for messages, transactional
- * templates, domains, API keys, outbound webhooks, statistics, contacts,
- * lists, suppressions, routes, accounts, SMTP credentials, and sub-accounts.
- * List memberships are available through `client.lists.contacts`, and
- * child-account API keys through `client.subAccounts.apiKeys`.
+ * templates, campaign templates, campaigns, domains, API keys, outbound
+ * webhooks, statistics, contacts, lists, suppressions, routes, accounts, SMTP
+ * credentials, and sub-accounts. List memberships are available through
+ * `client.lists.contacts`, campaign recipients through
+ * `client.campaigns.recipients`, and child-account API keys through
+ * `client.subAccounts.apiKeys`.
  *
  * Retries (with backoff + `Retry-After`), opt-in two-bucket rate limiting,
  * and automatic idempotency keys on create and batch operations are built in and
@@ -81,6 +87,8 @@ export class AhaSendClient {
   readonly #operations: OperationExecutor;
   readonly #messages: Readonly<MessagesClient>;
   readonly #templates: Readonly<TemplatesClient>;
+  readonly #campaignTemplates: Readonly<CampaignTemplatesClient>;
+  readonly #campaigns: Readonly<CampaignsClient>;
   readonly #domains: Readonly<DomainsClient>;
   readonly #apiKeys: Readonly<APIKeysClient>;
   readonly #webhooks: Readonly<WebhooksClient>;
@@ -127,6 +135,10 @@ export class AhaSendClient {
 
     this.#messages = createFrozenFacade(createMessagesClient(this.#operations, accountId));
     this.#templates = createFrozenFacade(createTemplatesClient(this.#operations, accountId));
+    this.#campaignTemplates = createFrozenFacade(
+      createCampaignTemplatesClient(this.#operations, accountId),
+    );
+    this.#campaigns = createFrozenFacade(createCampaignsClient(this.#operations, accountId));
     this.#domains = createFrozenFacade(createDomainsClient(this.#operations, accountId));
     this.#apiKeys = createFrozenFacade(createAPIKeysClient(this.#operations, accountId));
     this.#webhooks = createFrozenFacade(createWebhooksClient(this.#operations, accountId));
@@ -156,6 +168,19 @@ export class AhaSendClient {
   /** List and inspect the account's transactional templates. */
   get templates(): Readonly<TemplatesClient> {
     return this.#templates;
+  }
+
+  /** Create, inspect, list, update, and delete the account's campaign templates. */
+  get campaignTemplates(): Readonly<CampaignTemplatesClient> {
+    return this.#campaignTemplates;
+  }
+
+  /**
+   * Create, change, test, send, unschedule, and delete marketing campaigns, and read their stats
+   * and recipients.
+   */
+  get campaigns(): Readonly<CampaignsClient> {
+    return this.#campaigns;
   }
 
   /** Create, verify, inspect, update, and delete sending domains. */
