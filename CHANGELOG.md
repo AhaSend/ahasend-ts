@@ -6,6 +6,8 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-12
+
 ### Added
 
 - `client.contacts` manages account-global contacts: `list`, `iterate`, `create`, `batchUpsert` (up
@@ -68,6 +70,10 @@ must add `unpauseDomain` or `sendTemplate`.
 
 ### Changed
 
+- The API HTML-escapes substitution values in the HTML and AMP bodies of `messages.send()` and
+  `messages.sendTemplate()`, as it already did for campaigns. Write `{{ name|safe }}` in the design
+  to insert a value as HTML. The subject, the headers and the text body get values as they are. The
+  SDK sends values unchanged.
 - The bundled `openapi.yaml` and `webhooks.yaml` follow the current API. Webhook `from` on campaign
   message events can carry the sender's name (`Name <address>`); a route's `reply_to` is the
   Reply-To header as received, and its `to` is the recipient address the route matched, or, on a
