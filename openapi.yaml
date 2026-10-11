@@ -8437,6 +8437,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go"
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              // Campaign templates are listed without their content; Get Campaign
+              // Template returns it.
+              response, _, err := client.CampaignTemplatesAPI.ListCampaignTemplates(ctx, accountID, requests.ListCampaignTemplatesParams{
+                Limit: ahasend.Int32(100),
+              })
+              if err != nil {
+                log.Fatalf("Error listing campaign templates: %v", err)
+              }
+              for _, template := range response.Data {
+                fmt.Printf("%s %s (%s)\n", template.ID, template.Name, template.Editor)
+              }
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -8524,7 +8559,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go"
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              // HTML content makes an html campaign template; MJML would make an
+              // advanced one. The text is made from the HTML when it is left out.
+              response, _, err := client.CampaignTemplatesAPI.CreateCampaignTemplate(ctx, accountID, requests.CreateCampaignTemplateRequest{
+                Name: "Monthly newsletter",
+                Content: &requests.TemplateContentInput{
+                  HTML: ahasend.String(`<p>Hi {{ first_name }},</p><p>Here is our news.</p><p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>`),
+                },
+              })
+              if err != nil {
+                log.Fatalf("Error creating campaign template: %v", err)
+              }
+              fmt.Printf("Created %s campaign template %s\n", response.Editor, response.ID)
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -8610,6 +8682,37 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              templateID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              response, _, err := client.CampaignTemplatesAPI.GetCampaignTemplate(ctx, accountID, templateID)
+              if err != nil {
+                log.Fatalf("Error getting campaign template: %v", err)
+              }
+              // A campaign can be made from the template only once it has HTML.
+              hasHTML := response.Content != nil && response.Content.HTML != ""
+              fmt.Printf("%s (%s), has HTML: %t\n", response.Name, response.Editor, hasHTML)
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -8711,6 +8814,41 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go"
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              templateID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              // Only the fields you set change, at once. Campaigns already made from
+              // the template keep their own copies.
+              response, _, err := client.CampaignTemplatesAPI.UpdateCampaignTemplate(ctx, accountID, templateID, requests.UpdateCampaignTemplateRequest{
+                Name: ahasend.String("Monthly newsletter, 2026"),
+              })
+              if err != nil {
+                log.Fatalf("Error updating campaign template: %v", err)
+              }
+              fmt.Printf("Updated campaign template %s\n", response.Name)
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -8793,7 +8931,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              templateID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              // Campaigns made from the template keep their own copies.
+              response, _, err := client.CampaignTemplatesAPI.DeleteCampaignTemplate(ctx, accountID, templateID)
+              if err != nil {
+                log.Fatalf("Error deleting campaign template: %v", err)
+              }
+              fmt.Println(response.Message)
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -8885,6 +9054,44 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go"
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/common"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              // Leave Status nil to list campaigns in every status.
+              response, _, err := client.CampaignsAPI.ListCampaigns(ctx, accountID, requests.ListCampaignsParams{
+                Status: ahasend.String(common.CampaignStatusScheduled),
+                Limit:  ahasend.Int32(100),
+              })
+              if err != nil {
+                log.Fatalf("Error listing campaigns: %v", err)
+              }
+              for _, campaign := range response.Data {
+                if campaign.SendAt != nil {
+                  fmt.Printf("%s %s sends at %s\n", campaign.ID, campaign.Name, campaign.SendAt)
+                }
+              }
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -8975,7 +9182,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go"
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/common"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              listID := uuid.MustParse("22222222-2222-4222-8222-222222222222")
+              templateID := uuid.MustParse("33333333-3333-4333-8333-333333333333")
+
+              // The campaign copies the campaign template's design; later changes to
+              // the template do not reach it. Every field but Name can be set later.
+              response, _, err := client.CampaignsAPI.CreateCampaign(ctx, accountID, requests.CreateCampaignRequest{
+                Name:      "October newsletter",
+                Subject:   ahasend.String("Our news for October, {{ first_name }}"),
+                Preheader: ahasend.String("Three things we shipped this month"),
+                From: &common.SenderAddress{
+                  Email: "news@yourdomain.com",
+                  Name:  ahasend.String("Example"),
+                },
+                ListIDs:    []uuid.UUID{listID},
+                TemplateID: &templateID,
+              })
+              if err != nil {
+                log.Fatalf("Error creating campaign: %v", err)
+              }
+              fmt.Printf("Created campaign %s, ready: %t\n", response.ID, response.Ready != nil && *response.Ready)
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -9063,6 +9316,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              campaignID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              response, _, err := client.CampaignsAPI.GetCampaign(ctx, accountID, campaignID)
+              if err != nil {
+                log.Fatalf("Error getting campaign: %v", err)
+              }
+              fmt.Printf("%s is %s, sending to %d lists\n", response.Name, response.Status, len(response.ListIDs))
+              // A draft lists what keeps it from being sent.
+              for _, issue := range response.Issues {
+                fmt.Printf("%s: %s\n", issue.Code, issue.Message)
+              }
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -9164,6 +9450,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go"
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              campaignID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              // Only the fields you set change, and only while the campaign is a
+              // draft. A ReplyTo that points at "" clears the reply-to address.
+              response, _, err := client.CampaignsAPI.UpdateCampaign(ctx, accountID, campaignID, requests.UpdateCampaignRequest{
+                Subject: ahasend.String("Our news for October"),
+                ReplyTo: ahasend.String(""),
+              })
+              if err != nil {
+                log.Fatalf("Error updating campaign: %v", err)
+              }
+              fmt.Printf("Updated campaign %s, %d issues left\n", response.Name, len(response.Issues))
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -9254,7 +9576,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              campaignID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              // Only a draft can be deleted.
+              response, _, err := client.CampaignsAPI.DeleteCampaign(ctx, accountID, campaignID)
+              if err != nil {
+                log.Fatalf("Error deleting campaign: %v", err)
+              }
+              fmt.Println(response.Message)
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -9270,8 +9623,9 @@ paths:
       summary: Duplicate Campaign
       description: |
         Makes a new draft from a campaign in any status: a copy of its
-        design, its subject, preview text and sender, and its lists that
-        still exist, in the same order. The copy's design is its own.
+        design, its subject, preview text, sender and reply-to address, and
+        its lists that still exist, in the same order. The copy's design is
+        its own.
       operationId: duplicateCampaign
       tags:
         - Campaigns
@@ -9349,7 +9703,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go"
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              campaignID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              // The copy is a new draft. Leave Name nil to name it "Copy of" and the
+              // source's name.
+              response, _, err := client.CampaignsAPI.DuplicateCampaign(ctx, accountID, campaignID, requests.DuplicateCampaignRequest{
+                Name: ahasend.String("November newsletter"),
+              })
+              if err != nil {
+                log.Fatalf("Error duplicating campaign: %v", err)
+              }
+              fmt.Printf("Created draft %s %s\n", response.ID, response.Name)
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -9454,7 +9844,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+              "time"
+
+              "github.com/AhaSend/ahasend-go"
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              campaignID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              // Leave SendAt nil to send now.
+              response, _, err := client.CampaignsAPI.SendCampaign(ctx, accountID, campaignID, requests.SendCampaignRequest{
+                SendAt: ahasend.Time(time.Now().Add(24 * time.Hour)),
+              })
+              if notReady, ok := api.AsCampaignNotReady(err); ok {
+                for _, issue := range notReady.Issues {
+                  fmt.Printf("%s: %s\n", issue.Code, issue.Message)
+                }
+                os.Exit(1)
+              }
+              if err != nil {
+                log.Fatalf("Error sending campaign: %v", err)
+              }
+              fmt.Printf("Campaign %s is %s\n", response.ID, response.Status)
+              for _, warning := range response.Warnings {
+                fmt.Println("Warning:", warning)
+              }
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -9546,7 +9981,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              campaignID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              // A validating or scheduled campaign goes back to draft. To change the
+              // send time, unschedule it and send it again.
+              response, _, err := client.CampaignsAPI.UnscheduleCampaign(ctx, accountID, campaignID)
+              if err != nil {
+                log.Fatalf("Error unscheduling campaign: %v", err)
+              }
+              fmt.Printf("Campaign %s is %s\n", response.ID, response.Status)
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -9660,7 +10127,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              campaignID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              response, _, err := client.CampaignsAPI.TestCampaign(ctx, accountID, campaignID, requests.TestCampaignRequest{
+                To: []string{"Ann <ann@yourdomain.com>", "bob@yourdomain.com"},
+              })
+              if err != nil {
+                log.Fatalf("Error sending test: %v", err)
+              }
+              if response.ResultUnknown {
+                fmt.Println("The test may have gone out; check the inboxes before you send another")
+                return
+              }
+              fmt.Printf("Sent to %v\n", response.SentTo)
+              for _, failure := range response.Failed {
+                fmt.Printf("Refused %s: %s\n", failure.Email, failure.Message)
+              }
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -9748,7 +10255,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              campaignID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              response, _, err := client.CampaignsAPI.GetCampaignStats(ctx, accountID, campaignID)
+              if err != nil {
+                log.Fatalf("Error getting campaign stats: %v", err)
+              }
+              fmt.Printf("Delivered %d of %d\n", response.Delivered, response.Recipients)
+              // A rate is nil until the report is counted and its base is not zero.
+              if response.Rates.OpenRate != nil {
+                fmt.Printf("Open rate: %.2f%%\n", *response.Rates.OpenRate)
+              }
+              if response.Report != nil {
+                for status, count := range response.Report.ByStatus {
+                  fmt.Printf("%s: %d\n", status, count)
+                }
+              }
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
@@ -9861,7 +10407,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go"
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/AhaSend/ahasend-go/models/requests"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              campaignID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              // Set exactly one of Status and BounceClassification, each a key of the
+              // campaign's stats report.
+              response, _, err := client.CampaignsAPI.ListCampaignRecipients(ctx, accountID, campaignID, requests.ListCampaignRecipientsParams{
+                Status: ahasend.String("Bounced"),
+                Limit:  ahasend.Int32(100),
+              })
+              if err != nil {
+                log.Fatalf("Error listing campaign recipients: %v", err)
+              }
+              for _, recipient := range response.Data {
+                reason := ""
+                if recipient.BounceReason != nil {
+                  reason = *recipient.BounceReason
+                }
+                fmt.Printf("%s (%s) %s\n", recipient.Email, recipient.ListName, reason)
+              }
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |

@@ -222,24 +222,7 @@ describe("REST contract normalization", () => {
 
     expect(shellSamples).toBe(1);
     // The Go SDK adds its own sample, and the next spec sync brings it here.
-    expect(withoutGoSample).toEqual([
-      "listCampaignTemplates",
-      "createCampaignTemplate",
-      "getCampaignTemplate",
-      "updateCampaignTemplate",
-      "deleteCampaignTemplate",
-      "listCampaigns",
-      "createCampaign",
-      "getCampaign",
-      "updateCampaign",
-      "deleteCampaign",
-      "duplicateCampaign",
-      "sendCampaign",
-      "unscheduleCampaign",
-      "testCampaign",
-      "getCampaignStats",
-      "listCampaignRecipients",
-    ]);
+    expect(withoutGoSample).toEqual([]);
     expect(NODE_SAMPLE_REGISTRY).toHaveLength(101);
     expect(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId)).toEqual(
       lock.inventories.operationIds,
