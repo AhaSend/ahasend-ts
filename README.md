@@ -725,9 +725,10 @@ console.log("Template send accepted.", { count: res.data.length });
   request that misses one is refused as a whole, and nothing is sent.
 - The request takes no body and no request-level `substitutions`: the API answers `400` to
   `text_content`, `html_content`, `amp_content` or `substitutions`.
-- `email` and `view_browser_url` are supplied by AhaSend for each recipient and cannot be
-  overridden: `email` is that recipient's address, and `view_browser_url` is empty until a hosted
-  view of a sent message exists.
+- `email` is supplied by AhaSend for each recipient and cannot be overridden: it is that
+  recipient's address.
+- In the HTML body each value is HTML-escaped. Write `{{ name|safe }}` in the design to insert a
+  value as HTML. The subject and the text body get values as they are.
 - `unsubscribe_url` is supplied the same way, replacing a value of your own, only on a design that
   uses it; such a message also carries one-click `List-Unsubscribe` headers, and a
   `List-Unsubscribe` or `List-Unsubscribe-Post` in `headers` is dropped. On a design that does not

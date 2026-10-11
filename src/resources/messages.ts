@@ -65,6 +65,9 @@ export interface Recipient {
    * (`{{ first_name }}`) in the subject and body. On `send()` they override
    * keys of the same name in the request-level `substitutions`; on
    * `sendTemplate()` they are the only values for the template's variables.
+   * In the HTML and AMP bodies each value is HTML-escaped; write
+   * `{{ name|safe }}` to insert a value as HTML. The subject, the headers and
+   * the text body get values as they are.
    */
   substitutions?: Record<string, SubstitutionValue> | undefined;
 }
@@ -161,7 +164,10 @@ export interface CreateMessageRequest {
    * one.
    */
   headers?: Record<string, string> | undefined;
-  /** Request-level template variables; per-recipient substitutions win. */
+  /**
+   * Request-level template variables; per-recipient substitutions win. They
+   * are HTML-escaped in the HTML and AMP bodies, as per-recipient ones are.
+   */
   substitutions?: Record<string, SubstitutionValue> | undefined;
   /** Free-form tags for filtering in lists, statistics, and webhooks. */
   tags?: readonly string[] | undefined;

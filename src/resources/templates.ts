@@ -17,8 +17,8 @@ import { forwardOptions, forwardWithIdempotency } from "./_helpers.js";
 export interface TemplateVariable {
   name: string;
   /**
-   * False for a variable the design wraps in a fallback, and for `email`,
-   * `unsubscribe_url` and `view_browser_url`, which the send supplies itself.
+   * False for a variable the design wraps in a fallback, and for `email` and
+   * `unsubscribe_url`, which the send supplies itself.
    */
   required: boolean;
 }
