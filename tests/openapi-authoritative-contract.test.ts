@@ -289,6 +289,113 @@ describe("authoritative OpenAPI model contracts", () => {
     expect(Object.keys(properties("RestoreTemplateVersionRequest"))).toEqual(["publish"]);
   });
 
+  it("pins the campaign template and campaign read models", () => {
+    // List items leave `content` out, so it is the one optional field.
+    expect(Object.keys(properties("CampaignTemplate"))).toEqual([
+      ...(schema("CampaignTemplate").required as string[]),
+      "content",
+    ]);
+    expect(property("CampaignTemplate", "content").oneOf).toEqual([
+      { $ref: "#/components/schemas/TemplateContent" },
+      { type: "null" },
+    ]);
+
+    // Every campaign field is present; the unset ones are null, never absent.
+    expect(Object.keys(properties("CampaignListItem"))).toEqual(
+      schema("CampaignListItem").required,
+    );
+    expect(nullableProperties("CampaignListItem")).toEqual([
+      "subject",
+      "preheader",
+      "reply_to",
+      "status_reason",
+      "send_at",
+      "send_resumes_at",
+      "finished_at",
+    ]);
+    expect(property("CampaignListItem", "from").oneOf).toEqual([
+      { $ref: "#/components/schemas/Address" },
+      { type: "null" },
+    ]);
+    const campaign = schema("Campaign").allOf as JsonRecord[];
+    expect(campaign[0]).toEqual({ $ref: "#/components/schemas/CampaignListItem" });
+    expect(campaign[1]!.required).toEqual(["list_ids", "editor", "content", "ready", "issues"]);
+    expect(schema("CampaignStatus").enum).toEqual([
+      "draft",
+      "validating",
+      "waiting_for_review",
+      "scheduled",
+      "sending",
+      "paused",
+      "sent",
+      "canceled",
+      "failed",
+    ]);
+    expect(property("CampaignIssue", "code").enum).toEqual([
+      "sender_missing",
+      "lists_missing",
+      "subject_missing",
+      "preheader_missing",
+      "design_missing",
+      "text_broken",
+      "unsubscribe_link_missing",
+    ]);
+  });
+
+  it("pins the campaign write, send, test and report models", () => {
+    expect(schema("CreateCampaignRequest").required).toEqual(["name"]);
+    expect(nullableProperties("UpdateCampaignRequest")).toEqual([
+      "subject",
+      "preheader",
+      "reply_to",
+    ]);
+    expect(property("UpdateCampaignRequest", "from").oneOf).toEqual([
+      { $ref: "#/components/schemas/TemplateAddressInput" },
+      { type: "null" },
+    ]);
+    expect(properties("UpdateCampaignRequest")).not.toHaveProperty("editor");
+    expect(properties("UpdateCampaignRequest")).not.toHaveProperty("template_id");
+    expect(property("CreateCampaignRequest", "list_ids")).toMatchObject({
+      minItems: 1,
+      maxItems: 50,
+    });
+    expect(schema("SendCampaignRequest").required).toBeUndefined();
+    expect(property("SendCampaignRequest", "send_at").type).toBe("string");
+
+    // A refusal carries issues only when the campaign has them.
+    expect(schema("CampaignNotReady").required).toEqual(["message"]);
+    expect(Object.keys(properties("CampaignNotReady"))).toEqual(["message", "issues"]);
+    expect(schema("CampaignSend").allOf).toEqual([
+      { $ref: "#/components/schemas/Campaign" },
+      expect.objectContaining({ required: ["warnings"] }),
+    ]);
+    expect(schema("CampaignTest").required).toEqual([
+      "object",
+      "sent_to",
+      "failed",
+      "result_unknown",
+    ]);
+
+    expect(property("CampaignStats", "report").oneOf).toEqual([
+      { $ref: "#/components/schemas/CampaignStatsReport" },
+      { type: "null" },
+    ]);
+    expect(nullableProperties("CampaignStatsRates")).toEqual([
+      "open_rate",
+      "click_rate",
+      "bounce_rate",
+      "deferral_rate",
+    ]);
+    expect(nullableProperties("CampaignRecipient")).toEqual([
+      "bounce_classification",
+      "bounce_reason",
+      "bounce_message",
+    ]);
+    expect(property("PaginatedCampaignRecipientsResponse", "pagination").$ref).toBe(
+      "#/components/schemas/PaginationInfo",
+    );
+  });
+
   it("gives template sends a request schema of their own", () => {
     // The inline send requires its sender and subject and names no template;
     // the template send requires only the template and the recipients.

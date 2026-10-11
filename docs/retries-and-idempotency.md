@@ -25,9 +25,14 @@ Caller cancellation is never retried. Ordinary 4xx responses, including an API-k
 `accounts.addMember()` for an existing member, `suppressions.create()` for an existing
 suppression — surface as terminal `AhaSendConflictError` (`error.code === "conflict_error"`):
 they carry neither `Idempotent-Replayed` nor `Retry-After`, which is what distinguishes them
-from the retryable in-progress state on the same status code. `domains.checkDns()`,
-`subAccounts.suspend()`, `subAccounts.unsuspend()`, and `subAccounts.unpauseDomain()` are also never
-retried because the API does not declare them retry-safe.
+from the retryable in-progress state on the same status code. A campaign whose status refuses the
+request — a change, delete, send or test of a campaign that is not a draft, or an unschedule of one
+that is not `validating` or `scheduled`, or that has already queued mail — answers a terminal
+`AhaSendConflictError` too. The status conflict of a campaign update, send or unschedule is stored,
+so a retry with the same key replays it with `Idempotent-Replayed: true`; a test's status conflict
+is never stored or replayed. `domains.checkDns()`, `subAccounts.suspend()`,
+`subAccounts.unsuspend()`, and `subAccounts.unpauseDomain()` are also never retried because the API
+does not declare them retry-safe.
 
 For HTTP 408, 429 and 5xx, a valid `Retry-After` in seconds or HTTP-date form is authoritative
 and capped at `maxDelayMs`. An eligible idempotency-in-progress 409 accepts only the positive
@@ -71,7 +76,9 @@ signals.
 
 ## Idempotency keys
 
-Every create, batch, publish, restore and template update operation documented by the API as idempotent receives an automatically generated
+Every create, batch, send, publish and restore operation, every template, campaign template and
+campaign update, and the campaign duplicate, unschedule and test, documented by the API as
+idempotent receives an automatically generated
 UUID `Idempotency-Key` by default. The SDK generates it once for the logical call and reuses the
 same value across all internal retry attempts.
 

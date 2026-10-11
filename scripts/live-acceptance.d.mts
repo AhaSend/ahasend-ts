@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
-export const EXPECTED_LIVE_OPERATION_COUNT: 85;
-export const EXPECTED_LIVE_ITERATOR_COUNT: 14;
+export const EXPECTED_LIVE_OPERATION_COUNT: 101;
+export const EXPECTED_LIVE_ITERATOR_COUNT: 17;
 
 export interface LiveMapping {
   readonly operationId: string;
@@ -481,6 +481,88 @@ export function createTemplateScenarioRegistry(
 export type TemplateLiveRun = DomainLiveRun;
 
 export function runTemplateLiveScenarios(registry: ScenarioRegistry): Promise<TemplateLiveRun>;
+
+export interface CampaignLiveClient {
+  readonly campaignTemplates: {
+    readonly list: (...args: never[]) => unknown;
+    readonly iterate: (...args: never[]) => unknown;
+    readonly create: (...args: never[]) => unknown;
+    readonly get: (...args: never[]) => unknown;
+    readonly update: (...args: never[]) => unknown;
+    readonly delete: (...args: never[]) => unknown;
+  };
+  readonly campaigns: {
+    readonly list: (...args: never[]) => unknown;
+    readonly iterate: (...args: never[]) => unknown;
+    readonly create: (...args: never[]) => unknown;
+    readonly get: (...args: never[]) => unknown;
+    readonly update: (...args: never[]) => unknown;
+    readonly delete: (...args: never[]) => unknown;
+    readonly duplicate: (...args: never[]) => unknown;
+    readonly send: (...args: never[]) => unknown;
+    readonly unschedule: (...args: never[]) => unknown;
+    readonly test: (...args: never[]) => unknown;
+    readonly getStats: (...args: never[]) => unknown;
+    readonly recipients: {
+      readonly list: (...args: never[]) => unknown;
+      readonly iterate: (...args: never[]) => unknown;
+    };
+  };
+  readonly lists: {
+    readonly list: (...args: never[]) => unknown;
+    readonly create: (...args: never[]) => unknown;
+    readonly get: (...args: never[]) => unknown;
+    readonly delete: (...args: never[]) => unknown;
+  };
+}
+
+export interface CampaignTemplateLiveCreateRequest {
+  readonly name: string;
+  /** `html` must use `{{ unsubscribe_url }}`, so a campaign made from it is ready. */
+  readonly content: { readonly html: string };
+}
+
+export interface CampaignTemplateLiveUpdateRequest {
+  /** Must differ from the create request's name. */
+  readonly name: string;
+}
+
+export interface CampaignLiveCreateRequest {
+  readonly name: string;
+  readonly subject: string;
+  readonly preheader: string;
+  /** A sender on a verified domain of the account. */
+  readonly from: { readonly email: string; readonly name?: string };
+}
+
+export interface CampaignLiveUpdateRequest {
+  /** Must differ from the create request's subject. */
+  readonly subject: string;
+}
+
+export interface CreateCampaignScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: CampaignLiveClient;
+  /** The disposable campaign template the campaign is made from. */
+  readonly templateCreateRequest: CampaignTemplateLiveCreateRequest;
+  readonly templateUpdateRequest: CampaignTemplateLiveUpdateRequest;
+  /** The disposable list the campaign sends to. It is created empty and stays empty. */
+  readonly listCreateRequest: ListLiveCreateRequest;
+  /** The campaign; the scenario sets its list and its campaign template. */
+  readonly createRequest: CampaignLiveCreateRequest;
+  readonly updateRequest: CampaignLiveUpdateRequest;
+  /** The address the refused test send names; the API refuses it before sending. */
+  readonly testRecipient: string;
+  readonly pagination?: DomainLivePagination;
+}
+
+export function createCampaignScenarioRegistry(
+  options: CreateCampaignScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type CampaignLiveRun = DomainLiveRun;
+
+export function runCampaignLiveScenarios(registry: ScenarioRegistry): Promise<CampaignLiveRun>;
 
 export interface APIKeyLiveFacade {
   readonly list: (...args: never[]) => unknown;

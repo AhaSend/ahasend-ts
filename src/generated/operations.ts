@@ -1357,6 +1357,518 @@ export const OPERATION_DESCRIPTORS = {
     security: [["templates:write"]],
     resourceAuthorization: null,
   },
+  listCampaignTemplates: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/campaign-templates",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedCampaignTemplatesResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["templates:read"]],
+    resourceAuthorization: null,
+  },
+  createCampaignTemplate: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/campaign-templates",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "CreateCampaignTemplateRequest",
+    },
+    success: [
+      {
+        status: 201,
+        schema: "CampaignTemplate",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["templates:write"]],
+    resourceAuthorization: null,
+  },
+  getCampaignTemplate: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/campaign-templates/{template_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "CampaignTemplate",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["templates:read"]],
+    resourceAuthorization: null,
+  },
+  updateCampaignTemplate: {
+    method: "PUT",
+    path: "/v2/accounts/{account_id}/campaign-templates/{template_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "UpdateCampaignTemplateRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "CampaignTemplate",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["templates:write"]],
+    resourceAuthorization: null,
+  },
+  deleteCampaignTemplate: {
+    method: "DELETE",
+    path: "/v2/accounts/{account_id}/campaign-templates/{template_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "template_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "SuccessResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["templates:delete"]],
+    resourceAuthorization: null,
+  },
+  listCampaigns: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/campaigns",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "status",
+        required: false,
+        format: null,
+      },
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedCampaignsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["campaigns:read"]],
+    resourceAuthorization: null,
+  },
+  createCampaign: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/campaigns",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "CreateCampaignRequest",
+    },
+    success: [
+      {
+        status: 201,
+        schema: "Campaign",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["campaigns:write"]],
+    resourceAuthorization: null,
+  },
+  getCampaign: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/campaigns/{campaign_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "campaign_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "Campaign",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["campaigns:read"]],
+    resourceAuthorization: null,
+  },
+  updateCampaign: {
+    method: "PUT",
+    path: "/v2/accounts/{account_id}/campaigns/{campaign_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "campaign_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "UpdateCampaignRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "Campaign",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["campaigns:write"]],
+    resourceAuthorization: null,
+  },
+  deleteCampaign: {
+    method: "DELETE",
+    path: "/v2/accounts/{account_id}/campaigns/{campaign_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "campaign_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "SuccessResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["campaigns:delete"]],
+    resourceAuthorization: null,
+  },
+  duplicateCampaign: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/campaigns/{campaign_id}/duplicate",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "campaign_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: false,
+      schema: "DuplicateCampaignRequest",
+    },
+    success: [
+      {
+        status: 201,
+        schema: "Campaign",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["campaigns:write"]],
+    resourceAuthorization: null,
+  },
+  sendCampaign: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/campaigns/{campaign_id}/send",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "campaign_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: false,
+      schema: "SendCampaignRequest",
+    },
+    success: [
+      {
+        status: 202,
+        schema: "CampaignSend",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["campaigns:send"]],
+    resourceAuthorization: null,
+  },
+  unscheduleCampaign: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/campaigns/{campaign_id}/unschedule",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "campaign_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "Campaign",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["campaigns:send"]],
+    resourceAuthorization: null,
+  },
+  testCampaign: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/campaigns/{campaign_id}/test",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "campaign_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "TestCampaignRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "CampaignTest",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["campaigns:send"]],
+    resourceAuthorization: null,
+  },
+  getCampaignStats: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/campaigns/{campaign_id}/stats",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "campaign_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "CampaignStats",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["campaigns:read"]],
+    resourceAuthorization: null,
+  },
+  listCampaignRecipients: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/campaigns/{campaign_id}/recipients",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "campaign_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "status",
+        required: false,
+        format: null,
+      },
+      {
+        name: "bounce_classification",
+        required: false,
+        format: null,
+      },
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedCampaignRecipientsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["campaigns:read"]],
+    resourceAuthorization: null,
+  },
   getAccount: {
     method: "GET",
     path: "/v2/accounts/{account_id}",

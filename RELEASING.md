@@ -32,18 +32,19 @@ Put a required-reviewer protection rule on `npm-latest` at minimum. `live-gates`
 mutates a real account, so `live-release` deserves one too.
 
 **What live-gates actually does.** The live report needs a passed result for all
-85 operations, and live acceptance exercises every one of them against a real
-account. It does **not** deliver mail: every send
-sets `sandbox: true`, and `requireSandboxMessageRequest` in
-`scripts/live-acceptance.mjs` refuses to run a request without it. Routes and
-webhooks are created `enabled: false`. What it _does_ do to the real account: creates and deletes
-domains, routes, webhooks, SMTP credentials, API keys, contacts, lists, templates, suppressions and
-sub-accounts; updates the account settings (only the `about` text, which is
-restored afterwards — the `createAccountScenarioRegistry` call in
-`scripts/run-live-acceptance.mjs`); wipes all
-suppressions for `suppressionDomain` (`methods.wipe({ domain })`); and adds then
-removes a real account member. Treat it as destructive to the account, not as a
-mail event.
+101 operations, and live acceptance exercises every one of them against a real
+account. It does **not** deliver mail: every send sets `sandbox: true`, and
+`requireSandboxMessageRequest` in `scripts/live-acceptance.mjs` refuses to run a
+request without it. No campaign is ever sent or test-sent: the campaign send and
+test are checked only through their refusals (see below). Routes and webhooks
+are created `enabled: false`. What it _does_ do to the real account: creates and
+deletes domains, routes, webhooks, SMTP credentials, API keys, contacts, lists,
+templates, campaign templates, campaigns, suppressions and sub-accounts; updates
+the account settings (only the `about` text, which is restored afterwards — the
+`createAccountScenarioRegistry` call in `scripts/run-live-acceptance.mjs`);
+wipes all suppressions for `suppressionDomain` (`methods.wipe({ domain })`); and
+adds then removes a real account member. Treat it as destructive to the account,
+not as a mail event.
 
 The domain scenarios list the account's domains with the `sending_type:
 "transactional"` filter and require every one returned to be transactional.
@@ -58,11 +59,11 @@ paused or unpaused, so the run changes nothing there.
 
 The run therefore needs a server that has the domain sending type and pause fields,
 the unpause route, the template send route, the template write routes, the
-template default sender and the message `template_id`:
+template default sender, the message `template_id` and the campaign routes:
 deploy the API before tagging a release that includes them, or live-gates fails
 on `getDomains`, `createDomain`, `unpauseSubAccountDomain`, `listTemplates`,
-`getTemplate`, `createTemplateMessage`, `createTemplate`, `getMessages` and
-`getMessage`.
+`getTemplate`, `createTemplateMessage`, `createTemplate`, `getMessages`,
+`getMessage` and `createCampaignTemplate`.
 
 The template scenarios create their own templates, so the account needs none.
 The read and send scenarios first create and publish a disposable `html`
@@ -86,6 +87,30 @@ list both versions (each must name the API key as its publisher) and read
 version 1, restore version 1 into the draft, discard that draft, and delete the
 template. Cleanup deletes it again, and finds it by name among the newest
 templates when the create response was lost.
+
+The campaign scenarios create one empty list, which never gains a contact, and
+one disposable `html` campaign template whose design has an unsubscribe link.
+They find the template through the iterator, read it, and rename it, which must
+keep its content. They make a campaign from it, with a sender
+`sdk-live-campaign@` on `verifiedDomain`, a subject, a preview text and the
+empty list, which must come back as a ready draft; list it through the iterator
+with the `draft` filter, read it, change its subject, and duplicate it. The
+test, the send and the unschedule are checked by their refusals: a test the API
+accepted would deliver real mail, and a send it accepted would move the campaign
+into list validation and, within minutes, possibly into a review hold that can
+be neither unscheduled nor deleted. The test and the send go to a third campaign
+that has only a name, so no sender, no list and no design; the send names a
+`send_at` a week ahead. The API must refuse both with `400` and exactly those
+issues, and the campaign must stay a draft. The unschedule goes to the ready
+draft, which the API must refuse with a `409` status conflict. They read the
+draft's stats, which count nothing, and its `Delivered` recipients, which are
+none, then delete the campaign and the template. Cleanup deletes every campaign
+the run made, unscheduling first any that left draft: the known ones first, then
+any whose create or duplicate response was lost, found by its unique name. A
+campaign that cannot be deleted, such as one held for review, or a failed search
+does not stop the rest; cleanup still tries every campaign and then fails, so
+the run reports what it left behind. It then deletes the list and the template,
+finding the template by name when its create response was lost.
 
 The message scenarios check that every message they read carries
 `template_id`, and that the inline message they sent reads back with
@@ -112,16 +137,16 @@ on demand, so its 409 is not exercised live.
 
 One caveat the repo cannot verify: adding an account member is a platform
 action, so AhaSend itself may email an invitation to `disposableMailbox`. "Sends
-no real mail" covers the messages API, which this repo controls — not that.
+no real mail" covers the messages and campaign APIs, which this repo controls — not that.
 
 ### Secrets
 
-| Secret                     | Consumed by                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| -------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AHASEND_API_KEY`          | `live-gates` (release.yml:461)                                                                  | Needs **every** scope — live acceptance exercises every operation that has a scenario, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `contacts:read`, `contacts:write`, `contacts:delete`, `lists:read`, `lists:write`, `lists:delete`, `templates:read`, `templates:write`, `templates:delete`, `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
-| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:462)                                                                  | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:463)                                                                  | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:881, 963, 1022, 1111) | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                                                                                                                                                                                                        |
+| Secret                     | Consumed by                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AHASEND_API_KEY`          | `live-gates` (release.yml:461)                                                                  | Needs **every** scope — live acceptance exercises every operation that has a scenario, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `contacts:read`, `contacts:write`, `contacts:delete`, `lists:read`, `lists:write`, `lists:delete`, `templates:read`, `templates:write`, `templates:delete`, `campaigns:read`, `campaigns:write`, `campaigns:delete`, `campaigns:send`, `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
+| `AHASEND_ACCOUNT_ID`       | `live-gates` (release.yml:462)                                                                  | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` (release.yml:463)                                                                  | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` (release.yml:881, 963, 1022, 1111) | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 > **`next-publish` has no `NPM_TOKEN`.** It runs
 > `npm publish --provenance` (release.yml:640) with `id-token: write`, which
@@ -169,7 +194,8 @@ Account preconditions:
 
 - `verifiedDomain` and `replacementVerifiedDomain` are real, DNS-verified
   sending domains on the account. `verifiedDomain` must not be paused: the
-  template scenarios give their send template a default sender on it.
+  template scenarios give their send template a default sender on it, and the
+  campaign scenarios give their campaign a sender on it.
 - `dnslessDomain` must **not** exist on the account. The run creates it
   (`createMessageScenarioRegistry` in `scripts/live-acceptance.mjs`), asserts it
   is DNS-invalid, checks that a

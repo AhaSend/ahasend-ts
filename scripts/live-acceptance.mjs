@@ -24,8 +24,8 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 85;
-export const EXPECTED_LIVE_ITERATOR_COUNT = 14;
+export const EXPECTED_LIVE_OPERATION_COUNT = 101;
+export const EXPECTED_LIVE_ITERATOR_COUNT = 17;
 
 const packageName = "@ahasend/sdk";
 const domainOperationIds = Object.freeze([
@@ -93,9 +93,61 @@ const templateOperationIds = Object.freeze([
   ...templateWriteOperationIds,
 ]);
 const templateEditors = Object.freeze(["advanced", "simple", "html"]);
-// The release account can hold other templates, so a search for a template
-// this run created stops after this many of the newest.
-const templateSearchLimit = 200;
+// The campaign scenarios act on one disposable campaign template and on
+// campaigns made in this run, in this order: each one needs the state the one
+// before it leaves. The test, the send and the unschedule are exercised by
+// refusals that send nothing and change nothing (see
+// createCampaignScenarioRegistry).
+const campaignOperationIds = Object.freeze([
+  "createCampaignTemplate",
+  "listCampaignTemplates",
+  "getCampaignTemplate",
+  "updateCampaignTemplate",
+  "createCampaign",
+  "listCampaigns",
+  "getCampaign",
+  "updateCampaign",
+  "testCampaign",
+  "duplicateCampaign",
+  "sendCampaign",
+  "unscheduleCampaign",
+  "getCampaignStats",
+  "listCampaignRecipients",
+  "deleteCampaign",
+  "deleteCampaignTemplate",
+]);
+const campaignIteratorOperationIds = Object.freeze([
+  "listCampaignTemplates",
+  "listCampaigns",
+  "listCampaignRecipients",
+]);
+const campaignStatuses = Object.freeze([
+  "draft",
+  "validating",
+  "waiting_for_review",
+  "scheduled",
+  "sending",
+  "paused",
+  "sent",
+  "canceled",
+  "failed",
+]);
+// What a campaign with only a name lacks, in the order the API reports it.
+const unreadyCampaignIssues = Object.freeze([
+  "sender_missing",
+  "lists_missing",
+  "subject_missing",
+  "preheader_missing",
+  "design_missing",
+]);
+// The refused send names a time this far ahead. It only delays mail: a send
+// the API wrongly accepted would still start list validation at once, and a
+// review hold could follow that cleanup cannot unschedule. The refusal, not
+// this delay, is what keeps the run safe.
+const refusedCampaignSendDelayMs = 7 * 24 * 60 * 60 * 1000;
+// The release account can hold other templates and campaigns, so a search for
+// one this run created stops after this many of the newest.
+const searchLimit = 200;
 const apiKeyOperationIds = Object.freeze([
   "getAPIKeys",
   "createAPIKey",
@@ -2842,7 +2894,7 @@ export function createTemplateScenarioRegistry({
         for await (const entry of methods.iterate({ limit: 100 })) {
           if (entry?.name === name) templateIds.add(entry.id);
           searched += 1;
-          if (searched >= templateSearchLimit) break;
+          if (searched >= searchLimit) break;
         }
       }
       for (const templateId of templateIds) await deleteTemplateById(templateId);
@@ -2888,11 +2940,11 @@ export function createTemplateScenarioRegistry({
               found = true;
               break;
             }
-            if (itemCount >= templateSearchLimit) break;
+            if (itemCount >= searchLimit) break;
           }
           if (!found) {
             throw new TypeError(
-              `Template iterator did not reach the send template within ${templateSearchLimit} templates.`,
+              `Template iterator did not reach the send template within ${searchLimit} templates.`,
             );
           }
           const direction = pageParams.before === undefined ? "forward" : "backward";
@@ -3208,6 +3260,1064 @@ export function createTemplateScenarioRegistry({
 
 export function runTemplateLiveScenarios(registry) {
   return runLiveScenarios(registry, templateOperationIds, "listTemplates", "Template");
+}
+
+function requireCampaignTemplateResult(value, label, expectedId) {
+  const template = requireObject(value, label);
+  if (template.object !== "campaign_template") {
+    throw new TypeError(`${label} object must be campaign_template.`);
+  }
+  const id = requireString(template.id, `${label} id`);
+  if (expectedId !== undefined && id !== expectedId) {
+    throw new TypeError(`${label} returned the wrong campaign template.`);
+  }
+  for (const field of ["created_at", "updated_at", "name"]) {
+    requireString(template[field], `${label} ${field}`);
+  }
+  if (!templateEditors.includes(template.editor)) {
+    throw new TypeError(`${label} editor must be one of ${templateEditors.join(", ")}.`);
+  }
+  // List items leave the content out; every other answer carries it.
+  const content = Object.hasOwn(template, "content")
+    ? requireTemplateContent(template.content, `${label} content`)
+    : undefined;
+  return Object.freeze({ id, name: template.name, editor: template.editor, content });
+}
+
+function requireNullableString(value, label) {
+  if (value !== null && typeof value !== "string") {
+    throw new TypeError(`${label} must be a string or null.`);
+  }
+  return value;
+}
+
+/**
+ * Check a campaign as the API answers it. A list item carries no lists,
+ * content or issues; every other answer carries all of them, and a draft's
+ * `ready` and `issues` are set while every other status has them null.
+ */
+function requireCampaignResult(value, label, { expectedId, listItem = false } = {}) {
+  const campaign = requireObject(value, label);
+  if (campaign.object !== "campaign") {
+    throw new TypeError(`${label} object must be campaign.`);
+  }
+  const id = requireString(campaign.id, `${label} id`);
+  if (expectedId !== undefined && id !== expectedId) {
+    throw new TypeError(`${label} returned the wrong campaign.`);
+  }
+  for (const field of ["created_at", "updated_at", "name"]) {
+    requireString(campaign[field], `${label} ${field}`);
+  }
+  for (const field of [
+    "subject",
+    "preheader",
+    "reply_to",
+    "status_reason",
+    "send_at",
+    "send_resumes_at",
+    "finished_at",
+  ]) {
+    if (!Object.hasOwn(campaign, field)) throw new TypeError(`${label} must carry ${field}.`);
+    requireNullableString(campaign[field], `${label} ${field}`);
+  }
+  if (!campaignStatuses.includes(campaign.status)) {
+    throw new TypeError(`${label} status must be one of ${campaignStatuses.join(", ")}.`);
+  }
+  if (!Object.hasOwn(campaign, "from")) throw new TypeError(`${label} must carry from.`);
+  let senderEmail = null;
+  if (campaign.from !== null) {
+    const from = requireObject(campaign.from, `${label} from`);
+    senderEmail = requireString(from.email, `${label} from.email`);
+  }
+  const detailFields = ["list_ids", "editor", "content", "ready", "issues"];
+  if (listItem) {
+    const present = detailFields.filter((field) => Object.hasOwn(campaign, field));
+    if (present.length > 0) {
+      throw new TypeError(`${label} must not carry ${present.join(", ")}.`);
+    }
+    return Object.freeze({ id, name: campaign.name, status: campaign.status, senderEmail });
+  }
+  if (
+    !Array.isArray(campaign.list_ids) ||
+    campaign.list_ids.some((listId) => typeof listId !== "string")
+  ) {
+    throw new TypeError(`${label} list_ids must be an array of IDs.`);
+  }
+  if (campaign.editor !== null && !templateEditors.includes(campaign.editor)) {
+    throw new TypeError(`${label} editor must be null or one of ${templateEditors.join(", ")}.`);
+  }
+  if (!Object.hasOwn(campaign, "content")) throw new TypeError(`${label} must carry content.`);
+  const content = requireTemplateContent(campaign.content, `${label} content`);
+  const draft = campaign.status === "draft";
+  if (draft ? typeof campaign.ready !== "boolean" : campaign.ready !== null) {
+    throw new TypeError(`${label} ready must be a boolean for a draft and null otherwise.`);
+  }
+  let issues = null;
+  if (draft) {
+    if (!Array.isArray(campaign.issues)) {
+      throw new TypeError(`${label} issues must be an array for a draft.`);
+    }
+    issues = campaign.issues.map((entry, index) => {
+      const issue = requireObject(entry, `${label} issue ${index}`);
+      requireString(issue.message, `${label} issue ${index} message`);
+      return requireString(issue.code, `${label} issue ${index} code`);
+    });
+    if (campaign.ready !== (issues.length === 0)) {
+      throw new TypeError(`${label} ready must be true exactly when it has no issue.`);
+    }
+  } else if (campaign.issues !== null) {
+    throw new TypeError(`${label} issues must be null unless the campaign is a draft.`);
+  }
+  return Object.freeze({
+    id,
+    name: campaign.name,
+    status: campaign.status,
+    subject: campaign.subject,
+    preheader: campaign.preheader,
+    senderEmail,
+    sendAt: campaign.send_at,
+    listIds: Object.freeze([...campaign.list_ids]),
+    editor: campaign.editor,
+    content,
+    ready: campaign.ready,
+    issues: issues === null ? null : Object.freeze(issues),
+  });
+}
+
+function requireCampaignTemplateCreateRequest(value) {
+  const label = "Campaign template live create request";
+  const request = requireObject(value, label);
+  requireString(request.name, `${label} name`);
+  const content = requireObject(request.content, `${label} content`);
+  const html = requireString(content.html, `${label} content.html`);
+  // The campaign the scenarios make from it must be ready to send.
+  if (!html.includes("{{ unsubscribe_url }}")) {
+    throw new TypeError(`${label} content.html must use {{ unsubscribe_url }}.`);
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireCampaignTemplateUpdateRequest(value, createBody) {
+  const label = "Campaign template live update request";
+  const request = requireObject(value, label);
+  const name = requireString(request.name, `${label} name`);
+  if (name === createBody.name) {
+    throw new TypeError(`${label} name must differ from the create name.`);
+  }
+  if (Object.hasOwn(request, "content")) {
+    throw new TypeError(`${label} must not set content; the scenario checks it is kept.`);
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireCampaignCreateRequest(value) {
+  const label = "Campaign live create request";
+  const request = requireObject(value, label);
+  for (const field of ["name", "subject", "preheader"]) {
+    requireString(request[field], `${label} ${field}`);
+  }
+  const from = requireObject(request.from, `${label} from`);
+  const senderEmail = requireString(from.email, `${label} from.email`);
+  for (const field of ["list_ids", "template_id", "editor", "content"]) {
+    if (Object.hasOwn(request, field)) {
+      throw new TypeError(`${label} must not set ${field}; the scenario does.`);
+    }
+  }
+  return Object.freeze({ request: Object.freeze({ ...request }), senderEmail });
+}
+
+function requireCampaignUpdateRequest(value, createBody) {
+  const label = "Campaign live update request";
+  const request = requireObject(value, label);
+  const subject = requireString(request.subject, `${label} subject`);
+  if (subject === createBody.subject) {
+    throw new TypeError(`${label} subject must differ from the create subject.`);
+  }
+  const unexpected = Object.keys(request).filter((field) => field !== "subject");
+  if (unexpected.length > 0) {
+    throw new TypeError(
+      `${label} must set only subject; unexpected ${JSON.stringify(unexpected)}.`,
+    );
+  }
+  return Object.freeze({ ...request });
+}
+
+function requireCampaignTestRecipient(value) {
+  const recipient = requireString(value, "Campaign live test recipient");
+  if (!recipient.includes("@") || recipient.includes(",") || recipient.includes("<")) {
+    throw new TypeError("Campaign live test recipient must be one bare email address.");
+  }
+  return recipient;
+}
+
+function isBadRequestError(error) {
+  return typeof error === "object" && error !== null && error.status === 400;
+}
+
+/**
+ * Build the campaign scenarios over one disposable list, one disposable
+ * campaign template and the campaigns this run makes from it.
+ *
+ * The list is created empty and never gains a contact. The campaign is made
+ * from the template with a sender on the run's verified domain, so it is
+ * ready; it is listed, read, given a new subject, and duplicated.
+ *
+ * The test, the send and the unschedule are exercised by their refusals, so
+ * the run sends no mail. A test that the API accepted would deliver real
+ * mail, and a send that it accepted would move a campaign into list validation
+ * and, within minutes, possibly into a review hold, from which it can be
+ * neither unscheduled nor deleted. The test and the send go to a third
+ * campaign that has only a name: it has no sender, no list and no design, so
+ * it cannot reach anyone, the API refuses both with its issues, and it stays a
+ * draft. The send's `send_at` is a week ahead, which would only delay mail. The
+ * unschedule goes to the ready draft, which is not validating or scheduled, so
+ * the API refuses it with a 409 and it stays a draft.
+ *
+ * The stats and the recipient listing read the draft, which has sent nothing.
+ * The delete scenarios delete the campaign and the template; cleanup deletes
+ * every campaign this run made, then the template, then the list, and finds a
+ * campaign or template by its unique name when a create response was lost.
+ */
+export function createCampaignScenarioRegistry({
+  profile,
+  client,
+  templateCreateRequest,
+  templateUpdateRequest,
+  listCreateRequest,
+  createRequest,
+  updateRequest,
+  testRecipient,
+  pagination = { limit: 1 },
+}) {
+  const templateMappings = requireLifecycleMappings(
+    profile,
+    [
+      "listCampaignTemplates",
+      "createCampaignTemplate",
+      "getCampaignTemplate",
+      "updateCampaignTemplate",
+      "deleteCampaignTemplate",
+    ],
+    "campaignTemplates",
+    "listCampaignTemplates",
+    "campaign template",
+  );
+  const campaignMappings = requireLifecycleMappings(
+    profile,
+    [
+      "listCampaigns",
+      "createCampaign",
+      "getCampaign",
+      "updateCampaign",
+      "deleteCampaign",
+      "duplicateCampaign",
+      "sendCampaign",
+      "unscheduleCampaign",
+      "testCampaign",
+      "getCampaignStats",
+    ],
+    "campaigns",
+    "listCampaigns",
+    "campaign",
+  );
+  const recipientMappings = requireLifecycleMappings(
+    profile,
+    ["listCampaignRecipients"],
+    "campaigns.recipients",
+    "listCampaignRecipients",
+    "campaign recipient",
+  );
+  const mapped = (mappings, operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Campaign ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    listTemplates: mapped(templateMappings, "listCampaignTemplates"),
+    iterateTemplates: requireMappedClientMethod(
+      client,
+      templateMappings.iterator,
+      "Campaign template iterator scenario",
+    ),
+    createTemplate: mapped(templateMappings, "createCampaignTemplate"),
+    getTemplate: mapped(templateMappings, "getCampaignTemplate"),
+    updateTemplate: mapped(templateMappings, "updateCampaignTemplate"),
+    deleteTemplate: mapped(templateMappings, "deleteCampaignTemplate"),
+    list: mapped(campaignMappings, "listCampaigns"),
+    iterate: requireMappedClientMethod(
+      client,
+      campaignMappings.iterator,
+      "Campaign iterator scenario",
+    ),
+    create: mapped(campaignMappings, "createCampaign"),
+    get: mapped(campaignMappings, "getCampaign"),
+    update: mapped(campaignMappings, "updateCampaign"),
+    delete: mapped(campaignMappings, "deleteCampaign"),
+    duplicate: mapped(campaignMappings, "duplicateCampaign"),
+    send: mapped(campaignMappings, "sendCampaign"),
+    unschedule: mapped(campaignMappings, "unscheduleCampaign"),
+    test: mapped(campaignMappings, "testCampaign"),
+    getStats: mapped(campaignMappings, "getCampaignStats"),
+    listRecipients: mapped(recipientMappings, "listCampaignRecipients"),
+    iterateRecipients: requireMappedClientMethod(
+      client,
+      recipientMappings.iterator,
+      "Campaign recipient iterator scenario",
+    ),
+    listLists: requireMappedOperation(profile, client, "getLists", "Campaign list fixture"),
+    createList: requireMappedOperation(profile, client, "createList", "Campaign list fixture"),
+    getList: requireMappedOperation(profile, client, "getList", "Campaign list fixture"),
+    deleteList: requireMappedOperation(profile, client, "deleteList", "Campaign list fixture"),
+  });
+  const templateBody = requireCampaignTemplateCreateRequest(templateCreateRequest);
+  const templateUpdateBody = requireCampaignTemplateUpdateRequest(
+    templateUpdateRequest,
+    templateBody,
+  );
+  const listBody = requireListCreateRequest(listCreateRequest);
+  const campaign = requireCampaignCreateRequest(createRequest);
+  const campaignUpdateBody = requireCampaignUpdateRequest(updateRequest, campaign.request);
+  const recipient = requireCampaignTestRecipient(testRecipient);
+  const pageParams = requireLivePagination(pagination, "Campaign");
+  const copyName = `${campaign.request.name} copy`;
+  const unreadyName = `${campaign.request.name} unready`;
+  const campaignNames = new Set([campaign.request.name, copyName, unreadyName]);
+  const state = {
+    templateId: null,
+    listId: null,
+    campaignId: null,
+    unreadyId: null,
+    campaignIds: new Set(),
+  };
+  const requireTemplateId = () => {
+    if (state.templateId === null) {
+      throw new TypeError("Campaign template scenarios require the created campaign template.");
+    }
+    return state.templateId;
+  };
+  const requireCampaignId = () => {
+    if (state.campaignId === null) {
+      throw new TypeError("Campaign scenarios require the created campaign.");
+    }
+    return state.campaignId;
+  };
+  const deleteTemplateById = async (id) => {
+    try {
+      await methods.deleteTemplate(id);
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
+    }
+    await requireResourceAbsent(
+      methods.getTemplate,
+      id,
+      "Campaign template cleanup verification",
+      "campaign template",
+    );
+  };
+  // Only a draft can be deleted. A campaign that left draft is unscheduled
+  // first, which the API allows only while it is validating or scheduled; any
+  // other status fails the cleanup, so the run reports what it left behind.
+  const deleteCampaignById = async (id) => {
+    try {
+      await methods.delete(id);
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        // Already gone.
+      } else if (isConflictError(error)) {
+        await methods.unschedule(id);
+        await methods.delete(id);
+      } else {
+        throw error;
+      }
+    }
+    await requireResourceAbsent(methods.get, id, "Campaign cleanup verification", "campaign");
+  };
+  const registerTemplateCleanup = (cleanup) => {
+    cleanup.register("delete and verify campaign template", async () => {
+      const templateIds = new Set(state.templateId === null ? [] : [state.templateId]);
+      if (state.templateId === null) {
+        let searched = 0;
+        for await (const entry of methods.iterateTemplates({ limit: 100 })) {
+          if (entry?.name === templateBody.name || entry?.name === templateUpdateBody.name) {
+            templateIds.add(entry.id);
+          }
+          searched += 1;
+          if (searched >= searchLimit) break;
+        }
+      }
+      for (const id of templateIds) await deleteTemplateById(id);
+    });
+  };
+  // Registered before the first campaign exists and run after every campaign
+  // cleanup, since cleanup runs in reverse order.
+  // A list whose create response was lost is found by its unique name.
+  const ensureListFixture = async (cleanup) => {
+    if (state.listId !== null) return state.listId;
+    cleanup.register("delete and verify campaign list fixture", async () => {
+      const listIds = new Set(state.listId === null ? [] : [state.listId]);
+      if (state.listId === null) {
+        const page = requireObject(
+          await methods.listLists({ name: listBody.name, limit: 100 }),
+          "Campaign list fixture cleanup lookup",
+        );
+        if (!Array.isArray(page.data)) {
+          throw new TypeError("Campaign list fixture cleanup lookup data must be an array.");
+        }
+        for (const entry of page.data) {
+          if (entry?.name === listBody.name) listIds.add(entry.id);
+        }
+      }
+      for (const listId of listIds) {
+        try {
+          await methods.deleteList(listId);
+        } catch (error) {
+          if (!isNotFoundError(error)) throw error;
+        }
+        await requireResourceAbsent(
+          methods.getList,
+          listId,
+          "Campaign list fixture cleanup verification",
+          "list",
+        );
+      }
+    });
+    const list = requireObject(await methods.createList(listBody), "Campaign list fixture");
+    state.listId = requireString(list.id, "Campaign list fixture id");
+    return state.listId;
+  };
+  // Registered once, before the first campaign create: it deletes every
+  // campaign this run made. The known IDs go first; then a campaign whose
+  // create or duplicate response was lost is found by its unique name among
+  // the newest campaigns. One failed step does not skip the others: every
+  // campaign is tried, and the failures are thrown together at the end.
+  const registerCampaignCleanup = (cleanup) => {
+    cleanup.register("delete and verify campaigns", async () => {
+      const failures = [];
+      const attempted = new Set();
+      const deleteEach = async (ids) => {
+        for (const id of ids) {
+          if (attempted.has(id)) continue;
+          attempted.add(id);
+          try {
+            await deleteCampaignById(id);
+          } catch (error) {
+            failures.push(error);
+          }
+        }
+      };
+      await deleteEach([...state.campaignIds]);
+      const found = [];
+      try {
+        let searched = 0;
+        for await (const entry of methods.iterate({ limit: 100 })) {
+          if (campaignNames.has(entry?.name)) found.push(entry.id);
+          searched += 1;
+          if (searched >= searchLimit) break;
+        }
+      } catch (error) {
+        failures.push(error);
+      }
+      await deleteEach(found);
+      if (failures.length > 0) {
+        throw new AggregateError(failures, `${failures.length} campaign cleanup step(s) failed.`);
+      }
+    });
+  };
+  const createCampaign = async (body, label) => {
+    const created = requireCampaignResult(await methods.create(body), label);
+    state.campaignIds.add(created.id);
+    return created;
+  };
+  // The campaign the test and the send are refused for: it has only a name, so
+  // no sender, no list and no design, and nothing it is asked to do can reach
+  // anyone.
+  const ensureUnreadyCampaign = async () => {
+    if (state.unreadyId !== null) return state.unreadyId;
+    const unready = await createCampaign({ name: unreadyName }, "Campaign unready fixture");
+    if (
+      unready.status !== "draft" ||
+      unready.senderEmail !== null ||
+      unready.listIds.length !== 0 ||
+      unready.issues.join(",") !== unreadyCampaignIssues.join(",")
+    ) {
+      throw new TypeError(
+        "Campaign unready fixture must be a draft with no sender, no list and no design.",
+      );
+    }
+    state.unreadyId = unready.id;
+    return unready.id;
+  };
+  // Run a request the API must refuse for the unready campaign's issues, and
+  // check that the campaign is still an unscheduled draft afterwards.
+  const requireNotReadyRefusal = async (request, unreadyId, label) => {
+    let refusal = null;
+    try {
+      await request();
+    } catch (error) {
+      if (!isBadRequestError(error)) throw error;
+      refusal = error;
+    }
+    if (refusal === null) {
+      throw new TypeError(`${label} must refuse a campaign with issues.`);
+    }
+    const body = requireObject(refusal.body, `${label} refusal body`);
+    if (body.message !== "campaign is not ready to send" || !Array.isArray(body.issues)) {
+      throw new TypeError(`${label} refusal must carry the campaign's issues.`);
+    }
+    const issues = body.issues.map((entry, index) =>
+      requireString(
+        requireObject(entry, `${label} refusal issue ${index}`).code,
+        `${label} refusal issue ${index} code`,
+      ),
+    );
+    if (issues.join(",") !== unreadyCampaignIssues.join(",")) {
+      throw new TypeError(`${label} refusal must list the campaign's issues.`);
+    }
+    const after = requireCampaignResult(await methods.get(unreadyId), `${label} read`, {
+      expectedId: unreadyId,
+    });
+    if (after.status !== "draft" || after.sendAt !== null) {
+      throw new TypeError(`${label} must leave the campaign a draft.`);
+    }
+    return issues;
+  };
+
+  const scenarios = new Map([
+    [
+      "createCampaignTemplate",
+      {
+        operationId: "createCampaignTemplate",
+        async run({ cleanup }) {
+          // Registered before the create: a create whose response is lost is
+          // still found by its unique name.
+          registerTemplateCleanup(cleanup);
+          const template = requireCampaignTemplateResult(
+            await methods.createTemplate(templateBody),
+            "Campaign template create scenario response",
+          );
+          state.templateId = template.id;
+          if (template.editor !== "html" || template.name !== templateBody.name) {
+            throw new TypeError(
+              "Campaign template create scenario must make the named html campaign template.",
+            );
+          }
+          if (typeof template.content?.html !== "string") {
+            throw new TypeError("Campaign template create scenario must answer the HTML.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupRegistered: true, editor: "html" }),
+          });
+        },
+      },
+    ],
+    [
+      "listCampaignTemplates",
+      {
+        operationId: "listCampaignTemplates",
+        async run() {
+          const id = requireTemplateId();
+          const validateEntry = (entry, label) => {
+            const template = requireCampaignTemplateResult(entry, label);
+            if (template.content !== undefined) {
+              throw new TypeError(`${label} must not carry content.`);
+            }
+            return template;
+          };
+          const page = requireObject(
+            await methods.listTemplates(pageParams),
+            "Campaign template list response",
+          );
+          if (!Array.isArray(page.data)) {
+            throw new TypeError("Campaign template list response data must be an array.");
+          }
+          requireObject(page.pagination, "Campaign template list response pagination");
+          page.data.forEach((entry, index) =>
+            validateEntry(entry, `Campaign template list response item ${index}`),
+          );
+          let itemCount = 0;
+          let found = false;
+          for await (const entry of methods.iterateTemplates(pageParams)) {
+            const template = validateEntry(entry, `Campaign template iterator item ${itemCount}`);
+            itemCount += 1;
+            if (template.id === id) {
+              found = true;
+              break;
+            }
+            if (itemCount >= searchLimit) break;
+          }
+          if (!found) {
+            throw new TypeError(
+              `Campaign template iterator did not reach the created template within ${searchLimit} templates.`,
+            );
+          }
+          const direction = pageParams.before === undefined ? "forward" : "backward";
+          return Object.freeze({
+            evidence: Object.freeze({
+              direction,
+              limit: pageParams.limit,
+              pageItems: page.data.length,
+              templateFound: true,
+            }),
+            iteratorEvidence: Object.freeze({
+              direction,
+              items: itemCount,
+              limit: pageParams.limit,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getCampaignTemplate",
+      {
+        operationId: "getCampaignTemplate",
+        async run() {
+          const id = requireTemplateId();
+          const template = requireCampaignTemplateResult(
+            await methods.getTemplate(id),
+            "Campaign template get scenario response",
+            id,
+          );
+          if (
+            template.name !== templateBody.name ||
+            template.editor !== "html" ||
+            typeof template.content?.html !== "string"
+          ) {
+            throw new TypeError(
+              "Campaign template get scenario must return the created template with its HTML.",
+            );
+          }
+          return Object.freeze({ evidence: Object.freeze({ matched: true }) });
+        },
+      },
+    ],
+    [
+      "updateCampaignTemplate",
+      {
+        operationId: "updateCampaignTemplate",
+        async run() {
+          const id = requireTemplateId();
+          const before = requireCampaignTemplateResult(
+            await methods.getTemplate(id),
+            "Campaign template update scenario read",
+            id,
+          );
+          const template = requireCampaignTemplateResult(
+            await methods.updateTemplate(id, templateUpdateBody),
+            "Campaign template update scenario response",
+            id,
+          );
+          if (template.name !== templateUpdateBody.name) {
+            throw new TypeError("Campaign template update scenario must rename the template.");
+          }
+          // A field the request leaves out is not changed.
+          if (template.content?.html !== before.content?.html) {
+            throw new TypeError("Campaign template update scenario must keep the content.");
+          }
+          return Object.freeze({ evidence: Object.freeze({ contentKept: true, renamed: true }) });
+        },
+      },
+    ],
+    [
+      "createCampaign",
+      {
+        operationId: "createCampaign",
+        async run({ cleanup }) {
+          const listId = await ensureListFixture(cleanup);
+          registerCampaignCleanup(cleanup);
+          const created = await createCampaign(
+            { ...campaign.request, list_ids: [listId], template_id: requireTemplateId() },
+            "Campaign create scenario response",
+          );
+          state.campaignId = created.id;
+          if (created.name !== campaign.request.name || created.status !== "draft") {
+            throw new TypeError("Campaign create scenario must make the named draft.");
+          }
+          if (
+            created.subject !== campaign.request.subject ||
+            created.preheader !== campaign.request.preheader ||
+            created.senderEmail !== campaign.senderEmail
+          ) {
+            throw new TypeError(
+              "Campaign create scenario must keep the subject, preview text and sender.",
+            );
+          }
+          if (created.listIds.length !== 1 || created.listIds[0] !== listId) {
+            throw new TypeError("Campaign create scenario must send to the list fixture.");
+          }
+          // The design is a copy of the campaign template's.
+          if (created.editor !== "html" || typeof created.content?.html !== "string") {
+            throw new TypeError("Campaign create scenario must copy the template's html design.");
+          }
+          if (created.ready !== true || created.issues.length !== 0) {
+            throw new TypeError("Campaign create scenario must make a ready campaign.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({
+              cleanupRegistered: true,
+              fromTemplate: true,
+              ready: true,
+              status: "draft",
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "listCampaigns",
+      {
+        operationId: "listCampaigns",
+        async run() {
+          const id = requireCampaignId();
+          const params = { ...pageParams, status: "draft" };
+          const validateEntry = (entry, label) => {
+            const item = requireCampaignResult(entry, label, { listItem: true });
+            if (item.status !== "draft") {
+              throw new TypeError(`${label} must be a draft, as the status filter asks.`);
+            }
+            return item;
+          };
+          const page = requireObject(await methods.list(params), "Campaign list response");
+          if (!Array.isArray(page.data)) {
+            throw new TypeError("Campaign list response data must be an array.");
+          }
+          requireObject(page.pagination, "Campaign list response pagination");
+          page.data.forEach((entry, index) =>
+            validateEntry(entry, `Campaign list response item ${index}`),
+          );
+          let itemCount = 0;
+          let found = false;
+          for await (const entry of methods.iterate(params)) {
+            const item = validateEntry(entry, `Campaign iterator item ${itemCount}`);
+            itemCount += 1;
+            if (item.id === id) {
+              found = true;
+              break;
+            }
+            if (itemCount >= searchLimit) break;
+          }
+          if (!found) {
+            throw new TypeError(
+              `Campaign iterator did not reach the created campaign within ${searchLimit} campaigns.`,
+            );
+          }
+          const direction = pageParams.before === undefined ? "forward" : "backward";
+          return Object.freeze({
+            evidence: Object.freeze({
+              campaignFound: true,
+              direction,
+              limit: pageParams.limit,
+              pageItems: page.data.length,
+              statusFilterVerified: true,
+            }),
+            iteratorEvidence: Object.freeze({
+              direction,
+              items: itemCount,
+              limit: pageParams.limit,
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "getCampaign",
+      {
+        operationId: "getCampaign",
+        async run() {
+          const id = requireCampaignId();
+          const read = requireCampaignResult(
+            await methods.get(id),
+            "Campaign get scenario response",
+            {
+              expectedId: id,
+            },
+          );
+          if (
+            read.name !== campaign.request.name ||
+            read.status !== "draft" ||
+            read.ready !== true ||
+            read.listIds[0] !== state.listId
+          ) {
+            throw new TypeError("Campaign get scenario must return the ready draft.");
+          }
+          return Object.freeze({ evidence: Object.freeze({ matched: true, ready: true }) });
+        },
+      },
+    ],
+    [
+      "updateCampaign",
+      {
+        operationId: "updateCampaign",
+        async run() {
+          const id = requireCampaignId();
+          const updated = requireCampaignResult(
+            await methods.update(id, campaignUpdateBody),
+            "Campaign update scenario response",
+            { expectedId: id },
+          );
+          if (updated.subject !== campaignUpdateBody.subject) {
+            throw new TypeError("Campaign update scenario must change the subject.");
+          }
+          // A field the request leaves out is not changed.
+          if (
+            updated.preheader !== campaign.request.preheader ||
+            updated.senderEmail !== campaign.senderEmail ||
+            updated.ready !== true
+          ) {
+            throw new TypeError(
+              "Campaign update scenario must keep the other fields and the campaign ready.",
+            );
+          }
+          return Object.freeze({ evidence: Object.freeze({ ready: true, updated: true }) });
+        },
+      },
+    ],
+    [
+      "testCampaign",
+      {
+        operationId: "testCampaign",
+        async run() {
+          const unreadyId = await ensureUnreadyCampaign();
+          const issues = await requireNotReadyRefusal(
+            () => methods.test(unreadyId, { to: [recipient] }),
+            unreadyId,
+            "Campaign test scenario",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              issues: Object.freeze([...issues]),
+              refused: true,
+              status: 400,
+              statusAfter: "draft",
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "duplicateCampaign",
+      {
+        operationId: "duplicateCampaign",
+        async run() {
+          const id = requireCampaignId();
+          const copy = requireCampaignResult(
+            await methods.duplicate(id, { name: copyName }),
+            "Campaign duplicate scenario response",
+          );
+          state.campaignIds.add(copy.id);
+          if (copy.id === id || copy.name !== copyName || copy.status !== "draft") {
+            throw new TypeError("Campaign duplicate scenario must make a named draft copy.");
+          }
+          if (
+            copy.subject !== campaignUpdateBody.subject ||
+            copy.senderEmail !== campaign.senderEmail ||
+            copy.listIds.length !== 1 ||
+            copy.listIds[0] !== state.listId ||
+            copy.editor !== "html"
+          ) {
+            throw new TypeError(
+              "Campaign duplicate scenario must copy the subject, sender, lists and design.",
+            );
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ copiedDesign: true, copiedLists: true, status: "draft" }),
+          });
+        },
+      },
+    ],
+    [
+      "sendCampaign",
+      {
+        operationId: "sendCampaign",
+        async run() {
+          const unreadyId = await ensureUnreadyCampaign();
+          const sendAt = new Date(Date.now() + refusedCampaignSendDelayMs).toISOString();
+          const issues = await requireNotReadyRefusal(
+            () => methods.send(unreadyId, { send_at: sendAt }),
+            unreadyId,
+            "Campaign send scenario",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({
+              issues: Object.freeze([...issues]),
+              refused: true,
+              status: 400,
+              statusAfter: "draft",
+            }),
+          });
+        },
+      },
+    ],
+    [
+      "unscheduleCampaign",
+      {
+        operationId: "unscheduleCampaign",
+        async run() {
+          const id = requireCampaignId();
+          let refusal = null;
+          try {
+            await methods.unschedule(id);
+          } catch (error) {
+            if (!isConflictError(error)) throw error;
+            refusal = error;
+          }
+          // A status refusal, not an idempotency key still in progress.
+          if (refusal === null || refusal.code !== "conflict_error") {
+            throw new TypeError("Campaign unschedule scenario must refuse a draft with a 409.");
+          }
+          const after = requireCampaignResult(
+            await methods.get(id),
+            "Campaign unschedule scenario read",
+            { expectedId: id },
+          );
+          if (after.status !== "draft" || after.ready !== true) {
+            throw new TypeError("Campaign unschedule scenario must leave the campaign a draft.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ refused: true, status: 409, statusAfter: "draft" }),
+          });
+        },
+      },
+    ],
+    [
+      "getCampaignStats",
+      {
+        operationId: "getCampaignStats",
+        async run() {
+          const id = requireCampaignId();
+          const stats = requireObject(
+            await methods.getStats(id),
+            "Campaign stats scenario response",
+          );
+          if (stats.object !== "campaign_stats" || stats.campaign_id !== id) {
+            throw new TypeError("Campaign stats scenario returned the wrong stats.");
+          }
+          const counters = [
+            "recipients",
+            "delivered",
+            "opens",
+            "clicks",
+            "unsubscribes",
+            "complaints",
+          ];
+          for (const field of counters) {
+            if (!Number.isInteger(stats[field]) || stats[field] < 0) {
+              throw new TypeError(`Campaign stats scenario ${field} must be a count.`);
+            }
+          }
+          if (stats.recipients !== 0 || stats.delivered !== 0) {
+            throw new TypeError("Campaign stats scenario must count nothing for an unsent draft.");
+          }
+          if (stats.report !== null) {
+            requireObject(stats.report, "Campaign stats scenario report");
+          }
+          const rates = requireObject(stats.rates, "Campaign stats scenario rates");
+          for (const field of ["open_rate", "click_rate", "bounce_rate", "deferral_rate"]) {
+            if (rates[field] !== null && typeof rates[field] !== "number") {
+              throw new TypeError(`Campaign stats scenario ${field} must be a number or null.`);
+            }
+          }
+          if (typeof stats.recount_failed !== "boolean") {
+            throw new TypeError("Campaign stats scenario recount_failed must be a boolean.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ delivered: 0, matched: true, recipients: 0 }),
+          });
+        },
+      },
+    ],
+    [
+      "listCampaignRecipients",
+      {
+        operationId: "listCampaignRecipients",
+        async run() {
+          const id = requireCampaignId();
+          const params = { ...pageParams, status: "Delivered" };
+          const page = requireObject(
+            await methods.listRecipients(id, params),
+            "Campaign recipient list response",
+          );
+          if (page.object !== "list" || !Array.isArray(page.data)) {
+            throw new TypeError("Campaign recipient list response must be a list.");
+          }
+          const pageInfo = requireObject(
+            page.pagination,
+            "Campaign recipient list response pagination",
+          );
+          // The draft has sent nothing, so it has no recipient in any status.
+          if (page.data.length !== 0 || pageInfo.has_more !== false) {
+            throw new TypeError(
+              "Campaign recipient list response must be empty for an unsent draft.",
+            );
+          }
+          let itemCount = 0;
+          for await (const _entry of methods.iterateRecipients(id, params)) {
+            itemCount += 1;
+            if (itemCount >= pageParams.limit) break;
+          }
+          if (itemCount !== 0) {
+            throw new TypeError("Campaign recipient iterator must be empty for an unsent draft.");
+          }
+          const direction = pageParams.before === undefined ? "forward" : "backward";
+          return Object.freeze({
+            evidence: Object.freeze({
+              direction,
+              empty: true,
+              limit: pageParams.limit,
+              pageItems: 0,
+            }),
+            iteratorEvidence: Object.freeze({ direction, items: 0, limit: pageParams.limit }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteCampaign",
+      {
+        operationId: "deleteCampaign",
+        async run() {
+          const id = requireCampaignId();
+          requireObject(await methods.delete(id), "Campaign delete scenario response");
+          await requireResourceAbsent(methods.get, id, "Campaign delete verification", "campaign");
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupVerified: true, deleted: true }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteCampaignTemplate",
+      {
+        operationId: "deleteCampaignTemplate",
+        async run() {
+          const id = requireTemplateId();
+          requireObject(
+            await methods.deleteTemplate(id),
+            "Campaign template delete scenario response",
+          );
+          await requireResourceAbsent(
+            methods.getTemplate,
+            id,
+            "Campaign template delete verification",
+            "campaign template",
+          );
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupVerified: true, deleted: true }),
+          });
+        },
+      },
+    ],
+  ]);
+
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+export function runCampaignLiveScenarios(registry) {
+  return runLiveScenarios(registry, campaignOperationIds, campaignIteratorOperationIds, "Campaign");
 }
 
 function requireAPIKeyCreateRequest(value, label) {
@@ -6251,6 +7361,57 @@ function requireTemplateOutcomes(operations) {
   ]);
 }
 
+function requireCampaignOutcomes(operations) {
+  requireOperationOutcomes(operations, "createCampaignTemplate", [["editor", "html"]]);
+  requireOperationOutcomes(operations, "listCampaignTemplates", [["templateFound", true]]);
+  requireOperationOutcomes(operations, "getCampaignTemplate", [["matched", true]]);
+  requireOperationOutcomes(operations, "updateCampaignTemplate", [
+    ["contentKept", true],
+    ["renamed", true],
+  ]);
+  requireOperationOutcomes(operations, "createCampaign", [
+    ["fromTemplate", true],
+    ["ready", true],
+    ["status", "draft"],
+  ]);
+  requireOperationOutcomes(operations, "listCampaigns", [
+    ["campaignFound", true],
+    ["statusFilterVerified", true],
+  ]);
+  requireOperationOutcomes(operations, "getCampaign", [["matched", true]]);
+  requireOperationOutcomes(operations, "updateCampaign", [["updated", true]]);
+  requireOperationOutcomes(operations, "testCampaign", [
+    ["refused", true],
+    ["status", 400],
+    ["issues", [...unreadyCampaignIssues]],
+    ["statusAfter", "draft"],
+  ]);
+  requireOperationOutcomes(operations, "duplicateCampaign", [
+    ["copiedDesign", true],
+    ["copiedLists", true],
+    ["status", "draft"],
+  ]);
+  requireOperationOutcomes(operations, "sendCampaign", [
+    ["refused", true],
+    ["status", 400],
+    ["issues", [...unreadyCampaignIssues]],
+    ["statusAfter", "draft"],
+  ]);
+  requireOperationOutcomes(operations, "unscheduleCampaign", [
+    ["refused", true],
+    ["status", 409],
+    ["statusAfter", "draft"],
+  ]);
+  requireOperationOutcomes(operations, "getCampaignStats", [["matched", true]]);
+  requireOperationOutcomes(operations, "listCampaignRecipients", [["empty", true]]);
+  for (const operationId of ["deleteCampaign", "deleteCampaignTemplate"]) {
+    requireOperationOutcomes(operations, operationId, [
+      ["cleanupVerified", true],
+      ["deleted", true],
+    ]);
+  }
+}
+
 function requireContactOutcomes(operations) {
   requireOperationOutcomes(operations, "batchUpsertContacts", [
     ["created", 1],
@@ -6532,6 +7693,7 @@ function validateLiveReportArtifactContract(
     requireSandboxOutcomes(report.operations);
     requireDomainOutcomes(report.operations);
     requireTemplateOutcomes(report.operations);
+    requireCampaignOutcomes(report.operations);
     requireContactOutcomes(report.operations);
     requireListOutcomes(report.operations);
     requireAuthorizationOutcomes(report.operations);

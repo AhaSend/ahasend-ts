@@ -46,10 +46,11 @@ export interface RequestOptions {
   /** Per-call restriction of the configured retry policy. */
   retry?: false | Partial<RetryConfig>;
   /**
-   * Resource clients set this on the 20 spec-documented idempotency
-   * endpoints (the create, batch, publish, restore and template update
-   * operations) so the transport layer will inject an `Idempotency-Key`
-   * when the caller hasn't supplied one.
+   * Resource clients set this on the 28 spec-documented idempotency
+   * endpoints (the create, batch, publish and restore operations, the
+   * template, campaign template and campaign updates, and the campaign
+   * duplicate, send, unschedule and test) so the transport layer will inject
+   * an `Idempotency-Key` when the caller hasn't supplied one.
    * Other POSTs — notably `domains.checkDns()` and inbound webhook
    * handlers — leave this unset and never receive an auto-generated key.
    */

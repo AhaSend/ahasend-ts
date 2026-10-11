@@ -190,24 +190,27 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 
 ## Resources
 
-| Resource                 | Methods                                                                                                                                       |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `client.messages`        | `send`, `sendTemplate`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                                |
-| `client.templates`       | `list`, `iterate`, `create`, `get`, `update`, `delete`, `getDraft`, `discardDraft`, `publish`, `listVersions`, `getVersion`, `restoreVersion` |
-| `client.domains`         | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                                                            |
-| `client.apiKeys`         | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                        |
-| `client.webhooks`        | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`)                               |
-| `client.statistics`      | `deliverability`, `bounces`, `deliveryTimes`                                                                                                  |
-| `client.contacts`        | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists`                                                    |
-| `client.contacts.lists`  | `list`, `iterate` (the lists one contact is on)                                                                                               |
-| `client.lists`           | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                                                |
-| `client.lists.contacts`  | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                                                          |
-| `client.suppressions`    | `list`, `iterate`, `create`, `delete`, `wipe`                                                                                                 |
-| `client.routes`          | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                                                      |
-| `client.accounts`        | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                                                   |
-| `client.smtpCredentials` | `list`, `iterate`, `create`, `get`, `delete`                                                                                                  |
-| `client.subAccounts`     | `list`, `iterate`, `create`, `usage`, `get`, `update`, `delete`, `suspend`, `unsuspend`, `unpauseDomain`, plus nested `apiKeys`               |
-| `client.ping()`          | Health check (`GET /v2/ping`)                                                                                                                 |
+| Resource                      | Methods                                                                                                                                       |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.messages`             | `send`, `sendTemplate`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                                |
+| `client.templates`            | `list`, `iterate`, `create`, `get`, `update`, `delete`, `getDraft`, `discardDraft`, `publish`, `listVersions`, `getVersion`, `restoreVersion` |
+| `client.campaignTemplates`    | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                        |
+| `client.campaigns`            | `list`, `iterate`, `create`, `get`, `update`, `delete`, `duplicate`, `send`, `unschedule`, `test`, `getStats`, plus nested `recipients`       |
+| `client.campaigns.recipients` | `list`, `iterate` (a campaign's recipients in one status or bounce classification)                                                            |
+| `client.domains`              | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                                                            |
+| `client.apiKeys`              | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                        |
+| `client.webhooks`             | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`)                               |
+| `client.statistics`           | `deliverability`, `bounces`, `deliveryTimes`                                                                                                  |
+| `client.contacts`             | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists`                                                    |
+| `client.contacts.lists`       | `list`, `iterate` (the lists one contact is on)                                                                                               |
+| `client.lists`                | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                                                |
+| `client.lists.contacts`       | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                                                          |
+| `client.suppressions`         | `list`, `iterate`, `create`, `delete`, `wipe`                                                                                                 |
+| `client.routes`               | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                                                      |
+| `client.accounts`             | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                                                   |
+| `client.smtpCredentials`      | `list`, `iterate`, `create`, `get`, `delete`                                                                                                  |
+| `client.subAccounts`          | `list`, `iterate`, `create`, `usage`, `get`, `update`, `delete`, `suspend`, `unsuspend`, `unpauseDomain`, plus nested `apiKeys`               |
+| `client.ping()`               | Health check (`GET /v2/ping`)                                                                                                                 |
 
 Every method carries JSDoc — hover in your editor for parameter
 constraints, required scopes, and behavioural notes.
@@ -225,7 +228,7 @@ await client.messages.send(body, {
   timeoutMs: 2_000, // override the timeout for each attempt in this call
   retry: { maxRetries: 1 }, // restrict this call's retry policy (or use false)
   headers: { "x-trace-id": traceId }, // extra headers for this call
-  idempotencyKey: `receipt-${orderId}`, // create, batch, publish, restore and template update only
+  idempotencyKey: `receipt-${orderId}`, // keyed operations only (see below)
 });
 ```
 
@@ -241,11 +244,15 @@ await client.messages.send(body, {
 
 ### Automatic idempotency
 
-The SDK attaches a UUID `Idempotency-Key` to every **create, batch, publish, restore and template update** operation
-(all 20 endpoints whose generated operation profile marks them idempotent,
-including message sends, resource creations, and the contact and list batches). The key is generated once per
+The SDK attaches a UUID `Idempotency-Key` to every **create, batch, send, publish and restore**
+operation and to template, campaign template and campaign updates
+(all 28 endpoints whose generated operation profile marks them idempotent,
+including message sends, resource creations, the contact and list batches, and the campaign
+duplicate, send, unschedule and test). The key is generated once per
 call and reused across the SDK's internal retries. Stored outcomes — 2xx and
 deterministic 4xx — are replayed for 24 hours, so a retry cannot duplicate them.
+`campaigns.test()` is the exception: it stores only a 2xx, and a 4xx refusal releases the key, so
+a retry with the same key is answered afresh.
 Server errors (5xx), handler failures, and panics are **not** stored: the API
 releases the key and a retry re-executes the request, so a 5xx retry can still
 result in a second send. See the
@@ -782,6 +789,65 @@ await client.templates.publish(template.id);
   idempotency key, which they do unless you turn `autoGenerate` off and pass none. You see the
   `503` only when the retries run out.
 - Creating and changing templates needs `templates:write`, and `delete()` needs `templates:delete`.
+
+## Manage campaigns
+
+`client.campaignTemplates` holds the designs a campaign copies, and `client.campaigns` builds,
+tests and sends marketing campaigns to lists. A campaign changes only while it is a `draft`;
+`issues` says what it still needs, and `ready` is `true` once it has none.
+
+```ts
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const design = await client.campaignTemplates.create({
+  name: "Monthly newsletter",
+  content: {
+    html: '<p>Hello {{ first_name }}.</p><p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>',
+  },
+});
+
+const campaign = await client.campaigns.create({
+  name: "October newsletter",
+  subject: "What is new in October",
+  preheader: "Three things we shipped this month",
+  from: { email: "news@yourdomain.com", name: "Your App" },
+  list_ids: ["00000000-0000-4000-8000-000000000010"],
+  template_id: design.id,
+});
+console.log("Campaign drafted.", { id: campaign.id, issueCount: campaign.issues?.length ?? 0 });
+
+await client.campaigns.test(campaign.id, { to: ["reviewer@yourdomain.com"] });
+const accepted = await client.campaigns.send(campaign.id, { send_at: "2030-01-01T09:00:00Z" });
+console.log("Campaign send accepted.", {
+  status: accepted.status,
+  warningCount: accepted.warnings.length,
+});
+```
+
+- A campaign made from a campaign template copies its design; later changes to the template do not
+  reach the campaign. The design can also come from `content` or an empty design of an `editor`,
+  by the rules of "Manage templates". A `simple` design can be changed only in the dashboard.
+- `send()` moves the campaign to `validating`, and the same list validation and review as a send
+  from the dashboard move it on; read `status` and `status_reason` with `get()`. A campaign with
+  issues, or one the send's checks stop, answers `400` (`AhaSendBadRequestError`) whose `body` is
+  a `CampaignNotReady` with the blocking `issues` when it has any. To change the send time,
+  `unschedule()` the campaign, which works while it is `validating` or `scheduled` and has queued
+  no mail, and send it again.
+- `test()` sends the design to 1–5 addresses, with placeholders for the contact's fields. With
+  `result_unknown: true` the mail server's answer was lost, and the test may have gone out.
+- The account can send 50 test emails a day (UTC), counted per address and shared with the
+  dashboard. A test whose addresses would take the day's total over 50 is refused with `429`
+  (`AhaSendRateLimitError`) and counts nothing, so a test to fewer addresses can still fit; its
+  message currently reads `daily test send limit reached`. The SDK retries that `429` like any
+  other, with the same addresses, and the count starts again when the UTC day changes.
+- A change, delete, send or test of a campaign that is not a draft answers `409`
+  (`AhaSendConflictError`), and so does an unschedule of a campaign in any other status than
+  `validating` or `scheduled`, or of a scheduled campaign that has already queued mail.
+- `getStats()` returns the live counters and the stored report, which is recounted from time to
+  time, so read again later for new numbers. `recipients.list()` and `iterate()` take exactly one
+  of `status` (a key of the report's `by_status`) or `bounce_classification`.
+- Campaign templates need `templates:read`, `templates:write` or `templates:delete`. Campaigns need
+  `campaigns:read`, `campaigns:write` or `campaigns:delete`, and `send()`, `unschedule()` and
+  `test()` need `campaigns:send`.
 
 ## Domain sending type and pauses
 

@@ -347,6 +347,46 @@ const OPERATION_CASES = [
     RESOURCE_ID,
     { publish: true },
   ]),
+  operation("listCampaignTemplates", ["campaignTemplates"], "list", [PAGINATION]),
+  operation("createCampaignTemplate", ["campaignTemplates"], "create", [
+    {
+      name: "Integration campaign template",
+      content: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' },
+    },
+  ]),
+  operation("getCampaignTemplate", ["campaignTemplates"], "get", [RESOURCE_ID]),
+  operation("updateCampaignTemplate", ["campaignTemplates"], "update", [
+    RESOURCE_ID,
+    { name: "Updated campaign template" },
+  ]),
+  operation("deleteCampaignTemplate", ["campaignTemplates"], "delete", [RESOURCE_ID]),
+  operation("listCampaigns", ["campaigns"], "list", [{ status: "draft", ...PAGINATION }]),
+  operation("createCampaign", ["campaigns"], "create", [
+    {
+      name: "Integration campaign",
+      from: { email: `sender@${DOMAIN}` },
+      list_ids: [RESOURCE_ID],
+      template_id: RESOURCE_ID,
+    },
+  ]),
+  operation("getCampaign", ["campaigns"], "get", [RESOURCE_ID]),
+  operation("updateCampaign", ["campaigns"], "update", [
+    RESOURCE_ID,
+    { subject: null, reply_to: `replies@${DOMAIN}` },
+  ]),
+  operation("deleteCampaign", ["campaigns"], "delete", [RESOURCE_ID]),
+  operation("duplicateCampaign", ["campaigns"], "duplicate", [RESOURCE_ID, { name: "Copy" }]),
+  operation("sendCampaign", ["campaigns"], "send", [
+    RESOURCE_ID,
+    { send_at: "2030-01-01T09:00:00Z" },
+  ]),
+  operation("unscheduleCampaign", ["campaigns"], "unschedule", [RESOURCE_ID]),
+  operation("testCampaign", ["campaigns"], "test", [RESOURCE_ID, { to: [`reviewer@${DOMAIN}`] }]),
+  operation("getCampaignStats", ["campaigns"], "getStats", [RESOURCE_ID]),
+  operation("listCampaignRecipients", ["campaigns", "recipients"], "list", [
+    RESOURCE_ID,
+    { status: "Delivered", ...PAGINATION },
+  ]),
   operation("getAccount", ["accounts"], "get"),
   operation("updateAccount", ["accounts"], "update", [{ name: "Integration account" }]),
   operation("getAccountMembers", ["accounts"], "listMembers"),
@@ -987,8 +1027,8 @@ describe("packed SDK operation contract", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
     const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
-    expect(OPERATION_CASES).toHaveLength(85);
-    expect(new Set(implementedOperationIds).size).toBe(85);
+    expect(OPERATION_CASES).toHaveLength(101);
+    expect(new Set(implementedOperationIds).size).toBe(101);
     expect([...implementedOperationIds].sort()).toEqual(operationIds.sort());
   });
 

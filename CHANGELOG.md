@@ -22,6 +22,18 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   given and clears one given as `null`. `create`, `update`, `publish` and `restoreVersion` send an
   `Idempotency-Key`. Writes need `templates:write`, and `delete` needs `templates:delete`. See
   "Manage templates" in the README.
+- `client.campaignTemplates` manages campaign templates, the designs a campaign copies: `list`,
+  `iterate`, `create`, `get`, `update` and `delete`. A campaign template has no draft, so a write
+  applies at once. They need `templates:read`, `templates:write` or `templates:delete`.
+- `client.campaigns` manages marketing campaigns: `list` and `iterate` (with a `status` filter),
+  `create`, `get`, `update`, `delete`, `duplicate`, `send`, `unschedule`, `test` and `getStats`,
+  and `client.campaigns.recipients` lists a campaign's recipients in one status or bounce
+  classification. A `Campaign` carries its `issues` and `ready` while it is a draft; a `send` or
+  `test` of a campaign with issues answers `400` with a `CampaignNotReady` body that lists them,
+  and a change of a campaign that is not a draft answers `409` (`AhaSendConflictError`). `create`,
+  `update`, `duplicate`, `send`, `unschedule` and `test` send an `Idempotency-Key`. They need
+  `campaigns:read`, `campaigns:write` or `campaigns:delete`, and `send`, `unschedule` and `test`
+  need `campaigns:send`. See "Manage campaigns" in the README.
 - `messages.sendTemplate()` sends a transactional template, taking `CreateTemplateMessageRequest`:
   `template_id` and `recipients` are required, and the values for the template's variables go in
   each recipient's `substitutions`. `from` and `subject` are optional: a request that leaves `from`
@@ -77,8 +89,11 @@ must add `unpauseDomain` or `sendTemplate`.
   `messages:send:{example.com}` are part of the scope string.
 - Release tooling: live acceptance covers every operation. The template scenarios create their own
   templates: one they list, read, and sandbox-send with `messages.sendTemplate()`, once with `from`
-  and once from the template's default sender, and one they publish, draft, restore, and delete.
-  The message scenarios check `template_id` on every message they read.
+  and once from the template's default sender, and one they publish, draft, restore, and delete. The
+  message scenarios check `template_id` on every message they read. The campaign scenarios make a
+  campaign template, an empty list and campaigns of their own, check the test, the send and the
+  unschedule through their refusals so no campaign mail is ever sent, and delete everything; the
+  live API key needs `campaigns:read`, `campaigns:write`, `campaigns:delete` and `campaigns:send`.
 
 ## [0.2.1] — 2026-08-20
 

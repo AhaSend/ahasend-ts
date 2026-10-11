@@ -10,6 +10,7 @@ import { RESOURCE_AUTHORIZATION } from "../../src/generated/operations.js";
 import {
   createAccountScenarioRegistry,
   createAPIKeyScenarioRegistry,
+  createCampaignScenarioRegistry,
   createCleanupRegistry,
   createContactScenarioRegistry,
   createDomainScenarioRegistry,
@@ -32,6 +33,7 @@ import {
   runContactLiveScenarios,
   runDomainLiveScenarios,
   runAPIKeyLiveScenarios,
+  runCampaignLiveScenarios,
   runListLiveScenarios,
   runMessageLiveScenarios,
   runRouteLiveScenarios,
@@ -49,6 +51,7 @@ import {
   writeLiveReport,
   type APIKeyLiveClient,
   type AccountLiveClient,
+  type CampaignLiveClient,
   type ContactLiveClient,
   type DomainLiveClient,
   type LiveCandidate,
@@ -206,6 +209,63 @@ function completeLiveResults(candidate: LiveCandidate) {
   byId.get("restoreTemplateVersion")!.evidence = { hasDraft: true };
   byId.get("discardTemplateDraft")!.evidence = { discarded: true };
   byId.get("deleteTemplate")!.evidence = { cleanupVerified: true, deleted: true };
+  byId.get("createCampaignTemplate")!.evidence = { cleanupRegistered: true, editor: "html" };
+  byId.get("listCampaignTemplates")!.evidence = {
+    ...byId.get("listCampaignTemplates")!.evidence,
+    templateFound: true,
+  };
+  byId.get("getCampaignTemplate")!.evidence = { matched: true };
+  byId.get("updateCampaignTemplate")!.evidence = { contentKept: true, renamed: true };
+  byId.get("createCampaign")!.evidence = {
+    cleanupRegistered: true,
+    fromTemplate: true,
+    ready: true,
+    status: "draft",
+  };
+  byId.get("listCampaigns")!.evidence = {
+    ...byId.get("listCampaigns")!.evidence,
+    campaignFound: true,
+    statusFilterVerified: true,
+  };
+  byId.get("getCampaign")!.evidence = { matched: true, ready: true };
+  byId.get("updateCampaign")!.evidence = { ready: true, updated: true };
+  byId.get("testCampaign")!.evidence = {
+    issues: [
+      "sender_missing",
+      "lists_missing",
+      "subject_missing",
+      "preheader_missing",
+      "design_missing",
+    ],
+    refused: true,
+    status: 400,
+    statusAfter: "draft",
+  };
+  byId.get("duplicateCampaign")!.evidence = {
+    copiedDesign: true,
+    copiedLists: true,
+    status: "draft",
+  };
+  byId.get("sendCampaign")!.evidence = {
+    issues: [
+      "sender_missing",
+      "lists_missing",
+      "subject_missing",
+      "preheader_missing",
+      "design_missing",
+    ],
+    refused: true,
+    status: 400,
+    statusAfter: "draft",
+  };
+  byId.get("unscheduleCampaign")!.evidence = { refused: true, status: 409, statusAfter: "draft" };
+  byId.get("getCampaignStats")!.evidence = { delivered: 0, matched: true, recipients: 0 };
+  byId.get("listCampaignRecipients")!.evidence = {
+    ...byId.get("listCampaignRecipients")!.evidence,
+    empty: true,
+  };
+  byId.get("deleteCampaign")!.evidence = { cleanupVerified: true, deleted: true };
+  byId.get("deleteCampaignTemplate")!.evidence = { cleanupVerified: true, deleted: true };
   byId.get("createDomain")!.evidence = {
     created: true,
     paused: false,
@@ -649,6 +709,381 @@ function templateRegistry(
     sendRequest: fixture.sendRequest,
     createRequest: fixture.createRequest,
     updateRequest: fixture.updateRequest,
+    ...overrides,
+  });
+}
+
+function campaignClientFixture(
+  options: {
+    loseTemplateCreate?: boolean;
+    acceptSend?: boolean;
+    acceptDraftUnschedule?: boolean;
+    loseCampaignCreate?: boolean;
+    loseDuplicateResponse?: boolean;
+    holdForReview?: boolean;
+    failCampaignSearch?: boolean;
+    loseListCreate?: boolean;
+    acceptTest?: boolean;
+  } = {},
+) {
+  const templateId = "0a1b2c3d-0000-4000-8000-0000000000c1";
+  const listId = "0a1b2c3d-0000-4000-8000-0000000000c2";
+  const campaignIds = [
+    "0a1b2c3d-0000-4000-8000-0000000000d1",
+    "0a1b2c3d-0000-4000-8000-0000000000d2",
+    "0a1b2c3d-0000-4000-8000-0000000000d3",
+  ];
+  const testRecipient = "live@example.test";
+  const writes: Array<[string, ...unknown[]]> = [];
+  const tests: Array<[string, unknown]> = [];
+  const failure = (status: number, code: string, body: Record<string, unknown>) =>
+    Object.assign(new Error(String(body["message"])), { status, code, body });
+  const notFound = () => failure(404, "not_found_error", { message: "not found" });
+  const content = {
+    html: '<p>SDK live campaign</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+    text: "SDK live campaign",
+    text_is_custom: false,
+  };
+  const templateCreateRequest = {
+    name: "SDK live campaign template",
+    content: { html: content.html },
+  };
+  const templateUpdateRequest = { name: "SDK live campaign template v2" };
+  const listCreateRequest = { name: "SDK live campaign list" };
+  const createRequest = {
+    name: "SDK live campaign",
+    subject: "SDK live campaign",
+    preheader: "SDK live preview",
+    from: { email: "campaigns@verified.example", name: "SDK" },
+  };
+  const updateRequest = { subject: "SDK live campaign v2" };
+
+  const templates = new Map<string, { name: string }>();
+  const lists = new Map<string, string>();
+  interface CampaignState {
+    name: string;
+    status: string;
+    subject: string | null;
+    preheader: string | null;
+    from: { email: string; name: string } | null;
+    list_ids: string[];
+    designed: boolean;
+    send_at: string | null;
+  }
+  const campaigns = new Map<string, CampaignState>();
+  const otherTemplate = {
+    object: "campaign_template" as const,
+    id: "0a1b2c3d-0000-4000-8000-0000000000c9",
+    created_at: "2026-10-01T00:00:00Z",
+    updated_at: "2026-10-01T00:00:00Z",
+    name: "Another campaign template",
+    editor: "advanced" as const,
+  };
+  const templateView = (id: string) => ({
+    object: "campaign_template" as const,
+    id,
+    created_at: "2026-10-01T00:00:00Z",
+    updated_at: "2026-10-01T00:00:00Z",
+    name: templates.get(id)!.name,
+    editor: "html" as const,
+    content,
+  });
+  const listedTemplates = () => [
+    ...[...templates.keys()].map((id) => {
+      const { content: _content, ...item } = templateView(id);
+      return item;
+    }),
+    otherTemplate,
+  ];
+  const issuesOf = (campaign: CampaignState) =>
+    [
+      campaign.from === null ? "sender_missing" : null,
+      campaign.list_ids.length === 0 ? "lists_missing" : null,
+      campaign.subject === null ? "subject_missing" : null,
+      campaign.preheader === null ? "preheader_missing" : null,
+      campaign.designed ? null : "design_missing",
+    ]
+      .filter((code): code is string => code !== null)
+      .map((code) => ({ code, message: `Fix ${code}.` }));
+  const listItemView = (id: string) => {
+    const campaign = campaigns.get(id)!;
+    return {
+      object: "campaign" as const,
+      id,
+      created_at: "2026-10-01T00:00:00Z",
+      updated_at: "2026-10-01T00:00:00Z",
+      name: campaign.name,
+      subject: campaign.subject,
+      preheader: campaign.preheader,
+      from: campaign.from,
+      reply_to: null,
+      status: campaign.status,
+      status_reason: null,
+      send_at: campaign.send_at,
+      send_resumes_at: null,
+      finished_at: null,
+    };
+  };
+  const campaignView = (id: string) => {
+    const campaign = campaigns.get(id)!;
+    const draft = campaign.status === "draft";
+    const issues = issuesOf(campaign);
+    return {
+      ...listItemView(id),
+      list_ids: [...campaign.list_ids],
+      editor: campaign.designed ? ("html" as const) : null,
+      content: campaign.designed ? content : null,
+      ready: draft ? issues.length === 0 : null,
+      issues: draft ? issues : null,
+    };
+  };
+  const requireCampaign = (id: string) => {
+    if (!campaigns.has(id)) throw notFound();
+    return campaigns.get(id)!;
+  };
+  const addCampaign = (state: CampaignState) => {
+    const id = campaignIds[campaigns.size]!;
+    campaigns.set(id, state);
+    return id;
+  };
+  const listedCampaigns = (status?: string) =>
+    [...campaigns.keys()]
+      .reverse()
+      .filter((id) => status === undefined || campaigns.get(id)!.status === status)
+      .map(listItemView);
+
+  const client: CampaignLiveClient = {
+    campaignTemplates: {
+      list: vi.fn(async (params: { limit: number }) => {
+        const all = listedTemplates();
+        return {
+          object: "list",
+          data: all.slice(0, params.limit),
+          pagination: { has_more: all.length > params.limit },
+        };
+      }),
+      iterate: vi.fn(async function* () {
+        for (const entry of listedTemplates()) yield entry;
+      }),
+      create: vi.fn(async (body: { name: string }) => {
+        writes.push(["createTemplate", body]);
+        templates.set(templateId, { name: body.name });
+        if (options.loseTemplateCreate === true) throw new Error("connection reset");
+        return templateView(templateId);
+      }),
+      get: vi.fn(async (id: string) => {
+        if (!templates.has(id)) throw notFound();
+        return templateView(id);
+      }),
+      update: vi.fn(async (id: string, body: { name: string }) => {
+        writes.push(["updateTemplate", id, body]);
+        if (!templates.has(id)) throw notFound();
+        templates.set(id, { name: body.name });
+        return templateView(id);
+      }),
+      delete: vi.fn(async (id: string) => {
+        writes.push(["deleteTemplate", id]);
+        if (!templates.delete(id)) throw notFound();
+        return { message: "campaign template deleted" };
+      }),
+    },
+    campaigns: {
+      list: vi.fn(async (params: { limit: number; status?: string }) => {
+        const all = listedCampaigns(params.status);
+        return {
+          object: "list",
+          data: all.slice(0, params.limit),
+          pagination: { has_more: all.length > params.limit },
+        };
+      }),
+      iterate: vi.fn(async function* (params: { status?: string }) {
+        // Only cleanup searches without a status filter.
+        if (options.failCampaignSearch === true && params.status === undefined) {
+          throw new Error("campaign search failed");
+        }
+        for (const entry of listedCampaigns(params.status)) yield entry;
+      }),
+      create: vi.fn(
+        async (body: {
+          name: string;
+          subject?: string;
+          preheader?: string;
+          from?: { email: string; name?: string };
+          list_ids?: string[];
+          template_id?: string;
+        }) => {
+          writes.push(["create", body]);
+          const id = addCampaign({
+            name: body.name,
+            status: "draft",
+            subject: body.subject ?? null,
+            preheader: body.preheader ?? null,
+            from: body.from === undefined ? null : { name: "", ...body.from },
+            list_ids: [...(body.list_ids ?? [])],
+            designed: body.template_id !== undefined,
+            send_at: null,
+          });
+          if (options.loseCampaignCreate === true && body.template_id !== undefined) {
+            throw new Error("connection reset");
+          }
+          return campaignView(id);
+        },
+      ),
+      get: vi.fn(async (id: string) => {
+        requireCampaign(id);
+        return campaignView(id);
+      }),
+      update: vi.fn(async (id: string, body: { subject: string }) => {
+        writes.push(["update", id, body]);
+        requireCampaign(id).subject = body.subject;
+        return campaignView(id);
+      }),
+      delete: vi.fn(async (id: string) => {
+        writes.push(["delete", id]);
+        if (requireCampaign(id).status !== "draft") {
+          throw failure(409, "conflict_error", { message: "campaign is not a draft" });
+        }
+        campaigns.delete(id);
+        return { message: "campaign deleted" };
+      }),
+      duplicate: vi.fn(async (id: string, body: { name: string }) => {
+        writes.push(["duplicate", id, body]);
+        const copy = addCampaign({
+          ...requireCampaign(id),
+          name: body.name,
+          status: "draft",
+          send_at: null,
+        });
+        if (options.loseDuplicateResponse === true) throw new Error("connection reset");
+        return campaignView(copy);
+      }),
+      send: vi.fn(async (id: string, body: { send_at: string }) => {
+        writes.push(["send", id, body]);
+        const campaign = requireCampaign(id);
+        const issues = issuesOf(campaign);
+        if (options.acceptSend !== true && issues.length > 0) {
+          throw failure(400, "bad_request_error", {
+            message: "campaign is not ready to send",
+            issues,
+          });
+        }
+        campaign.status = options.holdForReview === true ? "waiting_for_review" : "validating";
+        campaign.send_at = body.send_at;
+        return { ...campaignView(id), warnings: [] };
+      }),
+      unschedule: vi.fn(async (id: string) => {
+        writes.push(["unschedule", id]);
+        const campaign = requireCampaign(id);
+        const allowed =
+          ["validating", "scheduled"].includes(campaign.status) ||
+          options.acceptDraftUnschedule === true;
+        if (!allowed) {
+          throw failure(409, "conflict_error", {
+            message: `campaign cannot be unscheduled in status ${campaign.status}`,
+          });
+        }
+        campaign.status = "draft";
+        campaign.send_at = null;
+        return campaignView(id);
+      }),
+      test: vi.fn(async (id: string, body: { to: string[] }) => {
+        tests.push([id, body]);
+        const issues = issuesOf(requireCampaign(id));
+        if (options.acceptTest !== true && issues.length > 0) {
+          throw failure(400, "bad_request_error", {
+            message: "campaign is not ready to send",
+            issues,
+          });
+        }
+        return {
+          object: "campaign_test",
+          sent_to: [...body.to],
+          failed: [],
+          result_unknown: false,
+        };
+      }),
+      getStats: vi.fn(async (id: string) => {
+        requireCampaign(id);
+        return {
+          object: "campaign_stats",
+          campaign_id: id,
+          recipients: 0,
+          delivered: 0,
+          opens: 0,
+          clicks: 0,
+          unsubscribes: 0,
+          complaints: 0,
+          report: null,
+          rates: { open_rate: null, click_rate: null, bounce_rate: null, deferral_rate: null },
+          recount_failed: false,
+        };
+      }),
+      recipients: {
+        list: vi.fn(async (id: string) => {
+          requireCampaign(id);
+          return { object: "list", data: [], pagination: { has_more: false } };
+        }),
+        iterate: vi.fn(async function* (id: string) {
+          requireCampaign(id);
+        }),
+      },
+    },
+    lists: {
+      list: vi.fn(async (params: { name: string; limit: number }) => {
+        const data = [...lists]
+          .filter(([, name]) => name.includes(params.name))
+          .map(([id, name]) => ({ object: "contact_list", id, name }));
+        return { object: "list", data, pagination: { has_more: false } };
+      }),
+      create: vi.fn(async (body: { name: string }) => {
+        writes.push(["createList", body]);
+        lists.set(listId, body.name);
+        if (options.loseListCreate === true) throw new Error("connection reset");
+        return { object: "contact_list", id: listId, name: body.name };
+      }),
+      get: vi.fn(async (id: string) => {
+        if (!lists.has(id)) throw notFound();
+        return { object: "contact_list", id };
+      }),
+      delete: vi.fn(async (id: string) => {
+        writes.push(["deleteList", id]);
+        if (!lists.delete(id)) throw notFound();
+        return { message: "list deleted" };
+      }),
+    },
+  };
+  return {
+    campaignIds,
+    campaigns,
+    client,
+    createRequest,
+    listCreateRequest,
+    listId,
+    lists,
+    templateCreateRequest,
+    templateId,
+    templates,
+    templateUpdateRequest,
+    testRecipient,
+    tests,
+    updateRequest,
+    writes,
+  };
+}
+
+function campaignRegistry(
+  fixture: ReturnType<typeof campaignClientFixture>,
+  overrides: Partial<Parameters<typeof createCampaignScenarioRegistry>[0]> = {},
+) {
+  return createCampaignScenarioRegistry({
+    profile: inspectFixture().profile,
+    client: fixture.client,
+    templateCreateRequest: fixture.templateCreateRequest,
+    templateUpdateRequest: fixture.templateUpdateRequest,
+    listCreateRequest: fixture.listCreateRequest,
+    createRequest: fixture.createRequest,
+    updateRequest: fixture.updateRequest,
+    testRecipient: fixture.testRecipient,
     ...overrides,
   });
 }
@@ -2304,10 +2739,10 @@ describe("live candidate foundation", () => {
       name: "@ahasend/sdk",
       version: "0.1.0-live-test",
     });
-    expect(candidate.profile.operations).toHaveLength(85);
-    expect(candidate.profile.iterators).toHaveLength(14);
-    expect(candidate.registry.primary.size).toBe(85);
-    expect(candidate.registry.iterators).toHaveLength(14);
+    expect(candidate.profile.operations).toHaveLength(101);
+    expect(candidate.profile.iterators).toHaveLength(17);
+    expect(candidate.registry.primary.size).toBe(101);
+    expect(candidate.registry.iterators).toHaveLength(17);
     expect(Object.isFrozen(candidate.manifest)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.contractSha256)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.keysSha256)).toBe(true);
@@ -2390,8 +2825,8 @@ describe("live candidate foundation", () => {
     expect(candidate.package.version).toBe("0.1.0-archive-test");
     expect(candidate.profileSource).toEqual(profile.source);
     expect(candidate.profileSidecar).toEqual(profile.sidecar);
-    expect(candidate.profile.operations).toHaveLength(85);
-    expect(candidate.profile.iterators).toHaveLength(14);
+    expect(candidate.profile.operations).toHaveLength(101);
+    expect(candidate.profile.iterators).toHaveLength(17);
   });
 
   it("installs an immutable copy only after all candidate artifacts verify", async () => {
@@ -2447,7 +2882,7 @@ describe("live candidate foundation", () => {
 
     expect(runCommand).toHaveBeenCalledOnce();
     expect(readFileSync(resolve(installDirectory, basename(tarballPath)))).toEqual(fixture.tarball);
-    expect(installed.profile.operations).toHaveLength(85);
+    expect(installed.profile.operations).toHaveLength(101);
 
     const badDirectory = join(directory, "bad-install");
     writeFileSync(tarballPath, Buffer.from("substituted after candidate creation"));
@@ -2469,7 +2904,7 @@ describe("live candidate foundation", () => {
 });
 
 describe("live scenario inventory", () => {
-  it("creates 85 primary scenarios and fourteen attached iterator subcases from the profile", () => {
+  it("creates 101 primary scenarios and seventeen attached iterator subcases from the profile", () => {
     const profile = inspectFixture().profile;
     const registry = createScenarioRegistry(
       profile,
@@ -2479,9 +2914,9 @@ describe("live scenario inventory", () => {
       })),
     );
 
-    expect(registry.primary.size).toBe(85);
-    expect(registry.iterators).toHaveLength(14);
-    expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(14);
+    expect(registry.primary.size).toBe(101);
+    expect(registry.iterators).toHaveLength(17);
+    expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(17);
     for (const iterator of registry.iterators) {
       expect(iterator.method).toBe("iterate");
       expect(iterator.primary).toBe(registry.primary.get(iterator.operationId));
@@ -2496,7 +2931,7 @@ describe("live scenario inventory", () => {
     expect(Object.isFrozen(registry.primary)).toBe(true);
     expect(() => mutablePrimary.delete(profile.operations[0]!.operationId)).toThrow();
     expect(() => mutablePrimary.set("orphan", {})).toThrow();
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
   });
 
   it("rejects missing, orphaned, duplicate, and mapping-redefining scenarios", () => {
@@ -2568,7 +3003,7 @@ describe("live scenario inventory", () => {
     );
     expect(domainEntries).toHaveLength(6);
     expect(domainEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, DomainLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2758,7 +3193,7 @@ describe("live scenario inventory", () => {
       operationId: "getContacts",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, ContactLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -2928,7 +3363,7 @@ describe("live scenario inventory", () => {
       operationId: "listTemplates",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, TemplateLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3265,6 +3700,369 @@ describe("live scenario inventory", () => {
     ).toThrow("must not set template_id");
   });
 
+  it("registers the campaign primaries across three facades and links their three iterators", () => {
+    const registry = campaignRegistry(campaignClientFixture());
+    const entries = [...registry.primary.values()].filter(({ facade }) =>
+      ["campaignTemplates", "campaigns", "campaigns.recipients"].includes(facade),
+    );
+
+    expect(entries.map(({ operationId }) => operationId).sort()).toEqual([
+      "createCampaign",
+      "createCampaignTemplate",
+      "deleteCampaign",
+      "deleteCampaignTemplate",
+      "duplicateCampaign",
+      "getCampaign",
+      "getCampaignStats",
+      "getCampaignTemplate",
+      "listCampaignRecipients",
+      "listCampaignTemplates",
+      "listCampaigns",
+      "sendCampaign",
+      "testCampaign",
+      "unscheduleCampaign",
+      "updateCampaign",
+      "updateCampaignTemplate",
+    ]);
+    expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
+    for (const operationId of [
+      "listCampaignTemplates",
+      "listCampaigns",
+      "listCampaignRecipients",
+    ]) {
+      expect(registry.primary.get(operationId)?.iterator).toMatchObject({
+        operationId,
+        method: "iterate",
+      });
+    }
+    expect(registry.primary.size).toBe(101);
+    expectTypeOf<IsAssignable<AhaSendClient, CampaignLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("runs the campaign lifecycle, refuses the test and the send, and leaves nothing behind", async () => {
+    const fixture = campaignClientFixture();
+    const before = Date.now();
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+
+    expect(result.failure).toBeNull();
+    expect(result.operationResults).toEqual([
+      {
+        operationId: "createCampaignTemplate",
+        status: "passed",
+        evidence: { cleanupRegistered: true, editor: "html" },
+      },
+      {
+        operationId: "listCampaignTemplates",
+        status: "passed",
+        evidence: { direction: "forward", limit: 1, pageItems: 1, templateFound: true },
+      },
+      { operationId: "getCampaignTemplate", status: "passed", evidence: { matched: true } },
+      {
+        operationId: "updateCampaignTemplate",
+        status: "passed",
+        evidence: { contentKept: true, renamed: true },
+      },
+      {
+        operationId: "createCampaign",
+        status: "passed",
+        evidence: { cleanupRegistered: true, fromTemplate: true, ready: true, status: "draft" },
+      },
+      {
+        operationId: "listCampaigns",
+        status: "passed",
+        evidence: {
+          campaignFound: true,
+          direction: "forward",
+          limit: 1,
+          pageItems: 1,
+          statusFilterVerified: true,
+        },
+      },
+      { operationId: "getCampaign", status: "passed", evidence: { matched: true, ready: true } },
+      { operationId: "updateCampaign", status: "passed", evidence: { ready: true, updated: true } },
+      {
+        operationId: "testCampaign",
+        status: "passed",
+        evidence: {
+          issues: [
+            "sender_missing",
+            "lists_missing",
+            "subject_missing",
+            "preheader_missing",
+            "design_missing",
+          ],
+          refused: true,
+          status: 400,
+          statusAfter: "draft",
+        },
+      },
+      {
+        operationId: "duplicateCampaign",
+        status: "passed",
+        evidence: { copiedDesign: true, copiedLists: true, status: "draft" },
+      },
+      {
+        operationId: "sendCampaign",
+        status: "passed",
+        evidence: {
+          issues: [
+            "sender_missing",
+            "lists_missing",
+            "subject_missing",
+            "preheader_missing",
+            "design_missing",
+          ],
+          refused: true,
+          status: 400,
+          statusAfter: "draft",
+        },
+      },
+      {
+        operationId: "unscheduleCampaign",
+        status: "passed",
+        evidence: { refused: true, status: 409, statusAfter: "draft" },
+      },
+      {
+        operationId: "getCampaignStats",
+        status: "passed",
+        evidence: { delivered: 0, matched: true, recipients: 0 },
+      },
+      {
+        operationId: "listCampaignRecipients",
+        status: "passed",
+        evidence: { direction: "forward", empty: true, limit: 1, pageItems: 0 },
+      },
+      {
+        operationId: "deleteCampaign",
+        status: "passed",
+        evidence: { cleanupVerified: true, deleted: true },
+      },
+      {
+        operationId: "deleteCampaignTemplate",
+        status: "passed",
+        evidence: { cleanupVerified: true, deleted: true },
+      },
+    ]);
+    expect(result.iteratorResults.map(({ operationId, status }) => [operationId, status])).toEqual([
+      ["listCampaignTemplates", "passed"],
+      ["listCampaigns", "passed"],
+      ["listCampaignRecipients", "passed"],
+    ]);
+
+    // The unready campaign is made for the test, before the copy.
+    const [campaignId, unreadyId, copyId] = fixture.campaignIds;
+    // The only test and the only send name the campaign that has no sender,
+    // list or design, so both are refused; the send names a time a week ahead.
+    // The only unschedule names the draft.
+    expect(fixture.tests).toEqual([[unreadyId, { to: [fixture.testRecipient] }]]);
+    const sends = fixture.writes.filter(([action]) => action === "send");
+    expect(sends).toEqual([["send", unreadyId, { send_at: expect.any(String) }]]);
+    const sendAt = Date.parse((sends[0]![2] as { send_at: string }).send_at);
+    expect(sendAt - before).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000);
+    expect(fixture.writes.filter(([action]) => action === "unschedule")).toEqual([
+      ["unschedule", campaignId],
+    ]);
+    expect(fixture.writes.find(([action]) => action === "create")).toEqual([
+      "create",
+      {
+        ...fixture.createRequest,
+        list_ids: [fixture.listId],
+        template_id: fixture.templateId,
+      },
+    ]);
+    // Cleanup deletes every campaign the run made, accepting the 404 of the
+    // one the scenario deleted, then the list, then the template again.
+    expect(fixture.writes.slice(-5)).toEqual([
+      ["delete", campaignId],
+      ["delete", unreadyId],
+      ["delete", copyId],
+      ["deleteList", fixture.listId],
+      ["deleteTemplate", fixture.templateId],
+    ]);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify campaigns", status: "passed" },
+      { label: "delete and verify campaign list fixture", status: "passed" },
+      { label: "delete and verify campaign template", status: "passed" },
+    ]);
+    expect(fixture.campaigns.size).toBe(0);
+    expect(fixture.lists.size).toBe(0);
+    expect(fixture.templates.size).toBe(0);
+  });
+
+  it("fails an accepted test of the unready campaign, and still cleans everything", async () => {
+    const fixture = campaignClientFixture({ acceptTest: true });
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "testCampaign" });
+    expect(fixture.campaigns.size).toBe(0);
+    expect(fixture.lists.size).toBe(0);
+    expect(fixture.templates.size).toBe(0);
+    expect(result.cleanupResults.every(({ status }) => status === "passed")).toBe(true);
+  });
+
+  it("fails an accepted send, then unschedules and deletes the campaign in cleanup", async () => {
+    const fixture = campaignClientFixture({ acceptSend: true });
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+    const [campaignId, unreadyId, copyId] = fixture.campaignIds;
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "sendCampaign" });
+    expect(fixture.writes.slice(-7)).toEqual([
+      ["delete", campaignId],
+      ["delete", unreadyId],
+      ["unschedule", unreadyId],
+      ["delete", unreadyId],
+      ["delete", copyId],
+      ["deleteList", fixture.listId],
+      ["deleteTemplate", fixture.templateId],
+    ]);
+    expect(fixture.campaigns.size).toBe(0);
+    expect(fixture.lists.size).toBe(0);
+    expect(fixture.templates.size).toBe(0);
+    expect(result.cleanupResults.every(({ status }) => status === "passed")).toBe(true);
+  });
+
+  it("finds and deletes the list fixture by name when its create response is lost", async () => {
+    const fixture = campaignClientFixture({ loseListCreate: true });
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createCampaign" });
+    expect(fixture.writes.filter(([action]) => action === "deleteList")).toEqual([
+      ["deleteList", fixture.listId],
+    ]);
+    expect(fixture.lists.size).toBe(0);
+    expect(fixture.campaigns.size).toBe(0);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify campaign list fixture", status: "passed" },
+      { label: "delete and verify campaign template", status: "passed" },
+    ]);
+  });
+
+  it("finds and deletes a campaign by name when its create response is lost", async () => {
+    const fixture = campaignClientFixture({ loseCampaignCreate: true });
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+    const [lostId] = fixture.campaignIds;
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createCampaign" });
+    expect(fixture.writes.filter(([action]) => action === "delete")).toEqual([["delete", lostId]]);
+    expect(fixture.campaigns.size).toBe(0);
+    expect(fixture.lists.size).toBe(0);
+    expect(result.cleanupResults.every(({ status }) => status === "passed")).toBe(true);
+  });
+
+  it("finds and deletes the copy by name when the duplicate response is lost", async () => {
+    const fixture = campaignClientFixture({ loseDuplicateResponse: true });
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+    const [campaignId, unreadyId, copyId] = fixture.campaignIds;
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "duplicateCampaign" });
+    // The known campaigns go first, then the copy the name search found.
+    expect(fixture.writes.filter(([action]) => action === "delete")).toEqual([
+      ["delete", campaignId],
+      ["delete", unreadyId],
+      ["delete", copyId],
+    ]);
+    expect(fixture.campaigns.size).toBe(0);
+    expect(result.cleanupResults.every(({ status }) => status === "passed")).toBe(true);
+  });
+
+  it("still deletes the other campaigns when one is held for review, and reports it", async () => {
+    const fixture = campaignClientFixture({ acceptSend: true, holdForReview: true });
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+    const [campaignId, unreadyId, copyId] = fixture.campaignIds;
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "sendCampaign" });
+    // The held campaign can be neither deleted nor unscheduled; the copy
+    // after it is still deleted, and the name search does not retry it.
+    expect(fixture.writes.filter(([action]) => ["delete", "unschedule"].includes(action))).toEqual([
+      ["delete", campaignId],
+      ["delete", unreadyId],
+      ["unschedule", unreadyId],
+      ["delete", copyId],
+    ]);
+    expect([...fixture.campaigns.keys()]).toEqual([unreadyId]);
+    expect(fixture.campaigns.get(unreadyId!)?.status).toBe("waiting_for_review");
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify campaigns", status: "failed" },
+      { label: "delete and verify campaign list fixture", status: "passed" },
+      { label: "delete and verify campaign template", status: "passed" },
+    ]);
+  });
+
+  it("deletes the known campaigns when the name search fails, and reports the failure", async () => {
+    const fixture = campaignClientFixture({ failCampaignSearch: true });
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+    const [campaignId, unreadyId, copyId] = fixture.campaignIds;
+
+    expect(result.operationResults.every(({ status }) => status === "passed")).toBe(true);
+    expect(result.failure).toEqual({ phase: "cleanup" });
+    expect(fixture.writes.filter(([action]) => action === "delete")).toEqual([
+      ["delete", campaignId],
+      ["delete", campaignId],
+      ["delete", unreadyId],
+      ["delete", copyId],
+    ]);
+    expect(fixture.campaigns.size).toBe(0);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify campaigns", status: "failed" },
+      { label: "delete and verify campaign list fixture", status: "passed" },
+      { label: "delete and verify campaign template", status: "passed" },
+    ]);
+  });
+
+  it("fails the unschedule scenario when the API unschedules a draft", async () => {
+    const fixture = campaignClientFixture({ acceptDraftUnschedule: true });
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "unscheduleCampaign" });
+    expect(fixture.campaigns.size).toBe(0);
+  });
+
+  it("finds and deletes the campaign template by name when its create response is lost", async () => {
+    const fixture = campaignClientFixture({ loseTemplateCreate: true });
+    const result = await runCampaignLiveScenarios(campaignRegistry(fixture));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "createCampaignTemplate" });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify campaign template", status: "passed" },
+    ]);
+    expect(fixture.writes).toEqual([
+      ["createTemplate", fixture.templateCreateRequest],
+      ["deleteTemplate", fixture.templateId],
+    ]);
+    expect(fixture.templates.size).toBe(0);
+  });
+
+  it("refuses campaign requests the scenarios cannot check", () => {
+    const fixture = campaignClientFixture();
+
+    expect(() =>
+      campaignRegistry(fixture, {
+        templateCreateRequest: { name: "x", content: { html: "<p>No link</p>" } },
+      }),
+    ).toThrow("must use {{ unsubscribe_url }}");
+    expect(() =>
+      campaignRegistry(fixture, {
+        templateUpdateRequest: { name: fixture.templateCreateRequest.name },
+      }),
+    ).toThrow("name must differ from the create name");
+    expect(() =>
+      campaignRegistry(fixture, {
+        createRequest: { ...fixture.createRequest, list_ids: [fixture.listId] } as never,
+      }),
+    ).toThrow("must not set list_ids");
+    expect(() =>
+      campaignRegistry(fixture, { updateRequest: { subject: fixture.createRequest.subject } }),
+    ).toThrow("subject must differ from the create subject");
+    expect(() =>
+      campaignRegistry(fixture, {
+        updateRequest: { ...fixture.updateRequest, list_ids: [] } as never,
+      }),
+    ).toThrow("must set only subject");
+    expect(() => campaignRegistry(fixture, { testRecipient: "Live <live@example.test>" })).toThrow(
+      "one bare email address",
+    );
+  });
+
   it("registers every list primary across its three facades and links all three iterators", () => {
     const registry = listRegistry(listClientFixture());
     const listEntries = [...registry.primary.values()].filter(({ facade }) =>
@@ -3291,7 +4089,7 @@ describe("live scenario inventory", () => {
         .filter(({ facade }) => ["lists", "lists.contacts", "contacts.lists"].includes(facade))
         .map(({ operationId, method }) => `${operationId}.${method}`),
     ).toEqual(["getLists.iterate", "getListContacts.iterate", "getContactLists.iterate"]);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, ListLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3495,7 +4293,7 @@ describe("live scenario inventory", () => {
     );
     expect(messageEntries).toHaveLength(6);
     expect(messageEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, MessageLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3837,7 +4635,7 @@ describe("live scenario inventory", () => {
     );
     expect(apiKeyEntries).toHaveLength(5);
     expect(apiKeyEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, APIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4050,7 +4848,7 @@ describe("live scenario inventory", () => {
     );
     expect(routeEntries).toHaveLength(5);
     expect(routeEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, RouteLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4299,7 +5097,7 @@ describe("live scenario inventory", () => {
     );
     expect(webhookEntries).toHaveLength(5);
     expect(webhookEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, WebhookLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4548,7 +5346,7 @@ describe("live scenario inventory", () => {
         ({ operationId, method }) => operationId.includes("update") || method === "update",
       ),
     ).toBe(false);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, SMTPCredentialLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4753,7 +5551,7 @@ describe("live scenario inventory", () => {
     expect(accountEntries).toHaveLength(5);
     expect(accountEntries.every(({ run }) => typeof run === "function")).toBe(true);
     expect(registry.iterators.filter(({ facade }) => facade === "accounts")).toHaveLength(0);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, AccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4944,7 +5742,7 @@ describe("live scenario inventory", () => {
     );
     expect(suppressionEntries).toHaveLength(4);
     expect(suppressionEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, SuppressionLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5151,7 +5949,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(9);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5585,7 +6383,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(5);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountAPIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5851,7 +6649,7 @@ describe("live scenario inventory", () => {
     );
     expect(statisticsEntries).toHaveLength(3);
     expect(statisticsEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(85);
+    expect(registry.primary.size).toBe(101);
     expectTypeOf<IsAssignable<AhaSendClient, StatisticsLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -6608,16 +7406,16 @@ describe("live cleanup and reporting", () => {
       package: candidate.package,
       tarballSha256: candidate.tarballSha256,
     });
-    expect(parsed.operations).toHaveLength(85);
-    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(85);
-    expect(parsed.iterators).toHaveLength(14);
-    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(14);
+    expect(parsed.operations).toHaveLength(101);
+    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(101);
+    expect(parsed.iterators).toHaveLength(17);
+    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(17);
     expect(
       validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
     ).toMatchObject({
       reportSha256: written.reportSha256,
-      operations: 85,
-      iterators: 14,
+      operations: 101,
+      iterators: 17,
       authorizationOutcomes: 11,
       sandboxOutcomes: 3,
       unexpectedFailures: 0,
@@ -6750,11 +7548,11 @@ describe("live cleanup and reporting", () => {
 
     const missing = structuredClone(report);
     missing.operations.pop();
-    expect(() => validate(missing)).toThrow("must contain exactly 85 results");
+    expect(() => validate(missing)).toThrow("must contain exactly 101 results");
 
     const missingIterator = structuredClone(report);
     missingIterator.iterators.pop();
-    expect(() => validate(missingIterator)).toThrow("must contain exactly 14 results");
+    expect(() => validate(missingIterator)).toThrow("must contain exactly 17 results");
 
     const orphan = structuredClone(report);
     orphan.operations[0]!.operationId = "orphanedOperation";
@@ -6857,6 +7655,20 @@ describe("live cleanup and reporting", () => {
     expect(() => validate(userPublishedVersions)).toThrow(
       'listTemplateVersions publishedBy must be "api_key"',
     );
+
+    const acceptedCampaignSend = structuredClone(baseReport);
+    (
+      acceptedCampaignSend.operations.find(({ operationId }) => operationId === "sendCampaign")!
+        .evidence as Record<string, unknown>
+    ).refused = false;
+    expect(() => validate(acceptedCampaignSend)).toThrow("sendCampaign refused");
+
+    const acceptedCampaignTest = structuredClone(baseReport);
+    (
+      acceptedCampaignTest.operations.find(({ operationId }) => operationId === "testCampaign")!
+        .evidence as Record<string, unknown>
+    ).refused = false;
+    expect(() => validate(acceptedCampaignTest)).toThrow("testCampaign refused");
 
     const missingUnpause = structuredClone(baseReport);
     const unpause = missingUnpause.operations.find(
