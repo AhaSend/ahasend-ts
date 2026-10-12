@@ -214,7 +214,7 @@ function validateRegistrySmokePolicy(workflowValue: unknown): void {
       'PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"',
       "for ATTEMPT in 1 2 3 4 5",
       'test "$ATTEMPT" -lt 5',
-      "sleep 5",
+      "sleep 15",
     ]) {
       if (!source.includes(fragment)) {
         throw new TypeError(`${label} must bind the exact package and use a bounded retry.`);
@@ -1061,9 +1061,10 @@ describe("single-run release workflow", () => {
     // The capture is one registry read standing before the promotion-state
     // upload. Unretried, a transient npm failure here killed the job with no
     // state artifact, which then broke compensation's download. It must use
-    // the same five-attempt pattern as every other registry read here — all
-    // three fragments, matching the assertions on registry-smoke's loops: a
-    // loop that never sleeps, or never fails on exhaustion, is not a retry.
+    // the same five-attempt pattern as every other registry read here, with
+    // all three fragments: a loop that never sleeps, or never fails on
+    // exhaustion, is not a retry. It reads a tag that already exists, so it
+    // keeps the short wait; registry-smoke waits longer for a new version.
     const captureScript = String(capture["run"] ?? "");
     expect(captureScript).toContain("for ATTEMPT in 1 2 3 4 5");
     expect(captureScript).toContain('if PREVIOUS_LATEST="$(npm view');
