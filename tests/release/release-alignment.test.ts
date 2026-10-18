@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
 
 interface PackageManifest {
@@ -204,48 +205,60 @@ describe("v0.3.0 release source alignment", () => {
     }
   });
 
-  it("keeps every release.yml line citation in RELEASING.md anchored to what it cites", () => {
-    // The runbook cites exact release.yml lines; edits to the workflow shift
-    // them silently. Each citation is held to the fragment that makes it
-    // meaningful, and the coverage check at the end forces a new citation to
-    // be added here rather than drifting unverified.
-    const workflowLines = readFileSync(
-      resolve(root, ".github/workflows/release.yml"),
-      "utf8",
-    ).split("\n");
-    const lineAt = (lineNumber: number): string => workflowLines[lineNumber - 1] ?? "";
-    const verified = new Set<number>();
+  it("keeps the runbook's secrets and publication claims true to release.yml", () => {
+    // The runbook names jobs, not release.yml lines, so an edit to the
+    // workflow cannot shift a citation. Each claim is checked against the
+    // parsed workflow instead.
+    expect(runbook, "cite release.yml jobs, not lines").not.toMatch(/release\.yml:\d/u);
+    const workflow = yaml.load(
+      readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8"),
+      { schema: yaml.JSON_SCHEMA },
+    ) as { readonly jobs: Readonly<Record<string, unknown>> };
+    const consumers = (secret: string): string[] =>
+      Object.entries(workflow.jobs)
+        .filter(([, job]) => JSON.stringify(job).includes(`secrets.${secret}`))
+        .map(([name]) => name)
+        .sort();
 
-    // Secrets table: the cited line must consume that secret.
-    const secretRows = [...runbook.matchAll(/^\| `(\w+)`\s+\|[^|]*\(release\.yml:([\d, ]+)\)/gmu)];
-    expect(secretRows.length).toBeGreaterThanOrEqual(4);
-    for (const [, secret, numbers] of secretRows) {
-      for (const cited of numbers!.split(",").map((value) => Number(value.trim()))) {
-        expect(lineAt(cited), `release.yml:${cited} cited for ${secret}`).toContain(
-          `secrets.${secret}`,
-        );
-        verified.add(cited);
-      }
-    }
-
-    // Inline citations pin one fact each.
-    const provenance = /`npm publish --provenance` \(release\.yml:(\d+)\)/u.exec(runbook);
-    expect(provenance).not.toBeNull();
-    expect(lineAt(Number(provenance![1]))).toContain("--provenance");
-    verified.add(Number(provenance![1]));
-
-    const promotionGate = /`registry-smoke` succeeded \(release\.yml:(\d+)\)/u.exec(runbook);
-    expect(promotionGate).not.toBeNull();
-    expect(lineAt(Number(promotionGate![1]))).toContain("registry-smoke.result == 'success'");
-    verified.add(Number(promotionGate![1]));
-
-    // Every release.yml citation in the runbook must be one of the verified.
-    const cited = [...runbook.matchAll(/release\.yml:([\d, ]+)/gu)].flatMap(([, numbers]) =>
-      numbers!.split(",").map((value) => Number(value.trim())),
+    // Secrets table: each secret is consumed by exactly the jobs it lists,
+    // and every secret the workflow reads has a row.
+    const secretsSection = runbook.slice(
+      runbook.indexOf("### Secrets"),
+      runbook.indexOf("### `AHASEND_LIVE_CONFIG_JSON`"),
     );
-    for (const citation of cited) {
-      expect(verified.has(citation), `release.yml:${citation} is cited but unverified`).toBe(true);
+    const rows = [...secretsSection.matchAll(/^\| `([A-Z_]+)`\s+\|([^|]*)\|/gmu)];
+    const documented = rows.map(([, secret]) => secret!).sort();
+    const used = [
+      ...new Set(
+        [...JSON.stringify(workflow.jobs).matchAll(/secrets\.([A-Z_]+)/gu)].map(
+          ([, secret]) => secret!,
+        ),
+      ),
+    ].sort();
+    expect(documented).toEqual(used);
+    for (const [, secret, consumedBy] of rows) {
+      const listed = [...consumedBy!.matchAll(/`([\w-]+)`/gu)].map(([, job]) => job!).sort();
+      expect(listed, `jobs that consume ${secret}`).toEqual(consumers(secret!));
     }
+
+    // next-publish has no NPM_TOKEN: it publishes with provenance.
+    expect(runbook).toContain("`npm publish --provenance` with `id-token: write`");
+    const publishJob = workflow.jobs["next-publish"] as {
+      readonly steps: readonly { readonly run?: string }[];
+    };
+    const publishLines = publishJob.steps
+      .flatMap((step) => (step.run ?? "").split("\n"))
+      .filter((line) => line.trim().startsWith("npm publish"));
+    expect(publishLines).toHaveLength(1);
+    expect(publishLines[0]).toContain("--provenance");
+
+    // latest-promotion runs only after both gates succeeded.
+    expect(runbook).toMatch(
+      /`latest-promotion`\s+\| Only if `live-gates` \*\*and\*\* `registry-smoke` succeeded\./u,
+    );
+    const promotion = workflow.jobs["latest-promotion"] as { readonly if?: string };
+    expect(promotion.if).toContain("needs.live-gates.result == 'success'");
+    expect(promotion.if).toContain("needs.registry-smoke.result == 'success'");
   });
 
   it("runs the full gate chain before publishing, not a subset of it", () => {
