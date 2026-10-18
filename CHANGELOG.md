@@ -6,6 +6,13 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `CampaignIssueCode` gains `text_unchecked`: the API could not check the campaign's subject,
+  preview text and design right now. It clears by itself, so a `send` or `test` refused with it
+  can be called again in a moment; under load it can come and go between reads. Code that
+  switches over every `CampaignIssueCode` needs a case for it.
+
 ## [0.3.0] — 2026-10-12
 
 ### Added
