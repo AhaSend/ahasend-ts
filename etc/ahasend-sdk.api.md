@@ -519,7 +519,7 @@ export interface CampaignIssue {
 }
 
 // @public
-export type CampaignIssueCode = "sender_missing" | "lists_missing" | "subject_missing" | "preheader_missing" | "design_missing" | "text_broken" | "unsubscribe_link_missing";
+export type CampaignIssueCode = "sender_missing" | "lists_missing" | "subject_missing" | "preheader_missing" | "design_missing" | "text_broken" | "text_unchecked" | "unsubscribe_link_missing";
 
 // @public
 export interface CampaignListItem {

@@ -338,6 +338,7 @@ describe("authoritative OpenAPI model contracts", () => {
       "preheader_missing",
       "design_missing",
       "text_broken",
+      "text_unchecked",
       "unsubscribe_link_missing",
     ]);
   });

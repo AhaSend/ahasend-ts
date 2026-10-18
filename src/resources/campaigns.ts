@@ -56,6 +56,9 @@ export type CampaignStatus =
  * - `design_missing`: the campaign has no design, or its design has no HTML.
  * - `text_broken`: the subject, the preview text or the design holds template syntax that cannot
  *   be rendered, so every message would fail.
+ * - `text_unchecked`: the subject, the preview text and the design could not be checked right now.
+ *   Nothing is wrong with them that is known; try again in a moment. Under load it can come and go
+ *   between reads.
  * - `unsubscribe_link_missing`: the HTML uses neither `{{ unsubscribe_url }}` nor
  *   `{{ unsubscribe_link }}`, with or without filters.
  */
@@ -66,6 +69,7 @@ export type CampaignIssueCode =
   | "preheader_missing"
   | "design_missing"
   | "text_broken"
+  | "text_unchecked"
   | "unsubscribe_link_missing";
 
 /** A reason the campaign cannot be sent yet. */
