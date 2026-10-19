@@ -1,6 +1,6 @@
 {
   "name": "@ahasend/sdk",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Official TypeScript SDK for the AhaSend transactional email API.",
   "keywords": [
     "ahasend",
