@@ -1513,6 +1513,7 @@ export interface operations {
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   createTemplateMessage: {
@@ -1533,6 +1534,7 @@ export interface operations {
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   createConversationMessage: {
@@ -1552,6 +1554,7 @@ export interface operations {
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   getMessage: {
@@ -2079,6 +2082,7 @@ export interface operations {
       "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "502": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   getCampaignStats: {

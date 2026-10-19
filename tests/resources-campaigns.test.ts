@@ -600,4 +600,23 @@ describe("keyed campaign writes", () => {
       expect(calls[0]!.headers).not.toHaveProperty("idempotency-key");
     });
   }
+
+  it("testCampaign retries a busy template check with the same key", async () => {
+    const { fetch, calls } = captureFetch((_call, index) =>
+      index === 0
+        ? json(
+            { message: "the message could not be checked right now; try again in a moment" },
+            503,
+            { "retry-after": "2" },
+          )
+        : json(TEST_RESULT),
+    );
+
+    await expect(
+      retryingClient(fetch).campaigns.test(CAMPAIGN_ID, { to: ["ann@example.com"] }),
+    ).resolves.toEqual(TEST_RESULT);
+
+    expect(calls.map((entry) => entry.operationId)).toEqual(["testCampaign", "testCampaign"]);
+    expect(calls[1]!.headers["idempotency-key"]).toBe(calls[0]!.headers["idempotency-key"]);
+  });
 });

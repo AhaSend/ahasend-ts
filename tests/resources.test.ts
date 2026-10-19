@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { AhaSendConfigurationError, isAhaSendError } from "../src/errors.js";
+import { AhaSendClient } from "../src/client.js";
+import { AhaSendConfigurationError, AhaSendServerError, isAhaSendError } from "../src/errors.js";
 import type { OperationRequestBodyById } from "../src/generated/operations.js";
 import type { components } from "../src/generated/rest-types.js";
 import type {
@@ -574,6 +575,82 @@ describe("MessagesClient", () => {
 
     expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages/conversation`);
     expect(calls[0]!.operationId).toBe("createConversationMessage");
+  });
+
+  it("retries a busy template check with the same key on every send", async () => {
+    const busy = () =>
+      new Response(
+        JSON.stringify({
+          message: "the message could not be checked right now; try again in a moment",
+        }),
+        { status: 503, headers: { "content-type": "application/json", "retry-after": "2" } },
+      );
+    const { fetch, calls } = captureFetch((_call, index) =>
+      index % 2 === 0
+        ? busy()
+        : new Response(JSON.stringify({ object: "list", data: [] }), {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          }),
+    );
+    const client = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: ACCOUNT_ID,
+      baseUrl: "https://api.test",
+      fetch,
+      retry: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+    });
+    const from = { email: "a@b.com" };
+
+    await client.messages.send({
+      from,
+      recipients: [{ email: "x@y.com" }],
+      subject: "hi",
+      text_content: "hi",
+    });
+    await client.messages.sendTemplate({
+      template_id: TEMPLATE_ID,
+      recipients: [{ email: "x@y.com" }],
+    });
+    await client.messages.sendConversation({
+      from,
+      to: [{ email: "x@y.com" }],
+      subject: "hi",
+      text_content: "hi",
+    });
+
+    expect(calls.map((call) => call.operationId)).toEqual([
+      "createMessage",
+      "createMessage",
+      "createTemplateMessage",
+      "createTemplateMessage",
+      "createConversationMessage",
+      "createConversationMessage",
+    ]);
+    for (let index = 0; index < calls.length; index += 2) {
+      expect(calls[index]!.headers["idempotency-key"]).toMatch(/^[0-9a-f-]{36}$/);
+      expect(calls[index + 1]!.headers["idempotency-key"]).toBe(
+        calls[index]!.headers["idempotency-key"],
+      );
+    }
+
+    const exhausted = captureFetch(busy);
+    const once = new AhaSendClient({
+      apiKey: "aha-sk-test",
+      accountId: ACCOUNT_ID,
+      baseUrl: "https://api.test",
+      fetch: exhausted.fetch,
+      retry: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+    });
+    const error = await once.messages
+      .sendTemplate({ template_id: TEMPLATE_ID, recipients: [{ email: "x@y.com" }] })
+      .then(
+        () => undefined,
+        (rejection: unknown) => rejection,
+      );
+    expect(error).toBeInstanceOf(AhaSendServerError);
+    expect(error).toMatchObject({ status: 503 });
+    expect(exhausted.calls).toHaveLength(2);
   });
 
   it("accepts recipient arrays built at runtime", async () => {

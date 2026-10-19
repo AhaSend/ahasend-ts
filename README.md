@@ -274,7 +274,7 @@ retries `408`, `429`, `5xx`, network failures, timeouts, and eligible keyed
 `409` responses while an idempotent operation is still in progress — never
 other 4xx. Key-protected operations require an idempotency key to be
 retryable; the SDK supplies one unless automatic key generation is disabled.
-A valid server `Retry-After` on 429 (seconds or HTTP-date) or an eligible keyed
+A valid server `Retry-After` on 408, 429 or 5xx (seconds or HTTP-date) or an eligible keyed
 409 (positive integer seconds) is authoritative and capped at the configured
 `maxDelayMs` (30 seconds by default). Configure via the `retry` option;
 `maxRetries: 3` means up to 4 total attempts for an eligible operation.
@@ -533,6 +533,16 @@ counted after decompression, so this bounds a compressed body that inflates.
 generated profile permits retries. Operations classified as never retryable,
 and key-protected operations called without a key, make one attempt even for
 those failures. Other errors throw immediately.
+
+Every message of `messages.send()`, `sendTemplate()` and `sendConversation()`, and every
+`campaigns.test()`, is checked before it is sent. The request is refused with `400`
+(`AhaSendBadRequestError`), and nothing of it is sent, when content cannot be rendered with a
+recipient's values, calls `random`, `randrange`, `lipsum` or `now`, uses `namespace` or passes a
+work, output, memory or time limit, or when the check cannot read a recipient address. The message reads
+`<email>: the message could not be rendered: <reason>`, without `<email>: ` when no recipient had
+started rendering. When the check cannot run right now, the API answers `503` with `Retry-After`:
+nothing was sent and nothing is known to be wrong with the message. The SDK retries it with the
+same idempotency key, so you see the `AhaSendServerError` only when the retries run out.
 
 ## Examples
 

@@ -12,6 +12,11 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   preview text and design right now. It clears by itself, so a `send` or `test` refused with it
   can be called again in a moment; under load it can come and go between reads. Code that
   switches over every `CampaignIssueCode` needs a case for it.
+- `messages.send()`, `sendTemplate()`, `sendConversation()` and `campaigns.test()` document the
+  API's check of every message before it is sent: content that cannot be rendered is refused with
+  `400` and sends nothing, and a check that cannot run right now answers `503` with `Retry-After`.
+  The SDK already retries that `503` with the same idempotency key; the generated response types
+  of these operations now include it.
 
 ## [0.3.0] — 2026-10-12
 

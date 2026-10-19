@@ -431,7 +431,10 @@ export interface CampaignsClient {
    * retries that 429 like any other, with the same addresses, and the count starts again when the
    * UTC day changes. A retry with the same idempotency key replays a success and sends nothing
    * again. A 4xx refusal is not stored and releases the key; an in-progress 409 leaves the key to
-   * the request that holds it. Authorization requires `campaigns:send`.
+   * the request that holds it. The test is checked before it is sent: a design, subject or preview
+   * text that cannot be rendered is refused with a 400 and sends nothing. When the check cannot run
+   * right now, the API answers 503 with `Retry-After`, which the SDK retries with the same key.
+   * Authorization requires `campaigns:send`.
    */
   test(
     campaignId: UUID,
