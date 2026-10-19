@@ -17,6 +17,11 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   `400` and sends nothing, and a check that cannot run right now answers `503` with `Retry-After`.
   The SDK already retries that `503` with the same idempotency key; the generated response types
   of these operations now include it.
+- `TemplateVariable` gains `kind` (`TemplateVariableKind`: `value`, `condition` or `list`), which
+  says what shape of value to send for the variable, and `item_fields`, set only on a `list`
+  variable, which names the fields each element of its array needs. A version published before
+  kinds were recorded shows every variable as `value`. `kind` is required in the type, so code
+  that builds `TemplateVariable` objects by hand, such as test fixtures, needs to set it.
 
 ## [0.3.0] — 2026-10-12
 

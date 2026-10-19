@@ -491,6 +491,8 @@ export interface components {
     TemplateVariable: {
       name: string;
       required: boolean;
+      kind: "value" | "condition" | "list";
+      item_fields?: Array<string>;
     };
     Template: {
       object: "template";

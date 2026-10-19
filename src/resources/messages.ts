@@ -64,10 +64,11 @@ export interface Recipient {
    * Per-recipient template variables, rendered with Jinja2 syntax
    * (`{{ first_name }}`) in the subject and body. On `send()` they override
    * keys of the same name in the request-level `substitutions`; on
-   * `sendTemplate()` they are the only values for the template's variables.
-   * In the HTML and AMP bodies each value is HTML-escaped; write
-   * `{{ name|safe }}` to insert a value as HTML. The subject, the headers and
-   * the text body get values as they are.
+   * `sendTemplate()` they are the only values for the template's variables;
+   * to fill a `list` variable, send an array, and the template's `variables`
+   * show the fields each element needs. In the HTML and AMP bodies each
+   * value is HTML-escaped; write `{{ name|safe }}` to insert a value as HTML.
+   * The subject, the headers and the text body get values as they are.
    */
   substitutions?: Record<string, SubstitutionValue> | undefined;
 }
@@ -202,6 +203,8 @@ export interface CreateTemplateMessageRequest {
    * 1–100 recipients (the API rejects an empty array). A recipient's
    * `substitutions` are the only place for its values of the template's
    * variables, and every required variable needs a value on every recipient.
+   * To fill a `list` variable, send an array; the template's `variables` show
+   * the fields each element needs.
    */
   recipients: readonly Recipient[];
   /**

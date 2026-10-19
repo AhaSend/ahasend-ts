@@ -26,6 +26,7 @@ import type {
   ListTemplateVersionsResponse,
   Template,
   TemplateDraft,
+  TemplateVariableKind,
   TemplateVersionDetail,
   UpdateTemplateRequest,
 } from "../src/resources/templates.js";
@@ -983,8 +984,8 @@ const TEMPLATE_RESPONSE = {
   subject: "Welcome, {{ first_name }}",
   preheader: "Thanks for joining",
   variables: [
-    { name: "first_name", required: true },
-    { name: "unsubscribe_url", required: false },
+    { name: "first_name", required: true, kind: "value" },
+    { name: "unsubscribe_url", required: false, kind: "value" },
   ],
   from: { email: "hello@example.com", name: "Example" },
   reply_to: { email: "support@example.com", name: "" },
@@ -1030,8 +1031,8 @@ describe("TemplatesClient", () => {
     expect(url.search).toBe("?limit=25&after=previous-page");
     expect(calls[0]!.headers["x-trace-id"]).toBe("template-list-1");
     expect(page.data[0]!.variables).toEqual([
-      { name: "first_name", required: true },
-      { name: "unsubscribe_url", required: false },
+      { name: "first_name", required: true, kind: "value" },
+      { name: "unsubscribe_url", required: false, kind: "value" },
     ]);
     expect(page.pagination).toEqual({
       has_more: true,
@@ -1086,6 +1087,38 @@ describe("TemplatesClient", () => {
     expect(template.reply_to).toBeNull();
     expectTypeOf(template.from).toEqualTypeOf<Address | null>();
     expectTypeOf(template.reply_to).toEqualTypeOf<Address | null>();
+  });
+
+  it("get() returns each variable kind and item_fields only where the API sends them", async () => {
+    const variables = [
+      { name: "first_name", required: true, kind: "value" },
+      { name: "vip", required: false, kind: "condition" },
+      { name: "items", required: true, kind: "list", item_fields: ["name", "price"] },
+      { name: "tags", required: true, kind: "list", item_fields: ["value"] },
+      { name: "rows", required: true, kind: "list", item_fields: [] },
+    ];
+    const { fetch } = captureFetch(() => templatePage({ ...TEMPLATE_RESPONSE, variables }));
+    const client = makeClient(fetch);
+
+    const template = await client.templates.get(TEMPLATE_ID);
+
+    expect(template.variables).toEqual(variables);
+    expect(template.variables[0]).not.toHaveProperty("item_fields");
+    expect(template.variables[1]).not.toHaveProperty("item_fields");
+    expect(template.variables[2]!.item_fields).toEqual(["name", "price"]);
+    expect(template.variables[4]!.item_fields).toEqual([]);
+    expectTypeOf(template.variables[0]!.kind).toEqualTypeOf<TemplateVariableKind>();
+    expectTypeOf(template.variables[0]!.item_fields).toEqualTypeOf<string[] | undefined>();
+  });
+
+  it("get() passes a variable kind the SDK does not know through unchanged", async () => {
+    const variables = [{ name: "greeting", required: true, kind: "a_kind_added_later" }];
+    const { fetch } = captureFetch(() => templatePage({ ...TEMPLATE_RESPONSE, variables }));
+    const client = makeClient(fetch);
+
+    const template = await client.templates.get(TEMPLATE_ID);
+
+    expect(template.variables).toEqual(variables);
   });
 
   it("get() rejects an identifier that is not a template UUID before dispatch", () => {

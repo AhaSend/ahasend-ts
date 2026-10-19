@@ -102,6 +102,7 @@ export type {
   TemplatePublisher,
   TemplatesClient,
   TemplateVariable,
+  TemplateVariableKind,
   TemplateVersion,
   TemplateVersionDetail,
   UpdateTemplateRequest,

@@ -712,6 +712,34 @@ const res = await client.messages.sendTemplate({
 console.log("Template send accepted.", { count: res.data.length });
 ```
 
+Each variable's `kind` says what shape of value to send: `value` for text or a number shown in
+the email, `condition` for a value that only decides whether a part of the email is shown, and
+`list` for an array whose elements each repeat a section of the email. A `list` variable's
+`item_fields` names the fields each element needs:
+
+```ts
+const template = await client.templates.get("00000000-0000-4000-8000-000000000009");
+const listVariable = template.variables.find((variable) => variable.kind === "list");
+console.log("List variable found.", { fieldCount: listVariable?.item_fields?.length ?? 0 });
+
+const res = await client.messages.sendTemplate({
+  template_id: template.id,
+  recipients: [
+    {
+      email: "ada@example.com",
+      substitutions: {
+        first_name: "Ada",
+        items: [
+          { name: "Linen shirt", price: "€49" },
+          { name: "Canvas tote", price: "€19" },
+        ],
+      },
+    },
+  ],
+});
+console.log("Template send accepted.", { count: res.data.length });
+```
+
 A template with a default sender can be sent without `from`:
 
 ```ts
@@ -733,6 +761,15 @@ console.log("Template send accepted.", { count: res.data.length });
 - `subject` is required unless the template has a subject.
 - Every variable marked `required` must have a value in every recipient's `substitutions`. A
   request that misses one is refused as a whole, and nothing is sent.
+- A `condition` variable is set by any value that is not empty, such as `true` or `"yes"`; leave
+  it out or send `""`, `false`, `0`, `null`, `[]` or `{}` to leave it not set. The strings
+  `"false"` and `"0"` are not empty, so they set it.
+- In a `list` element, a field the element does not have is taken from the variable of the same
+  name in `substitutions`, if there is one. When `item_fields` is `["value"]`, the elements can be
+  plain values, such as `["new", "sale"]`. When it is empty, send one element of any kind for each
+  time the section repeats.
+- `templates.getVersion()` shows a variable as it was when the version was published. A version
+  published before kinds were recorded shows every variable as `value`, with no `item_fields`.
 - The request takes no body and no request-level `substitutions`: the API answers `400` to
   `text_content`, `html_content`, `amp_content` or `substitutions`.
 - `email` is supplied by AhaSend for each recipient and cannot be overridden: it is that
