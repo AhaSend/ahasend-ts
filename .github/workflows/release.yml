@@ -679,6 +679,8 @@ jobs:
           test "$PACKAGE_NAME" = "@ahasend/sdk"
           PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"
           mkdir -p /tmp/registry
+          # npm can take a minute to serve a version it has just published,
+          # so this read and the install below wait up to 60 seconds for it.
           for ATTEMPT in 1 2 3 4 5
           do
             if npm view "$PACKAGE" --json > /tmp/registry/metadata.json
@@ -686,7 +688,7 @@ jobs:
               break
             fi
             test "$ATTEMPT" -lt 5
-            sleep 5
+            sleep 15
           done
           REGISTRY_TARBALL_URL="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1])).dist.tarball)" /tmp/registry/metadata.json)"
           curl --fail --location --proto '=https' --tlsv1.2 \
@@ -709,7 +711,7 @@ jobs:
               break
             fi
             test "$ATTEMPT" -lt 5
-            sleep 5
+            sleep 15
           done
           test "$(node -p "require('/tmp/registry-smoke/node_modules/@ahasend/sdk/package.json').version")" = "$PACKAGE_VERSION"
 
