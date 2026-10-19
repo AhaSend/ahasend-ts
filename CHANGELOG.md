@@ -6,6 +6,8 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-19
+
 ### Added
 
 - `CampaignIssueCode` gains `text_unchecked`: the API could not check the campaign's subject,
