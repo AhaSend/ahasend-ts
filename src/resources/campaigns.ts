@@ -56,6 +56,9 @@ export type CampaignStatus =
  * - `design_missing`: the campaign has no design, or its design has no HTML.
  * - `text_broken`: the subject, the preview text or the design holds template syntax that cannot
  *   be rendered, so every message would fail.
+ * - `text_unchecked`: the subject, the preview text and the design could not be checked right now.
+ *   Nothing is wrong with them that is known; try again in a moment. Under load it can come and go
+ *   between reads.
  * - `unsubscribe_link_missing`: the HTML uses neither `{{ unsubscribe_url }}` nor
  *   `{{ unsubscribe_link }}`, with or without filters.
  */
@@ -66,6 +69,7 @@ export type CampaignIssueCode =
   | "preheader_missing"
   | "design_missing"
   | "text_broken"
+  | "text_unchecked"
   | "unsubscribe_link_missing";
 
 /** A reason the campaign cannot be sent yet. */
@@ -427,7 +431,10 @@ export interface CampaignsClient {
    * retries that 429 like any other, with the same addresses, and the count starts again when the
    * UTC day changes. A retry with the same idempotency key replays a success and sends nothing
    * again. A 4xx refusal is not stored and releases the key; an in-progress 409 leaves the key to
-   * the request that holds it. Authorization requires `campaigns:send`.
+   * the request that holds it. The test is checked before it is sent: a design, subject or preview
+   * text that cannot be rendered is refused with a 400 and sends nothing. When the check cannot run
+   * right now, the API answers 503 with `Retry-After`, which the SDK retries with the same key.
+   * Authorization requires `campaigns:send`.
    */
   test(
     campaignId: UUID,

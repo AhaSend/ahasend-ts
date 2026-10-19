@@ -178,9 +178,22 @@ describe("authoritative OpenAPI model contracts", () => {
   });
 
   it("pins the transactional template read models", () => {
-    expect(schema("TemplateVariable").required).toEqual(["name", "required"]);
-    expect(Object.keys(properties("TemplateVariable"))).toEqual(["name", "required"]);
+    expect(schema("TemplateVariable").required).toEqual(["name", "required", "kind"]);
+    expect(Object.keys(properties("TemplateVariable"))).toEqual([
+      "name",
+      "required",
+      "kind",
+      "item_fields",
+    ]);
     expect(property("TemplateVariable", "required").type).toBe("boolean");
+    expect(property("TemplateVariable", "kind")).toMatchObject({
+      type: "string",
+      enum: ["value", "condition", "list"],
+    });
+    expect(property("TemplateVariable", "item_fields")).toMatchObject({
+      type: "array",
+      items: { type: "string" },
+    });
 
     expect(schema("Template").required).toEqual([
       "object",
@@ -338,6 +351,7 @@ describe("authoritative OpenAPI model contracts", () => {
       "preheader_missing",
       "design_missing",
       "text_broken",
+      "text_unchecked",
       "unsubscribe_link_missing",
     ]);
   });

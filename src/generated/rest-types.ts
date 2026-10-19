@@ -491,6 +491,8 @@ export interface components {
     TemplateVariable: {
       name: string;
       required: boolean;
+      kind: "value" | "condition" | "list";
+      item_fields?: Array<string>;
     };
     Template: {
       object: "template";
@@ -626,6 +628,7 @@ export interface components {
         | "preheader_missing"
         | "design_missing"
         | "text_broken"
+        | "text_unchecked"
         | "unsubscribe_link_missing";
       message: string;
     };
@@ -1512,6 +1515,7 @@ export interface operations {
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   createTemplateMessage: {
@@ -1532,6 +1536,7 @@ export interface operations {
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   createConversationMessage: {
@@ -1551,6 +1556,7 @@ export interface operations {
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   getMessage: {
@@ -2078,6 +2084,7 @@ export interface operations {
       "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "502": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   getCampaignStats: {

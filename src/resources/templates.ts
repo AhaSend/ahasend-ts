@@ -13,7 +13,22 @@ import type {
 } from "../types/common.js";
 import { forwardOptions, forwardWithIdempotency } from "./_helpers.js";
 
-/** One variable a template's design uses, and whether a send must supply it. */
+/**
+ * What kind of value to send for a template variable.
+ *
+ * - `value`: text or a number that appears in the email, such as a first name.
+ * - `condition`: used only to decide whether a part of the email is shown, for example "show this
+ *   section if `vip` is set". It never appears in the email. To make it set, send a value that is
+ *   not empty, such as `true` or `"yes"`. To make it not set, leave it out or send `""`, `false`,
+ *   `0`, `null`, `[]` or `{}`. The strings `"false"` and `"0"` are not empty, so they make it set.
+ *   A rule can also compare it, for example "show this section if `plan` equals `gold`"; then send
+ *   a value that meets the rule to show the section.
+ * - `list`: an array. A section of the email is repeated once for each element, for example one
+ *   row per product in an order. `item_fields` names the fields each element should have.
+ */
+export type TemplateVariableKind = "value" | "condition" | "list";
+
+/** One variable a template's design uses: its kind, and whether a send must supply it. */
 export interface TemplateVariable {
   name: string;
   /**
@@ -21,6 +36,19 @@ export interface TemplateVariable {
    * `unsubscribe_url`, which the send supplies itself.
    */
   required: boolean;
+  /** What kind of value to send for this variable. */
+  kind: TemplateVariableKind;
+  /**
+   * Only on a `list` variable. The fields the repeated section uses from each element: send each
+   * element as an object with these fields. A field an element does not have is taken from the
+   * variable of the same name in `substitutions`, if there is one.
+   *
+   * A section that shows each element as it is, such as a list of tags, uses the field `value`;
+   * when `item_fields` is `["value"]`, the elements can be plain values, such as
+   * `["new", "sale"]`. Empty when the section uses nothing from its elements: send one element, of
+   * any kind, for each time the section repeats.
+   */
+  item_fields?: string[];
 }
 
 /**
@@ -59,6 +87,10 @@ export interface Template {
   subject: string;
   /** The published preview text, injected into the delivered HTML when it is set. */
   preheader: string;
+  /**
+   * Every variable the design uses. A send takes the values only from each recipient's
+   * `substitutions`, and each variable's `kind` says what shape of value to send.
+   */
   variables: TemplateVariable[];
   /**
    * The default sender, used by a send that names no `from`. `null` when the
@@ -124,6 +156,11 @@ export interface TemplateVersion {
 export interface TemplateVersionDetail extends TemplateVersion {
   subject: string;
   preheader: string;
+  /**
+   * Every variable the version uses, as saved when the version was published. A version published
+   * before kinds were recorded shows every variable as `value`, with no `item_fields`; save and
+   * publish the template again to get a version that records them.
+   */
   variables: TemplateVariable[];
   from: Address | null;
   /** The version's default reply-to address. Its `name` is always empty. */

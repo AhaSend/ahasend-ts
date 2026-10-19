@@ -6,6 +6,23 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `CampaignIssueCode` gains `text_unchecked`: the API could not check the campaign's subject,
+  preview text and design right now. It clears by itself, so a `send` or `test` refused with it
+  can be called again in a moment; under load it can come and go between reads. Code that
+  switches over every `CampaignIssueCode` needs a case for it.
+- `messages.send()`, `sendTemplate()`, `sendConversation()` and `campaigns.test()` document the
+  API's check of every message before it is sent: content that cannot be rendered is refused with
+  `400` and sends nothing, and a check that cannot run right now answers `503` with `Retry-After`.
+  The SDK already retries that `503` with the same idempotency key; the generated response types
+  of these operations now include it.
+- `TemplateVariable` gains `kind` (`TemplateVariableKind`: `value`, `condition` or `list`), which
+  says what shape of value to send for the variable, and `item_fields`, set only on a `list`
+  variable, which names the fields each element of its array needs. A version published before
+  kinds were recorded shows every variable as `value`. `kind` is required in the type, so code
+  that builds `TemplateVariable` objects by hand, such as test fixtures, needs to set it.
+
 ## [0.3.0] — 2026-10-12
 
 ### Added

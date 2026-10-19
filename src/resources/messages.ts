@@ -64,10 +64,11 @@ export interface Recipient {
    * Per-recipient template variables, rendered with Jinja2 syntax
    * (`{{ first_name }}`) in the subject and body. On `send()` they override
    * keys of the same name in the request-level `substitutions`; on
-   * `sendTemplate()` they are the only values for the template's variables.
-   * In the HTML and AMP bodies each value is HTML-escaped; write
-   * `{{ name|safe }}` to insert a value as HTML. The subject, the headers and
-   * the text body get values as they are.
+   * `sendTemplate()` they are the only values for the template's variables;
+   * to fill a `list` variable, send an array, and the template's `variables`
+   * show the fields each element needs. In the HTML and AMP bodies each
+   * value is HTML-escaped; write `{{ name|safe }}` to insert a value as HTML.
+   * The subject, the headers and the text body get values as they are.
    */
   substitutions?: Record<string, SubstitutionValue> | undefined;
 }
@@ -202,6 +203,8 @@ export interface CreateTemplateMessageRequest {
    * 1–100 recipients (the API rejects an empty array). A recipient's
    * `substitutions` are the only place for its values of the template's
    * variables, and every required variable needs a value on every recipient.
+   * To fill a `list` variable, send an array; the template's `variables` show
+   * the fields each element needs.
    */
   recipients: readonly Recipient[];
   /**
@@ -384,6 +387,13 @@ export interface MessagesClient {
    * key for your own retries; stored non-server-error results can be replayed
    * for 24 hours, while server errors release the key for re-execution.
    *
+   * Every message is checked before it is sent. Content that cannot be
+   * rendered with a recipient's values is refused with HTTP 400
+   * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
+   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * the SDK retries it with the same idempotency key, so you see an
+   * `AhaSendServerError` only when the retries run out.
+   *
    * While sending from the `from.email` domain is paused, the API refuses the
    * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a
    * paused domain is accepted.
@@ -422,6 +432,13 @@ export interface MessagesClient {
    * key for your own retries; stored non-server-error results can be replayed
    * for 24 hours, while server errors release the key for re-execution.
    *
+   * Every message is checked before it is sent. Content that cannot be
+   * rendered with a recipient's values is refused with HTTP 400
+   * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
+   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * the SDK retries it with the same idempotency key, so you see an
+   * `AhaSendServerError` only when the retries run out.
+   *
    * A `template_id` that is not one of the account's transactional templates
    * is refused with HTTP 404 (`AhaSendNotFoundError`). While sending from the
    * sender's domain is paused, the API refuses the message with HTTP 403
@@ -459,6 +476,13 @@ export interface MessagesClient {
    *   log.warn("some recipients were not queued", failed);
    * }
    * ```
+   *
+   * Every message is checked before it is sent. Content that cannot be
+   * rendered with a recipient's values is refused with HTTP 400
+   * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
+   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * the SDK retries it with the same idempotency key, so you see an
+   * `AhaSendServerError` only when the retries run out.
    *
    * While sending from the `from.email` domain is paused, the API refuses the
    * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a
@@ -531,6 +555,13 @@ class MessagesClientImplementation implements MessagesClient {
    * key for your own retries; stored non-server-error results can be replayed
    * for 24 hours, while server errors release the key for re-execution.
    *
+   * Every message is checked before it is sent. Content that cannot be
+   * rendered with a recipient's values is refused with HTTP 400
+   * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
+   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * the SDK retries it with the same idempotency key, so you see an
+   * `AhaSendServerError` only when the retries run out.
+   *
    * While sending from the `from.email` domain is paused, the API refuses the
    * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a
    * paused domain is accepted.
@@ -562,6 +593,13 @@ class MessagesClientImplementation implements MessagesClient {
    * key for your own retries; stored non-server-error results can be replayed
    * for 24 hours, while server errors release the key for re-execution.
    *
+   * Every message is checked before it is sent. Content that cannot be
+   * rendered with a recipient's values is refused with HTTP 400
+   * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
+   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * the SDK retries it with the same idempotency key, so you see an
+   * `AhaSendServerError` only when the retries run out.
+   *
    * A `template_id` that is not one of the account's transactional templates
    * is refused with HTTP 404 (`AhaSendNotFoundError`). While sending from the
    * sender's domain is paused, the API refuses the message with HTTP 403
@@ -592,6 +630,13 @@ class MessagesClientImplementation implements MessagesClient {
    * Send a single message to multiple To/Cc/Bcc recipients (combined ≤ 50).
    * To and Cc recipients can see one another; Bcc recipients remain hidden.
    * Use {@link send} for individualized fan-out.
+   *
+   * Every message is checked before it is sent. Content that cannot be
+   * rendered with a recipient's values is refused with HTTP 400
+   * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
+   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * the SDK retries it with the same idempotency key, so you see an
+   * `AhaSendServerError` only when the retries run out.
    *
    * While sending from the `from.email` domain is paused, the API refuses the
    * message with HTTP 403 (`AhaSendPermissionError`); a sandbox message from a

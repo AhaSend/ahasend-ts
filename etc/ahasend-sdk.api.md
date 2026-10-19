@@ -519,7 +519,7 @@ export interface CampaignIssue {
 }
 
 // @public
-export type CampaignIssueCode = "sender_missing" | "lists_missing" | "subject_missing" | "preheader_missing" | "design_missing" | "text_broken" | "unsubscribe_link_missing";
+export type CampaignIssueCode = "sender_missing" | "lists_missing" | "subject_missing" | "preheader_missing" | "design_missing" | "text_broken" | "text_unchecked" | "unsubscribe_link_missing";
 
 // @public
 export interface CampaignListItem {
@@ -2032,7 +2032,6 @@ export interface Template {
     subject: string;
     // (undocumented)
     updated_at: ISODateTime;
-    // (undocumented)
     variables: TemplateVariable[];
 }
 
@@ -2097,10 +2096,15 @@ export interface TemplatesClient {
 
 // @public
 export interface TemplateVariable {
+    item_fields?: string[];
+    kind: TemplateVariableKind;
     // (undocumented)
     name: string;
     required: boolean;
 }
+
+// @public
+export type TemplateVariableKind = "value" | "condition" | "list";
 
 // @public
 export interface TemplateVersion {
@@ -2124,7 +2128,6 @@ export interface TemplateVersionDetail extends TemplateVersion {
     reply_to: Address | null;
     // (undocumented)
     subject: string;
-    // (undocumented)
     variables: TemplateVariable[];
 }
 

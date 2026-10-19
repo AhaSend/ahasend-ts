@@ -274,7 +274,7 @@ retries `408`, `429`, `5xx`, network failures, timeouts, and eligible keyed
 `409` responses while an idempotent operation is still in progress — never
 other 4xx. Key-protected operations require an idempotency key to be
 retryable; the SDK supplies one unless automatic key generation is disabled.
-A valid server `Retry-After` on 429 (seconds or HTTP-date) or an eligible keyed
+A valid server `Retry-After` on 408, 429 or 5xx (seconds or HTTP-date) or an eligible keyed
 409 (positive integer seconds) is authoritative and capped at the configured
 `maxDelayMs` (30 seconds by default). Configure via the `retry` option;
 `maxRetries: 3` means up to 4 total attempts for an eligible operation.
@@ -534,6 +534,16 @@ generated profile permits retries. Operations classified as never retryable,
 and key-protected operations called without a key, make one attempt even for
 those failures. Other errors throw immediately.
 
+Every message of `messages.send()`, `sendTemplate()` and `sendConversation()`, and every
+`campaigns.test()`, is checked before it is sent. The request is refused with `400`
+(`AhaSendBadRequestError`), and nothing of it is sent, when content cannot be rendered with a
+recipient's values, calls `random`, `randrange`, `lipsum` or `now`, uses `namespace` or passes a
+work, output, memory or time limit, or when the check cannot read a recipient address. The message reads
+`<email>: the message could not be rendered: <reason>`, without `<email>: ` when no recipient had
+started rendering. When the check cannot run right now, the API answers `503` with `Retry-After`:
+nothing was sent and nothing is known to be wrong with the message. The SDK retries it with the
+same idempotency key, so you see the `AhaSendServerError` only when the retries run out.
+
 ## Examples
 
 Example scripts and framework modules live in the
@@ -702,6 +712,34 @@ const res = await client.messages.sendTemplate({
 console.log("Template send accepted.", { count: res.data.length });
 ```
 
+Each variable's `kind` says what shape of value to send: `value` for text or a number shown in
+the email, `condition` for a value that only decides whether a part of the email is shown, and
+`list` for an array whose elements each repeat a section of the email. A `list` variable's
+`item_fields` names the fields each element needs:
+
+```ts
+const template = await client.templates.get("00000000-0000-4000-8000-000000000009");
+const listVariable = template.variables.find((variable) => variable.kind === "list");
+console.log("List variable found.", { fieldCount: listVariable?.item_fields?.length ?? 0 });
+
+const res = await client.messages.sendTemplate({
+  template_id: template.id,
+  recipients: [
+    {
+      email: "ada@example.com",
+      substitutions: {
+        first_name: "Ada",
+        items: [
+          { name: "Linen shirt", price: "€49" },
+          { name: "Canvas tote", price: "€19" },
+        ],
+      },
+    },
+  ],
+});
+console.log("Template send accepted.", { count: res.data.length });
+```
+
 A template with a default sender can be sent without `from`:
 
 ```ts
@@ -723,6 +761,15 @@ console.log("Template send accepted.", { count: res.data.length });
 - `subject` is required unless the template has a subject.
 - Every variable marked `required` must have a value in every recipient's `substitutions`. A
   request that misses one is refused as a whole, and nothing is sent.
+- A `condition` variable is set by any value that is not empty, such as `true` or `"yes"`; leave
+  it out or send `""`, `false`, `0`, `null`, `[]` or `{}` to leave it not set. The strings
+  `"false"` and `"0"` are not empty, so they set it.
+- In a `list` element, a field the element does not have is taken from the variable of the same
+  name in `substitutions`, if there is one. When `item_fields` is `["value"]`, the elements can be
+  plain values, such as `["new", "sale"]`. When it is empty, send one element of any kind for each
+  time the section repeats.
+- `templates.getVersion()` shows a variable as it was when the version was published. A version
+  published before kinds were recorded shows every variable as `value`, with no `item_fields`.
 - The request takes no body and no request-level `substitutions`: the API answers `400` to
   `text_content`, `html_content`, `amp_content` or `substitutions`.
 - `email` is supplied by AhaSend for each recipient and cannot be overridden: it is that
