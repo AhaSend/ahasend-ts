@@ -1176,9 +1176,9 @@ export const OPERATION_DESCRIPTORS = {
     security: [["templates:delete"]],
     resourceAuthorization: null,
   },
-  getTemplateDraft: {
+  getPublishedTemplate: {
     method: "GET",
-    path: "/v2/accounts/{account_id}/templates/{template_id}/draft",
+    path: "/v2/accounts/{account_id}/templates/{template_id}/published",
     pathParameters: [
       {
         name: "account_id",
@@ -1196,7 +1196,7 @@ export const OPERATION_DESCRIPTORS = {
     success: [
       {
         status: 200,
-        schema: "TemplateDraft",
+        schema: "Template",
       },
     ],
     idempotency: false,

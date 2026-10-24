@@ -117,9 +117,9 @@
       "method": "delete"
     },
     {
-      "operationId": "getTemplateDraft",
+      "operationId": "getPublishedTemplate",
       "facade": "templates",
-      "method": "getDraft"
+      "method": "getPublished"
     },
     {
       "operationId": "discardTemplateDraft",

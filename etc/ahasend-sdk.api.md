@@ -84,6 +84,7 @@ export class AhaSendAPIError extends AhaSendError {
     });
     // (undocumented)
     readonly body: ApiErrorBody | string | null;
+    readonly errors: readonly MarkupProblem[];
     // (undocumented)
     readonly headers: Record<string, string>;
     static is(value: unknown): value is AhaSendAPIError;
@@ -511,6 +512,7 @@ export interface Campaign extends CampaignListItem {
     exclude_segment_ids: UUID[];
     issues: CampaignIssue[] | null;
     list_ids: UUID[];
+    markup_warnings?: MarkupProblem[];
     ready: boolean | null;
     segment_ids: UUID[];
 }
@@ -648,6 +650,7 @@ export interface CampaignTemplate {
     editor: TemplateEditor;
     // (undocumented)
     id: UUID;
+    markup_warnings?: MarkupProblem[];
     name: string;
     // (undocumented)
     object: "campaign_template";
@@ -1488,6 +1491,22 @@ export type ListWebhooksParams = PaginationParams & {
     on_contact_complained?: boolean | undefined;
 };
 
+// @public
+export interface MarkupErrorResponse extends ApiErrorBody {
+    // (undocumented)
+    errors?: MarkupProblem[];
+}
+
+// @public
+export interface MarkupProblem {
+    code: string;
+    column?: number;
+    hint?: string;
+    line?: number;
+    message: string;
+    path?: string;
+}
+
 // @public (undocumented)
 export interface Message extends MessageSummary {
     // (undocumented)
@@ -2199,6 +2218,7 @@ export interface Template {
     has_draft: boolean;
     // (undocumented)
     id: string;
+    markup_warnings?: MarkupProblem[];
     // (undocumented)
     name: string;
     // (undocumented)
@@ -2214,6 +2234,8 @@ export interface Template {
 // @public
 export interface TemplateContent {
     html?: string;
+    markup?: string | null;
+    markup_error?: TemplateMarkupError;
     mjml?: string;
     text?: string;
     text_is_custom: boolean;
@@ -2222,31 +2244,25 @@ export interface TemplateContent {
 // @public
 export interface TemplateContentInput {
     html?: string | undefined;
+    markup?: string | null | undefined;
+    markup_error?: unknown;
     mjml?: string | undefined;
     text?: string | null | undefined;
     text_is_custom?: boolean | undefined;
 }
 
 // @public
-export interface TemplateDraft {
-    content: TemplateContent | null;
+export type TemplateEditor = "advanced" | "simple" | "html";
+
+// @public
+export interface TemplateMarkupError {
     // (undocumented)
-    from: Address | null;
-    // (undocumented)
-    object: "template_draft";
-    // (undocumented)
-    preheader: string;
-    reply_to: Address | null;
-    // (undocumented)
-    subject: string;
-    // (undocumented)
-    template_id: UUID;
-    updated_at: ISODateTime;
-    variables: TemplateVariable[];
+    code: TemplateMarkupErrorCode;
+    message: string;
 }
 
 // @public
-export type TemplateEditor = "advanced" | "simple" | "html";
+export type TemplateMarkupErrorCode = "no_design" | "html_block" | "unmapped_block" | "bad_stored_value" | "renderer_unavailable" | "rate_limited";
 
 // @public
 export interface TemplatePublisher {
@@ -2260,7 +2276,7 @@ export interface TemplatesClient {
     delete(templateId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
     discardDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>;
     get(templateId: string, options?: RequestOptions): AhaSendPromise<Template>;
-    getDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<TemplateDraft>;
+    getPublished(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>;
     getVersion(templateId: UUID, versionId: UUID, options?: RequestOptions): AhaSendPromise<TemplateVersionDetail>;
     iterate(params?: ListTemplatesParams, options?: RequestOptions): AsyncGenerator<Template, void, undefined>;
     list(params?: ListTemplatesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Template>>;

@@ -727,9 +727,16 @@ const client = AhaSendClient.fromEnv();
 // The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const templateId = "00000000-0000-4000-8000-000000000009";
 // Fields go to the template's draft; publish: true also publishes it.
+// A simple design is written as AhaSend Markup (AhaML) in content.markup.
 const template = await client.templates.update(templateId, {
   subject: "Welcome to the team, {{ first_name }}",
-  preheader: null,
+  content: {
+    markup: `<Email version="1">
+  <Heading level="3">Welcome to the team</Heading>
+  <Paragraph>Hi <Var name="first_name" fallback="there"/>, thanks for signing up.</Paragraph>
+</Email>
+`,
+  },
   publish: true,
 });
 console.log("Template updated.", { id: template.id, hasDraft: template.has_draft });
@@ -766,25 +773,25 @@ const result = await client.templates.delete(templateId);
 console.log("Template deleted.", { message: result.message });
 ```
 
-<!-- operation: getTemplateDraft -->
+<!-- operation: getPublishedTemplate -->
 
-### templates.getDraft
+### templates.getPublished
 
 ```ts
-client.templates.getDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<TemplateDraft>
+client.templates.getPublished(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>
 ```
 
-- **Operation ID:** `getTemplateDraft`
-- **HTTP:** `GET /v2/accounts/{account_id}/templates/{template_id}/draft`
-- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [TemplateDraft](../src/resources/templates.ts)
-- **OpenAPI models:** `200: TemplateDraft`
+- **Operation ID:** `getPublishedTemplate`
+- **HTTP:** `GET /v2/accounts/{account_id}/templates/{template_id}/published`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Template](../src/resources/templates.ts)
+- **OpenAPI models:** `200: Template`
 - **Scopes:** `templates:read`
 - **Security alternatives:** `BearerAuth: templates:read`
 - **Idempotency:** Not supported by this operation.
 - **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
 - **Authorization rule:** `none`
 
-<!-- sdk-sample: getTemplateDraft -->
+<!-- sdk-sample: getPublishedTemplate -->
 
 #### Node.js 22+ (AhaSend SDK)
 
@@ -793,8 +800,13 @@ import { AhaSendClient } from "@ahasend/sdk";
 
 const client = AhaSendClient.fromEnv();
 const templateId = "00000000-0000-4000-8000-000000000009";
-const draft = await client.templates.getDraft(templateId);
-console.log("Template draft found.", { templateId: draft.template_id, subject: draft.subject });
+// The published copy is the one a send uses; get() returns the draft while one exists.
+const template = await client.templates.getPublished(templateId);
+console.log("Published template found.", {
+  subject: template.subject,
+  hasDraft: template.has_draft,
+  variables: template.variables.length,
+});
 ```
 
 <!-- operation: discardTemplateDraft -->

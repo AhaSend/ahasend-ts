@@ -35,13 +35,27 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   `on_contact_complained`. Each is off unless set, so an existing webhook gets nothing new. The
   contact events need the contact read scopes on the API key.
 - `Webhook`, `CreateWebhookRequest` and `UpdateWebhookRequest` gain `origins` (`WebhookOrigin[] |
-  null`): whose changes the contact and suppression events report, `recipient`, `api`,
+null`): whose changes the contact and suppression events report, `recipient`, `api`,
   `dashboard` or `system`; `null` means every origin. An empty array is refused with `400`.
+- `TemplateContent` gains `markup`, the design of a `simple` template, campaign template or
+  campaign as AhaSend Markup (AhaML), and `markup_error` (`TemplateMarkupError`), which says why
+  `markup` is `null` when AhaML cannot be made. `TemplateContentInput` gains `markup`, which writes
+  a `simple` design, and accepts a read `markup_error` back and ignores it, so a read `content` can
+  be sent back as it is.
+- `Template`, `CampaignTemplate` and `Campaign` gain `markup_warnings`, present only in the answer
+  to a write that carried `content.markup`.
+- `AhaSendAPIError` gains `errors`: the problems (`MarkupProblem`) of AhaML a write refused, from
+  the `400` body (`MarkupErrorResponse`); empty for every other error.
+- `templates.getPublished()` returns a template's published copy, the one a send uses, with the
+  variables a send must supply. Read it to build a send.
 
 ### Changed
 
 - `Webhook` requires the new event settings and `origins`, which the API always returns. Code that
   builds a `Webhook` object by hand, as in a test double, needs them.
+- `templates.get()` and the template writes return the working copy: the draft while one exists,
+  and the published copy otherwise, so a template read, changed and sent back to `update()` builds
+  on what was read. Code that builds a send from `get()` should call `getPublished()`.
 - `CampaignRecipient.list_name` is `string | null`: it is `null` for a recipient sent to from a
   segment. Code that reads it as a string needs a null check.
 - `campaigns.create()` and `update()` no longer refuse an empty `list_ids` with
@@ -52,6 +66,11 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   contact and a segment whose rule matches only that contact, read, list, preview and rename the
   segment, read its members and the contact's segments, and delete both. The live API key needs
   `segments:read`, `segments:write` and `segments:delete`.
+
+### Removed
+
+- `templates.getDraft()` and the `TemplateDraft` type, because the API no longer has the draft
+  read. `get()` returns the draft while one exists.
 
 ## [0.4.0] — 2026-10-19
 

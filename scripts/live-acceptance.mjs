@@ -104,7 +104,7 @@ const templateSendOperationId = "createTemplateMessage";
 const templateWriteOperationIds = Object.freeze([
   "createTemplate",
   "updateTemplate",
-  "getTemplateDraft",
+  "getPublishedTemplate",
   "publishTemplate",
   "listTemplateVersions",
   "getTemplateVersion",
@@ -3338,7 +3338,7 @@ export function createTemplateScenarioRegistry({
     create: mappedOperation("createTemplate"),
     update: mappedOperation("updateTemplate"),
     delete: mappedOperation("deleteTemplate"),
-    getDraft: mappedOperation("getTemplateDraft"),
+    getPublished: mappedOperation("getPublishedTemplate"),
     discardDraft: mappedOperation("discardTemplateDraft"),
     publish: mappedOperation("publishTemplate"),
     listVersions: mappedOperation("listTemplateVersions"),
@@ -3587,10 +3587,10 @@ export function createTemplateScenarioRegistry({
             "Template update scenario response",
             id,
           );
-          // The update goes to the draft; the answer is the published copy.
-          if (!template.hasDraft || template.subject !== createBody.subject) {
+          // The update goes to the draft; the answer is the working copy, the draft.
+          if (!template.hasDraft || template.subject !== updateBody.subject) {
             throw new TypeError(
-              "Template update scenario must leave a draft and answer the published copy.",
+              "Template update scenario must leave a draft and answer the working copy.",
             );
           }
           return Object.freeze({ evidence: Object.freeze({ hasDraft: true }) });
@@ -3598,22 +3598,25 @@ export function createTemplateScenarioRegistry({
       },
     ],
     [
-      "getTemplateDraft",
+      "getPublishedTemplate",
       {
-        operationId: "getTemplateDraft",
+        operationId: "getPublishedTemplate",
         async run() {
           const id = requireWriteTemplateId();
-          const draft = requireObject(
-            await methods.getDraft(id),
-            "Template draft scenario response",
+          const template = requireTemplateResult(
+            await methods.getPublished(id),
+            "Template published scenario response",
+            id,
           );
-          if (draft.object !== "template_draft" || draft.template_id !== id) {
-            throw new TypeError("Template draft scenario returned the wrong draft.");
+          // The update is still a draft, so the published copy keeps the created subject.
+          if (!template.hasDraft || template.subject !== createBody.subject) {
+            throw new TypeError(
+              "Template published scenario must answer the published copy while a draft exists.",
+            );
           }
-          if (draft.subject !== updateBody.subject) {
-            throw new TypeError("Template draft scenario must carry the updated subject.");
+          if (typeof template.content?.html !== "string") {
+            throw new TypeError("Template published scenario must answer the published HTML.");
           }
-          requireTemplateContent(draft.content, "Template draft scenario response content");
           return Object.freeze({ evidence: Object.freeze({ matched: true }) });
         },
       },
@@ -3699,10 +3702,11 @@ export function createTemplateScenarioRegistry({
             "Template restore scenario response",
             id,
           );
-          // Version 1 differs from the published version 2, so it stays a draft.
-          if (!template.hasDraft || template.subject !== updateBody.subject) {
+          // Version 1 differs from the published version 2, so it stays a draft, which the
+          // answer, the working copy, holds.
+          if (!template.hasDraft || template.subject !== createBody.subject) {
             throw new TypeError(
-              "Template restore scenario must restore version 1 into the draft and keep the published copy.",
+              "Template restore scenario must restore version 1 into the draft and answer it.",
             );
           }
           return Object.freeze({ evidence: Object.freeze({ hasDraft: true }) });
@@ -3720,15 +3724,11 @@ export function createTemplateScenarioRegistry({
             "Template discard scenario response",
             id,
           );
-          if (template.hasDraft) {
-            throw new TypeError("Template discard scenario must leave no draft.");
+          if (template.hasDraft || template.subject !== updateBody.subject) {
+            throw new TypeError(
+              "Template discard scenario must leave no draft and answer the published copy.",
+            );
           }
-          await requireResourceAbsent(
-            methods.getDraft,
-            id,
-            "Template discard verification",
-            "template draft",
-          );
           return Object.freeze({ evidence: Object.freeze({ discarded: true }) });
         },
       },
@@ -7840,7 +7840,7 @@ function requireTemplateOutcomes(operations) {
     ["hasDraft", false],
   ]);
   requireOperationOutcomes(operations, "updateTemplate", [["hasDraft", true]]);
-  requireOperationOutcomes(operations, "getTemplateDraft", [["matched", true]]);
+  requireOperationOutcomes(operations, "getPublishedTemplate", [["matched", true]]);
   requireOperationOutcomes(operations, "publishTemplate", [["published", true]]);
   requireOperationOutcomes(operations, "listTemplateVersions", [
     ["versions", 2],

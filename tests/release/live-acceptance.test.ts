@@ -205,7 +205,7 @@ function completeLiveResults(candidate: LiveCandidate) {
     hasDraft: false,
   };
   byId.get("updateTemplate")!.evidence = { hasDraft: true };
-  byId.get("getTemplateDraft")!.evidence = { matched: true };
+  byId.get("getPublishedTemplate")!.evidence = { matched: true };
   byId.get("publishTemplate")!.evidence = { published: true };
   byId.get("listTemplateVersions")!.evidence = { publishedBy: "api_key", versions: 2 };
   byId.get("getTemplateVersion")!.evidence = { matched: true, version: 1 };
@@ -523,6 +523,7 @@ function templateClientFixture(
     draft: null as string | null,
     versions: [] as Array<{ id: string; version: number; subject: string }>,
   };
+  // The published copy, which getPublished() answers.
   const disposableView = () => ({
     ...template(disposableId),
     name: disposable.name,
@@ -531,6 +532,8 @@ function templateClientFixture(
     has_draft: disposable.draft !== null,
     content,
   });
+  // The working copy, the draft while one exists, which get() and the writes answer.
+  const workingView = () => ({ ...disposableView(), subject: disposable.draft ?? disposable.published });
   const requireSendTemplate = (id: string) => {
     if (id !== sendTemplateId || !sendTemplate.exists) throw notFound();
   };
@@ -583,7 +586,7 @@ function templateClientFixture(
         calls.push(`get:${id}`);
         if (id === disposableId) {
           requireDisposable(id);
-          return disposableView();
+          return workingView();
         }
         requireSendTemplate(id);
         return { ...sendTemplateView(), id: options.getTemplateId ?? id };
@@ -599,13 +602,13 @@ function templateClientFixture(
         disposable.name = body.name;
         publishVersion(body.subject);
         if (options.loseCreateResponse === "disposable") throw new Error("connection reset");
-        return disposableView();
+        return workingView();
       }),
       update: vi.fn(async (id: string, body: { subject: string }) => {
         writes.push(["update", id, body]);
         requireDisposable(id);
         disposable.draft = body.subject;
-        return disposableView();
+        return workingView();
       }),
       delete: vi.fn(async (id: string) => {
         writes.push(["delete", id]);
@@ -618,32 +621,21 @@ function templateClientFixture(
         }
         return { message: "template deleted" };
       }),
-      getDraft: vi.fn(async (id: string) => {
+      getPublished: vi.fn(async (id: string) => {
         requireDisposable(id);
-        if (disposable.draft === null) throw notFound();
-        return {
-          object: "template_draft",
-          template_id: id,
-          updated_at: "2026-10-01T00:00:00Z",
-          subject: disposable.draft,
-          preheader: "",
-          variables: [],
-          from: null,
-          reply_to: null,
-          content,
-        };
+        return disposableView();
       }),
       discardDraft: vi.fn(async (id: string) => {
         writes.push(["discardDraft", id]);
         requireDisposable(id);
         disposable.draft = null;
-        return disposableView();
+        return workingView();
       }),
       publish: vi.fn(async (id: string) => {
         writes.push(["publish", id]);
         requireDisposable(id);
         if (disposable.draft !== null) publishVersion(disposable.draft);
-        return disposableView();
+        return workingView();
       }),
       listVersions: vi.fn(async (id: string) => {
         requireDisposable(id);
@@ -669,7 +661,7 @@ function templateClientFixture(
         const entry = disposable.versions.find((version) => version.id === versionId);
         if (entry === undefined) throw notFound();
         disposable.draft = entry.subject === disposable.published ? null : entry.subject;
-        return disposableView();
+        return workingView();
       }),
     },
     messages: {
@@ -3532,8 +3524,8 @@ describe("live scenario inventory", () => {
       "createTemplateMessage",
       "deleteTemplate",
       "discardTemplateDraft",
+      "getPublishedTemplate",
       "getTemplate",
-      "getTemplateDraft",
       "getTemplateVersion",
       "listTemplateVersions",
       "listTemplates",
@@ -3611,7 +3603,7 @@ describe("live scenario inventory", () => {
         evidence: { cleanupRegistered: true, editor: "html", hasDraft: false },
       },
       { operationId: "updateTemplate", status: "passed", evidence: { hasDraft: true } },
-      { operationId: "getTemplateDraft", status: "passed", evidence: { matched: true } },
+      { operationId: "getPublishedTemplate", status: "passed", evidence: { matched: true } },
       { operationId: "publishTemplate", status: "passed", evidence: { published: true } },
       {
         operationId: "listTemplateVersions",
