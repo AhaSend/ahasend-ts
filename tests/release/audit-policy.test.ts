@@ -170,12 +170,22 @@ describe("dependency audit policy", () => {
       expect(packageLock.packages[path]).toBeUndefined();
     }
 
-    // esbuild is the one override left: it holds the bundler at the version the
-    // packed-output tests assert, and npm does not record overrides in the
-    // lockfile, so deleting it is otherwise undetectable.
-    expect(packageJson.overrides).toEqual({ esbuild: "0.28.1" });
+    // npm does not record overrides in the lockfile, so deleting one is
+    // otherwise undetectable. esbuild holds the bundler at the version the
+    // packed-output tests assert. Every miniflare release pins undici 7.29.1,
+    // which GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472 and GHSA-xjj6-f33q-929c
+    // (high) affect; the override moves wrangler's miniflare to the fixed
+    // 7.30.1 until a miniflare release carries it.
+    expect(packageJson.overrides).toEqual({
+      esbuild: "0.28.1",
+      miniflare: { undici: "7.30.1" },
+    });
     expect(lockfilePackage("node_modules/esbuild")).toMatchObject({
       version: "0.28.1",
+      dev: true,
+    });
+    expect(lockfilePackage("node_modules/undici")).toMatchObject({
+      version: "7.30.1",
       dev: true,
     });
   });
@@ -230,29 +240,33 @@ describe("dependency audit policy", () => {
     });
   });
 
-  it("limits the committed exception register to the unpatched sprintf-js advisory", () => {
-    // GHSA-hp3w-g68c-fv3c covers every published sprintf-js, and every
-    // api-extractor release reaches it through argparse 1.x, so the register
-    // carries one exception per finding on that chain. Any other entry needs
-    // its own review rather than a quiet addition here.
-    expect(auditExceptions.exceptions.map(({ id }) => id)).toEqual([
-      "sprintf-js-GHSA-hp3w-g68c-fv3c",
-      "argparse-GHSA-hp3w-g68c-fv3c",
-      "@rushstack/ts-command-line-GHSA-hp3w-g68c-fv3c",
-      "@microsoft/api-extractor-GHSA-hp3w-g68c-fv3c",
-      "tsup-GHSA-hp3w-g68c-fv3c",
-    ]);
-    for (const exception of auditExceptions.exceptions) {
-      expect(exception.severity).toBe("moderate");
-    }
-    const reviewedOn = auditExceptions.exceptions[0]?.reviewedOn;
+  it("keeps the committed exception register empty while the dependency graph is clean", () => {
+    // Any entry needs its own review rather than a quiet addition here.
+    expect(auditExceptions).toEqual({ version: 1, exceptions: [] });
+    expect(() =>
+      validateAuditReports({
+        fullReport: auditCases.reports.clean,
+        productionReport: auditCases.reports.clean,
+        policy: auditPolicy,
+        exceptions: auditExceptions,
+        today: auditCases.today,
+      }),
+    ).not.toThrow();
+  });
+
+  it("accepts an unpatched chain on the direct dependency versions in the lockfile", () => {
+    // GHSA-hp3w-g68c-fv3c reported every published sprintf-js as affected, and
+    // every api-extractor release reached it through argparse 1.x, so its
+    // register carried one exception per finding on that chain.
+    const exceptions = auditCases.exceptionSets.sprintfJsChain;
+    const reviewedOn = exceptions.exceptions[0]?.reviewedOn;
     if (reviewedOn === undefined) throw new TypeError("The exception register is empty.");
     expect(() =>
       validateAuditReports({
         fullReport: auditCases.reports.sprintfJsChain,
         productionReport: auditCases.reports.clean,
         policy: auditPolicy,
-        exceptions: auditExceptions,
+        exceptions,
         installedVersions: {
           "@microsoft/api-extractor": lockfileVersion("node_modules/@microsoft/api-extractor"),
           tsup: lockfileVersion("node_modules/tsup"),
@@ -453,10 +467,11 @@ describe("dependency audit policy", () => {
   it("runs the tested validator from the CLI with development dependencies explicitly included", () => {
     const directory = mkdtempSync(join(tmpdir(), "ahasend-audit-cli-"));
     temporaryDirectories.push(directory);
-    // The CLI runs on the real clock, so the committed register would expire
-    // this test along with it. A copy of the script runs against the committed
-    // register with its review window moved around today instead; the
+    // The CLI runs on the real clock, so a dated register would expire this
+    // test along with it. A copy of the script runs against the sprintf-js
+    // chain register with its review window moved around today instead; the
     // register's own dates are checked above at a fixed date.
+    const exceptions = auditCases.exceptionSets.sprintfJsChain;
     const day = 86_400_000;
     const isoDate = (offset: number) => new Date(Date.now() + offset).toISOString().slice(0, 10);
     mkdirSync(join(directory, "scripts"));
@@ -467,8 +482,8 @@ describe("dependency audit policy", () => {
     writeFileSync(
       join(directory, "security/audit-exceptions.json"),
       JSON.stringify({
-        ...auditExceptions,
-        exceptions: auditExceptions.exceptions.map((exception) => ({
+        ...exceptions,
+        exceptions: exceptions.exceptions.map((exception) => ({
           ...exception,
           reviewedOn: isoDate(-day),
           expiresOn: isoDate(2 * day),
@@ -478,7 +493,7 @@ describe("dependency audit policy", () => {
     const npmStub = resolve(directory, "npm-stub.mjs");
     const callLog = resolve(directory, "calls.jsonl");
     const cleanReport = JSON.stringify(auditCases.reports.clean);
-    // The full report carries the findings the committed register covers, so
+    // The full report carries the findings that register covers, so
     // the CLI also proves it reads installed versions from the lockfile.
     const fullReport = JSON.stringify(auditCases.reports.sprintfJsChain);
     writeFileSync(

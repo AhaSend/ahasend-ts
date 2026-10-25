@@ -739,6 +739,59 @@
           "reason": "The unpatched advisory is confined to a local development tool."
         }
       ]
+    },
+    "sprintfJsChain": {
+      "version": 1,
+      "exceptions": [
+        {
+          "id": "sprintf-js-GHSA-hp3w-g68c-fv3c",
+          "packageName": "sprintf-js",
+          "severity": "moderate",
+          "range": "*",
+          "via": [1241202],
+          "reviewedOn": "2026-10-06",
+          "expiresOn": "2027-01-04",
+          "reason": "The unpatched advisory reaches only the api-extractor CLI."
+        },
+        {
+          "id": "argparse-GHSA-hp3w-g68c-fv3c",
+          "packageName": "argparse",
+          "severity": "moderate",
+          "range": "1.0.0 - 1.0.10",
+          "via": ["sprintf-js"],
+          "reviewedOn": "2026-10-06",
+          "expiresOn": "2027-01-04",
+          "reason": "The unpatched advisory reaches only the api-extractor CLI."
+        },
+        {
+          "id": "@rushstack/ts-command-line-GHSA-hp3w-g68c-fv3c",
+          "packageName": "@rushstack/ts-command-line",
+          "severity": "moderate",
+          "range": ">=4.3.11",
+          "via": ["argparse"],
+          "reviewedOn": "2026-10-06",
+          "expiresOn": "2027-01-04",
+          "reason": "The unpatched advisory reaches only the api-extractor CLI."
+        },
+        {
+          "id": "@microsoft/api-extractor-GHSA-hp3w-g68c-fv3c",
+          "packageName": "@microsoft/api-extractor",
+          "severity": "moderate",
+          "via": ["@rushstack/ts-command-line"],
+          "reviewedOn": "2026-10-06",
+          "expiresOn": "2027-01-04",
+          "reason": "The unpatched advisory reaches only the api-extractor CLI."
+        },
+        {
+          "id": "tsup-GHSA-hp3w-g68c-fv3c",
+          "packageName": "tsup",
+          "severity": "moderate",
+          "via": ["@microsoft/api-extractor"],
+          "reviewedOn": "2026-10-06",
+          "expiresOn": "2027-01-04",
+          "reason": "The unpatched advisory reaches only the api-extractor CLI."
+        }
+      ]
     }
   },
   "cases": [
