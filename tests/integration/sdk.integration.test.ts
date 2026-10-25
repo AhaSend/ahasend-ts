@@ -474,6 +474,48 @@ const OPERATION_CASES = [
     `member+tag@${DOMAIN}`,
     { subscription_status: "confirmed", ...PAGINATION },
   ]),
+  operation("getSegments", ["segments"], "list", [PAGINATION]),
+  operation("createSegment", ["segments"], "create", [
+    {
+      name: "Integration segment",
+      timezone: "Europe/Berlin",
+      definition: {
+        schema_version: 1,
+        match: "all",
+        conditions: [
+          { field: "attributes.country", op: "equal", value: "DE" },
+          {
+            match: "any",
+            conditions: [
+              { field: "list", op: "in", value: RESOURCE_ID },
+              {
+                field: "campaign_count",
+                op: "opened_at_least",
+                value: { count: 3, since: "90 days ago" },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ]),
+  operation("previewSegment", ["segments"], "preview", [
+    {
+      definition: {
+        schema_version: 1,
+        match: "any",
+        conditions: [{ field: "created_at", op: "after", value: "30 days ago" }],
+      },
+    },
+  ]),
+  operation("getSegment", ["segments"], "get", [RESOURCE_ID]),
+  operation("updateSegment", ["segments"], "update", [RESOURCE_ID, { name: "Renamed segment" }]),
+  operation("deleteSegment", ["segments"], "delete", [RESOURCE_ID]),
+  operation("getSegmentContacts", ["segments", "contacts"], "list", [RESOURCE_ID, PAGINATION]),
+  operation("getContactSegments", ["contacts", "segments"], "list", [
+    `member+tag@${DOMAIN}`,
+    PAGINATION,
+  ]),
   operation("getSuppressions", ["suppressions"], "list", [
     { domain: DOMAIN, email: `blocked@${DOMAIN}`, ...PAGINATION },
   ]),
@@ -1027,8 +1069,8 @@ describe("packed SDK operation contract", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
     const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
-    expect(OPERATION_CASES).toHaveLength(101);
-    expect(new Set(implementedOperationIds).size).toBe(101);
+    expect(OPERATION_CASES).toHaveLength(109);
+    expect(new Set(implementedOperationIds).size).toBe(109);
     expect([...implementedOperationIds].sort()).toEqual(operationIds.sort());
   });
 

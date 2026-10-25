@@ -14,6 +14,7 @@ import {
   createLiveReport,
   createMessageScenarioRegistry,
   createRouteScenarioRegistry,
+  createSegmentScenarioRegistry,
   createSMTPCredentialScenarioRegistry,
   createStatisticsScenarioRegistry,
   createSubAccountAPIKeyScenarioRegistry,
@@ -31,6 +32,7 @@ import {
   runDomainLiveScenarios,
   runMessageLiveScenarios,
   runRouteLiveScenarios,
+  runSegmentLiveScenarios,
   runSMTPCredentialLiveScenarios,
   runStatisticsLiveScenarios,
   runSubAccountAndAPIKeyLiveScenarios,
@@ -520,6 +522,21 @@ async function executeLiveAcceptance({ candidate, AhaSendClient, apiKey, account
             `sdk-live-list-batch+${suffix}@${config.suppressionDomain}`,
           ],
           unknownEmail: `sdk-live-list-absent+${suffix}@${config.suppressionDomain}`,
+          pagination,
+        }),
+      ),
+    ),
+  );
+  runs.push(
+    collectRun(
+      "segment scenarios",
+      await runSegmentLiveScenarios(
+        createSegmentScenarioRegistry({
+          profile,
+          client,
+          contactEmail: `sdk-live-segment+${suffix}@${config.suppressionDomain}`,
+          segmentName: `SDK live segment ${suffix}`,
+          updatedSegmentName: `Updated SDK live segment ${suffix}`,
           pagination,
         }),
       ),

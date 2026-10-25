@@ -763,6 +763,107 @@ const page = await client.contacts.lists.list(idOrEmail, { subscription_status: 
 console.log("Contact lists listed.", { count: page.data.length });`,
   ),
   entry(
+    "getSegments",
+    "GET /v2/accounts/{account_id}/segments",
+    "client.segments.list",
+    `const page = await client.segments.list({ limit: 20 });
+console.log("Segments listed.", { count: page.data.length });`,
+  ),
+  entry(
+    "createSegment",
+    "POST /v2/accounts/{account_id}/segments",
+    "client.segments.create",
+    `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+// A group holds conditions only, so groups nest one level deep.
+const segment = await client.segments.create({
+  name: "Engaged customers in Germany",
+  timezone: "Europe/Berlin",
+  definition: {
+    schema_version: 1,
+    match: "all",
+    conditions: [
+      { field: "attributes.country", op: "equal", value: "DE" },
+      { field: "created_at", op: "after", value: "30 days ago" },
+      { field: "list", op: "in", value: "00000000-0000-4000-8000-000000000010" },
+      {
+        match: "any",
+        conditions: [
+          { field: "campaign", op: "opened", value: "00000000-0000-4000-8000-000000000014" },
+          { field: "any_campaign", op: "clicked", value: "14 days ago" },
+          {
+            field: "campaign_count",
+            op: "opened_at_least",
+            value: { count: 3, since: "90 days ago" },
+          },
+        ],
+      },
+    ],
+  },
+});
+// A new segment is building until its members are found.
+console.log("Segment created.", { id: segment.id, state: segment.state });`,
+  ),
+  entry(
+    "previewSegment",
+    "POST /v2/accounts/{account_id}/segments/preview",
+    "client.segments.preview",
+    `// Nothing is saved. count is null when the contacts cannot be counted within 10 seconds.
+const preview = await client.segments.preview({
+  definition: {
+    schema_version: 1,
+    match: "all",
+    conditions: [{ field: "created_at", op: "after", value: "30 days ago" }],
+  },
+});
+console.log("Segment previewed.", { count: preview.count, shown: preview.contacts.length });`,
+  ),
+  entry(
+    "getSegment",
+    "GET /v2/accounts/{account_id}/segments/{segment_id}",
+    "client.segments.get",
+    `const segmentId = "00000000-0000-4000-8000-000000000015";
+const segment = await client.segments.get(segmentId);
+// marketable_count is null while the segment is not ready.
+console.log("Segment found.", {
+  id: segment.id,
+  state: segment.state,
+  marketableCount: segment.marketable_count,
+});`,
+  ),
+  entry(
+    "updateSegment",
+    "PUT /v2/accounts/{account_id}/segments/{segment_id}",
+    "client.segments.update",
+    `const segmentId = "00000000-0000-4000-8000-000000000015";
+// A changed definition or time zone builds the members again; a new name does not.
+const segment = await client.segments.update(segmentId, { name: "Engaged German customers" });
+console.log("Segment updated.", { id: segment.id, name: segment.name });`,
+  ),
+  entry(
+    "deleteSegment",
+    "DELETE /v2/accounts/{account_id}/segments/{segment_id}",
+    "client.segments.delete",
+    `const segmentId = "00000000-0000-4000-8000-000000000015";
+const result = await client.segments.delete(segmentId);
+console.log("Segment deleted.", { message: result.message });`,
+  ),
+  entry(
+    "getSegmentContacts",
+    "GET /v2/accounts/{account_id}/segments/{segment_id}/contacts",
+    "client.segments.contacts.list",
+    `const segmentId = "00000000-0000-4000-8000-000000000015";
+const page = await client.segments.contacts.list(segmentId, { limit: 20 });
+console.log("Segment members listed.", { count: page.data.length });`,
+  ),
+  entry(
+    "getContactSegments",
+    "GET /v2/accounts/{account_id}/contacts/{id_or_email}/segments",
+    "client.contacts.segments.list",
+    `const idOrEmail = "User+Tag@Example.COM";
+const page = await client.contacts.segments.list(idOrEmail, { limit: 20 });
+console.log("Contact segments listed.", { count: page.data.length });`,
+  ),
+  entry(
     "getSuppressions",
     "GET /v2/accounts/{account_id}/suppressions",
     "client.suppressions.list",

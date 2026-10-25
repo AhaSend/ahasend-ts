@@ -46,7 +46,7 @@ export interface RequestOptions {
   /** Per-call restriction of the configured retry policy. */
   retry?: false | Partial<RetryConfig>;
   /**
-   * Resource clients set this on the 28 spec-documented idempotency
+   * Resource clients set this on the 29 spec-documented idempotency
    * endpoints (the create, batch, publish and restore operations, the
    * template, campaign template and campaign updates, and the campaign
    * duplicate, send, unschedule and test) so the transport layer will inject

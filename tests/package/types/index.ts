@@ -259,6 +259,15 @@ const campaignBody: SDK.CreateCampaignRequest = {
   template_id: uuid,
 };
 const campaignUpdate: SDK.UpdateCampaignRequest = { subject: null, list_ids: [uuid] };
+const segmentAudience = [uuid] as const;
+const segmentCampaignBody: SDK.CreateCampaignRequest = {
+  name: "Package segment campaign",
+  list_ids: [],
+  segment_ids: segmentAudience,
+  exclude_list_ids: [uuid],
+  exclude_segment_ids: [],
+};
+const segmentCampaignUpdate: SDK.UpdateCampaignRequest = { exclude_segment_ids: [] };
 const campaignTest: SDK.TestCampaignRequest = { to: ["Ann <ann@example.com>"] };
 const campaignRecipientFilter: SDK.ListCampaignRecipientsParams = {
   bounce_classification: "Mailbox Full",
@@ -445,6 +454,58 @@ void client.campaigns.unschedule(uuid).withResponse();
 void client.campaigns.test(uuid, campaignTest).withResponse();
 void client.campaigns.getStats(uuid).withResponse();
 void client.campaigns.recipients.list(uuid, campaignRecipientFilter).withResponse();
+void client.campaigns.create(segmentCampaignBody).withResponse();
+void client.campaigns.update(uuid, segmentCampaignUpdate).withResponse();
+declare const packageRecipient: SDK.CampaignRecipient;
+const packageRecipientSource: string | null =
+  packageRecipient.list_name ?? packageRecipient.segment_name;
+
+const segmentDefinition: SDK.SegmentDefinition = {
+  schema_version: 1,
+  match: "all",
+  conditions: [
+    { field: "attributes.country", op: "equal", value: "DE" },
+    {
+      match: "any",
+      conditions: [
+        { field: "campaign", op: "opened", value: uuid },
+        {
+          field: "campaign_count",
+          op: "opened_at_least",
+          value: { count: 3, since: "90 days ago" },
+        },
+      ],
+    },
+  ],
+};
+void client.segments.list({ limit: 25 }).withResponse();
+void client.segments.iterate().next();
+void client.segments
+  .create(
+    { name: "Package segment", definition: segmentDefinition, timezone: "Europe/Berlin" },
+    { idempotencyKey: "package-segment" },
+  )
+  .withResponse();
+void client.segments.preview({ definition: segmentDefinition }).withResponse();
+void client.segments.get(uuid).withResponse();
+void client.segments.update(uuid, { name: "Renamed", definition: null }).withResponse();
+void client.segments.delete(uuid).withResponse();
+void client.segments.contacts.list(uuid, { limit: 25 }).withResponse();
+void client.segments.contacts.iterate(uuid).next();
+void client.contacts.segments.list("package+member@example.com").withResponse();
+void client.contacts.segments.iterate("package+member@example.com").next();
+const nestedGroup: SDK.SegmentGroup = {
+  match: "all",
+  // @ts-expect-error Groups hold conditions only, so groups do not nest.
+  conditions: [{ match: "any", conditions: [] }],
+};
+// @ts-expect-error A segment preview takes no idempotency key.
+void client.segments.preview({ definition: segmentDefinition }, { idempotencyKey: "not-accepted" });
+// @ts-expect-error A segment update takes no idempotency key.
+void client.segments.update(uuid, {}, { idempotencyKey: "not-accepted" });
+declare const packageAttempt: SDK.DeliveryAttempt;
+const packageReportMessageId: string | undefined = packageAttempt.report_message_id;
+void [packageRecipientSource, nestedGroup, packageReportMessageId];
 
 void client.contacts.list(contacts).withResponse();
 void client.contacts.create(contactBody).withResponse();
@@ -609,6 +670,10 @@ const contactsMock: SDK.ContactsClient = {
     list: () => result<SDK.PaginatedResponse<SDK.ListContact>>(),
     iterate: () => iterator<SDK.ListContact>(),
   },
+  segments: {
+    list: () => result<SDK.PaginatedResponse<SDK.Segment>>(),
+    iterate: () => iterator<SDK.Segment>(),
+  },
 };
 
 const listContactsMock: SDK.ListContactsClient = {
@@ -627,6 +692,20 @@ const listsMock: SDK.ListsClient = {
   update: () => result<SDK.ContactList>(),
   delete: () => result<SDK.SuccessResponse>(),
   contacts: listContactsMock,
+};
+
+const segmentsMock: SDK.SegmentsClient = {
+  list: () => result<SDK.PaginatedResponse<SDK.Segment>>(),
+  iterate: () => iterator<SDK.Segment>(),
+  create: () => result<SDK.Segment>(),
+  preview: () => result<SDK.SegmentPreview>(),
+  get: () => result<SDK.SegmentDetail>(),
+  update: () => result<SDK.Segment>(),
+  delete: () => result<SDK.SuccessResponse>(),
+  contacts: {
+    list: () => result<SDK.PaginatedResponse<SDK.SegmentContact>>(),
+    iterate: () => iterator<SDK.SegmentContact>(),
+  },
 };
 
 const suppressionsMock: SDK.SuppressionsClient = {
@@ -697,6 +776,7 @@ type ClientResourceSurface = Pick<
   | "statistics"
   | "contacts"
   | "lists"
+  | "segments"
   | "suppressions"
   | "routes"
   | "accounts"
@@ -715,6 +795,7 @@ const clientMock: ClientResourceSurface = {
   statistics: statisticsMock,
   contacts: contactsMock,
   lists: listsMock,
+  segments: segmentsMock,
   suppressions: suppressionsMock,
   routes: routesMock,
   accounts: accountsMock,

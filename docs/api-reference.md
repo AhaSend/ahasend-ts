@@ -4,7 +4,7 @@
 
 This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
-It contains exactly 101 API methods and 17 async iterators.
+It contains exactly 109 API methods and 20 async iterators.
 
 ## Contact management
 
@@ -2617,6 +2617,294 @@ const page = await client.contacts.lists.list(idOrEmail, { subscription_status: 
 console.log("Contact lists listed.", { count: page.data.length });
 ```
 
+<!-- operation: getSegments -->
+
+### segments.list
+
+```ts
+client.segments.list(params?: ListSegmentsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Segment>>
+```
+
+- **Operation ID:** `getSegments`
+- **HTTP:** `GET /v2/accounts/{account_id}/segments`
+- **Models:** [ListSegmentsParams](../src/resources/segments.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Segment](../src/resources/segments.ts)
+- **OpenAPI models:** `200: PaginatedSegmentsResponse`
+- **Scopes:** `segments:read`
+- **Security alternatives:** `BearerAuth: segments:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: getSegments -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const page = await client.segments.list({ limit: 20 });
+console.log("Segments listed.", { count: page.data.length });
+```
+
+<!-- operation: createSegment -->
+
+### segments.create
+
+```ts
+client.segments.create(body: CreateSegmentRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Segment>
+```
+
+- **Operation ID:** `createSegment`
+- **HTTP:** `POST /v2/accounts/{account_id}/segments`
+- **Models:** [CreateSegmentRequest](../src/resources/segments.ts), [IdempotencyRequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Segment](../src/resources/segments.ts)
+- **OpenAPI models:** `request: CreateSegmentRequest`, `201: Segment`
+- **Scopes:** `segments:write`
+- **Security alternatives:** `BearerAuth: segments:write`
+- **Idempotency:** Supported; accepts `options.idempotencyKey` and otherwise uses the SDK's automatic key.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: createSegment -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+// A group holds conditions only, so groups nest one level deep.
+const segment = await client.segments.create({
+  name: "Engaged customers in Germany",
+  timezone: "Europe/Berlin",
+  definition: {
+    schema_version: 1,
+    match: "all",
+    conditions: [
+      { field: "attributes.country", op: "equal", value: "DE" },
+      { field: "created_at", op: "after", value: "30 days ago" },
+      { field: "list", op: "in", value: "00000000-0000-4000-8000-000000000010" },
+      {
+        match: "any",
+        conditions: [
+          { field: "campaign", op: "opened", value: "00000000-0000-4000-8000-000000000014" },
+          { field: "any_campaign", op: "clicked", value: "14 days ago" },
+          {
+            field: "campaign_count",
+            op: "opened_at_least",
+            value: { count: 3, since: "90 days ago" },
+          },
+        ],
+      },
+    ],
+  },
+});
+// A new segment is building until its members are found.
+console.log("Segment created.", { id: segment.id, state: segment.state });
+```
+
+<!-- operation: previewSegment -->
+
+### segments.preview
+
+```ts
+client.segments.preview(body: PreviewSegmentRequest, options?: RequestOptions): AhaSendPromise<SegmentPreview>
+```
+
+- **Operation ID:** `previewSegment`
+- **HTTP:** `POST /v2/accounts/{account_id}/segments/preview`
+- **Models:** [PreviewSegmentRequest](../src/resources/segments.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SegmentPreview](../src/resources/segments.ts)
+- **OpenAPI models:** `request: PreviewSegmentRequest`, `200: SegmentPreview`
+- **Scopes:** `segments:read`, `contacts:read`
+- **Security alternatives:** `BearerAuth: segments:read + contacts:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: previewSegment -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+// Nothing is saved. count is null when the contacts cannot be counted within 10 seconds.
+const preview = await client.segments.preview({
+  definition: {
+    schema_version: 1,
+    match: "all",
+    conditions: [{ field: "created_at", op: "after", value: "30 days ago" }],
+  },
+});
+console.log("Segment previewed.", { count: preview.count, shown: preview.contacts.length });
+```
+
+<!-- operation: getSegment -->
+
+### segments.get
+
+```ts
+client.segments.get(segmentId: UUID, options?: RequestOptions): AhaSendPromise<SegmentDetail>
+```
+
+- **Operation ID:** `getSegment`
+- **HTTP:** `GET /v2/accounts/{account_id}/segments/{segment_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SegmentDetail](../src/resources/segments.ts)
+- **OpenAPI models:** `200: SegmentDetail`
+- **Scopes:** `segments:read`
+- **Security alternatives:** `BearerAuth: segments:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: getSegment -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const segmentId = "00000000-0000-4000-8000-000000000015";
+const segment = await client.segments.get(segmentId);
+// marketable_count is null while the segment is not ready.
+console.log("Segment found.", {
+  id: segment.id,
+  state: segment.state,
+  marketableCount: segment.marketable_count,
+});
+```
+
+<!-- operation: updateSegment -->
+
+### segments.update
+
+```ts
+client.segments.update(segmentId: UUID, body: UpdateSegmentRequest, options?: RequestOptions): AhaSendPromise<Segment>
+```
+
+- **Operation ID:** `updateSegment`
+- **HTTP:** `PUT /v2/accounts/{account_id}/segments/{segment_id}`
+- **Models:** [UUID](../src/types/common.ts), [UpdateSegmentRequest](../src/resources/segments.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [Segment](../src/resources/segments.ts)
+- **OpenAPI models:** `request: UpdateSegmentRequest`, `200: Segment`
+- **Scopes:** `segments:write`
+- **Security alternatives:** `BearerAuth: segments:write`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: updateSegment -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const segmentId = "00000000-0000-4000-8000-000000000015";
+// A changed definition or time zone builds the members again; a new name does not.
+const segment = await client.segments.update(segmentId, { name: "Engaged German customers" });
+console.log("Segment updated.", { id: segment.id, name: segment.name });
+```
+
+<!-- operation: deleteSegment -->
+
+### segments.delete
+
+```ts
+client.segments.delete(segmentId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>
+```
+
+- **Operation ID:** `deleteSegment`
+- **HTTP:** `DELETE /v2/accounts/{account_id}/segments/{segment_id}`
+- **Models:** [UUID](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [SuccessResponse](../src/types/common.ts)
+- **OpenAPI models:** `200: SuccessResponse`
+- **Scopes:** `segments:delete`
+- **Security alternatives:** `BearerAuth: segments:delete`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+
+<!-- sdk-sample: deleteSegment -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const segmentId = "00000000-0000-4000-8000-000000000015";
+const result = await client.segments.delete(segmentId);
+console.log("Segment deleted.", { message: result.message });
+```
+
+<!-- operation: getSegmentContacts -->
+
+### segments.contacts.list
+
+```ts
+client.segments.contacts.list(segmentId: UUID, params?: ListSegmentContactsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SegmentContact>>
+```
+
+- **Operation ID:** `getSegmentContacts`
+- **HTTP:** `GET /v2/accounts/{account_id}/segments/{segment_id}/contacts`
+- **Models:** [UUID](../src/types/common.ts), [ListSegmentContactsParams](../src/resources/segment-contacts.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [SegmentContact](../src/resources/segments.ts)
+- **OpenAPI models:** `200: PaginatedSegmentContactsResponse`
+- **Scopes:** `segments:read`, `contacts:read`
+- **Security alternatives:** `BearerAuth: segments:read + contacts:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: getSegmentContacts -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const segmentId = "00000000-0000-4000-8000-000000000015";
+const page = await client.segments.contacts.list(segmentId, { limit: 20 });
+console.log("Segment members listed.", { count: page.data.length });
+```
+
+<!-- operation: getContactSegments -->
+
+### contacts.segments.list
+
+```ts
+client.contacts.segments.list(idOrEmail: string, params?: ListContactSegmentsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Segment>>
+```
+
+- **Operation ID:** `getContactSegments`
+- **HTTP:** `GET /v2/accounts/{account_id}/contacts/{id_or_email}/segments`
+- **Models:** [ListContactSegmentsParams](../src/resources/contact-segments.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [PaginatedResponse](../src/types/common.ts), [Segment](../src/resources/segments.ts)
+- **OpenAPI models:** `200: PaginatedSegmentsResponse`
+- **Scopes:** `segments:read`, `contacts:read`
+- **Security alternatives:** `BearerAuth: segments:read + contacts:read`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** No additional resource-aware rule beyond the security alternatives.
+- **Authorization rule:** `none`
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- sdk-sample: getContactSegments -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const idOrEmail = "User+Tag@Example.COM";
+const page = await client.contacts.segments.list(idOrEmail, { limit: 20 });
+console.log("Contact segments listed.", { count: page.data.length });
+```
+
 <!-- operation: getSuppressions -->
 
 ### suppressions.list
@@ -3449,6 +3737,42 @@ client.contacts.lists.iterate(idOrEmail: string, params?: ListContactListsParams
 
 - **Operation ID:** `getContactLists`
 - **Models:** [ListContactListsParams](../src/resources/contact-lists.ts), [RequestOptions](../src/types/common.ts), [ListContact](../src/resources/list-contacts.ts)
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: getSegments -->
+
+### segments.iterate
+
+```ts
+client.segments.iterate(params?: ListSegmentsParams, options?: RequestOptions): AsyncGenerator<Segment, void, undefined>
+```
+
+- **Operation ID:** `getSegments`
+- **Models:** [ListSegmentsParams](../src/resources/segments.ts), [RequestOptions](../src/types/common.ts), [Segment](../src/resources/segments.ts)
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: getSegmentContacts -->
+
+### segments.contacts.iterate
+
+```ts
+client.segments.contacts.iterate(segmentId: UUID, params?: ListSegmentContactsParams, options?: RequestOptions): AsyncGenerator<SegmentContact, void, undefined>
+```
+
+- **Operation ID:** `getSegmentContacts`
+- **Models:** [UUID](../src/types/common.ts), [ListSegmentContactsParams](../src/resources/segment-contacts.ts), [RequestOptions](../src/types/common.ts), [SegmentContact](../src/resources/segments.ts)
+- **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: getContactSegments -->
+
+### contacts.segments.iterate
+
+```ts
+client.contacts.segments.iterate(idOrEmail: string, params?: ListContactSegmentsParams, options?: RequestOptions): AsyncGenerator<Segment, void, undefined>
+```
+
+- **Operation ID:** `getContactSegments`
+- **Models:** [ListContactSegmentsParams](../src/resources/contact-segments.ts), [RequestOptions](../src/types/common.ts), [Segment](../src/resources/segments.ts)
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
 
 <!-- iterator: getSuppressions -->

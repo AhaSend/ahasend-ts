@@ -31,6 +31,26 @@ function property(schemaName: string, propertyName: string): JsonRecord {
   return record(properties(schemaName)[propertyName], `${schemaName}.${propertyName}`);
 }
 
+function operation(path: string, method: string): JsonRecord {
+  const paths = record(document.paths, "OpenAPI paths");
+  return record(record(paths[path], `OpenAPI path ${path}`)[method], `${method} ${path}`);
+}
+
+function scopes(path: string, method: string): unknown {
+  const [requirement] = operation(path, method).security as JsonRecord[];
+  return requirement!.BearerAuth;
+}
+
+function responseRef(path: string, method: string, status: string): unknown {
+  return record(record(operation(path, method).responses, "responses")[status], status).$ref;
+}
+
+function hasIdempotencyKey(path: string, method: string): boolean {
+  return ((operation(path, method).parameters ?? []) as JsonRecord[]).some(
+    ({ $ref }) => $ref === "#/components/parameters/IdempotencyKey",
+  );
+}
+
 function nullableProperties(schemaName: string): string[] {
   return Object.entries(properties(schemaName))
     .filter(([, value]) => {
@@ -332,7 +352,16 @@ describe("authoritative OpenAPI model contracts", () => {
     ]);
     const campaign = schema("Campaign").allOf as JsonRecord[];
     expect(campaign[0]).toEqual({ $ref: "#/components/schemas/CampaignListItem" });
-    expect(campaign[1]!.required).toEqual(["list_ids", "editor", "content", "ready", "issues"]);
+    expect(campaign[1]!.required).toEqual([
+      "list_ids",
+      "segment_ids",
+      "exclude_list_ids",
+      "exclude_segment_ids",
+      "editor",
+      "content",
+      "ready",
+      "issues",
+    ]);
     expect(schema("CampaignStatus").enum).toEqual([
       "draft",
       "validating",
@@ -369,10 +398,14 @@ describe("authoritative OpenAPI model contracts", () => {
     ]);
     expect(properties("UpdateCampaignRequest")).not.toHaveProperty("editor");
     expect(properties("UpdateCampaignRequest")).not.toHaveProperty("template_id");
-    expect(property("CreateCampaignRequest", "list_ids")).toMatchObject({
-      minItems: 1,
-      maxItems: 50,
-    });
+    // `[]` is a valid list_ids next to segment_ids; the API refuses an empty audience itself.
+    for (const request of ["CreateCampaignRequest", "UpdateCampaignRequest"]) {
+      expect(property(request, "list_ids")).not.toHaveProperty("minItems");
+      expect(property(request, "list_ids").maxItems).toBe(50);
+      expect(property(request, "segment_ids").maxItems).toBe(10);
+      expect(property(request, "exclude_list_ids").maxItems).toBe(50);
+      expect(property(request, "exclude_segment_ids").maxItems).toBe(10);
+    }
     expect(schema("SendCampaignRequest").required).toBeUndefined();
     expect(property("SendCampaignRequest", "send_at").type).toBe("string");
 
@@ -401,12 +434,82 @@ describe("authoritative OpenAPI model contracts", () => {
       "deferral_rate",
     ]);
     expect(nullableProperties("CampaignRecipient")).toEqual([
+      "list_name",
+      "segment_id",
+      "segment_name",
       "bounce_classification",
       "bounce_reason",
       "bounce_message",
     ]);
     expect(property("PaginatedCampaignRecipientsResponse", "pagination").$ref).toBe(
       "#/components/schemas/PaginationInfo",
+    );
+  });
+
+  it("pins the segment operations and models", () => {
+    const segments = "/v2/accounts/{account_id}/segments";
+    const segment = `${segments}/{segment_id}`;
+    expect(scopes(segments, "get")).toEqual(["segments:read"]);
+    expect(scopes(segments, "post")).toEqual(["segments:write"]);
+    expect(scopes(`${segments}/preview`, "post")).toEqual(["segments:read", "contacts:read"]);
+    expect(scopes(segment, "get")).toEqual(["segments:read"]);
+    expect(scopes(segment, "put")).toEqual(["segments:write"]);
+    expect(scopes(segment, "delete")).toEqual(["segments:delete"]);
+    expect(scopes(`${segment}/contacts`, "get")).toEqual(["segments:read", "contacts:read"]);
+    expect(scopes("/v2/accounts/{account_id}/contacts/{id_or_email}/segments", "get")).toEqual([
+      "segments:read",
+      "contacts:read",
+    ]);
+
+    // Only create takes a key; preview, update and delete take none.
+    expect(hasIdempotencyKey(segments, "post")).toBe(true);
+    expect(hasIdempotencyKey(`${segments}/preview`, "post")).toBe(false);
+    expect(hasIdempotencyKey(segment, "put")).toBe(false);
+    expect(hasIdempotencyKey(segment, "delete")).toBe(false);
+    expect(responseRef(segments, "post", "409")).toBe(
+      "#/components/responses/SegmentCreateConflict",
+    );
+
+    expect(property("SegmentCondition", "value").oneOf).toEqual([
+      { type: ["string", "number", "boolean", "null"] },
+      { $ref: "#/components/schemas/SegmentCampaignCount" },
+    ]);
+    expect(schema("SegmentCondition").required).toEqual(["field", "op"]);
+    expect(schema("SegmentCampaignCount").required).toEqual(["count", "since"]);
+    // A group holds conditions only, so groups nest one level deep.
+    expect(record(property("SegmentDefinition", "conditions").items, "items").oneOf).toEqual([
+      { $ref: "#/components/schemas/SegmentCondition" },
+      { $ref: "#/components/schemas/SegmentGroup" },
+    ]);
+    expect(property("SegmentGroup", "conditions").items).toEqual({
+      $ref: "#/components/schemas/SegmentCondition",
+    });
+    expect(property("SegmentDefinition", "schema_version").enum).toEqual([1]);
+    expect(property("UpdateSegmentRequest", "definition").oneOf).toEqual([
+      { $ref: "#/components/schemas/SegmentDefinition" },
+      { type: "null" },
+    ]);
+
+    expect(nullableProperties("Segment")).toEqual(["failure_reason", "last_evaluated_at"]);
+    const detail = schema("SegmentDetail").allOf as JsonRecord[];
+    expect(detail[0]).toEqual({ $ref: "#/components/schemas/Segment" });
+    expect(detail[1]!.required).toEqual(["marketable_count"]);
+    expect(
+      record(record(detail[1]!.properties, "SegmentDetail properties").marketable_count, "count")
+        .type,
+    ).toEqual(["integer", "null"]);
+    expect(property("SegmentPreview", "count").type).toEqual(["integer", "null"]);
+    for (const page of ["PaginatedSegmentsResponse", "PaginatedSegmentContactsResponse"]) {
+      expect(property(page, "pagination").$ref).toBe("#/components/schemas/ContactPagination");
+    }
+
+    // A segment of a campaign's audience being rebuilt is a create or duplicate 409 too.
+    const campaigns = "/v2/accounts/{account_id}/campaigns";
+    expect(responseRef(campaigns, "post", "409")).toBe(
+      "#/components/responses/CampaignCreateConflict",
+    );
+    expect(responseRef(`${campaigns}/{campaign_id}/duplicate`, "post", "409")).toBe(
+      "#/components/responses/CampaignCreateConflict",
     );
   });
 

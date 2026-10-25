@@ -19,6 +19,7 @@ import {
   createMessageScenarioRegistry,
   createRouteScenarioRegistry,
   createScenarioRegistry,
+  createSegmentScenarioRegistry,
   createSMTPCredentialScenarioRegistry,
   createStatisticsScenarioRegistry,
   createSubAccountAPIKeyScenarioRegistry,
@@ -37,6 +38,7 @@ import {
   runListLiveScenarios,
   runMessageLiveScenarios,
   runRouteLiveScenarios,
+  runSegmentLiveScenarios,
   runSMTPCredentialLiveScenarios,
   runStatisticsLiveScenarios,
   runSubAccountAndAPIKeyLiveScenarios,
@@ -60,6 +62,7 @@ import {
   type LiveProfile,
   type MessageLiveClient,
   type RouteLiveClient,
+  type SegmentLiveClient,
   type SMTPCredentialLiveClient,
   type StatisticsLiveClient,
   type SubAccountAPIKeyLiveClient,
@@ -1570,6 +1573,186 @@ function listRegistry(fixture: ReturnType<typeof listClientFixture>) {
   });
 }
 
+function segmentClientFixture(
+  options: { busyUpdates?: number; busyDeletes?: number; updateFailure?: unknown } = {},
+) {
+  interface SegmentRecord {
+    object: "segment";
+    id: string;
+    created_at: string;
+    updated_at: string;
+    name: string;
+    description: string;
+    definition: unknown;
+    timezone: string;
+    state: "building";
+    failure_reason: null;
+    member_count: number;
+    last_evaluated_at: null;
+  }
+
+  const timestamp = "2026-10-25T00:00:00Z";
+  const segmentId = "66666666-6666-4666-8666-666666666666";
+  const contactId = "77777777-7777-4777-8777-777777777777";
+  const contactEmail = "SDK+Segment@Example.com";
+  const calls: Array<{ method: string; args: unknown[] }> = [];
+  const sleeps: number[] = [];
+  const segments = new Map<string, SegmentRecord>();
+  const contacts = new Map<string, { object: "contact"; id: string; email: string }>();
+  let busyUpdates = options.busyUpdates ?? 0;
+  let busyDeletes = options.busyDeletes ?? 0;
+  const notFound = () => Object.assign(new Error("not found"), { status: 404 });
+  const busy = () =>
+    Object.assign(new Error("The segment is being updated. Try again in a minute."), {
+      status: 409,
+    });
+  const record = (method: string, ...args: unknown[]) => calls.push({ method, args });
+  const page = <T>(data: T[]) => ({
+    object: "list" as const,
+    data,
+    pagination: { has_more: false, next_cursor: null, previous_cursor: null },
+  });
+  const requireSegment = (id: string) => {
+    const segment = segments.get(id);
+    if (segment === undefined) throw notFound();
+    return segment;
+  };
+  const requireContact = (email: string) => {
+    const contact = contacts.get(email.toLowerCase());
+    if (contact === undefined) throw notFound();
+    return contact;
+  };
+
+  const client: SegmentLiveClient = {
+    segments: {
+      list: vi.fn(async (params) => {
+        record("segments.list", params);
+        return page([...segments.values()].map((segment) => ({ ...segment })));
+      }),
+      iterate: vi.fn(async function* (params) {
+        record("segments.iterate", params);
+        for (const segment of segments.values()) yield { ...segment };
+      }),
+      create: vi.fn(
+        async (request: { name: string; definition: unknown; timezone?: string | null }) => {
+          record("segments.create", request);
+          const segment: SegmentRecord = {
+            object: "segment",
+            id: segmentId,
+            created_at: timestamp,
+            updated_at: timestamp,
+            name: request.name,
+            description: "",
+            definition: request.definition,
+            timezone: request.timezone ?? "UTC",
+            state: "building",
+            failure_reason: null,
+            member_count: 0,
+            last_evaluated_at: null,
+          };
+          segments.set(segmentId, segment);
+          return { ...segment };
+        },
+      ),
+      preview: vi.fn(async (request: unknown) => {
+        record("segments.preview", request);
+        return {
+          object: "segment_preview",
+          count: null,
+          contacts: [...contacts.values()].map(({ id, email }) => ({ contact_id: id, email })),
+        };
+      }),
+      get: vi.fn(async (id: string) => {
+        record("segments.get", id);
+        return { ...requireSegment(id), marketable_count: null };
+      }),
+      update: vi.fn(async (id: string, request: { name?: string }) => {
+        record("segments.update", id, request);
+        if (Object.hasOwn(options, "updateFailure")) throw options.updateFailure;
+        if (busyUpdates > 0) {
+          busyUpdates -= 1;
+          throw busy();
+        }
+        const segment = requireSegment(id);
+        if (request.name !== undefined) segment.name = request.name;
+        return { ...segment };
+      }),
+      delete: vi.fn(async (id: string) => {
+        record("segments.delete", id);
+        if (busyDeletes > 0) {
+          busyDeletes -= 1;
+          throw busy();
+        }
+        requireSegment(id);
+        segments.delete(id);
+        return { message: "Segment deleted" };
+      }),
+      contacts: {
+        // The segment is still building, so it has no members yet.
+        list: vi.fn(async (id: string, params: unknown) => {
+          record("segments.contacts.list", id, params);
+          requireSegment(id);
+          return page([]);
+        }),
+        iterate: vi.fn(async function* (id: string, params: unknown) {
+          record("segments.contacts.iterate", id, params);
+          requireSegment(id);
+        }),
+      },
+    },
+    contacts: {
+      create: vi.fn(async (request: { email: string }) => {
+        record("contacts.create", request);
+        const contact = {
+          object: "contact" as const,
+          id: contactId,
+          email: request.email.toLowerCase(),
+        };
+        contacts.set(contact.email, contact);
+        return { ...contact };
+      }),
+      get: vi.fn(async (email: string) => {
+        record("contacts.get", email);
+        return { ...requireContact(email) };
+      }),
+      delete: vi.fn(async (email: string) => {
+        record("contacts.delete", email);
+        requireContact(email);
+        contacts.delete(email.toLowerCase());
+        return { message: "Contact deleted" };
+      }),
+      segments: {
+        list: vi.fn(async (email: string, params: unknown) => {
+          record("contacts.segments.list", email, params);
+          requireContact(email);
+          return page([...segments.values()].map((segment) => ({ ...segment })));
+        }),
+        iterate: vi.fn(async function* (email: string, params: unknown) {
+          record("contacts.segments.iterate", email, params);
+          requireContact(email);
+          for (const segment of segments.values()) yield { ...segment };
+        }),
+      },
+    },
+  };
+  const sleep = vi.fn(async (ms: number) => {
+    sleeps.push(ms);
+  });
+  return { calls, client, contactEmail, contacts, segments, sleep, sleeps };
+}
+
+function segmentRegistry(fixture: ReturnType<typeof segmentClientFixture>) {
+  return createSegmentScenarioRegistry({
+    profile: inspectFixture().profile,
+    client: fixture.client,
+    contactEmail: fixture.contactEmail,
+    segmentName: "SDK live segment",
+    updatedSegmentName: "Updated SDK live segment",
+    timezone: "Europe/Berlin",
+    sleep: fixture.sleep,
+  });
+}
+
 function contactClientFixture(
   options: { cleanupFailure?: unknown; omitBatchContact?: boolean } = {},
 ) {
@@ -2739,10 +2922,10 @@ describe("live candidate foundation", () => {
       name: "@ahasend/sdk",
       version: "0.1.0-live-test",
     });
-    expect(candidate.profile.operations).toHaveLength(101);
-    expect(candidate.profile.iterators).toHaveLength(17);
-    expect(candidate.registry.primary.size).toBe(101);
-    expect(candidate.registry.iterators).toHaveLength(17);
+    expect(candidate.profile.operations).toHaveLength(109);
+    expect(candidate.profile.iterators).toHaveLength(20);
+    expect(candidate.registry.primary.size).toBe(109);
+    expect(candidate.registry.iterators).toHaveLength(20);
     expect(Object.isFrozen(candidate.manifest)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.contractSha256)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.keysSha256)).toBe(true);
@@ -2825,8 +3008,8 @@ describe("live candidate foundation", () => {
     expect(candidate.package.version).toBe("0.1.0-archive-test");
     expect(candidate.profileSource).toEqual(profile.source);
     expect(candidate.profileSidecar).toEqual(profile.sidecar);
-    expect(candidate.profile.operations).toHaveLength(101);
-    expect(candidate.profile.iterators).toHaveLength(17);
+    expect(candidate.profile.operations).toHaveLength(109);
+    expect(candidate.profile.iterators).toHaveLength(20);
   });
 
   it("installs an immutable copy only after all candidate artifacts verify", async () => {
@@ -2882,7 +3065,7 @@ describe("live candidate foundation", () => {
 
     expect(runCommand).toHaveBeenCalledOnce();
     expect(readFileSync(resolve(installDirectory, basename(tarballPath)))).toEqual(fixture.tarball);
-    expect(installed.profile.operations).toHaveLength(101);
+    expect(installed.profile.operations).toHaveLength(109);
 
     const badDirectory = join(directory, "bad-install");
     writeFileSync(tarballPath, Buffer.from("substituted after candidate creation"));
@@ -2904,7 +3087,7 @@ describe("live candidate foundation", () => {
 });
 
 describe("live scenario inventory", () => {
-  it("creates 101 primary scenarios and seventeen attached iterator subcases from the profile", () => {
+  it("creates 109 primary scenarios and twenty attached iterator subcases from the profile", () => {
     const profile = inspectFixture().profile;
     const registry = createScenarioRegistry(
       profile,
@@ -2914,9 +3097,9 @@ describe("live scenario inventory", () => {
       })),
     );
 
-    expect(registry.primary.size).toBe(101);
-    expect(registry.iterators).toHaveLength(17);
-    expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(17);
+    expect(registry.primary.size).toBe(109);
+    expect(registry.iterators).toHaveLength(20);
+    expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(20);
     for (const iterator of registry.iterators) {
       expect(iterator.method).toBe("iterate");
       expect(iterator.primary).toBe(registry.primary.get(iterator.operationId));
@@ -2931,7 +3114,7 @@ describe("live scenario inventory", () => {
     expect(Object.isFrozen(registry.primary)).toBe(true);
     expect(() => mutablePrimary.delete(profile.operations[0]!.operationId)).toThrow();
     expect(() => mutablePrimary.set("orphan", {})).toThrow();
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
   });
 
   it("rejects missing, orphaned, duplicate, and mapping-redefining scenarios", () => {
@@ -3003,7 +3186,7 @@ describe("live scenario inventory", () => {
     );
     expect(domainEntries).toHaveLength(6);
     expect(domainEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, DomainLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3193,7 +3376,7 @@ describe("live scenario inventory", () => {
       operationId: "getContacts",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, ContactLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3363,7 +3546,7 @@ describe("live scenario inventory", () => {
       operationId: "listTemplates",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, TemplateLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3735,7 +3918,7 @@ describe("live scenario inventory", () => {
         method: "iterate",
       });
     }
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, CampaignLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4089,7 +4272,7 @@ describe("live scenario inventory", () => {
         .filter(({ facade }) => ["lists", "lists.contacts", "contacts.lists"].includes(facade))
         .map(({ operationId, method }) => `${operationId}.${method}`),
     ).toEqual(["getLists.iterate", "getListContacts.iterate", "getContactLists.iterate"]);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, ListLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4293,7 +4476,7 @@ describe("live scenario inventory", () => {
     );
     expect(messageEntries).toHaveLength(6);
     expect(messageEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, MessageLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4635,7 +4818,7 @@ describe("live scenario inventory", () => {
     );
     expect(apiKeyEntries).toHaveLength(5);
     expect(apiKeyEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, APIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4848,7 +5031,7 @@ describe("live scenario inventory", () => {
     );
     expect(routeEntries).toHaveLength(5);
     expect(routeEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, RouteLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5097,7 +5280,7 @@ describe("live scenario inventory", () => {
     );
     expect(webhookEntries).toHaveLength(5);
     expect(webhookEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, WebhookLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5346,7 +5529,7 @@ describe("live scenario inventory", () => {
         ({ operationId, method }) => operationId.includes("update") || method === "update",
       ),
     ).toBe(false);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, SMTPCredentialLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5551,7 +5734,7 @@ describe("live scenario inventory", () => {
     expect(accountEntries).toHaveLength(5);
     expect(accountEntries.every(({ run }) => typeof run === "function")).toBe(true);
     expect(registry.iterators.filter(({ facade }) => facade === "accounts")).toHaveLength(0);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, AccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5742,7 +5925,7 @@ describe("live scenario inventory", () => {
     );
     expect(suppressionEntries).toHaveLength(4);
     expect(suppressionEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, SuppressionLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5949,7 +6132,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(9);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -6383,7 +6566,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(5);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountAPIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -6649,7 +6832,7 @@ describe("live scenario inventory", () => {
     );
     expect(statisticsEntries).toHaveLength(3);
     expect(statisticsEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(101);
+    expect(registry.primary.size).toBe(109);
     expectTypeOf<IsAssignable<AhaSendClient, StatisticsLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -6799,6 +6982,178 @@ describe("live scenario inventory", () => {
     expect(source).not.toContain("statistics sender is not authorized");
     expect(source).not.toMatch(/https?:\/\//u);
     expect(source).not.toContain("?sender_domain=");
+  });
+});
+
+describe("segment live scenarios", () => {
+  it("registers every segment primary across its three facades and links all three iterators", () => {
+    const registry = segmentRegistry(segmentClientFixture());
+    const facades = ["segments", "segments.contacts", "contacts.segments"];
+    const segmentEntries = [...registry.primary.values()].filter(({ facade }) =>
+      facades.includes(facade),
+    );
+
+    expect(segmentEntries.map(({ operationId }) => operationId).sort()).toEqual(
+      [
+        "createSegment",
+        "deleteSegment",
+        "getContactSegments",
+        "getSegment",
+        "getSegmentContacts",
+        "getSegments",
+        "previewSegment",
+        "updateSegment",
+      ].sort(),
+    );
+    expect(segmentEntries.every(({ run }) => typeof run === "function")).toBe(true);
+    expect(
+      registry.iterators
+        .filter(({ facade }) => facades.includes(facade))
+        .map(({ operationId, method }) => `${operationId}.${method}`),
+    ).toEqual(["getSegments.iterate", "getSegmentContacts.iterate", "getContactSegments.iterate"]);
+    expect(registry.primary.size).toBe(109);
+    expectTypeOf<IsAssignable<AhaSendClient, SegmentLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("runs the disposable segment lifecycle in order and sends no mail", async () => {
+    const fixture = segmentClientFixture();
+    const result = await runSegmentLiveScenarios(segmentRegistry(fixture));
+
+    expect(result.failure).toBeNull();
+    expect(result.operationResults.map(({ operationId }) => operationId)).toEqual([
+      "createSegment",
+      "previewSegment",
+      "getSegment",
+      "getSegments",
+      "getSegmentContacts",
+      "getContactSegments",
+      "updateSegment",
+      "deleteSegment",
+    ]);
+    expect(result.operationResults.every(({ status }) => status === "passed")).toBe(true);
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getSegments",
+        status: "passed",
+        evidence: { direction: "forward", items: 1, limit: 1 },
+      },
+      {
+        operationId: "getSegmentContacts",
+        status: "passed",
+        evidence: { direction: "forward", items: 0, limit: 1 },
+      },
+      {
+        operationId: "getContactSegments",
+        status: "passed",
+        evidence: { direction: "forward", items: 1, limit: 1 },
+      },
+    ]);
+    const evidence = (operationId: string) =>
+      result.operationResults.find((entry) => entry.operationId === operationId)?.evidence;
+    expect(evidence("createSegment")).toEqual({ cleanupRegistered: true, state: "building" });
+    expect(evidence("previewSegment")).toEqual({ counted: false, contacts: 1 });
+    expect(evidence("getSegment")).toEqual({ matched: true, state: "building" });
+    expect(evidence("getSegments")).toMatchObject({ listed: true, limit: 1 });
+    expect(evidence("updateSegment")).toEqual({ busyRetries: 0, renamed: true });
+    expect(evidence("deleteSegment")).toEqual({
+      busyRetries: 0,
+      cleanupVerified: true,
+      contactDeleted: true,
+      deleted: true,
+    });
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable segment", status: "passed" },
+      { label: "delete and verify segment contact fixture", status: "passed" },
+    ]);
+    expect(fixture.segments.size).toBe(0);
+    expect(fixture.contacts.size).toBe(0);
+    expect(fixture.sleeps).toEqual([]);
+
+    const methods = fixture.calls.map(({ method }) => method);
+    expect(methods.slice(0, 2)).toEqual(["contacts.create", "segments.create"]);
+    expect(methods.indexOf("segments.preview")).toBeLessThan(methods.indexOf("segments.get"));
+    expect(methods.indexOf("segments.update")).toBeLessThan(methods.indexOf("segments.delete"));
+    expect(methods.indexOf("segments.delete")).toBeLessThan(methods.indexOf("contacts.delete"));
+    // The rule names the contact's stored address, and the create gives the time zone.
+    const normalizedEmail = fixture.contactEmail.toLowerCase();
+    const definition = {
+      schema_version: 1,
+      match: "all",
+      conditions: [{ field: "email", op: "equal", value: normalizedEmail }],
+    };
+    expect(fixture.calls.find(({ method }) => method === "segments.create")?.args).toEqual([
+      { name: "SDK live segment", definition, timezone: "Europe/Berlin" },
+    ]);
+    expect(fixture.calls.find(({ method }) => method === "segments.preview")?.args).toEqual([
+      { definition, timezone: "Europe/Berlin" },
+    ]);
+    expect(fixture.calls.find(({ method }) => method === "segments.update")?.args).toEqual([
+      "66666666-6666-4666-8666-666666666666",
+      { name: "Updated SDK live segment" },
+    ]);
+    expect(
+      fixture.calls
+        .filter(({ method }) => method.startsWith("contacts.segments."))
+        .map(({ args }) => args[0]),
+    ).toEqual([normalizedEmail, normalizedEmail, normalizedEmail]);
+  });
+
+  it("tries a busy update and delete again after each wait", async () => {
+    const fixture = segmentClientFixture({ busyUpdates: 2, busyDeletes: 1 });
+    const result = await runSegmentLiveScenarios(segmentRegistry(fixture));
+
+    expect(result.failure).toBeNull();
+    const evidence = (operationId: string) =>
+      result.operationResults.find((entry) => entry.operationId === operationId)?.evidence;
+    expect(evidence("updateSegment")).toEqual({ busyRetries: 2, renamed: true });
+    expect(evidence("deleteSegment")).toMatchObject({ busyRetries: 1, deleted: true });
+    expect(fixture.sleeps).toEqual([10_000, 10_000, 10_000]);
+    expect(fixture.calls.filter(({ method }) => method === "segments.update")).toHaveLength(3);
+    expect(fixture.segments.size).toBe(0);
+  });
+
+  it("gives up after five retries and still removes the segment and the contact", async () => {
+    const fixture = segmentClientFixture({ busyUpdates: 6 });
+    const result = await runSegmentLiveScenarios(segmentRegistry(fixture));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "updateSegment" });
+    expect((result.failure as unknown as { error: unknown }).error).toMatchObject({
+      status: 409,
+    });
+    expect(fixture.sleeps).toEqual([10_000, 10_000, 10_000, 10_000, 10_000]);
+    expect(fixture.calls.filter(({ method }) => method === "segments.update")).toHaveLength(6);
+    expect(result.cleanupResults).toEqual([
+      { label: "delete and verify disposable segment", status: "passed" },
+      { label: "delete and verify segment contact fixture", status: "passed" },
+    ]);
+    expect(fixture.segments.size).toBe(0);
+    expect(fixture.contacts.size).toBe(0);
+  });
+
+  it("does not wait on an error that is not a 409", async () => {
+    const fixture = segmentClientFixture({
+      updateFailure: Object.assign(new Error("server error"), { status: 500 }),
+    });
+    const result = await runSegmentLiveScenarios(segmentRegistry(fixture));
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "updateSegment" });
+    expect(fixture.sleeps).toEqual([]);
+    expect(fixture.calls.filter(({ method }) => method === "segments.update")).toHaveLength(1);
+    expect(fixture.segments.size).toBe(0);
+  });
+
+  it("refuses an updated name that matches the created one", () => {
+    const fixture = segmentClientFixture();
+
+    expect(() =>
+      createSegmentScenarioRegistry({
+        profile: inspectFixture().profile,
+        client: fixture.client,
+        contactEmail: fixture.contactEmail,
+        segmentName: "Same name",
+        updatedSegmentName: "Same name",
+      }),
+    ).toThrow("must differ from the created name");
   });
 });
 
@@ -7406,16 +7761,16 @@ describe("live cleanup and reporting", () => {
       package: candidate.package,
       tarballSha256: candidate.tarballSha256,
     });
-    expect(parsed.operations).toHaveLength(101);
-    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(101);
-    expect(parsed.iterators).toHaveLength(17);
-    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(17);
+    expect(parsed.operations).toHaveLength(109);
+    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(109);
+    expect(parsed.iterators).toHaveLength(20);
+    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(20);
     expect(
       validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
     ).toMatchObject({
       reportSha256: written.reportSha256,
-      operations: 101,
-      iterators: 17,
+      operations: 109,
+      iterators: 20,
       authorizationOutcomes: 11,
       sandboxOutcomes: 3,
       unexpectedFailures: 0,
@@ -7548,11 +7903,11 @@ describe("live cleanup and reporting", () => {
 
     const missing = structuredClone(report);
     missing.operations.pop();
-    expect(() => validate(missing)).toThrow("must contain exactly 101 results");
+    expect(() => validate(missing)).toThrow("must contain exactly 109 results");
 
     const missingIterator = structuredClone(report);
     missingIterator.iterators.pop();
-    expect(() => validate(missingIterator)).toThrow("must contain exactly 17 results");
+    expect(() => validate(missingIterator)).toThrow("must contain exactly 20 results");
 
     const orphan = structuredClone(report);
     orphan.operations[0]!.operationId = "orphanedOperation";

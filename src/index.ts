@@ -273,4 +273,33 @@ export type {
 } from "./resources/list-contacts.js";
 export type { ContactListsClient, ListContactListsParams } from "./resources/contact-lists.js";
 
+export type {
+  CreateSegmentRequest,
+  ListSegmentsParams,
+  PreviewSegmentRequest,
+  Segment,
+  SegmentCampaignCount,
+  SegmentCondition,
+  SegmentConditionValue,
+  SegmentContact,
+  SegmentDefinition,
+  SegmentDetail,
+  SegmentGroup,
+  SegmentMatch,
+  SegmentOperator,
+  SegmentPreview,
+  SegmentPreviewContact,
+  SegmentsClient,
+  SegmentState,
+  UpdateSegmentRequest,
+} from "./resources/segments.js";
+export type {
+  ListSegmentContactsParams,
+  SegmentContactsClient,
+} from "./resources/segment-contacts.js";
+export type {
+  ContactSegmentsClient,
+  ListContactSegmentsParams,
+} from "./resources/contact-segments.js";
+
 export { SDK_VERSION } from "./version.js";

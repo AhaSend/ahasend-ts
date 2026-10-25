@@ -246,7 +246,7 @@ await client.messages.send(body, {
 
 The SDK attaches a UUID `Idempotency-Key` to every **create, batch, send, publish and restore**
 operation and to template, campaign template and campaign updates
-(all 28 endpoints whose generated operation profile marks them idempotent,
+(all 29 endpoints whose generated operation profile marks them idempotent,
 including message sends, resource creations, the contact and list batches, and the campaign
 duplicate, send, unschedule and test). The key is generated once per
 call and reused across the SDK's internal retries. Stored outcomes — 2xx and

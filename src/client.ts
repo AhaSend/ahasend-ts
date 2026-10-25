@@ -19,6 +19,8 @@ import { createContactsClient } from "./resources/contacts.js";
 import type { ContactsClient } from "./resources/contacts.js";
 import { createListsClient } from "./resources/lists.js";
 import type { ListsClient } from "./resources/lists.js";
+import { createSegmentsClient } from "./resources/segments.js";
+import type { SegmentsClient } from "./resources/segments.js";
 import { createMessagesClient } from "./resources/messages.js";
 import type { MessagesClient } from "./resources/messages.js";
 import { createRoutesClient } from "./resources/routes.js";
@@ -71,9 +73,10 @@ export interface PingResponse {
  *
  * The client exposes readonly structural facades for messages, transactional
  * templates, campaign templates, campaigns, domains, API keys, outbound
- * webhooks, statistics, contacts, lists, suppressions, routes, accounts, SMTP
- * credentials, and sub-accounts. List memberships are available through
- * `client.lists.contacts`, campaign recipients through
+ * webhooks, statistics, contacts, lists, segments, suppressions, routes,
+ * accounts, SMTP credentials, and sub-accounts. List memberships are available
+ * through `client.lists.contacts`, segment members through
+ * `client.segments.contacts`, campaign recipients through
  * `client.campaigns.recipients`, and child-account API keys through
  * `client.subAccounts.apiKeys`.
  *
@@ -95,6 +98,7 @@ export class AhaSendClient {
   readonly #statistics: Readonly<StatisticsClient>;
   readonly #contacts: Readonly<ContactsClient>;
   readonly #lists: Readonly<ListsClient>;
+  readonly #segments: Readonly<SegmentsClient>;
   readonly #suppressions: Readonly<SuppressionsClient>;
   readonly #routes: Readonly<RoutesClient>;
   readonly #accounts: Readonly<AccountsClient>;
@@ -145,6 +149,7 @@ export class AhaSendClient {
     this.#statistics = createFrozenFacade(createStatisticsClient(this.#operations, accountId));
     this.#contacts = createFrozenFacade(createContactsClient(this.#operations, accountId));
     this.#lists = createFrozenFacade(createListsClient(this.#operations, accountId));
+    this.#segments = createFrozenFacade(createSegmentsClient(this.#operations, accountId));
     this.#suppressions = createFrozenFacade(createSuppressionsClient(this.#operations, accountId));
     this.#routes = createFrozenFacade(createRoutesClient(this.#operations, accountId));
     this.#accounts = createFrozenFacade(createAccountsClient(this.#operations, accountId));
@@ -211,6 +216,11 @@ export class AhaSendClient {
   /** Create, inspect, list, update, and delete contact lists, and manage their members. */
   get lists(): Readonly<ListsClient> {
     return this.#lists;
+  }
+
+  /** Create, preview, inspect, list, update, and delete segments, and read their members. */
+  get segments(): Readonly<SegmentsClient> {
+    return this.#segments;
   }
 
   /** Create, list, delete, and wipe address suppressions. */

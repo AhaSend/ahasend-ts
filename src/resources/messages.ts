@@ -297,6 +297,12 @@ export interface DeliveryAttempt {
   time: ISODateTime;
   log: string;
   status: string;
+  /**
+   * The `id` of the bounce report message that the recipient's mail server sent after it
+   * accepted this message; read the report with `messages.get()`. Present only on the delivery
+   * event of an out-of-band bounce.
+   */
+  report_message_id?: string;
 }
 
 export interface MessageContentPart {

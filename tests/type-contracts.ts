@@ -131,6 +131,20 @@ interface PublicSchemaContracts {
   BatchAddListContactsResponse: SDK.BatchAddListContactsResponse;
   PaginatedContactListsResponse: Awaited<ReturnType<SDK.ListsClient["list"]>>;
   PaginatedListContactsResponse: Awaited<ReturnType<SDK.ListContactsClient["list"]>>;
+  Segment: SDK.Segment;
+  SegmentDetail: SDK.SegmentDetail;
+  SegmentDefinition: SDK.SegmentDefinition;
+  SegmentGroup: SDK.SegmentGroup;
+  SegmentCondition: SDK.SegmentCondition;
+  SegmentCampaignCount: SDK.SegmentCampaignCount;
+  CreateSegmentRequest: SDK.CreateSegmentRequest;
+  UpdateSegmentRequest: SDK.UpdateSegmentRequest;
+  PreviewSegmentRequest: SDK.PreviewSegmentRequest;
+  SegmentPreview: SDK.SegmentPreview;
+  SegmentPreviewContact: SDK.SegmentPreviewContact;
+  SegmentContact: SDK.SegmentContact;
+  PaginatedSegmentsResponse: SDK.PaginatedResponse<SDK.Segment>;
+  PaginatedSegmentContactsResponse: SDK.PaginatedResponse<SDK.SegmentContact>;
   Suppression: SDK.Suppression;
   CreateSuppressionResponse: SDK.CreateSuppressionResponse;
   CreateSuppressionRequest: SDK.CreateSuppressionRequest;
@@ -179,6 +193,8 @@ interface ReadonlyPublicSchemaRefinements {
   CreateSMTPCredentialRequest: "global credential domains are readonly in the public request model";
   CreateContactListRequest: "tags is readonly in the public request model";
   UpdateContactListRequest: "tags is readonly in the public request model";
+  CreateCampaignRequest: "the audience ID arrays are readonly in the public request model";
+  UpdateCampaignRequest: "the audience ID arrays are readonly in the public request model";
 }
 
 type ReadonlyArrays<Value> = Value extends readonly unknown[]
@@ -252,6 +268,27 @@ type ListPageFetchersAcceptedBySharedPaginator = [
   >,
 ];
 
+type SegmentPageFetchersAcceptedBySharedPaginator = [
+  Expect<
+    Extends<
+      (params: SDK.ListSegmentsParams) => ReturnType<SDK.SegmentsClient["list"]>,
+      Parameters<typeof paginate<SDK.Segment, SDK.ListSegmentsParams>>[0]
+    >
+  >,
+  Expect<
+    Extends<
+      (params: SDK.ListSegmentContactsParams) => ReturnType<SDK.SegmentContactsClient["list"]>,
+      Parameters<typeof paginate<SDK.SegmentContact, SDK.ListSegmentContactsParams>>[0]
+    >
+  >,
+  Expect<
+    Extends<
+      (params: SDK.ListContactSegmentsParams) => ReturnType<SDK.ContactSegmentsClient["list"]>,
+      Parameters<typeof paginate<SDK.Segment, SDK.ListContactSegmentsParams>>[0]
+    >
+  >,
+];
+
 type RefinedPublicSchemasAssignableToWire = Expect<
   Equal<
     {
@@ -311,6 +348,7 @@ type ClientSignatures = [
   Expect<Equal<SDK.AhaSendClient["statistics"], Readonly<SDK.StatisticsClient>>>,
   Expect<Equal<SDK.AhaSendClient["contacts"], Readonly<SDK.ContactsClient>>>,
   Expect<Equal<SDK.AhaSendClient["lists"], Readonly<SDK.ListsClient>>>,
+  Expect<Equal<SDK.AhaSendClient["segments"], Readonly<SDK.SegmentsClient>>>,
   Expect<Equal<SDK.AhaSendClient["suppressions"], Readonly<SDK.SuppressionsClient>>>,
   Expect<Equal<SDK.AhaSendClient["routes"], Readonly<SDK.RoutesClient>>>,
   Expect<Equal<SDK.AhaSendClient["accounts"], Readonly<SDK.AccountsClient>>>,
@@ -769,10 +807,17 @@ declare const contactDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
 declare const contactBatchResult: SDK.AhaSendPromise<SDK.BatchUpsertContactsResponse>;
 declare const contactListsPageResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.ListContact>>;
 declare const contactListsIteratorResult: AsyncGenerator<SDK.ListContact, void, undefined>;
+declare const contactSegmentsPageResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Segment>>;
+declare const contactSegmentsIteratorResult: AsyncGenerator<SDK.Segment, void, undefined>;
 
 const structuralContactListsMock: SDK.ContactListsClient = {
   list: () => contactListsPageResult,
   iterate: () => contactListsIteratorResult,
+};
+
+const structuralContactSegmentsMock: SDK.ContactSegmentsClient = {
+  list: () => contactSegmentsPageResult,
+  iterate: () => contactSegmentsIteratorResult,
 };
 
 const structuralContactMock: SDK.ContactsClient = {
@@ -784,6 +829,7 @@ const structuralContactMock: SDK.ContactsClient = {
   delete: () => contactDeleteResult,
   batchUpsert: () => contactBatchResult,
   lists: structuralContactListsMock,
+  segments: structuralContactSegmentsMock,
 };
 
 type ListSignatures = [
@@ -936,6 +982,136 @@ const structuralListMock: SDK.ListsClient = {
   update: () => listResult,
   delete: () => listDeleteResult,
   contacts: structuralListContactMock,
+};
+
+type SegmentSignatures = [
+  Expect<
+    Equal<
+      SDK.SegmentsClient["list"],
+      (
+        params?: SDK.ListSegmentsParams,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Segment>>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.SegmentsClient["iterate"],
+      (
+        params?: SDK.ListSegmentsParams,
+        options?: SDK.RequestOptions,
+      ) => AsyncGenerator<SDK.Segment, void, undefined>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.SegmentsClient["create"],
+      (
+        body: SDK.CreateSegmentRequest,
+        options?: SDK.IdempotencyRequestOptions,
+      ) => SDK.AhaSendPromise<SDK.Segment>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.SegmentsClient["preview"],
+      (
+        body: SDK.PreviewSegmentRequest,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.SegmentPreview>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.SegmentsClient["get"],
+      (segmentId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SegmentDetail>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.SegmentsClient["update"],
+      (
+        segmentId: SDK.UUID,
+        body: SDK.UpdateSegmentRequest,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.Segment>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.SegmentsClient["delete"],
+      (segmentId: SDK.UUID, options?: SDK.RequestOptions) => SDK.AhaSendPromise<SDK.SuccessResponse>
+    >
+  >,
+  Expect<Equal<SDK.SegmentsClient["contacts"], Readonly<SDK.SegmentContactsClient>>>,
+  Expect<Equal<SDK.ContactsClient["segments"], Readonly<SDK.ContactSegmentsClient>>>,
+  Expect<
+    Equal<
+      SDK.SegmentContactsClient["list"],
+      (
+        segmentId: SDK.UUID,
+        params?: SDK.ListSegmentContactsParams,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.SegmentContact>>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.SegmentContactsClient["iterate"],
+      (
+        segmentId: SDK.UUID,
+        params?: SDK.ListSegmentContactsParams,
+        options?: SDK.RequestOptions,
+      ) => AsyncGenerator<SDK.SegmentContact, void, undefined>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactSegmentsClient["list"],
+      (
+        idOrEmail: string,
+        params?: SDK.ListContactSegmentsParams,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Segment>>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.ContactSegmentsClient["iterate"],
+      (
+        idOrEmail: string,
+        params?: SDK.ListContactSegmentsParams,
+        options?: SDK.RequestOptions,
+      ) => AsyncGenerator<SDK.Segment, void, undefined>
+    >
+  >,
+];
+
+declare const segmentPageResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.Segment>>;
+declare const segmentIteratorResult: AsyncGenerator<SDK.Segment, void, undefined>;
+declare const segmentResult: SDK.AhaSendPromise<SDK.Segment>;
+declare const segmentDetailResult: SDK.AhaSendPromise<SDK.SegmentDetail>;
+declare const segmentPreviewResult: SDK.AhaSendPromise<SDK.SegmentPreview>;
+declare const segmentDeleteResult: SDK.AhaSendPromise<SDK.SuccessResponse>;
+declare const segmentContactPageResult: SDK.AhaSendPromise<
+  SDK.PaginatedResponse<SDK.SegmentContact>
+>;
+declare const segmentContactIteratorResult: AsyncGenerator<SDK.SegmentContact, void, undefined>;
+
+const structuralSegmentContactMock: SDK.SegmentContactsClient = {
+  list: () => segmentContactPageResult,
+  iterate: () => segmentContactIteratorResult,
+};
+
+const structuralSegmentMock: SDK.SegmentsClient = {
+  list: () => segmentPageResult,
+  iterate: () => segmentIteratorResult,
+  create: () => segmentResult,
+  preview: () => segmentPreviewResult,
+  get: () => segmentDetailResult,
+  update: () => segmentResult,
+  delete: () => segmentDeleteResult,
+  contacts: structuralSegmentContactMock,
 };
 
 type SuppressionSignatures = [
@@ -1378,6 +1554,7 @@ type ClientResourceSurface = Pick<
   | "statistics"
   | "contacts"
   | "lists"
+  | "segments"
   | "suppressions"
   | "routes"
   | "accounts"
@@ -1393,6 +1570,7 @@ const structuralClientMock: ClientResourceSurface = {
   statistics: structuralStatisticsMock,
   contacts: structuralContactMock,
   lists: structuralListMock,
+  segments: structuralSegmentMock,
   suppressions: structuralSuppressionMock,
   routes: structuralRouteMock,
   accounts: structuralAccountMock,
@@ -1516,6 +1694,27 @@ type RefinementContracts = [
     >
   >,
   Expect<Equal<SDK.ListListContactsParams["include_contacts"], boolean | undefined>>,
+  Expect<
+    Equal<SDK.SegmentDefinition["conditions"], readonly (SDK.SegmentCondition | SDK.SegmentGroup)[]>
+  >,
+  Expect<Equal<SDK.SegmentGroup["conditions"], readonly SDK.SegmentCondition[]>>,
+  Expect<
+    Equal<SDK.SegmentConditionValue, string | number | boolean | null | SDK.SegmentCampaignCount>
+  >,
+  Expect<Equal<SDK.SegmentDetail["marketable_count"], number | null>>,
+  Expect<Equal<SDK.UpdateSegmentRequest["definition"], SDK.SegmentDefinition | null | undefined>>,
+  Expect<Equal<SDK.CreateCampaignRequest["list_ids"], readonly string[] | undefined>>,
+  Expect<Equal<SDK.CreateCampaignRequest["segment_ids"], readonly string[] | undefined>>,
+  Expect<Equal<SDK.CreateCampaignRequest["exclude_list_ids"], readonly string[] | undefined>>,
+  Expect<Equal<SDK.CreateCampaignRequest["exclude_segment_ids"], readonly string[] | undefined>>,
+  Expect<Equal<SDK.UpdateCampaignRequest["list_ids"], readonly string[] | undefined>>,
+  Expect<Equal<SDK.UpdateCampaignRequest["segment_ids"], readonly string[] | undefined>>,
+  Expect<Equal<SDK.UpdateCampaignRequest["exclude_list_ids"], readonly string[] | undefined>>,
+  Expect<Equal<SDK.UpdateCampaignRequest["exclude_segment_ids"], readonly string[] | undefined>>,
+  Expect<Equal<SDK.CampaignRecipient["list_name"], string | null>>,
+  Expect<Equal<SDK.CampaignRecipient["segment_id"], string | null>>,
+  Expect<Equal<SDK.CampaignRecipient["segment_name"], string | null>>,
+  Expect<Equal<SDK.DeliveryAttempt["report_message_id"], string | undefined>>,
   Expect<Equal<"secret_key" extends keyof SDK.APIKey ? true : false, false>>,
   Expect<Equal<"secret" extends keyof SDK.Route ? true : false, false>>,
   Expect<Equal<"secret" extends keyof SDK.Webhook ? true : false, false>>,

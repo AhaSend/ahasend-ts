@@ -16,8 +16,18 @@ export interface CampaignRecipient {
   contact_id: UUID;
   /** The address the campaign sent to. */
   email: string;
-  /** The name of the list the contact was sent to from. */
-  list_name: string;
+  /**
+   * The name of the list the contact was sent to from; `null` when it was sent to from a
+   * segment.
+   */
+  list_name: string | null;
+  /** The segment the contact was sent to from; `null` when it was sent to from a list. */
+  segment_id: UUID | null;
+  /**
+   * The name of the segment the contact was sent to from, as it was at the send; `null` when it
+   * was sent to from a list.
+   */
+  segment_name: string | null;
   /** The status, under the name the dashboard's report shows, as a key of `by_status`. */
   status: string;
   /** `null` when the recipient has no bounce classification. */

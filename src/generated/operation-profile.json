@@ -402,6 +402,46 @@
       "method": "list"
     },
     {
+      "operationId": "getSegments",
+      "facade": "segments",
+      "method": "list"
+    },
+    {
+      "operationId": "createSegment",
+      "facade": "segments",
+      "method": "create"
+    },
+    {
+      "operationId": "previewSegment",
+      "facade": "segments",
+      "method": "preview"
+    },
+    {
+      "operationId": "getSegment",
+      "facade": "segments",
+      "method": "get"
+    },
+    {
+      "operationId": "updateSegment",
+      "facade": "segments",
+      "method": "update"
+    },
+    {
+      "operationId": "deleteSegment",
+      "facade": "segments",
+      "method": "delete"
+    },
+    {
+      "operationId": "getSegmentContacts",
+      "facade": "segments.contacts",
+      "method": "list"
+    },
+    {
+      "operationId": "getContactSegments",
+      "facade": "contacts.segments",
+      "method": "list"
+    },
+    {
       "operationId": "getSuppressions",
       "facade": "suppressions",
       "method": "list"
@@ -571,6 +611,21 @@
     {
       "operationId": "getContactLists",
       "facade": "contacts.lists",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getSegments",
+      "facade": "segments",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getSegmentContacts",
+      "facade": "segments.contacts",
+      "method": "iterate"
+    },
+    {
+      "operationId": "getContactSegments",
+      "facade": "contacts.segments",
       "method": "iterate"
     },
     {
