@@ -34,6 +34,20 @@ is never stored or replayed. `domains.checkDns()`, `subAccounts.suspend()`,
 `subAccounts.unsuspend()`, and `subAccounts.unpauseDomain()` are also never retried because the API
 does not declare them retry-safe.
 
+Campaign audiences and segments have their own terminal `AhaSendConflictError` cases:
+
+- `campaigns.create()`, `campaigns.duplicate()` and a `campaigns.update()` that changes the
+  audience answer `409` while a segment of the audience is being rebuilt. The API stores that
+  refusal for the key and replays it for 24 hours, so a retry needs a new
+  key: call again in a minute without `idempotencyKey`, or with a new one.
+- `segments.create()` answers `409` when the account already has 100 segments, or when a list or
+  campaign that the definition names is being changed. That refusal, like every 4xx of a segment
+  create, is not stored, so a retry with the same key runs again.
+- `segments.update()` and `segments.delete()` answer `409` while the segment is being changed,
+  and `segments.delete()` also while an unfinished campaign still needs the segment. They take no
+  key, and the refusal changes nothing, so call again later, or after the campaign no longer needs
+  the segment.
+
 For HTTP 408, 429 and 5xx, a valid `Retry-After` in seconds or HTTP-date form is authoritative
 and capped at `maxDelayMs`. An eligible idempotency-in-progress 409 accepts only the positive
 integer seconds form. Other retryable responses, and these without a valid `Retry-After`, use the
@@ -106,6 +120,10 @@ if (result.idempotentReplayed) {
   // The server returned the stored result of an earlier identical request.
 }
 ```
+
+The API stores a 2xx or a deterministic 4xx for the key and replays it. `campaigns.test()` and
+`segments.create()` store only a 2xx: a 4xx releases the key, so a retry with the same key runs
+again. Server errors (5xx) are never stored.
 
 Non-secret idempotency results expire after 24 hours. API-key creation responses contain a
 one-time secret and have a 5-minute replay window; an exact replay during that window returns the

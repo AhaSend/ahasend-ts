@@ -6,6 +6,42 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `client.segments` manages segments, saved rules over the account's contacts that AhaSend keeps
+  up to date: `list`, `iterate`, `create`, `preview`, `get`, `update` and `delete`.
+  `client.segments.contacts` lists a segment's members, and `client.contacts.segments` lists the
+  segments one contact is a member of, by UUID or raw email. A `Segment` carries its `definition`,
+  its `state` (`building`, `ready` or `failed`) and its `member_count`; `get()` returns a
+  `SegmentDetail`, which adds `marketable_count`, the members a campaign to the segment alone would
+  reach. `preview()` counts what a definition matches without saving it. `create()` sends an
+  `Idempotency-Key`, and a 4xx answer releases it. `create()`, `preview()` and `update()` refuse an
+  empty `conditions`, at the root or in a group, with `AhaSendConfigurationError`. The segment
+  methods need `segments:read`, `segments:write` or `segments:delete`, and `preview()`, `segments.contacts` and
+  `contacts.segments` also need `contacts:read`. The new types include `SegmentDefinition`,
+  `SegmentGroup`, `SegmentCondition`, `SegmentConditionValue` and `SegmentCampaignCount`. See
+  "Manage segments" in the README.
+- `Campaign`, `CreateCampaignRequest` and `UpdateCampaignRequest` gain `segment_ids`,
+  `exclude_list_ids` and `exclude_segment_ids`. On update, an audience field that is present
+  replaces its set, and `[]` empties it.
+- `CampaignRecipient` gains `segment_id` and `segment_name`, which name the segment a recipient was
+  sent to from, and are `null` for a recipient sent to from a list.
+- `DeliveryAttempt` gains `report_message_id`: on the delivery event of an out-of-band bounce, the
+  `id` of the bounce report message, which `messages.get()` reads.
+
+### Changed
+
+- `CampaignRecipient.list_name` is `string | null`: it is `null` for a recipient sent to from a
+  segment. Code that reads it as a string needs a null check.
+- `campaigns.create()` and `update()` no longer refuse an empty `list_ids` with
+  `AhaSendConfigurationError` before they send, because `list_ids` can be `[]` when `segment_ids`
+  names a segment. The API checks the audience, and answers `400` with `AhaSendBadRequestError`
+  when the campaign has no list or segment to send to.
+- Release tooling: live acceptance covers the segment operations. The segment scenarios create a
+  contact and a segment whose rule matches only that contact, read, list, preview and rename the
+  segment, read its members and the contact's segments, and delete both. The live API key needs
+  `segments:read`, `segments:write` and `segments:delete`.
+
 ## [0.4.0] — 2026-10-19
 
 ### Added
