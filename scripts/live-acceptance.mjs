@@ -24,8 +24,8 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 101;
-export const EXPECTED_LIVE_ITERATOR_COUNT = 17;
+export const EXPECTED_LIVE_OPERATION_COUNT = 109;
+export const EXPECTED_LIVE_ITERATOR_COUNT = 20;
 
 const packageName = "@ahasend/sdk";
 const domainOperationIds = Object.freeze([
@@ -70,6 +70,31 @@ const listOperationIds = Object.freeze([
   "deleteList",
 ]);
 const listIteratorOperationIds = Object.freeze(["getLists", "getListContacts", "getContactLists"]);
+// The segment scenarios act on one disposable contact and one disposable
+// segment whose only rule matches that contact's address, in this order. They
+// do not wait for the segment to be ready, so a member page may still be empty.
+const segmentOperationIds = Object.freeze([
+  "createSegment",
+  "previewSegment",
+  "getSegment",
+  "getSegments",
+  "getSegmentContacts",
+  "getContactSegments",
+  "updateSegment",
+  "deleteSegment",
+]);
+const segmentIteratorOperationIds = Object.freeze([
+  "getSegments",
+  "getSegmentContacts",
+  "getContactSegments",
+]);
+const segmentStates = Object.freeze(["building", "ready", "failed"]);
+// A segment that is being changed answers update and delete with 409 and
+// changes nothing. The scenarios try again this many times, this far apart.
+const segmentBusyRetries = 5;
+const segmentBusyRetryDelayMs = 10_000;
+// An account holds at most 100 segments, so one page of 100 lists them all.
+const segmentPageLimit = 100;
 const templateReadOperationIds = Object.freeze(["listTemplates", "getTemplate"]);
 // The template send is a messages method, but it needs the template the read
 // scenarios create and check, so the template scenarios own it and run it after them.
@@ -2626,6 +2651,478 @@ export function createListScenarioRegistry({
 /** Execute list scenarios in lifecycle order and always drain cleanup. */
 export function runListLiveScenarios(registry) {
   return runLiveScenarios(registry, listOperationIds, listIteratorOperationIds, "List");
+}
+
+function requireSegmentDefinition(value, label) {
+  const definition = requireObject(value, label);
+  if (definition.schema_version !== 1 || !["all", "any"].includes(definition.match)) {
+    throw new TypeError(`${label} must have schema_version 1 and match all or any.`);
+  }
+  if (!Array.isArray(definition.conditions) || definition.conditions.length === 0) {
+    throw new TypeError(`${label} conditions must be a non-empty array.`);
+  }
+  return definition;
+}
+
+function requireSegmentResult(value, label, expected = {}) {
+  const segment = requireObject(value, label);
+  if (segment.object !== "segment") throw new TypeError(`${label} object must be segment.`);
+  const id = requireString(segment.id, `${label} id`);
+  if (expected.id !== undefined && id !== expected.id) {
+    throw new TypeError(`${label} returned the wrong segment.`);
+  }
+  for (const field of ["created_at", "updated_at", "name", "timezone"]) {
+    requireString(segment[field], `${label} ${field}`);
+  }
+  if (typeof segment.description !== "string") {
+    throw new TypeError(`${label} description must be a string.`);
+  }
+  if (expected.name !== undefined && segment.name !== expected.name) {
+    throw new TypeError(`${label} name must be ${JSON.stringify(expected.name)}.`);
+  }
+  requireSegmentDefinition(segment.definition, `${label} definition`);
+  if (!segmentStates.includes(segment.state)) {
+    throw new TypeError(`${label} state must be one of ${segmentStates.join(", ")}.`);
+  }
+  for (const field of ["failure_reason", "last_evaluated_at"]) {
+    if (!Object.hasOwn(segment, field)) throw new TypeError(`${label} must carry ${field}.`);
+    requireNullableString(segment[field], `${label} ${field}`);
+  }
+  if (!Number.isSafeInteger(segment.member_count) || segment.member_count < 0) {
+    throw new TypeError(`${label} member_count must be a non-negative integer.`);
+  }
+  return segment;
+}
+
+function requireNullableCount(value, label) {
+  if (value !== null && (!Number.isSafeInteger(value) || value < 0)) {
+    throw new TypeError(`${label} must be null or a non-negative integer.`);
+  }
+  return value;
+}
+
+function requireSegmentContact(value, label, expected = {}) {
+  const member = requireObject(value, label);
+  if (member.object !== "segment_contact") {
+    throw new TypeError(`${label} object must be segment_contact.`);
+  }
+  for (const field of ["segment_id", "contact_id", "email", "entered_at"]) {
+    requireString(member[field], `${label} ${field}`);
+  }
+  if (expected.segmentId !== undefined && member.segment_id !== expected.segmentId) {
+    throw new TypeError(`${label} must belong to the disposable segment.`);
+  }
+  return member;
+}
+
+function requireSegmentPage(value, label, validateEntry) {
+  const page = requireObject(value, label);
+  if (page.object !== "list" || !Array.isArray(page.data)) {
+    throw new TypeError(`${label} must be a list with a data array.`);
+  }
+  const pagination = requireObject(page.pagination, `${label} pagination`);
+  if (typeof pagination.has_more !== "boolean") {
+    throw new TypeError(`${label} pagination has_more must be a boolean.`);
+  }
+  page.data.forEach((entry, index) => validateEntry(entry, `${label} item ${index}`));
+  return page;
+}
+
+function defaultSleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * Build the segment lifecycle over one disposable contact and one disposable
+ * segment whose rule is the contact's address. A segment builds its members
+ * after each write and answers update and delete with 409 while it is busy, so
+ * those two scenarios try again after `sleep(ms)`; the check is on the status,
+ * since the message is not stable. No campaign uses the segment, so a 409 can
+ * only mean busy. Nothing waits for the segment to be ready: the member pages
+ * are checked for their shape, not for the contact. Nothing sends mail.
+ */
+export function createSegmentScenarioRegistry({
+  profile,
+  client,
+  contactEmail,
+  segmentName,
+  updatedSegmentName,
+  timezone = "UTC",
+  pagination = { limit: 1 },
+  sleep = defaultSleep,
+}) {
+  const segments = requireLifecycleMappings(
+    profile,
+    [
+      "getSegments",
+      "createSegment",
+      "previewSegment",
+      "getSegment",
+      "updateSegment",
+      "deleteSegment",
+    ],
+    "segments",
+    "getSegments",
+    "segment",
+  );
+  const members = requireLifecycleMappings(
+    profile,
+    ["getSegmentContacts"],
+    "segments.contacts",
+    "getSegmentContacts",
+    "segment member",
+  );
+  const contactSegments = requireLifecycleMappings(
+    profile,
+    ["getContactSegments"],
+    "contacts.segments",
+    "getContactSegments",
+    "contact segment",
+  );
+  const mapped = (mappings, operationId) =>
+    requireMappedClientMethod(
+      client,
+      mappings.operations.get(operationId),
+      `Segment ${operationId} scenario`,
+    );
+  const methods = Object.freeze({
+    list: mapped(segments, "getSegments"),
+    iterate: requireMappedClientMethod(client, segments.iterator, "Segment iterator scenario"),
+    create: mapped(segments, "createSegment"),
+    preview: mapped(segments, "previewSegment"),
+    get: mapped(segments, "getSegment"),
+    update: mapped(segments, "updateSegment"),
+    delete: mapped(segments, "deleteSegment"),
+    listMembers: mapped(members, "getSegmentContacts"),
+    iterateMembers: requireMappedClientMethod(
+      client,
+      members.iterator,
+      "Segment member iterator scenario",
+    ),
+    listForContact: mapped(contactSegments, "getContactSegments"),
+    iterateForContact: requireMappedClientMethod(
+      client,
+      contactSegments.iterator,
+      "Contact segment iterator scenario",
+    ),
+    createContact: requireMappedOperation(
+      profile,
+      client,
+      "createContact",
+      "Segment contact fixture",
+    ),
+    getContact: requireMappedOperation(profile, client, "getContact", "Segment contact fixture"),
+    deleteContact: requireMappedOperation(
+      profile,
+      client,
+      "deleteContact",
+      "Segment contact fixture",
+    ),
+  });
+  const email = requireString(contactEmail, "Segment live contact email");
+  const name = requireString(segmentName, "Segment live name");
+  const updatedName = requireString(updatedSegmentName, "Segment live updated name");
+  if (name === updatedName) {
+    throw new TypeError("Segment live updated name must differ from the created name.");
+  }
+  const zone = requireString(timezone, "Segment live time zone");
+  const pageParams = requireLivePagination(pagination, "Segment");
+  if (typeof sleep !== "function") throw new TypeError("Segment live sleep must be a function.");
+  const state = { contactEmail: null, segmentId: null, definition: null };
+  const requireSegmentId = () => {
+    if (state.segmentId === null) {
+      throw new TypeError("Segment scenarios require the created segment.");
+    }
+    return state.segmentId;
+  };
+  const requireDefinition = () => {
+    if (state.definition === null) {
+      throw new TypeError("Segment scenarios require the disposable contact fixture.");
+    }
+    return state.definition;
+  };
+  // Try a write again while the segment is busy, and count the tries.
+  const whileBusy = async (action) => {
+    for (let retries = 0; ; retries += 1) {
+      try {
+        return { result: await action(), retries };
+      } catch (error) {
+        if (!isConflictError(error) || retries >= segmentBusyRetries) throw error;
+      }
+      await sleep(segmentBusyRetryDelayMs);
+    }
+  };
+  const deleteSegmentById = async (segmentId) => {
+    try {
+      await whileBusy(() => methods.delete(segmentId));
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
+    }
+    await requireResourceAbsent(methods.get, segmentId, "Segment cleanup verification", "segment");
+  };
+  const deleteContactByEmail = async (address) => {
+    try {
+      await methods.deleteContact(address);
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
+    }
+    await requireResourceAbsent(
+      methods.getContact,
+      address,
+      "Segment contact fixture cleanup verification",
+      "contact",
+    );
+  };
+  const requireOwnSegment = (entry, label) => requireSegmentResult(entry, label);
+
+  const scenarios = new Map([
+    [
+      "createSegment",
+      {
+        operationId: "createSegment",
+        async run({ cleanup }) {
+          cleanup.register("delete and verify segment contact fixture", () =>
+            deleteContactByEmail(email),
+          );
+          const contact = requireObject(
+            await methods.createContact({ email }),
+            "Segment contact fixture response",
+          );
+          state.contactEmail = requireString(contact.email, "Segment contact fixture email");
+          state.definition = Object.freeze({
+            schema_version: 1,
+            match: "all",
+            conditions: Object.freeze([
+              Object.freeze({ field: "email", op: "equal", value: state.contactEmail }),
+            ]),
+          });
+          // Registered before the write: a create whose response is lost is
+          // still found by its unique name and removed.
+          cleanup.register("delete and verify disposable segment", async () => {
+            const segmentIds = new Set(state.segmentId === null ? [] : [state.segmentId]);
+            if (state.segmentId === null) {
+              const page = requireObject(
+                await methods.list({ limit: segmentPageLimit }),
+                "Segment cleanup lookup",
+              );
+              for (const entry of Array.isArray(page.data) ? page.data : []) {
+                if (entry?.name === name || entry?.name === updatedName) segmentIds.add(entry.id);
+              }
+            }
+            for (const segmentId of segmentIds) await deleteSegmentById(segmentId);
+          });
+          const segment = requireSegmentResult(
+            await methods.create({ name, definition: state.definition, timezone: zone }),
+            "Segment create scenario response",
+            { name },
+          );
+          state.segmentId = segment.id;
+          const [condition] = segment.definition.conditions;
+          if (condition?.field !== "email" || condition.value !== state.contactEmail) {
+            throw new TypeError("Segment create scenario must return the definition it was given.");
+          }
+          if (segment.timezone !== zone) {
+            throw new TypeError(`Segment create scenario timezone must be ${zone}.`);
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ cleanupRegistered: true, state: segment.state }),
+          });
+        },
+      },
+    ],
+    [
+      "previewSegment",
+      {
+        operationId: "previewSegment",
+        async run() {
+          const preview = requireObject(
+            await methods.preview({ definition: requireDefinition(), timezone: zone }),
+            "Segment preview scenario response",
+          );
+          if (preview.object !== "segment_preview") {
+            throw new TypeError("Segment preview scenario object must be segment_preview.");
+          }
+          const count = requireNullableCount(preview.count, "Segment preview scenario count");
+          if (!Array.isArray(preview.contacts) || preview.contacts.length > 10) {
+            throw new TypeError("Segment preview scenario contacts must hold at most 10 contacts.");
+          }
+          preview.contacts.forEach((entry, index) => {
+            const contact = requireObject(entry, `Segment preview scenario contact ${index}`);
+            requireString(contact.contact_id, `Segment preview scenario contact ${index} id`);
+            requireString(contact.email, `Segment preview scenario contact ${index} email`);
+          });
+          return Object.freeze({
+            evidence: Object.freeze({ counted: count !== null, contacts: preview.contacts.length }),
+          });
+        },
+      },
+    ],
+    [
+      "getSegment",
+      {
+        operationId: "getSegment",
+        async run() {
+          const segment = requireSegmentResult(
+            await methods.get(requireSegmentId()),
+            "Segment get scenario response",
+            { id: requireSegmentId(), name },
+          );
+          if (!Object.hasOwn(segment, "marketable_count")) {
+            throw new TypeError("Segment get scenario must carry marketable_count.");
+          }
+          const marketable = requireNullableCount(
+            segment.marketable_count,
+            "Segment get scenario marketable_count",
+          );
+          if (segment.state !== "ready" && marketable !== null) {
+            throw new TypeError(
+              "Segment get scenario marketable_count must be null while the segment is not ready.",
+            );
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ matched: true, state: segment.state }),
+          });
+        },
+      },
+    ],
+    [
+      "getSegments",
+      {
+        operationId: "getSegments",
+        async run() {
+          const result = await runListIteratorScenario(
+            methods.list,
+            methods.iterate,
+            pageParams,
+            "Segment",
+            requireOwnSegment,
+          );
+          const page = requireSegmentPage(
+            await methods.list({ limit: segmentPageLimit }),
+            "Segment lookup response",
+            requireOwnSegment,
+          );
+          if (!page.data.some((entry) => entry.id === requireSegmentId())) {
+            throw new TypeError("Segment list scenario must list the disposable segment.");
+          }
+          return Object.freeze({
+            evidence: Object.freeze({ ...result.evidence, listed: true }),
+            iteratorEvidence: result.iteratorEvidence,
+          });
+        },
+      },
+    ],
+    [
+      "getSegmentContacts",
+      {
+        operationId: "getSegmentContacts",
+        async run() {
+          const segmentId = requireSegmentId();
+          const validate = (entry, label) => requireSegmentContact(entry, label, { segmentId });
+          const result = await runListIteratorScenario(
+            (params) => methods.listMembers(segmentId, params),
+            (params) => methods.iterateMembers(segmentId, params),
+            pageParams,
+            "Segment member",
+            validate,
+          );
+          requireSegmentPage(
+            await methods.listMembers(segmentId, pageParams),
+            "Segment member page",
+            validate,
+          );
+          return Object.freeze({
+            evidence: result.evidence,
+            iteratorEvidence: result.iteratorEvidence,
+          });
+        },
+      },
+    ],
+    [
+      "getContactSegments",
+      {
+        operationId: "getContactSegments",
+        async run() {
+          const address = requireString(state.contactEmail, "Segment contact fixture email");
+          const result = await runListIteratorScenario(
+            (params) => methods.listForContact(address, params),
+            (params) => methods.iterateForContact(address, params),
+            pageParams,
+            "Contact segment",
+            requireOwnSegment,
+          );
+          requireSegmentPage(
+            await methods.listForContact(address, pageParams),
+            "Contact segment page",
+            requireOwnSegment,
+          );
+          return Object.freeze({
+            evidence: result.evidence,
+            iteratorEvidence: result.iteratorEvidence,
+          });
+        },
+      },
+    ],
+    [
+      "updateSegment",
+      {
+        operationId: "updateSegment",
+        async run() {
+          const segmentId = requireSegmentId();
+          const { result, retries } = await whileBusy(() =>
+            methods.update(segmentId, { name: updatedName }),
+          );
+          requireSegmentResult(result, "Segment update scenario response", {
+            id: segmentId,
+            name: updatedName,
+          });
+          return Object.freeze({
+            evidence: Object.freeze({ busyRetries: retries, renamed: true }),
+          });
+        },
+      },
+    ],
+    [
+      "deleteSegment",
+      {
+        operationId: "deleteSegment",
+        async run() {
+          const segmentId = requireSegmentId();
+          const { result, retries } = await whileBusy(() => methods.delete(segmentId));
+          requireString(
+            requireObject(result, "Segment delete scenario response").message,
+            "Segment delete scenario message",
+          );
+          await requireResourceAbsent(
+            methods.get,
+            segmentId,
+            "Segment delete scenario verification",
+            "segment",
+          );
+          await deleteContactByEmail(email);
+          return Object.freeze({
+            evidence: Object.freeze({
+              busyRetries: retries,
+              cleanupVerified: true,
+              contactDeleted: true,
+              deleted: true,
+            }),
+          });
+        },
+      },
+    ],
+  ]);
+  return createScenarioRegistry(
+    profile,
+    profile.operations.map(({ operationId }) => scenarios.get(operationId) ?? { operationId }),
+  );
+}
+
+/** Execute segment scenarios in lifecycle order and always drain cleanup. */
+export function runSegmentLiveScenarios(registry) {
+  return runLiveScenarios(registry, segmentOperationIds, segmentIteratorOperationIds, "Segment");
 }
 
 function requireTemplateResult(value, label, expectedId) {

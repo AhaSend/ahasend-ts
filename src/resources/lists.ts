@@ -85,8 +85,9 @@ export interface ListsClient {
 
   /**
    * Delete one list. Its memberships are kept, so an unsubscribe survives the
-   * list. A list an unfinished campaign still needs answers 409.
-   * Authorization requires `lists:delete`.
+   * list. A list an unfinished campaign still needs, as an included or an excluded list, answers
+   * 409, and so does a list that a segment refers to in a `list` condition, with a message that
+   * names those segments. Authorization requires `lists:delete`.
    */
   delete(listId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
 

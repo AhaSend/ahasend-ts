@@ -80,14 +80,14 @@ describe("SDK artifact generation", () => {
     expect(OPERATION_PROFILE).toEqual(profile);
   });
 
-  it("pins 130 wire schemas and validates complete profile parity", () => {
+  it("pins 144 wire schemas and validates complete profile parity", () => {
     const components = document["components"] as JsonRecord;
     const schemas = components["schemas"] as JsonRecord;
 
-    expect(Object.keys(schemas)).toHaveLength(130);
+    expect(Object.keys(schemas)).toHaveLength(144);
     expect(() => validateOperationProfile(document, profile)).not.toThrow();
-    expect(OPERATION_PROFILE.operations).toHaveLength(101);
-    expect(OPERATION_PROFILE.iterators).toHaveLength(17);
+    expect(OPERATION_PROFILE.operations).toHaveLength(109);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(20);
   });
 
   it("carries the read-only template scope onto both template descriptors", () => {
@@ -212,6 +212,41 @@ describe("SDK artifact generation", () => {
       { name: "limit", required: false, format: null },
       { name: "after", required: false, format: null },
       { name: "before", required: false, format: null },
+    ]);
+  });
+
+  it("carries the segment scopes, the create key and a preview that is never retried", () => {
+    const segmentOperations = Object.fromEntries(
+      Object.entries(OPERATION_DESCRIPTORS)
+        .filter(([, descriptor]) => /\/segments(?:\/|$)/u.test(descriptor.path))
+        .map(([operationId, descriptor]) => [
+          operationId,
+          [descriptor.security, descriptor.idempotency, descriptor.retry],
+        ]),
+    );
+    expect(segmentOperations).toEqual({
+      getSegments: [[["segments:read"]], false, "safe"],
+      createSegment: [[["segments:write"]], true, "idempotency_key"],
+      previewSegment: [[["segments:read", "contacts:read"]], false, "never"],
+      getSegment: [[["segments:read"]], false, "safe"],
+      updateSegment: [[["segments:write"]], false, "idempotent"],
+      deleteSegment: [[["segments:delete"]], false, "idempotent"],
+      getSegmentContacts: [[["segments:read", "contacts:read"]], false, "safe"],
+      getContactSegments: [[["segments:read", "contacts:read"]], false, "safe"],
+    });
+    expect(OPERATION_DESCRIPTORS.previewSegment.body).toEqual({
+      required: true,
+      schema: "PreviewSegmentRequest",
+    });
+    expect(OPERATION_DESCRIPTORS.getSegment.success).toEqual([
+      { status: 200, schema: "SegmentDetail" },
+    ]);
+    expect(OPERATION_DESCRIPTORS.createSegment.success).toEqual([
+      { status: 201, schema: "Segment" },
+    ]);
+    expect(OPERATION_DESCRIPTORS.getContactSegments.pathParameters).toEqual([
+      { name: "account_id", required: true, format: "uuid" },
+      { name: "id_or_email", required: true, format: null },
     ]);
   });
 
@@ -397,8 +432,8 @@ describe("SDK artifact generation", () => {
     expectTypeOf<readonly []>().toExtend<WireSchemas["CreateMessageRequest"]["recipients"]>();
   });
 
-  it("indexes parameters, request bodies, inputs, and successes for all 101 operations", () => {
-    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(101);
+  it("indexes parameters, request bodies, inputs, and successes for all 109 operations", () => {
+    expect(Object.keys(OPERATION_DESCRIPTORS)).toHaveLength(109);
     expectTypeOf<keyof OperationParametersById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationRequestBodyById>().toEqualTypeOf<OperationId>();
     expectTypeOf<keyof OperationInputById>().toEqualTypeOf<OperationId>();

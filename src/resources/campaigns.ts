@@ -50,7 +50,7 @@ export type CampaignStatus =
  * The reason a campaign cannot be sent yet.
  *
  * - `sender_missing`: the campaign has no complete sender, or its domain was deleted.
- * - `lists_missing`: the campaign has no list that still exists.
+ * - `lists_missing`: the campaign has no list or segment that still exists.
  * - `subject_missing`: the campaign has no subject.
  * - `preheader_missing`: the campaign has no preview text.
  * - `design_missing`: the campaign has no design, or its design has no HTML.
@@ -79,7 +79,7 @@ export interface CampaignIssue {
   message: string;
 }
 
-/** A campaign as `list()` and `iterate()` return it, without its lists, content and issues. */
+/** A campaign as `list()` and `iterate()` return it, without its audience, content and issues. */
 export interface CampaignListItem {
   object: "campaign";
   id: UUID;
@@ -113,10 +113,19 @@ export interface CampaignListItem {
   finished_at: ISODateTime | null;
 }
 
-/** A campaign with its lists, its content and, for a draft, what keeps it from being sent. */
+/** A campaign with its audience, its content and, for a draft, what keeps it from being sent. */
 export interface Campaign extends CampaignListItem {
   /** The lists the campaign sends to, in the order they were saved. A deleted list is left out. */
   list_ids: UUID[];
+  /** The segments the campaign sends to. A deleted segment is left out. */
+  segment_ids: UUID[];
+  /**
+   * The lists whose contacts the campaign does not send to. A contact with any membership of one
+   * of them, whatever its status, is left out. A deleted list is left out.
+   */
+  exclude_list_ids: UUID[];
+  /** The segments whose members the campaign does not send to. A deleted segment is left out. */
+  exclude_segment_ids: UUID[];
   /** The editor of the campaign's design; `null` while the campaign has no design. */
   editor: TemplateEditor | null;
   /** The content of the design; `null` while it has no design, or neither HTML nor text. */
@@ -159,8 +168,29 @@ export interface CreateCampaignRequest {
   from?: Address | null | undefined;
   /** The reply-to address, an address only, without a display name. */
   reply_to?: string | null | undefined;
-  /** 1–50 lists of this account to send to, in order. A list named twice counts once. */
+  /**
+   * Lists of this account to send to, in order. A list named twice counts once. A campaign uses
+   * at most 50 lists and 10 segments, included and excluded together, and an audience field that
+   * is set must leave it at least one list or segment to send to, so `[]` is accepted with
+   * `segment_ids`.
+   */
   list_ids?: readonly UUID[] | undefined;
+  /**
+   * At most 10 segments of this account to send to. A segment named twice counts once. A contact
+   * reached through a list and a segment gets one message, recorded under the list.
+   */
+  segment_ids?: readonly UUID[] | undefined;
+  /**
+   * At most 50 lists whose contacts get no message from the campaign. A contact with any
+   * membership of one, whatever its status, is left out, also when an included list or segment
+   * reaches it. A list cannot be both in `list_ids` and here.
+   */
+  exclude_list_ids?: readonly UUID[] | undefined;
+  /**
+   * At most 10 segments whose members get no message from the campaign, also when an included
+   * list or segment reaches them. A segment cannot be both in `segment_ids` and here.
+   */
+  exclude_segment_ids?: readonly UUID[] | undefined;
   /**
    * The editor of the design. Without `content` the campaign gets an empty design of this
    * editor, which the dashboard's editor opens. With `content`, it is required when the content
@@ -195,8 +225,18 @@ export interface UpdateCampaignRequest {
   from?: Address | null | undefined;
   /** The reply-to address, as on create. `null` clears it. */
   reply_to?: string | null | undefined;
-  /** 1–50 lists, which replace the campaign's lists, as on create. */
+  /**
+   * The lists to send to, which replace the campaign's lists, as on create. Each of the four
+   * audience fields replaces its own set when it is present, so `[]` empties it, and leaves it
+   * unchanged when it is left out; the result needs at least one list or segment to send to.
+   */
   list_ids?: readonly UUID[] | undefined;
+  /** The segments to send to, which replace the campaign's segments, as on create. */
+  segment_ids?: readonly UUID[] | undefined;
+  /** The excluded lists, which replace the campaign's, as on create. `[]` excludes none. */
+  exclude_list_ids?: readonly UUID[] | undefined;
+  /** The excluded segments, which replace the campaign's, as on create. `[]` excludes none. */
+  exclude_segment_ids?: readonly UUID[] | undefined;
   /**
    * The content of the design, by the rules of {@link TemplateContentInput}, in the design's
    * editor. For a `simple` design, send only `text`. A campaign with no design yet needs `mjml`
@@ -344,7 +384,7 @@ export type ListCampaignsParams = PaginationParams & {
 export interface CampaignsClient {
   /**
    * Fetch one newest-first page of campaigns using mutually exclusive cursors. The items carry no
-   * lists, content or issues. Authorization requires `campaigns:read`.
+   * audience, content or issues. Authorization requires `campaigns:read`.
    */
   list(
     params?: ListCampaignsParams,
@@ -359,8 +399,11 @@ export interface CampaignsClient {
 
   /**
    * Create a draft campaign. Its `issues` say what it needs before it can be sent. MJML is
-   * compiled in strict mode, and images and stylesheets must use `https://` URLs.
-   * Authorization requires `campaigns:write`.
+   * compiled in strict mode, and images and stylesheets must use `https://` URLs. A list, segment
+   * or campaign template that does not exist, too many lists or segments, or an audience with no
+   * list or segment to send to is refused with 400. A segment of the audience that is being
+   * rebuilt answers 409; that refusal is stored for the idempotency key, so retry it with a new
+   * key. Authorization requires `campaigns:write`.
    */
   create(
     body: CreateCampaignRequest,
@@ -368,14 +411,17 @@ export interface CampaignsClient {
   ): AhaSendPromise<Campaign>;
 
   /**
-   * Retrieve one campaign with its lists, its content and, for a draft, its issues.
+   * Retrieve one campaign with its audience, its content and, for a draft, its issues.
    * Authorization requires `campaigns:read`.
    */
   get(campaignId: UUID, options?: RequestOptions): AhaSendPromise<Campaign>;
 
   /**
    * Change a draft campaign. The design of a `simple` campaign can be changed only in the
-   * dashboard: send only `content.text` for one. Authorization requires `campaigns:write`.
+   * dashboard: send only `content.text` for one. A list or segment that does not exist, too many
+   * lists or segments, or an audience with no list or segment to send to is refused with 400. An
+   * audience change that finds a segment being rebuilt answers 409; that refusal is stored for the
+   * idempotency key, so retry it with a new key. Authorization requires `campaigns:write`.
    */
   update(
     campaignId: UUID,
@@ -384,15 +430,18 @@ export interface CampaignsClient {
   ): AhaSendPromise<Campaign>;
 
   /**
-   * Delete a draft campaign with its design and its list choices.
+   * Delete a draft campaign with its design and its audience choices. A campaign that a segment
+   * refers to in a `campaign` condition answers 409, with a message that names those segments.
    * Authorization requires `campaigns:delete`.
    */
   delete(campaignId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
 
   /**
    * Make a new draft from a campaign in any status: a copy of its design, subject, preview text,
-   * sender, reply-to address, and its lists that still exist. Authorization requires
-   * `campaigns:write`.
+   * sender, reply-to address, and its lists and segments that still exist, included and excluded.
+   * When none of its included lists and segments still exists, the copy has no lists or segments.
+   * A segment of the audience that is being rebuilt answers 409; that refusal is stored for the
+   * idempotency key, so retry it with a new key. Authorization requires `campaigns:write`.
    */
   duplicate(
     campaignId: UUID,
@@ -488,12 +537,10 @@ class CampaignsClientImplementation implements CampaignsClient {
     body: CreateCampaignRequest,
     options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<Campaign> {
-    const forwarded = forwardWithIdempotency(options);
-    if (body?.list_ids !== undefined) assertNonEmptyArray(body.list_ids, "list_ids");
     return this.#operations.execute(
       "createCampaign",
       { path: { account_id: this.#accountId }, body },
-      forwarded,
+      forwardWithIdempotency(options),
     );
   }
 
@@ -510,12 +557,10 @@ class CampaignsClientImplementation implements CampaignsClient {
     body: UpdateCampaignRequest,
     options: IdempotencyRequestOptions = {},
   ): AhaSendPromise<Campaign> {
-    const forwarded = forwardWithIdempotency(options);
-    if (body?.list_ids !== undefined) assertNonEmptyArray(body.list_ids, "list_ids");
     return this.#operations.execute(
       "updateCampaign",
       { path: { account_id: this.#accountId, campaign_id: campaignId }, body },
-      forwarded,
+      forwardWithIdempotency(options),
     );
   }
 

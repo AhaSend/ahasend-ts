@@ -133,6 +133,7 @@ export class AhaSendClient {
     ping(options?: RequestOptions): AhaSendPromise<PingResponse>;
     get rateLimiter(): Readonly<RateLimiterController>;
     get routes(): Readonly<RoutesClient>;
+    get segments(): Readonly<SegmentsClient>;
     get smtpCredentials(): Readonly<SMTPCredentialsClient>;
     get statistics(): Readonly<StatisticsClient>;
     get subAccounts(): Readonly<SubAccountsClient>;
@@ -506,9 +507,12 @@ export interface BounceStatisticsResponse {
 export interface Campaign extends CampaignListItem {
     content: TemplateContent | null;
     editor: TemplateEditor | null;
+    exclude_list_ids: UUID[];
+    exclude_segment_ids: UUID[];
     issues: CampaignIssue[] | null;
     list_ids: UUID[];
     ready: boolean | null;
+    segment_ids: UUID[];
 }
 
 // @public
@@ -558,9 +562,11 @@ export interface CampaignRecipient {
     contact_id: UUID;
     created_at: ISODateTime;
     email: string;
-    list_name: string;
+    list_name: string | null;
     // (undocumented)
     object: "campaign_recipient";
+    segment_id: UUID | null;
+    segment_name: string | null;
     status: string;
     // (undocumented)
     updated_at: ISODateTime;
@@ -773,7 +779,14 @@ export interface ContactsClient {
     iterate(params?: ListContactsParams, options?: RequestOptions): AsyncGenerator<Contact, void, undefined>;
     list(params?: ListContactsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Contact>>;
     readonly lists: Readonly<ContactListsClient>;
+    readonly segments: Readonly<ContactSegmentsClient>;
     update(idOrEmail: string, body: UpdateContactRequest, options?: RequestOptions): AhaSendPromise<Contact>;
+}
+
+// @public
+export interface ContactSegmentsClient {
+    iterate(idOrEmail: string, params?: ListContactSegmentsParams, options?: RequestOptions): AsyncGenerator<Segment, void, undefined>;
+    list(idOrEmail: string, params?: ListContactSegmentsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Segment>>;
 }
 
 // @public (undocumented)
@@ -789,11 +802,14 @@ export interface CreateAPIKeyRequest {
 export interface CreateCampaignRequest {
     content?: TemplateContentInput | undefined;
     editor?: TemplateEditor | undefined;
+    exclude_list_ids?: readonly UUID[] | undefined;
+    exclude_segment_ids?: readonly UUID[] | undefined;
     from?: Address | null | undefined;
     list_ids?: readonly UUID[] | undefined;
     name: string;
     preheader?: string | null | undefined;
     reply_to?: string | null | undefined;
+    segment_ids?: readonly UUID[] | undefined;
     subject?: string | null | undefined;
     template_id?: UUID | undefined;
 }
@@ -953,6 +969,15 @@ export interface CreateRouteRequest {
 }
 
 // @public
+export interface CreateSegmentRequest {
+    // (undocumented)
+    definition: SegmentDefinition;
+    description?: string | null | undefined;
+    name: string;
+    timezone?: string | null | undefined;
+}
+
+// @public
 export type CreateSMTPCredentialRequest = {
     name: string;
     sandbox?: boolean | undefined;
@@ -1097,6 +1122,7 @@ export interface DeliverabilityStatisticsResponse {
 export interface DeliveryAttempt {
     // (undocumented)
     log: string;
+    report_message_id?: string;
     // (undocumented)
     status: string;
     // (undocumented)
@@ -1336,6 +1362,9 @@ export interface ListContactsClient {
 }
 
 // @public
+export type ListContactSegmentsParams = PaginationParams;
+
+// @public
 export type ListContactsParams = PaginationParams & {
     email?: string | undefined;
     status?: "enabled" | "disabled" | "blocked" | undefined;
@@ -1392,6 +1421,12 @@ export interface ListsClient {
     list(params?: ListListsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<ContactList>>;
     update(listId: UUID, body: UpdateContactListRequest, options?: RequestOptions): AhaSendPromise<ContactList>;
 }
+
+// @public
+export type ListSegmentContactsParams = PaginationParams;
+
+// @public
+export type ListSegmentsParams = PaginationParams;
 
 // @public (undocumented)
 export type ListSubAccountsParams = PaginationParams;
@@ -1576,6 +1611,13 @@ export interface PingResponse {
 }
 
 // @public
+export interface PreviewSegmentRequest {
+    // (undocumented)
+    definition: SegmentDefinition;
+    timezone?: string | null | undefined;
+}
+
+// @public
 export type ProcessEnvLike = Readonly<Record<string, string | undefined>>;
 
 // @public
@@ -1752,6 +1794,117 @@ export type SandboxResult = "deliver" | "bounce" | "defer" | "fail" | "suppress"
 
 // @public (undocumented)
 export const SDK_VERSION = "0.4.0";
+
+// @public
+export interface Segment {
+    // (undocumented)
+    created_at: ISODateTime;
+    // (undocumented)
+    definition: SegmentDefinition;
+    description: string;
+    failure_reason: string | null;
+    // (undocumented)
+    id: UUID;
+    last_evaluated_at: ISODateTime | null;
+    member_count: number;
+    name: string;
+    // (undocumented)
+    object: "segment";
+    // (undocumented)
+    state: SegmentState;
+    timezone: string;
+    updated_at: ISODateTime;
+}
+
+// @public
+export interface SegmentCampaignCount {
+    count: number;
+    since: string;
+}
+
+// @public
+export interface SegmentCondition {
+    field: string;
+    op: SegmentOperator;
+    value?: SegmentConditionValue | undefined;
+}
+
+// @public
+export type SegmentConditionValue = string | number | boolean | null | SegmentCampaignCount;
+
+// @public
+export interface SegmentContact {
+    // (undocumented)
+    contact_id: UUID;
+    email: string;
+    entered_at: ISODateTime;
+    // (undocumented)
+    object: "segment_contact";
+    // (undocumented)
+    segment_id: UUID;
+}
+
+// @public
+export interface SegmentContactsClient {
+    iterate(segmentId: UUID, params?: ListSegmentContactsParams, options?: RequestOptions): AsyncGenerator<SegmentContact, void, undefined>;
+    list(segmentId: UUID, params?: ListSegmentContactsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<SegmentContact>>;
+}
+
+// @public
+export interface SegmentDefinition {
+    conditions: readonly (SegmentCondition | SegmentGroup)[];
+    // (undocumented)
+    match: SegmentMatch;
+    schema_version: 1;
+}
+
+// @public
+export interface SegmentDetail extends Segment {
+    marketable_count: number | null;
+}
+
+// @public
+export interface SegmentGroup {
+    conditions: readonly SegmentCondition[];
+    // (undocumented)
+    match: SegmentMatch;
+}
+
+// @public
+export type SegmentMatch = "all" | "any";
+
+// @public
+export type SegmentOperator = "equal" | "not_equal" | "contains" | "not_contains" | "begins_with" | "not_begins_with" | "ends_with" | "not_ends_with" | "is_empty" | "is_not_empty" | "less" | "less_or_equal" | "greater" | "greater_or_equal" | "before" | "before_or_on" | "after" | "after_or_on" | "is_null" | "is_not_null" | "is_true" | "is_false" | "month_is" | "anniversary_within" | "in" | "not_in" | "received" | "not_received" | "opened" | "not_opened" | "clicked" | "not_clicked" | "received_at_least" | "received_fewer_than" | "opened_at_least" | "opened_fewer_than" | "clicked_at_least" | "clicked_fewer_than";
+
+// @public
+export interface SegmentPreview {
+    contacts: SegmentPreviewContact[];
+    count: number | null;
+    // (undocumented)
+    object: "segment_preview";
+}
+
+// @public
+export interface SegmentPreviewContact {
+    // (undocumented)
+    contact_id: UUID;
+    email: string;
+}
+
+// @public
+export interface SegmentsClient {
+    readonly contacts: Readonly<SegmentContactsClient>;
+    create(body: CreateSegmentRequest, options?: IdempotencyRequestOptions): AhaSendPromise<Segment>;
+    delete(segmentId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
+    get(segmentId: UUID, options?: RequestOptions): AhaSendPromise<SegmentDetail>;
+    iterate(params?: ListSegmentsParams, options?: RequestOptions): AsyncGenerator<Segment, void, undefined>;
+    list(params?: ListSegmentsParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Segment>>;
+    preview(body: PreviewSegmentRequest, options?: RequestOptions): AhaSendPromise<SegmentPreview>;
+    update(segmentId: UUID, body: UpdateSegmentRequest, options?: RequestOptions): AhaSendPromise<Segment>;
+}
+
+// @public
+export type SegmentState = "building" | "ready" | "failed";
 
 // @public
 export interface SendCampaignRequest {
@@ -2179,11 +2332,14 @@ export type UpdateAPIKeyRequest = {
 // @public
 export interface UpdateCampaignRequest {
     content?: TemplateContentInput | undefined;
+    exclude_list_ids?: readonly UUID[] | undefined;
+    exclude_segment_ids?: readonly UUID[] | undefined;
     from?: Address | null | undefined;
     list_ids?: readonly UUID[] | undefined;
     name?: string | undefined;
     preheader?: string | null | undefined;
     reply_to?: string | null | undefined;
+    segment_ids?: readonly UUID[] | undefined;
     subject?: string | null | undefined;
 }
 
@@ -2255,6 +2411,14 @@ export interface UpdateRouteRequest {
     strip_replies?: boolean | null | undefined;
     // (undocumented)
     url?: string | null | undefined;
+}
+
+// @public
+export interface UpdateSegmentRequest {
+    definition?: SegmentDefinition | null | undefined;
+    description?: string | null | undefined;
+    name?: string | null | undefined;
+    timezone?: string | null | undefined;
 }
 
 // @public

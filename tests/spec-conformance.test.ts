@@ -20,13 +20,16 @@ import type {
   CreateContactListRequest,
   CreateContactRequest,
   CreateConversationMessageRequest,
+  CreateSegmentRequest,
   CreateMessageRequest,
   CreateSMTPCredentialRequest,
   CreateTemplateMessageRequest,
   CreateTemplateRequest,
   CreateWebhookRequest,
+  PreviewSegmentRequest,
   UpdateCampaignRequest,
   UpdateCampaignTemplateRequest,
+  UpdateSegmentRequest,
   UpdateTemplateRequest,
 } from "../src/index.js";
 import type { OperationId, RetryMode } from "../src/generated/operations.js";
@@ -45,6 +48,7 @@ import {
   LIST_ID,
   makeClient,
   ROUTE_ID,
+  SEGMENT_ID,
   SMTP_CREDENTIAL_ID,
   SUB_ACCOUNT_ID,
   TEMPLATE_ID,
@@ -76,6 +80,7 @@ const IDS = {
   templateVersion: TEMPLATE_VERSION_ID,
   campaignTemplate: CAMPAIGN_TEMPLATE_ID,
   campaign: CAMPAIGN_ID,
+  segment: SEGMENT_ID,
 } as const;
 
 const REQUEST_OPTIONS: RequestOptions = {
@@ -739,6 +744,78 @@ const PRIMARY_MATRIX = [
       query: { subscription_status: "confirmed", ...PAGINATION_QUERY },
     },
   })),
+  primary("getSegments", "segments", "list", (client) => ({
+    result: client.segments.list(PAGINATION_PARAMS, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/segments`, query: PAGINATION_QUERY },
+  })),
+  primary("createSegment", "segments", "create", (client) => {
+    const body = {
+      name: "Matrix segment",
+      description: null,
+      timezone: "Europe/Berlin",
+      definition: {
+        schema_version: 1,
+        match: "all",
+        conditions: [
+          { field: "attributes.country", op: "equal", value: "DE" },
+          {
+            match: "any",
+            conditions: [
+              {
+                field: "campaign_count",
+                op: "opened_at_least",
+                value: { count: 3, since: "90 days ago" },
+              },
+              { field: "first_name", op: "is_empty" },
+            ],
+          },
+        ],
+      },
+    } satisfies CreateSegmentRequest;
+    return {
+      result: client.segments.create(body, IDEMPOTENCY_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/segments`, body },
+    };
+  }),
+  primary("previewSegment", "segments", "preview", (client) => {
+    const body = {
+      definition: {
+        schema_version: 1,
+        match: "any",
+        conditions: [{ field: "list", op: "in", value: LIST_ID }],
+      },
+    } satisfies PreviewSegmentRequest;
+    return {
+      result: client.segments.preview(body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/segments/preview`, body },
+    };
+  }),
+  primary("getSegment", "segments", "get", (client) => ({
+    result: client.segments.get(IDS.segment, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/segments/${SEGMENT_ID}` },
+  })),
+  primary("updateSegment", "segments", "update", (client) => {
+    const body = { name: "Renamed segment", definition: null } satisfies UpdateSegmentRequest;
+    return {
+      result: client.segments.update(IDS.segment, body, REQUEST_OPTIONS),
+      input: { path: `${ACCOUNT_PATH}/segments/${SEGMENT_ID}`, body },
+    };
+  }),
+  primary("deleteSegment", "segments", "delete", (client) => ({
+    result: client.segments.delete(IDS.segment, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/segments/${SEGMENT_ID}` },
+  })),
+  primary("getSegmentContacts", "segments.contacts", "list", (client) => ({
+    result: client.segments.contacts.list(IDS.segment, PAGINATION_PARAMS, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/segments/${SEGMENT_ID}/contacts`, query: PAGINATION_QUERY },
+  })),
+  primary("getContactSegments", "contacts.segments", "list", (client) => ({
+    result: client.contacts.segments.list(IDS.contact, PAGINATION_PARAMS, REQUEST_OPTIONS),
+    input: {
+      path: `${ACCOUNT_PATH}/contacts/User%2BTag%2FSegment%40Example.COM/segments`,
+      query: PAGINATION_QUERY,
+    },
+  })),
   primary("getSuppressions", "suppressions", "list", (client) => ({
     result: client.suppressions.list(
       { ...PAGINATION_PARAMS, domain: "example.test", email: "blocked@example.test" },
@@ -986,6 +1063,25 @@ const ITERATOR_MATRIX = [
       query: PAGINATION_QUERY,
     },
   })),
+  iterator("getSegments", "segments", (client) => ({
+    result: client.segments.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
+    input: { path: `${ACCOUNT_PATH}/segments`, query: PAGINATION_QUERY },
+  })),
+  iterator("getSegmentContacts", "segments.contacts", (client) => ({
+    result: client.segments.contacts
+      .iterate(IDS.segment, PAGINATION_PARAMS, REQUEST_OPTIONS)
+      .next(),
+    input: { path: `${ACCOUNT_PATH}/segments/${SEGMENT_ID}/contacts`, query: PAGINATION_QUERY },
+  })),
+  iterator("getContactSegments", "contacts.segments", (client) => ({
+    result: client.contacts.segments
+      .iterate(IDS.contact, PAGINATION_PARAMS, REQUEST_OPTIONS)
+      .next(),
+    input: {
+      path: `${ACCOUNT_PATH}/contacts/User%2BTag%2FSegment%40Example.COM/segments`,
+      query: PAGINATION_QUERY,
+    },
+  })),
   iterator("getSuppressions", "suppressions", (client) => ({
     result: client.suppressions
       .iterate({ ...PAGINATION_PARAMS, domain: "example.test" }, REQUEST_OPTIONS)
@@ -1020,10 +1116,10 @@ const ITERATOR_MATRIX = [
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for all 101 implemented operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(101);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(101);
-    expect(OPERATION_PROFILE.operations).toHaveLength(101);
+  it("accounts for all 109 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(109);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(109);
+    expect(OPERATION_PROFILE.operations).toHaveLength(109);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -1035,12 +1131,12 @@ describe("Facade operation conformance matrix", () => {
 });
 
 describe("Facade iterator conformance matrix", () => {
-  it("accounts for all seventeen implemented iterator aliases", () => {
-    expect(ITERATOR_MATRIX).toHaveLength(17);
+  it("accounts for all twenty implemented iterator aliases", () => {
+    expect(ITERATOR_MATRIX).toHaveLength(20);
     expect(new Set(ITERATOR_MATRIX.map(({ facade, method }) => `${facade}.${method}`)).size).toBe(
-      17,
+      20,
     );
-    expect(OPERATION_PROFILE.iterators).toHaveLength(17);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(20);
     expect(profileShape(OPERATION_PROFILE.iterators)).toEqual(profileShape(ITERATOR_MATRIX));
   });
 
@@ -1099,7 +1195,7 @@ describe("Non-empty request array coverage", () => {
 describe("Generated operation inventory", () => {
   it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(101);
+    expect(operationIds).toHaveLength(109);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
     expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
       operationIds,

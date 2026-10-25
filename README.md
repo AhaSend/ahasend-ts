@@ -201,10 +201,13 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 | `client.apiKeys`              | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                        |
 | `client.webhooks`             | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`)                               |
 | `client.statistics`           | `deliverability`, `bounces`, `deliveryTimes`                                                                                                  |
-| `client.contacts`             | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists`                                                    |
+| `client.contacts`             | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists` and `segments`                                     |
 | `client.contacts.lists`       | `list`, `iterate` (the lists one contact is on)                                                                                               |
+| `client.contacts.segments`    | `list`, `iterate` (the segments one contact is a member of)                                                                                   |
 | `client.lists`                | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                                                |
 | `client.lists.contacts`       | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                                                          |
+| `client.segments`             | `list`, `iterate`, `create`, `preview`, `get`, `update`, `delete`, plus nested `contacts`                                                     |
+| `client.segments.contacts`    | `list`, `iterate` (a segment's members)                                                                                                       |
 | `client.suppressions`         | `list`, `iterate`, `create`, `delete`, `wipe`                                                                                                 |
 | `client.routes`               | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                                                      |
 | `client.accounts`             | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                                                   |
@@ -246,13 +249,13 @@ await client.messages.send(body, {
 
 The SDK attaches a UUID `Idempotency-Key` to every **create, batch, send, publish and restore**
 operation and to template, campaign template and campaign updates
-(all 28 endpoints whose generated operation profile marks them idempotent,
+(all 29 endpoints whose generated operation profile marks them idempotent,
 including message sends, resource creations, the contact and list batches, and the campaign
 duplicate, send, unschedule and test). The key is generated once per
 call and reused across the SDK's internal retries. Stored outcomes — 2xx and
 deterministic 4xx — are replayed for 24 hours, so a retry cannot duplicate them.
-`campaigns.test()` is the exception: it stores only a 2xx, and a 4xx refusal releases the key, so
-a retry with the same key is answered afresh.
+`campaigns.test()` and `segments.create()` are the exceptions: they store only a 2xx, and a 4xx
+refusal releases the key, so a retry with the same key is answered afresh.
 Server errors (5xx), handler failures, and panics are **not** stored: the API
 releases the key and a retry re-executes the request, so a 5xx retry can still
 result in a second send. See the
@@ -626,8 +629,9 @@ credentials, message content, or webhook payloads in a public issue.
 Contact operations require `contacts:read`, `contacts:write`, or `contacts:delete` as documented
 for each operation. Writable attribute keys and their canonical types come from contact-attribute
 definitions managed in the AhaSend dashboard; the API intentionally exposes no definition CRUD. A
-contact created through the API is account-global and joins no list on its own, so a campaign
-cannot reach it until it is added to a list (see below).
+contact created through the API is account-global and joins no list on its own, so a campaign to
+lists cannot reach it until it is added to a list (see below); a campaign to a segment can (see
+"Manage segments").
 
 Pass a UUID or a raw email such as `User+Tag@Example.COM` to contact lookup, update, and delete
 operations. The SDK percent-encodes that value exactly once as a URL path segment; do not pre-encode
@@ -643,9 +647,9 @@ responses. The API makes no fixed throughput guarantee.
 
 ## List management contract
 
-A list is a static, private, single opt-in container of contacts, and it is what a campaign
-targets. List operations require `lists:read`, `lists:write`, or `lists:delete`. Adding, changing,
-and removing a list's members all use `lists:write`, and reading members with
+A list is a static, private, single opt-in container of contacts, and a campaign can send to it
+or exclude it. List operations require `lists:read`, `lists:write`, or `lists:delete`. Adding,
+changing, and removing a list's members all use `lists:write`, and reading members with
 `include_contacts: true` also needs `contacts:read`; without it the call answers `403`.
 
 ```ts
@@ -841,7 +845,8 @@ await client.templates.publish(template.id);
 ## Manage campaigns
 
 `client.campaignTemplates` holds the designs a campaign copies, and `client.campaigns` builds,
-tests and sends marketing campaigns to lists. A campaign changes only while it is a `draft`;
+tests and sends marketing campaigns to lists and segments (see "Manage segments" for segment
+audiences and exclusions). A campaign changes only while it is a `draft`;
 `issues` says what it still needs, and `ready` is `true` once it has none.
 
 ```ts
@@ -896,6 +901,134 @@ console.log("Campaign send accepted.", {
 - Campaign templates need `templates:read`, `templates:write` or `templates:delete`. Campaigns need
   `campaigns:read`, `campaigns:write` or `campaigns:delete`, and `send()`, `unschedule()` and
   `test()` need `campaigns:send`.
+
+## Manage segments
+
+`client.segments` saves rules over the account's contacts: their fields, their list memberships,
+and the campaigns they received, opened or clicked. AhaSend keeps a segment's members up to date as
+that data changes, and a campaign can send to a segment or exclude it. A definition holds
+conditions and groups of conditions, and a group holds conditions only. A condition on
+`attributes.<key>` needs a contact field with that key. `preview()` tries a definition without
+saving it, and `create()` saves it:
+
+```ts
+import type { SegmentDefinition } from "@ahasend/sdk";
+
+const definition: SegmentDefinition = {
+  schema_version: 1,
+  match: "all",
+  conditions: [
+    { field: "list", op: "in", value: "00000000-0000-4000-8000-000000000010" },
+    {
+      match: "any",
+      conditions: [
+        { field: "attributes.country", op: "equal", value: "DE" },
+        {
+          field: "campaign_count",
+          op: "opened_at_least",
+          value: { count: 3, since: "90 days ago" },
+        },
+      ],
+    },
+  ],
+};
+
+const preview = await client.segments.preview({ definition, timezone: "Europe/Berlin" });
+console.log("Definition previewed.", { count: preview.count, shown: preview.contacts.length });
+
+// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
+const segment = await client.segments.create({
+  name: "Engaged customers",
+  definition,
+  timezone: "Europe/Berlin",
+});
+
+// Later, when the segment is ready:
+const detail = await client.segments.get(segment.id);
+console.log("Segment read.", { marketableCount: detail.marketable_count });
+
+// iterate() walks every page; list() reads one.
+const members = await client.segments.contacts.list(segment.id, { limit: 100 });
+console.log("Segment members read.", { count: members.data.length });
+
+const segmentsOfContact = await client.contacts.segments.list("User+Tag@Example.COM");
+console.log("Contact's segments read.", { count: segmentsOfContact.data.length });
+```
+
+A campaign sends to the lists in `list_ids` and the segments in `segment_ids`, less the contacts
+of the lists in `exclude_list_ids` and the members of the segments in `exclude_segment_ids`:
+
+```ts
+const campaign = await client.campaigns.create({
+  name: "November offer",
+  list_ids: [],
+  segment_ids: ["00000000-0000-4000-8000-000000000015"],
+  exclude_list_ids: ["00000000-0000-4000-8000-000000000012"],
+  exclude_segment_ids: ["00000000-0000-4000-8000-000000000016"],
+});
+
+// A field that is left out keeps its set; [] empties it.
+const updated = await client.campaigns.update(campaign.id, { exclude_segment_ids: [] });
+console.log("Campaign audience changed.", { excludedSegments: updated.exclude_segment_ids.length });
+
+// Recipients of a sent campaign. list_name is null when the contact was sent to from a segment,
+// and segment_id and segment_name then name the segment.
+const recipients = await client.campaigns.recipients.list("00000000-0000-4000-8000-000000000014", {
+  status: "Delivered",
+});
+const fromSegments = recipients.data.filter((recipient) => recipient.list_name === null);
+console.log("Recipients read.", { segmentCount: fromSegments.length });
+```
+
+- `state` is `building` while the members are found: after `create()`, and after an `update()`
+  that changes `definition` or `timezone`. A large account can take some minutes. A campaign that
+  uses a segment cannot be sent until the segment is `ready`. While a segment is `building`,
+  `segments.contacts` and `contacts.segments` may still answer by its previous rules. A `failed`
+  segment has a `failure_reason`; any `update()`, `{}` included, builds it again.
+- `member_count` and `segments.contacts` include every contact that matches the rules, whatever
+  its consent. `marketable_count`, which only `get()` returns, counts the members a campaign to the
+  segment alone would reach: enabled, not unsubscribed, not found invalid, and either confirmed on
+  at least one list or on no list at all. It is `null` while the segment is not `ready`, and when
+  they cannot be counted within 10 seconds. `preview()` returns `count`, the number of contacts
+  the definition matches, and up to 10 of them; `count` is `null` when they cannot be counted
+  within 10 seconds.
+- `create()` and `preview()` refuse an empty `conditions`, at the root or in a group, with
+  `AhaSendConfigurationError` before they send anything, and so does `update()` for a `definition`
+  it is given. The API checks the rest and answers `400` (`AhaSendBadRequestError`) with a message
+  that names each problem by its path, such as `conditions[3].value`.
+- An audience needs at least one list or segment to send to, so `list_ids` can be `[]` with
+  `segment_ids`. A campaign uses at most 50 lists and 10 segments, included and excluded together.
+  A contact reached through a list and a segment gets one message, recorded under the list. An
+  exclusion wins: a contact with any membership of an excluded list, whatever its status, gets no
+  message, and neither does a member of an excluded segment. A list or segment cannot be both
+  included and excluded.
+- On `campaigns.update()`, each of `list_ids`, `segment_ids`, `exclude_list_ids` and
+  `exclude_segment_ids` is left as it is when it is left out, and replaced when it is present, so
+  `[]` empties it: `exclude_segment_ids: []` removes every segment exclusion. The result needs at
+  least one list or segment to send to.
+- `CampaignRecipient.list_name` is `string | null`. It is `null` when the contact was sent to from
+  a segment, and then `segment_id` and `segment_name` name the segment, with its name as it was at
+  the send.
+- Scopes: `segments:read` to list and read segments, preview a definition, and list a segment's
+  members or a contact's segments; `segments:write` to create and update segments; and
+  `segments:delete` to delete them. `preview()`, `segments.contacts` and `contacts.segments` also
+  need `contacts:read`.
+- `create()` answers `409` (`AhaSendConflictError`) when the account already has 100 segments, or
+  when a list or campaign that the definition names is being changed. Unlike most creates, that
+  refusal is not stored for the idempotency key, so a retry with the same key runs again, for
+  example after you delete a segment. A `409` for an earlier request with the same key that is
+  still running is retried by the SDK with the same key, and surfaces as
+  `AhaSendIdempotencyConflictError` only when the retries run out.
+- `update()` answers `409` while the segment is being changed, and `delete()` while the segment is
+  being changed or an unfinished campaign still needs it, as an included or an excluded segment.
+  These refusals change nothing, and the SDK does not retry them; call again later, or after the
+  campaign no longer needs the segment.
+- `campaigns.create()`, `duplicate()` and an `update()` that changes the audience answer `409`
+  while a segment of the audience is being rebuilt. The API stores that refusal for the idempotency
+  key and replays it for 24 hours, so call again in a minute with a new key: a call without
+  `idempotencyKey` gets one. `campaigns.delete()` of a campaign that a segment names in a
+  `campaign` condition, and `lists.delete()` of a list that a segment names in a `list` condition,
+  answer `409` with a message that names those segments.
 
 ## Domain sending type and pauses
 

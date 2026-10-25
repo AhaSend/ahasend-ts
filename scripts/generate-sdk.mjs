@@ -12,9 +12,9 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 101;
-const EXPECTED_SCHEMA_COUNT = 130;
-const EXPECTED_ITERATOR_COUNT = 17;
+const EXPECTED_OPERATION_COUNT = 109;
+const EXPECTED_SCHEMA_COUNT = 144;
+const EXPECTED_ITERATOR_COUNT = 20;
 const EXPECTED_WEBHOOK_COUNT = 11;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
@@ -177,6 +177,14 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["upsertListContact", "lists.contacts", "upsert"],
   ["deleteListContact", "lists.contacts", "delete"],
   ["getContactLists", "contacts.lists", "list"],
+  ["getSegments", "segments", "list"],
+  ["createSegment", "segments", "create"],
+  ["previewSegment", "segments", "preview"],
+  ["getSegment", "segments", "get"],
+  ["updateSegment", "segments", "update"],
+  ["deleteSegment", "segments", "delete"],
+  ["getSegmentContacts", "segments.contacts", "list"],
+  ["getContactSegments", "contacts.segments", "list"],
   ["getSuppressions", "suppressions", "list"],
   ["createSuppression", "suppressions", "create"],
   ["deleteSuppression", "suppressions", "delete"],
@@ -214,6 +222,9 @@ export const ITERATOR_MAPPINGS = Object.freeze([
   ["getLists", "lists", "iterate"],
   ["getListContacts", "lists.contacts", "iterate"],
   ["getContactLists", "contacts.lists", "iterate"],
+  ["getSegments", "segments", "iterate"],
+  ["getSegmentContacts", "segments.contacts", "iterate"],
+  ["getContactSegments", "contacts.segments", "iterate"],
   ["getSuppressions", "suppressions", "iterate"],
   ["getRoutes", "routes", "iterate"],
   ["getWebhooks", "webhooks", "iterate"],

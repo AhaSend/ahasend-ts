@@ -2,7 +2,6 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { AhaSendClient } from "../src/client.js";
 import {
   AhaSendBadRequestError,
-  AhaSendConfigurationError,
   AhaSendConflictError,
   AhaSendIdempotencyConflictError,
   AhaSendRateLimitError,
@@ -22,6 +21,7 @@ import type {
   CampaignSend,
   CampaignStats,
   CampaignTest,
+  CreateCampaignRequest,
   ListCampaignsParams,
   UpdateCampaignRequest,
 } from "../src/resources/campaigns.js";
@@ -36,6 +36,8 @@ import {
 } from "./helpers/resource-call.js";
 
 const CONTACT_ID = "13131313-1313-4313-8313-131313131313";
+const SEGMENT_ID = "14141414-1414-4414-8414-141414141414";
+const EXCLUDED_LIST_ID = "15151515-1515-4515-8515-151515151515";
 const ACCOUNT_PATH = `https://api.test/v2/accounts/${ACCOUNT_ID}`;
 const CAMPAIGN_PATH = `${ACCOUNT_PATH}/campaigns/${CAMPAIGN_ID}`;
 
@@ -75,6 +77,9 @@ const CAMPAIGN_LIST_ITEM = {
 const CAMPAIGN = {
   ...CAMPAIGN_LIST_ITEM,
   list_ids: [LIST_ID],
+  segment_ids: [],
+  exclude_list_ids: [],
+  exclude_segment_ids: [],
   editor: "html",
   content: CONTENT,
   ready: false,
@@ -250,17 +255,68 @@ describe("CampaignsClient", () => {
     ]);
   });
 
-  it("create() and update() refuse an empty list_ids before dispatch", () => {
-    const { fetch, calls } = captureFetch();
+  it("create() and update() send an empty list_ids with segment_ids as given", async () => {
+    const segmentCampaign = { ...CAMPAIGN, list_ids: [], segment_ids: [SEGMENT_ID] };
+    const { fetch, calls } = captureFetch((call) =>
+      json(segmentCampaign, call.method === "POST" ? 201 : 200),
+    );
     const client = makeClient(fetch);
 
-    expect(() => client.campaigns.create({ name: "Empty", list_ids: [] })).toThrow(
-      AhaSendConfigurationError,
-    );
-    expect(() => client.campaigns.update(CAMPAIGN_ID, { list_ids: [] })).toThrow(
-      "`list_ids` must contain at least one item",
-    );
-    expect(calls).toHaveLength(0);
+    const created = await client.campaigns.create({
+      name: "Segment campaign",
+      list_ids: [],
+      segment_ids: [SEGMENT_ID],
+    });
+    await client.campaigns.update(CAMPAIGN_ID, { list_ids: [], segment_ids: [SEGMENT_ID] });
+
+    expect(calls.map(({ body }) => JSON.parse(body!))).toEqual([
+      { name: "Segment campaign", list_ids: [], segment_ids: [SEGMENT_ID] },
+      { list_ids: [], segment_ids: [SEGMENT_ID] },
+    ]);
+    expect(created.segment_ids).toEqual([SEGMENT_ID]);
+  });
+
+  it("update() sends an empty exclusion to clear it and leaves out absent audience fields", async () => {
+    const { fetch, calls } = captureFetch(() => json(CAMPAIGN));
+
+    await makeClient(fetch).campaigns.update(CAMPAIGN_ID, {
+      exclude_list_ids: [],
+      segment_ids: undefined,
+    });
+
+    expect(calls[0]!.operationId).toBe("updateCampaign");
+    expect(calls[0]!.body).toBe('{"exclude_list_ids":[]}');
+  });
+
+  it("accepts audiences built from readonly arrays", async () => {
+    const lists = [LIST_ID] as const;
+    const segments = [SEGMENT_ID] as const;
+    const excludedLists = [EXCLUDED_LIST_ID] as const;
+    const { fetch, calls } = captureFetch(() => json(CAMPAIGN, 201));
+    const body: CreateCampaignRequest = {
+      name: "Readonly audience",
+      list_ids: lists,
+      segment_ids: segments,
+      exclude_list_ids: excludedLists,
+      exclude_segment_ids: [],
+    };
+    const update: UpdateCampaignRequest = {
+      list_ids: lists,
+      segment_ids: segments,
+      exclude_list_ids: excludedLists,
+      exclude_segment_ids: segments,
+    };
+
+    await makeClient(fetch).campaigns.create(body);
+
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      name: "Readonly audience",
+      list_ids: [LIST_ID],
+      segment_ids: [SEGMENT_ID],
+      exclude_list_ids: [EXCLUDED_LIST_ID],
+      exclude_segment_ids: [],
+    });
+    expect(update.exclude_segment_ids).toEqual([SEGMENT_ID]);
   });
 
   it("update() sends null to clear a field and accepts no editor or template", async () => {
@@ -452,6 +508,8 @@ describe("CampaignRecipientsClient", () => {
     contact_id: CONTACT_ID,
     email: "ann@example.com",
     list_name: "Newsletter",
+    segment_id: null,
+    segment_name: null,
     status: "Bounced",
     bounce_classification: "Mailbox Full",
     bounce_reason: "mailbox full",
@@ -499,6 +557,28 @@ describe("CampaignRecipientsClient", () => {
       { bounce_classification: "Mailbox Full" },
       { bounce_classification: "Mailbox Full", after: CONTACT_ID },
     ]);
+  });
+
+  it("decodes a recipient sent to from a segment, whose list_name is null", async () => {
+    const fromSegment = {
+      ...RECIPIENT,
+      list_name: null,
+      segment_id: SEGMENT_ID,
+      segment_name: "Engaged customers",
+    };
+    const { fetch } = captureFetch(() => page([fromSegment], { has_more: false }));
+
+    const result = await makeClient(fetch).campaigns.recipients.list(CAMPAIGN_ID, {
+      status: "Delivered",
+    });
+    const recipient: CampaignRecipient = result.data[0]!;
+
+    expect(recipient.list_name).toBeNull();
+    expect(recipient.segment_id).toBe(SEGMENT_ID);
+    expect(recipient.segment_name).toBe("Engaged customers");
+    expectTypeOf(recipient.list_name).toEqualTypeOf<string | null>();
+    expectTypeOf(recipient.segment_id).toEqualTypeOf<string | null>();
+    expectTypeOf(recipient.segment_name).toEqualTypeOf<string | null>();
   });
 
   it("types exactly one filter as required", () => {

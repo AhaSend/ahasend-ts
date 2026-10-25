@@ -159,6 +159,22 @@ export interface paths {
     delete: operations["deleteListContact"];
   };
   "/v2/accounts/{account_id}/contacts/{id_or_email}/lists": { get: operations["getContactLists"] };
+  "/v2/accounts/{account_id}/segments": {
+    get: operations["getSegments"];
+    post: operations["createSegment"];
+  };
+  "/v2/accounts/{account_id}/segments/preview": { post: operations["previewSegment"] };
+  "/v2/accounts/{account_id}/segments/{segment_id}": {
+    get: operations["getSegment"];
+    put: operations["updateSegment"];
+    delete: operations["deleteSegment"];
+  };
+  "/v2/accounts/{account_id}/segments/{segment_id}/contacts": {
+    get: operations["getSegmentContacts"];
+  };
+  "/v2/accounts/{account_id}/contacts/{id_or_email}/segments": {
+    get: operations["getContactSegments"];
+  };
   "/v2/accounts/{account_id}/suppressions": {
     get: operations["getSuppressions"];
     post: operations["createSuppression"];
@@ -435,6 +451,7 @@ export interface components {
       time: string;
       log: string;
       status: string;
+      report_message_id?: string;
     };
     MessageContentPart: {
       content_type: string;
@@ -650,6 +667,9 @@ export interface components {
     };
     Campaign: components["schemas"]["CampaignListItem"] & {
       list_ids: Array<string>;
+      segment_ids: Array<string>;
+      exclude_list_ids: Array<string>;
+      exclude_segment_ids: Array<string>;
       editor: components["schemas"]["TemplateEditor"] | null;
       content: components["schemas"]["TemplateContent"] | null;
       ready: boolean | null;
@@ -661,7 +681,10 @@ export interface components {
       preheader?: string | null | undefined;
       from?: components["schemas"]["TemplateAddressInput"] | null | undefined;
       reply_to?: string | null | undefined;
-      list_ids?: ReadonlyArray<string> | undefined;
+      list_ids?: Array<string> | undefined;
+      segment_ids?: Array<string> | undefined;
+      exclude_list_ids?: Array<string> | undefined;
+      exclude_segment_ids?: Array<string> | undefined;
       editor?: components["schemas"]["TemplateEditor"] | undefined;
       content?: components["schemas"]["TemplateContentInput"] | undefined;
       template_id?: string | undefined;
@@ -672,7 +695,10 @@ export interface components {
       preheader?: string | null | undefined;
       from?: components["schemas"]["TemplateAddressInput"] | null | undefined;
       reply_to?: string | null | undefined;
-      list_ids?: ReadonlyArray<string> | undefined;
+      list_ids?: Array<string> | undefined;
+      segment_ids?: Array<string> | undefined;
+      exclude_list_ids?: Array<string> | undefined;
+      exclude_segment_ids?: Array<string> | undefined;
       content?: components["schemas"]["TemplateContentInput"] | undefined;
     };
     DuplicateCampaignRequest: {
@@ -743,7 +769,9 @@ export interface components {
       object: "campaign_recipient";
       contact_id: string;
       email: string;
-      list_name: string;
+      list_name: string | null;
+      segment_id: string | null;
+      segment_name: string | null;
       status: string;
       bounce_classification: string | null;
       bounce_reason: string | null;
@@ -1032,6 +1060,126 @@ export interface components {
     PaginatedListContactsResponse: {
       object: "list";
       data: Array<components["schemas"]["ListContact"]>;
+      pagination: components["schemas"]["ContactPagination"];
+    };
+    Segment: {
+      object: "segment";
+      id: string;
+      created_at: string;
+      updated_at: string;
+      name: string;
+      description: string;
+      definition: components["schemas"]["SegmentDefinition"];
+      timezone: string;
+      state: "building" | "ready" | "failed";
+      failure_reason: string | null;
+      member_count: number;
+      last_evaluated_at: string | null;
+    };
+    SegmentDetail: components["schemas"]["Segment"] & {
+      marketable_count: number | null;
+    };
+    SegmentDefinition: {
+      schema_version: 1;
+      match: "all" | "any";
+      conditions: ReadonlyArray<
+        components["schemas"]["SegmentCondition"] | components["schemas"]["SegmentGroup"]
+      >;
+    };
+    SegmentGroup: {
+      match: "all" | "any";
+      conditions: ReadonlyArray<components["schemas"]["SegmentCondition"]>;
+    };
+    SegmentCondition: {
+      field: string;
+      op:
+        | "equal"
+        | "not_equal"
+        | "contains"
+        | "not_contains"
+        | "begins_with"
+        | "not_begins_with"
+        | "ends_with"
+        | "not_ends_with"
+        | "is_empty"
+        | "is_not_empty"
+        | "less"
+        | "less_or_equal"
+        | "greater"
+        | "greater_or_equal"
+        | "before"
+        | "before_or_on"
+        | "after"
+        | "after_or_on"
+        | "is_null"
+        | "is_not_null"
+        | "is_true"
+        | "is_false"
+        | "month_is"
+        | "anniversary_within"
+        | "in"
+        | "not_in"
+        | "received"
+        | "not_received"
+        | "opened"
+        | "not_opened"
+        | "clicked"
+        | "not_clicked"
+        | "received_at_least"
+        | "received_fewer_than"
+        | "opened_at_least"
+        | "opened_fewer_than"
+        | "clicked_at_least"
+        | "clicked_fewer_than";
+      value?:
+        | (string | number | boolean | null)
+        | components["schemas"]["SegmentCampaignCount"]
+        | undefined;
+    };
+    SegmentCampaignCount: {
+      count: number;
+      since: string;
+    };
+    CreateSegmentRequest: {
+      name: string;
+      description?: string | null | undefined;
+      definition: components["schemas"]["SegmentDefinition"];
+      timezone?: string | null | undefined;
+    };
+    UpdateSegmentRequest: {
+      name?: string | null | undefined;
+      description?: string | null | undefined;
+      definition?: components["schemas"]["SegmentDefinition"] | null | undefined;
+      timezone?: string | null | undefined;
+    };
+    PreviewSegmentRequest: {
+      definition: components["schemas"]["SegmentDefinition"];
+      timezone?: string | null | undefined;
+    };
+    SegmentPreview: {
+      object: "segment_preview";
+      count: number | null;
+      contacts: Array<components["schemas"]["SegmentPreviewContact"]>;
+    };
+    SegmentPreviewContact: {
+      contact_id: string;
+      email: string;
+    };
+    SegmentContact: {
+      object: "segment_contact";
+      segment_id: string;
+      contact_id: string;
+      email: string;
+      entered_at: string;
+    };
+    PaginatedSegmentsResponse: {
+      object: "list";
+      data: Array<components["schemas"]["Segment"]>;
+      pagination: components["schemas"]["ContactPagination"];
+    };
+    PaginatedSegmentContactsResponse: {
+      object: "list";
+      data: Array<components["schemas"]["SegmentContact"]>;
       pagination: components["schemas"]["ContactPagination"];
     };
     Suppression: {
@@ -2802,6 +2950,166 @@ export interface operations {
     responses: {
       "200": {
         content: { "application/json": components["schemas"]["PaginatedListContactsResponse"] };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getSegments: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+      query: {
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: { "application/json": components["schemas"]["PaginatedSegmentsResponse"] };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  createSegment: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+    };
+    requestBody: { content: { "application/json": components["schemas"]["CreateSegmentRequest"] } };
+    responses: {
+      "201": { content: { "application/json": components["schemas"]["Segment"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  previewSegment: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+    };
+    requestBody: {
+      content: { "application/json": components["schemas"]["PreviewSegmentRequest"] };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["SegmentPreview"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getSegment: {
+    parameters: {
+      path: {
+        account_id: string;
+        segment_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["SegmentDetail"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  updateSegment: {
+    parameters: {
+      path: {
+        account_id: string;
+        segment_id: string;
+      };
+    };
+    requestBody: { content: { "application/json": components["schemas"]["UpdateSegmentRequest"] } };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["Segment"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  deleteSegment: {
+    parameters: {
+      path: {
+        account_id: string;
+        segment_id: string;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["SuccessResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getSegmentContacts: {
+    parameters: {
+      path: {
+        account_id: string;
+        segment_id: string;
+      };
+      query: {
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: { "application/json": components["schemas"]["PaginatedSegmentContactsResponse"] };
+      };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getContactSegments: {
+    parameters: {
+      path: {
+        account_id: string;
+        id_or_email: string;
+      };
+      query: {
+        limit?: number | undefined;
+        after?: string | undefined;
+        before?: string | undefined;
+      };
+    };
+    responses: {
+      "200": {
+        content: { "application/json": components["schemas"]["PaginatedSegmentsResponse"] };
       };
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };

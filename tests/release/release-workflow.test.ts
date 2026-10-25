@@ -785,9 +785,10 @@ describe("single-run release workflow", () => {
     expect(liveCommands).toContain("/tmp/gate-report/live-report.sha256");
     expect(liveCommands).toContain("liveReportSha256");
     expect(liveRunnerSource).toContain("validateLiveReportArtifacts");
-    expect(liveRunnerSource.match(/await run[A-Z][A-Za-z]+LiveScenarios/gu)).toHaveLength(14);
+    expect(liveRunnerSource.match(/await run[A-Z][A-Za-z]+LiveScenarios/gu)).toHaveLength(15);
     expect(liveRunnerSource).toContain("await runContactLiveScenarios");
     expect(liveRunnerSource).toContain("await runListLiveScenarios");
+    expect(liveRunnerSource).toContain("await runSegmentLiveScenarios");
     expect(liveRunnerSource).toContain("await runTemplateLiveScenarios");
     // The refused campaign test names only the run's own mailbox.
     expect(liveRunnerSource).toContain("await runCampaignLiveScenarios");

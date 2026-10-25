@@ -18,6 +18,8 @@ import {
 } from "./_helpers.js";
 import { createContactListsClient } from "./contact-lists.js";
 import type { ContactListsClient } from "./contact-lists.js";
+import { createContactSegmentsClient } from "./contact-segments.js";
+import type { ContactSegmentsClient } from "./contact-segments.js";
 
 /** A recursively nested JSON value returned from a legacy contact attribute. */
 export type ContactJSONValue =
@@ -150,17 +152,25 @@ export interface ContactsClient {
 
   /** Read the lists one contact is on. Authorization requires `lists:read`. */
   readonly lists: Readonly<ContactListsClient>;
+
+  /**
+   * Read the segments one contact is a member of. Authorization requires `segments:read` and
+   * `contacts:read`.
+   */
+  readonly segments: Readonly<ContactSegmentsClient>;
 }
 
 class ContactsClientImplementation implements ContactsClient {
   readonly #operations: OperationExecutor;
   readonly #accountId: UUID;
   readonly #lists: Readonly<ContactListsClient>;
+  readonly #segments: Readonly<ContactSegmentsClient>;
 
   constructor(operations: OperationExecutor, accountId: UUID) {
     this.#operations = operations;
     this.#accountId = accountId;
     this.#lists = createFrozenFacade(createContactListsClient(operations, accountId));
+    this.#segments = createFrozenFacade(createContactSegmentsClient(operations, accountId));
   }
 
   list(
@@ -245,6 +255,14 @@ class ContactsClientImplementation implements ContactsClient {
   /** Read the lists one contact is on. Authorization requires `lists:read`. */
   get lists(): Readonly<ContactListsClient> {
     return this.#lists;
+  }
+
+  /**
+   * Read the segments one contact is a member of. Authorization requires `segments:read` and
+   * `contacts:read`.
+   */
+  get segments(): Readonly<ContactSegmentsClient> {
+    return this.#segments;
   }
 }
 

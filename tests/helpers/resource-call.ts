@@ -17,6 +17,7 @@ export const TEMPLATE_ID = "99999999-9999-4999-8999-999999999999";
 export const TEMPLATE_VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 export const CAMPAIGN_TEMPLATE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 export const CAMPAIGN_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+export const SEGMENT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 export const HOSTNAME = "mail.example.test";
 
 export interface ResourceCall {

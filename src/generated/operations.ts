@@ -3007,6 +3007,272 @@ export const OPERATION_DESCRIPTORS = {
     security: [["lists:read"]],
     resourceAuthorization: null,
   },
+  getSegments: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/segments",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedSegmentsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["segments:read"]],
+    resourceAuthorization: null,
+  },
+  createSegment: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/segments",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "CreateSegmentRequest",
+    },
+    success: [
+      {
+        status: 201,
+        schema: "Segment",
+      },
+    ],
+    idempotency: true,
+    retry: "idempotency_key",
+    security: [["segments:write"]],
+    resourceAuthorization: null,
+  },
+  previewSegment: {
+    method: "POST",
+    path: "/v2/accounts/{account_id}/segments/preview",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "PreviewSegmentRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "SegmentPreview",
+      },
+    ],
+    idempotency: false,
+    retry: "never",
+    security: [["segments:read", "contacts:read"]],
+    resourceAuthorization: null,
+  },
+  getSegment: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/segments/{segment_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "segment_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "SegmentDetail",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["segments:read"]],
+    resourceAuthorization: null,
+  },
+  updateSegment: {
+    method: "PUT",
+    path: "/v2/accounts/{account_id}/segments/{segment_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "segment_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: {
+      required: true,
+      schema: "UpdateSegmentRequest",
+    },
+    success: [
+      {
+        status: 200,
+        schema: "Segment",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["segments:write"]],
+    resourceAuthorization: null,
+  },
+  deleteSegment: {
+    method: "DELETE",
+    path: "/v2/accounts/{account_id}/segments/{segment_id}",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "segment_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "SuccessResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "idempotent",
+    security: [["segments:delete"]],
+    resourceAuthorization: null,
+  },
+  getSegmentContacts: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/segments/{segment_id}/contacts",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "segment_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedSegmentContactsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["segments:read", "contacts:read"]],
+    resourceAuthorization: null,
+  },
+  getContactSegments: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/contacts/{id_or_email}/segments",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+      {
+        name: "id_or_email",
+        required: true,
+        format: null,
+      },
+    ],
+    query: [
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+      {
+        name: "before",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "PaginatedSegmentsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["segments:read", "contacts:read"]],
+    resourceAuthorization: null,
+  },
   getSuppressions: {
     method: "GET",
     path: "/v2/accounts/{account_id}/suppressions",

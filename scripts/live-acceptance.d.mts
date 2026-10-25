@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
-export const EXPECTED_LIVE_OPERATION_COUNT: 101;
-export const EXPECTED_LIVE_ITERATOR_COUNT: 17;
+export const EXPECTED_LIVE_OPERATION_COUNT: 109;
+export const EXPECTED_LIVE_ITERATOR_COUNT: 20;
 
 export interface LiveMapping {
   readonly operationId: string;
@@ -410,6 +410,51 @@ export function createListScenarioRegistry(
 export type ListLiveRun = DomainLiveRun;
 
 export function runListLiveScenarios(registry: ScenarioRegistry): Promise<ListLiveRun>;
+
+export interface SegmentLiveClient {
+  readonly segments: {
+    readonly list: (...args: never[]) => unknown;
+    readonly iterate: (...args: never[]) => unknown;
+    readonly create: (...args: never[]) => unknown;
+    readonly preview: (...args: never[]) => unknown;
+    readonly get: (...args: never[]) => unknown;
+    readonly update: (...args: never[]) => unknown;
+    readonly delete: (...args: never[]) => unknown;
+    readonly contacts: {
+      readonly list: (...args: never[]) => unknown;
+      readonly iterate: (...args: never[]) => unknown;
+    };
+  };
+  readonly contacts: {
+    readonly create: (...args: never[]) => unknown;
+    readonly get: (...args: never[]) => unknown;
+    readonly delete: (...args: never[]) => unknown;
+    readonly segments: {
+      readonly list: (...args: never[]) => unknown;
+      readonly iterate: (...args: never[]) => unknown;
+    };
+  };
+}
+
+export interface CreateSegmentScenarioRegistryOptions {
+  readonly profile: LiveProfile;
+  readonly client: SegmentLiveClient;
+  readonly contactEmail: string;
+  readonly segmentName: string;
+  readonly updatedSegmentName: string;
+  readonly timezone?: string;
+  readonly pagination?: DomainLivePagination;
+  /** Waits before a busy segment's update or delete is tried again. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+export function createSegmentScenarioRegistry(
+  options: CreateSegmentScenarioRegistryOptions,
+): ScenarioRegistry;
+
+export type SegmentLiveRun = DomainLiveRun;
+
+export function runSegmentLiveScenarios(registry: ScenarioRegistry): Promise<SegmentLiveRun>;
 
 export interface TemplateLiveClient {
   readonly templates: {
