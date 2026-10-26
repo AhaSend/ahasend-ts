@@ -154,6 +154,7 @@ interface PublicSchemaContracts {
   CreateRouteRequest: SDK.CreateRouteRequest;
   UpdateRouteRequest: SDK.UpdateRouteRequest;
   PaginatedRoutesResponse: SDK.PaginatedResponse<SDK.Route>;
+  WebhookOrigin: SDK.WebhookOrigin;
   Webhook: SDK.Webhook;
   CreatedWebhook: SDK.CreatedWebhook;
   CreateWebhookRequest: SDK.CreateWebhookRequest;

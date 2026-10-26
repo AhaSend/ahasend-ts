@@ -170,6 +170,7 @@ export type {
   ListWebhooksParams,
   UpdateWebhookRequest,
   Webhook,
+  WebhookOrigin,
   WebhooksClient,
   WebhookScope,
 } from "./resources/webhooks.js";

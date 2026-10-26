@@ -14,6 +14,15 @@ import type { IdempotencyRequestOptions } from "./_helpers.js";
 
 export type WebhookScope = "global" | "scoped";
 
+/**
+ * Who made a change that a contact or suppression event reports: `recipient` for the contact or
+ * recipient, through an unsubscribe link, a one-click unsubscribe, or a spam complaint; `api` for
+ * you, through the AhaSend API; `dashboard` for you, through the AhaSend dashboard; `system` for
+ * AhaSend, for example after a bounce, an expired message or an email validation, or when AhaSend
+ * support makes the change.
+ */
+export type WebhookOrigin = "recipient" | "api" | "dashboard" | "system";
+
 export interface Webhook {
   object: "webhook";
   id: UUID;
@@ -30,8 +39,24 @@ export interface Webhook {
   on_suppressed: boolean;
   on_opened: boolean;
   on_clicked: boolean;
+  on_unsubscribed: boolean;
+  on_complained: boolean;
   on_suppression_created: boolean;
+  on_suppression_deleted: boolean;
   on_dns_error: boolean;
+  on_contact_created: boolean;
+  on_contact_updated: boolean;
+  on_contact_deleted: boolean;
+  on_contact_added_to_list: boolean;
+  on_contact_removed_from_list: boolean;
+  on_contact_subscribed: boolean;
+  on_contact_unsubscribed: boolean;
+  on_contact_complained: boolean;
+  /**
+   * The origins of the contact and suppression events the webhook gets, or `null` for every
+   * origin. Message events and `domain.dns_error` have no origin, and the webhook always gets them.
+   */
+  origins: WebhookOrigin[] | null;
   scope: WebhookScope;
   /** Always present. Global webhooks return an empty array. */
   domains: string[];
@@ -62,8 +87,27 @@ export type CreateWebhookRequest = {
   on_suppressed?: boolean | undefined;
   on_opened?: boolean | undefined;
   on_clicked?: boolean | undefined;
+  on_unsubscribed?: boolean | undefined;
+  on_complained?: boolean | undefined;
   on_suppression_created?: boolean | undefined;
+  on_suppression_deleted?: boolean | undefined;
   on_dns_error?: boolean | undefined;
+  /** The contact events need the contact read scopes on the API key. */
+  on_contact_created?: boolean | undefined;
+  on_contact_updated?: boolean | undefined;
+  on_contact_deleted?: boolean | undefined;
+  on_contact_added_to_list?: boolean | undefined;
+  on_contact_removed_from_list?: boolean | undefined;
+  on_contact_subscribed?: boolean | undefined;
+  on_contact_unsubscribed?: boolean | undefined;
+  on_contact_complained?: boolean | undefined;
+  /**
+   * The origins of the contact and suppression events the webhook gets. Omit it or send `null` for
+   * every origin. An empty array is refused with `400`: to stop contact or suppression events, turn
+   * them off. All four origins are saved as `null`, so an origin added later reaches the webhook
+   * too.
+   */
+  origins?: readonly WebhookOrigin[] | null | undefined;
 } & (
   | { scope: "global"; domains?: readonly string[] | null | undefined }
   | { scope: "scoped"; domains: readonly string[] }
@@ -83,8 +127,25 @@ export interface UpdateWebhookRequest {
   on_suppressed?: boolean | null | undefined;
   on_opened?: boolean | null | undefined;
   on_clicked?: boolean | null | undefined;
+  on_unsubscribed?: boolean | null | undefined;
+  on_complained?: boolean | null | undefined;
   on_suppression_created?: boolean | null | undefined;
+  on_suppression_deleted?: boolean | null | undefined;
   on_dns_error?: boolean | null | undefined;
+  /** The contact events need the contact read scopes on the API key. */
+  on_contact_created?: boolean | null | undefined;
+  on_contact_updated?: boolean | null | undefined;
+  on_contact_deleted?: boolean | null | undefined;
+  on_contact_added_to_list?: boolean | null | undefined;
+  on_contact_removed_from_list?: boolean | null | undefined;
+  on_contact_subscribed?: boolean | null | undefined;
+  on_contact_unsubscribed?: boolean | null | undefined;
+  on_contact_complained?: boolean | null | undefined;
+  /**
+   * Omit or send `null` to preserve the stored origins; send all four origins to get every origin
+   * again. An empty array is refused with `400`.
+   */
+  origins?: readonly WebhookOrigin[] | null | undefined;
   /** Omit or send `null` to preserve the stored scope. */
   scope?: WebhookScope | null | undefined;
   /** Omit or send `null` to preserve associations; `[]` explicitly clears them. */
@@ -101,8 +162,19 @@ export type ListWebhooksParams = PaginationParams & {
   on_suppressed?: boolean | undefined;
   on_opened?: boolean | undefined;
   on_clicked?: boolean | undefined;
+  on_unsubscribed?: boolean | undefined;
+  on_complained?: boolean | undefined;
   on_suppression_created?: boolean | undefined;
+  on_suppression_deleted?: boolean | undefined;
   on_dns_error?: boolean | undefined;
+  on_contact_created?: boolean | undefined;
+  on_contact_updated?: boolean | undefined;
+  on_contact_deleted?: boolean | undefined;
+  on_contact_added_to_list?: boolean | undefined;
+  on_contact_removed_from_list?: boolean | undefined;
+  on_contact_subscribed?: boolean | undefined;
+  on_contact_unsubscribed?: boolean | undefined;
+  on_contact_complained?: boolean | undefined;
 };
 
 /**
