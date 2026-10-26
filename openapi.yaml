@@ -436,10 +436,11 @@ components:
         The write could not be finished now, for one of two reasons. Nothing
         was written.
 
-        - The template changed in the dashboard or through another request
-          while this one was writing it, more often than the request retries
-          by itself. Only a write of a transactional template that already
-          exists can get this.
+        - The template or campaign changed in the dashboard or through
+          another request while this one was writing it. Only a write of a
+          transactional template that already exists, after it retried by
+          itself, and an update of a campaign whose body changed, can get
+          this.
         - AhaSend Markup (AhaML) in `content.markup` could not be read now:
           the service that reads it is down, failed or busy.
 
@@ -2044,10 +2045,10 @@ components:
         replaces the design that save stored.
 
         A `simple` design is written as AhaSend Markup (AhaML) in `markup`.
-        Its `html` is made from the design: beside `markup` it is ignored,
-        and without `markup` it is ignored when it equals the working copy's
-        stored HTML, and refused otherwise; an empty `html` is refused, as for
-        every editor. The `content` read from a
+        Its `html` is made from the design: beside `markup` it is ignored
+        without any check, and without `markup` it is ignored when it equals
+        the working copy's stored HTML, and refused otherwise, an empty `html`
+        included. The `content` read from a
         `simple` design can so be sent back as it is, `markup_error`
         included: AhaML that prints the same as the stored design keeps that
         design and its HTML, and AhaML that prints the same as the published
@@ -8365,8 +8366,9 @@ paths:
               if err != nil {
                 log.Fatalf("Error getting template: %v", err)
               }
-              // A send from this template must supply every required variable. Kind
-              // says what shape of value to send; a list variable takes a slice of
+              // These are the working copy's variables: the draft's while one exists.
+              // A send uses the published copy's, which GetPublishedTemplate returns.
+              // Kind says what shape of value to send; a list variable takes a slice of
               // elements with the fields in ItemFields.
               for _, variable := range response.Variables {
                 fmt.Printf("%s required=%t kind=%s item_fields=%v\n", variable.Name, variable.Required, variable.Kind, variable.ItemFields)
@@ -8533,13 +8535,13 @@ paths:
 
             import (
               "context"
+              "errors"
               "fmt"
               "log"
               "os"
 
               "github.com/AhaSend/ahasend-go"
               "github.com/AhaSend/ahasend-go/api"
-              "github.com/AhaSend/ahasend-go/models/common"
               "github.com/AhaSend/ahasend-go/models/requests"
               "github.com/google/uuid"
             )
@@ -8552,15 +8554,36 @@ paths:
               templateID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
 
               // Only the fields you set change. They go to the template's draft, the
-              // same draft the dashboard edits; Publish publishes the whole draft. An
-              // empty ReplyTo clears the reply-to address.
+              // same draft the dashboard edits; Publish publishes the whole draft. The
+              // design of a simple template is written as AhaSend Markup (AhaML).
+              markup := `<Email version="1">
+              <Heading level="2">Reset your password</Heading>
+              <Paragraph>Hi <Var name="first_name" fallback="there"/>, use the button below to reset your password.</Paragraph>
+              <Button url="{{ reset_url }}">Reset password</Button>
+            </Email>
+            `
               response, _, err := client.TemplatesAPI.UpdateTemplate(ctx, accountID, templateID, requests.UpdateTemplateRequest{
                 Subject: ahasend.String("Your password reset link"),
-                ReplyTo: &common.SenderAddress{},
+                Content: &requests.TemplateContentInput{Markup: &markup},
                 Publish: true,
               })
               if err != nil {
+                var apiErr *api.APIError
+                if errors.As(err, &apiErr) {
+                  // A refused design lists each problem, with its place in the
+                  // AhaML when it has one.
+                  for _, problem := range apiErr.Errors {
+                    if problem.Line > 0 {
+                      fmt.Printf("line %d, column %d: %s\n", problem.Line, problem.Column, problem.Message)
+                    } else {
+                      fmt.Println(problem.Message)
+                    }
+                  }
+                }
                 log.Fatalf("Error updating template: %v", err)
+              }
+              for _, warning := range response.MarkupWarnings {
+                fmt.Printf("Warning: %s\n", warning.Message)
               }
               fmt.Printf("Updated template %s, has draft: %t\n", response.Name, response.HasDraft)
             }
@@ -8771,6 +8794,40 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
       x-code-samples:
+        - lang: go
+          label: AhaSend Go SDK
+          source: |
+            package main
+
+            import (
+              "context"
+              "fmt"
+              "log"
+              "os"
+
+              "github.com/AhaSend/ahasend-go/api"
+              "github.com/google/uuid"
+            )
+
+            func main() {
+              client := api.NewAPIClient(api.WithAPIKey(os.Getenv("AHASEND_API_KEY")))
+              accountID := uuid.MustParse(os.Getenv("AHASEND_ACCOUNT_ID"))
+              ctx := context.Background()
+
+              templateID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+
+              // The published copy is the one a send uses, so build a send from its
+              // variables. GetTemplate returns the draft instead while one exists.
+              response, _, err := client.TemplatesAPI.GetPublishedTemplate(ctx, accountID, templateID)
+              if err != nil {
+                log.Fatalf("Error getting published template: %v", err)
+              }
+              fmt.Printf("Published subject: %s, draft waiting: %t\n", response.Subject, response.HasDraft)
+              for _, variable := range response.Variables {
+                fmt.Printf("%s required=%t kind=%s\n", variable.Name, variable.Required, variable.Kind)
+              }
+            }
+
         - lang: javascript
           label: Node.js 22+ (AhaSend SDK)
           source: |
