@@ -13,7 +13,7 @@ import {
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
 const EXPECTED_OPERATION_COUNT = 109;
-const EXPECTED_SCHEMA_COUNT = 144;
+const EXPECTED_SCHEMA_COUNT = 145;
 const EXPECTED_ITERATOR_COUNT = 20;
 const EXPECTED_WEBHOOK_COUNT = 11;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;

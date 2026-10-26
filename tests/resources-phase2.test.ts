@@ -184,8 +184,20 @@ describe("WebhooksClient (account-scoped per spec)", () => {
       on_suppressed: false,
       on_opened: false,
       on_clicked: false,
+      on_unsubscribed: false,
+      on_complained: false,
       on_suppression_created: false,
+      on_suppression_deleted: false,
       on_dns_error: false,
+      on_contact_created: true,
+      on_contact_updated: false,
+      on_contact_deleted: false,
+      on_contact_added_to_list: false,
+      on_contact_removed_from_list: false,
+      on_contact_subscribed: false,
+      on_contact_unsubscribed: true,
+      on_contact_complained: false,
+      origins: ["recipient", "system"],
       scope: "global",
       domains: [],
       success_count: 1,
@@ -228,6 +240,35 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     expect(url.searchParams.get("enabled")).toBe("true");
     expect(url.searchParams.get("on_delivered")).toBe("true");
     expect(calls[0]!.operationId).toBe("getWebhooks");
+  });
+
+  it("create(), update() and list() carry the contact event settings and origins", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+    await client.webhooks.create(
+      {
+        name: "contact hook",
+        url: "https://hooks.example/contacts",
+        scope: "global",
+        on_contact_created: true,
+        on_suppression_deleted: true,
+        origins: ["recipient", "system"],
+      },
+      { idempotencyKey: "wh-contacts" },
+    );
+    await client.webhooks.update(WEBHOOK_ID, { on_contact_unsubscribed: false, origins: null });
+    await client.webhooks.list({ on_contact_complained: true });
+
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      name: "contact hook",
+      url: "https://hooks.example/contacts",
+      scope: "global",
+      on_contact_created: true,
+      on_suppression_deleted: true,
+      origins: ["recipient", "system"],
+    });
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ on_contact_unsubscribed: false, origins: null });
+    expect(new URL(calls[2]!.url).searchParams.get("on_contact_complained")).toBe("true");
   });
 
   it("iterate() fetches configured webhooks through getWebhooks", async () => {

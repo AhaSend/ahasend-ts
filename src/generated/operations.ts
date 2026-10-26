@@ -3692,12 +3692,67 @@ export const OPERATION_DESCRIPTORS = {
         format: null,
       },
       {
+        name: "on_unsubscribed",
+        required: false,
+        format: null,
+      },
+      {
+        name: "on_complained",
+        required: false,
+        format: null,
+      },
+      {
         name: "on_suppression_created",
         required: false,
         format: null,
       },
       {
+        name: "on_suppression_deleted",
+        required: false,
+        format: null,
+      },
+      {
         name: "on_dns_error",
+        required: false,
+        format: null,
+      },
+      {
+        name: "on_contact_created",
+        required: false,
+        format: null,
+      },
+      {
+        name: "on_contact_updated",
+        required: false,
+        format: null,
+      },
+      {
+        name: "on_contact_deleted",
+        required: false,
+        format: null,
+      },
+      {
+        name: "on_contact_added_to_list",
+        required: false,
+        format: null,
+      },
+      {
+        name: "on_contact_removed_from_list",
+        required: false,
+        format: null,
+      },
+      {
+        name: "on_contact_subscribed",
+        required: false,
+        format: null,
+      },
+      {
+        name: "on_contact_unsubscribed",
+        required: false,
+        format: null,
+      },
+      {
+        name: "on_contact_complained",
         required: false,
         format: null,
       },

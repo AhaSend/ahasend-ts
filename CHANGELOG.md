@@ -28,9 +28,20 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   sent to from, and are `null` for a recipient sent to from a list.
 - `DeliveryAttempt` gains `report_message_id`: on the delivery event of an out-of-band bounce, the
   `id` of the bounce report message, which `messages.get()` reads.
+- `Webhook`, `CreateWebhookRequest`, `UpdateWebhookRequest` and `ListWebhooksParams` gain the
+  settings of the new events: `on_unsubscribed`, `on_complained`, `on_suppression_deleted`, and
+  `on_contact_created`, `on_contact_updated`, `on_contact_deleted`, `on_contact_added_to_list`,
+  `on_contact_removed_from_list`, `on_contact_subscribed`, `on_contact_unsubscribed` and
+  `on_contact_complained`. Each is off unless set, so an existing webhook gets nothing new. The
+  contact events need the contact read scopes on the API key.
+- `Webhook`, `CreateWebhookRequest` and `UpdateWebhookRequest` gain `origins` (`WebhookOrigin[] |
+  null`): whose changes the contact and suppression events report, `recipient`, `api`,
+  `dashboard` or `system`; `null` means every origin. An empty array is refused with `400`.
 
 ### Changed
 
+- `Webhook` requires the new event settings and `origins`, which the API always returns. Code that
+  builds a `Webhook` object by hand, as in a test double, needs them.
 - `CampaignRecipient.list_name` is `string | null`: it is `null` for a recipient sent to from a
   segment. Code that reads it as a string needs a null check.
 - `campaigns.create()` and `update()` no longer refuse an empty `list_ids` with

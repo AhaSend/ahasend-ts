@@ -183,7 +183,7 @@ describe("REST contract normalization", () => {
 
     expect(inventory.operationIds).toHaveLength(109);
     expect(new Set(inventory.operationIds)).toHaveLength(109);
-    expect(inventory.schemaNames).toHaveLength(144);
+    expect(inventory.schemaNames).toHaveLength(145);
     expect(inventory.idempotencyOperationIds).toHaveLength(29);
     expect(inventory.subAccountOperationIds).toHaveLength(14);
     expect(inventory.subAccountSchemaNames).toHaveLength(7);

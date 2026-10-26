@@ -1065,8 +1065,20 @@ export type CreateWebhookRequest = {
     on_suppressed?: boolean | undefined;
     on_opened?: boolean | undefined;
     on_clicked?: boolean | undefined;
+    on_unsubscribed?: boolean | undefined;
+    on_complained?: boolean | undefined;
     on_suppression_created?: boolean | undefined;
+    on_suppression_deleted?: boolean | undefined;
     on_dns_error?: boolean | undefined;
+    on_contact_created?: boolean | undefined;
+    on_contact_updated?: boolean | undefined;
+    on_contact_deleted?: boolean | undefined;
+    on_contact_added_to_list?: boolean | undefined;
+    on_contact_removed_from_list?: boolean | undefined;
+    on_contact_subscribed?: boolean | undefined;
+    on_contact_unsubscribed?: boolean | undefined;
+    on_contact_complained?: boolean | undefined;
+    origins?: readonly WebhookOrigin[] | null | undefined;
 } & ({
     scope: "global";
     domains?: readonly string[] | null | undefined;
@@ -1461,8 +1473,19 @@ export type ListWebhooksParams = PaginationParams & {
     on_suppressed?: boolean | undefined;
     on_opened?: boolean | undefined;
     on_clicked?: boolean | undefined;
+    on_unsubscribed?: boolean | undefined;
+    on_complained?: boolean | undefined;
     on_suppression_created?: boolean | undefined;
+    on_suppression_deleted?: boolean | undefined;
     on_dns_error?: boolean | undefined;
+    on_contact_created?: boolean | undefined;
+    on_contact_updated?: boolean | undefined;
+    on_contact_deleted?: boolean | undefined;
+    on_contact_added_to_list?: boolean | undefined;
+    on_contact_removed_from_list?: boolean | undefined;
+    on_contact_subscribed?: boolean | undefined;
+    on_contact_unsubscribed?: boolean | undefined;
+    on_contact_complained?: boolean | undefined;
 };
 
 // @public (undocumented)
@@ -2456,6 +2479,23 @@ export interface UpdateWebhookRequest {
     // (undocumented)
     on_clicked?: boolean | null | undefined;
     // (undocumented)
+    on_complained?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_added_to_list?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_complained?: boolean | null | undefined;
+    on_contact_created?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_deleted?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_removed_from_list?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_subscribed?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_unsubscribed?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_updated?: boolean | null | undefined;
+    // (undocumented)
     on_delivered?: boolean | null | undefined;
     // (undocumented)
     on_dns_error?: boolean | null | undefined;
@@ -2470,7 +2510,12 @@ export interface UpdateWebhookRequest {
     // (undocumented)
     on_suppression_created?: boolean | null | undefined;
     // (undocumented)
+    on_suppression_deleted?: boolean | null | undefined;
+    // (undocumented)
     on_transient_error?: boolean | null | undefined;
+    // (undocumented)
+    on_unsubscribed?: boolean | null | undefined;
+    origins?: readonly WebhookOrigin[] | null | undefined;
     scope?: WebhookScope | null | undefined;
     url?: string | null | undefined;
 }
@@ -2521,6 +2566,24 @@ export interface Webhook {
     // (undocumented)
     on_clicked: boolean;
     // (undocumented)
+    on_complained: boolean;
+    // (undocumented)
+    on_contact_added_to_list: boolean;
+    // (undocumented)
+    on_contact_complained: boolean;
+    // (undocumented)
+    on_contact_created: boolean;
+    // (undocumented)
+    on_contact_deleted: boolean;
+    // (undocumented)
+    on_contact_removed_from_list: boolean;
+    // (undocumented)
+    on_contact_subscribed: boolean;
+    // (undocumented)
+    on_contact_unsubscribed: boolean;
+    // (undocumented)
+    on_contact_updated: boolean;
+    // (undocumented)
     on_delivered: boolean;
     // (undocumented)
     on_dns_error: boolean;
@@ -2535,7 +2598,12 @@ export interface Webhook {
     // (undocumented)
     on_suppression_created: boolean;
     // (undocumented)
+    on_suppression_deleted: boolean;
+    // (undocumented)
     on_transient_error: boolean;
+    // (undocumented)
+    on_unsubscribed: boolean;
+    origins: WebhookOrigin[] | null;
     // (undocumented)
     scope: WebhookScope;
     // (undocumented)
@@ -2545,6 +2613,9 @@ export interface Webhook {
     // (undocumented)
     url: string;
 }
+
+// @public
+export type WebhookOrigin = "recipient" | "api" | "dashboard" | "system";
 
 // @public
 export interface WebhooksClient {
