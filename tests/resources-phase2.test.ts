@@ -1506,7 +1506,9 @@ describe("TemplatesClient", () => {
     const discarded: Template = await client.templates.discardDraft(TEMPLATE_ID);
 
     const templatePath = `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}`;
-    expect(calls.map(({ operationId, method, url, body }) => [operationId, method, url, body])).toEqual([
+    expect(
+      calls.map(({ operationId, method, url, body }) => [operationId, method, url, body]),
+    ).toEqual([
       ["getPublishedTemplate", "GET", `${templatePath}/published`, undefined],
       ["discardTemplateDraft", "DELETE", `${templatePath}/draft`, undefined],
     ]);

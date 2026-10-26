@@ -533,7 +533,10 @@ function templateClientFixture(
     content,
   });
   // The working copy, the draft while one exists, which get() and the writes answer.
-  const workingView = () => ({ ...disposableView(), subject: disposable.draft ?? disposable.published });
+  const workingView = () => ({
+    ...disposableView(),
+    subject: disposable.draft ?? disposable.published,
+  });
   const requireSendTemplate = (id: string) => {
     if (id !== sendTemplateId || !sendTemplate.exists) throw notFound();
   };
