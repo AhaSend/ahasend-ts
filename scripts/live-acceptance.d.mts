@@ -464,7 +464,7 @@ export interface TemplateLiveClient {
     readonly create: (...args: never[]) => unknown;
     readonly update: (...args: never[]) => unknown;
     readonly delete: (...args: never[]) => unknown;
-    readonly getDraft: (...args: never[]) => unknown;
+    readonly getPublished: (...args: never[]) => unknown;
     readonly discardDraft: (...args: never[]) => unknown;
     readonly publish: (...args: never[]) => unknown;
     readonly listVersions: (...args: never[]) => unknown;

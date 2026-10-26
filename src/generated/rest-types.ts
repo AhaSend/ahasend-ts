@@ -49,8 +49,10 @@ export interface paths {
     put: operations["updateTemplate"];
     delete: operations["deleteTemplate"];
   };
+  "/v2/accounts/{account_id}/templates/{template_id}/published": {
+    get: operations["getPublishedTemplate"];
+  };
   "/v2/accounts/{account_id}/templates/{template_id}/draft": {
-    get: operations["getTemplateDraft"];
     delete: operations["discardTemplateDraft"];
   };
   "/v2/accounts/{account_id}/templates/{template_id}/publish": {
@@ -222,6 +224,18 @@ export interface components {
   schemas: {
     ErrorResponse: {
       message: string;
+    };
+    MarkupErrorResponse: {
+      message: string;
+      errors?: Array<components["schemas"]["MarkupProblem"]>;
+    };
+    MarkupProblem: {
+      code: string;
+      message: string;
+      line?: number;
+      column?: number;
+      path?: string;
+      hint?: string;
     };
     SuccessResponse: {
       message: string;
@@ -525,6 +539,7 @@ export interface components {
       editor: components["schemas"]["TemplateEditor"];
       has_draft: boolean;
       content?: components["schemas"]["TemplateContent"] | null;
+      markup_warnings?: Array<components["schemas"]["MarkupProblem"]>;
     };
     TemplateEditor: "advanced" | "simple" | "html";
     TemplateContent: {
@@ -532,17 +547,17 @@ export interface components {
       html?: string;
       text?: string;
       text_is_custom: boolean;
-    };
-    TemplateDraft: {
-      object: "template_draft";
-      template_id: string;
-      updated_at: string;
-      subject: string;
-      preheader: string;
-      variables: Array<components["schemas"]["TemplateVariable"]>;
-      from: components["schemas"]["Address"] | null;
-      reply_to: components["schemas"]["Address"] | null;
-      content: components["schemas"]["TemplateContent"] | null;
+      markup?: string | null;
+      markup_error?: {
+        code:
+          | "no_design"
+          | "html_block"
+          | "unmapped_block"
+          | "bad_stored_value"
+          | "renderer_unavailable"
+          | "rate_limited";
+        message: string;
+      };
     };
     TemplatePublisher: {
       type: "user" | "api_key";
@@ -568,6 +583,8 @@ export interface components {
       html?: string | undefined;
       text?: string | null | undefined;
       text_is_custom?: boolean | undefined;
+      markup?: string | null | undefined;
+      markup_error?: unknown;
     };
     TemplateAddressInput: {
       email: string;
@@ -612,6 +629,7 @@ export interface components {
       name: string;
       editor: components["schemas"]["TemplateEditor"];
       content?: components["schemas"]["TemplateContent"] | null;
+      markup_warnings?: Array<components["schemas"]["MarkupProblem"]>;
     };
     CreateCampaignTemplateRequest: {
       name: string;
@@ -674,6 +692,7 @@ export interface components {
       content: components["schemas"]["TemplateContent"] | null;
       ready: boolean | null;
       issues: Array<components["schemas"]["CampaignIssue"]> | null;
+      markup_warnings?: Array<components["schemas"]["MarkupProblem"]>;
     };
     CreateCampaignRequest: {
       name: string;
@@ -1253,6 +1272,7 @@ export interface components {
       data: Array<components["schemas"]["Route"]>;
       pagination: components["schemas"]["PaginationInfo"];
     };
+    WebhookOrigin: "recipient" | "api" | "dashboard" | "system";
     Webhook: {
       object: "webhook";
       id: string;
@@ -1269,8 +1289,20 @@ export interface components {
       on_suppressed: boolean;
       on_opened: boolean;
       on_clicked: boolean;
+      on_unsubscribed: boolean;
+      on_complained: boolean;
       on_suppression_created: boolean;
+      on_suppression_deleted: boolean;
       on_dns_error: boolean;
+      on_contact_created: boolean;
+      on_contact_updated: boolean;
+      on_contact_deleted: boolean;
+      on_contact_added_to_list: boolean;
+      on_contact_removed_from_list: boolean;
+      on_contact_subscribed: boolean;
+      on_contact_unsubscribed: boolean;
+      on_contact_complained: boolean;
+      origins: Array<components["schemas"]["WebhookOrigin"]> | null;
       scope: "global" | "scoped";
       domains: Array<string>;
       success_count: number;
@@ -1293,8 +1325,20 @@ export interface components {
       on_suppressed?: boolean | undefined;
       on_opened?: boolean | undefined;
       on_clicked?: boolean | undefined;
+      on_unsubscribed?: boolean | undefined;
+      on_complained?: boolean | undefined;
       on_suppression_created?: boolean | undefined;
+      on_suppression_deleted?: boolean | undefined;
       on_dns_error?: boolean | undefined;
+      on_contact_created?: boolean | undefined;
+      on_contact_updated?: boolean | undefined;
+      on_contact_deleted?: boolean | undefined;
+      on_contact_added_to_list?: boolean | undefined;
+      on_contact_removed_from_list?: boolean | undefined;
+      on_contact_subscribed?: boolean | undefined;
+      on_contact_unsubscribed?: boolean | undefined;
+      on_contact_complained?: boolean | undefined;
+      origins?: ReadonlyArray<components["schemas"]["WebhookOrigin"]> | null | undefined;
       scope: "global" | "scoped";
       domains?: Array<string> | null | undefined;
     } & (
@@ -1319,8 +1363,20 @@ export interface components {
       on_suppressed?: boolean | null | undefined;
       on_opened?: boolean | null | undefined;
       on_clicked?: boolean | null | undefined;
+      on_unsubscribed?: boolean | null | undefined;
+      on_complained?: boolean | null | undefined;
       on_suppression_created?: boolean | null | undefined;
+      on_suppression_deleted?: boolean | null | undefined;
       on_dns_error?: boolean | null | undefined;
+      on_contact_created?: boolean | null | undefined;
+      on_contact_updated?: boolean | null | undefined;
+      on_contact_deleted?: boolean | null | undefined;
+      on_contact_added_to_list?: boolean | null | undefined;
+      on_contact_removed_from_list?: boolean | null | undefined;
+      on_contact_subscribed?: boolean | null | undefined;
+      on_contact_unsubscribed?: boolean | null | undefined;
+      on_contact_complained?: boolean | null | undefined;
+      origins?: ReadonlyArray<components["schemas"]["WebhookOrigin"]> | null | undefined;
       scope?: "global" | "scoped" | null | undefined;
       domains?: Array<string> | null | undefined;
     };
@@ -1772,13 +1828,14 @@ export interface operations {
     };
     responses: {
       "201": { content: { "application/json": components["schemas"]["Template"] } };
-      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["MarkupErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   getTemplate: {
@@ -1810,7 +1867,7 @@ export interface operations {
     };
     responses: {
       "200": { content: { "application/json": components["schemas"]["Template"] } };
-      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["MarkupErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
@@ -1838,7 +1895,7 @@ export interface operations {
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
-  getTemplateDraft: {
+  getPublishedTemplate: {
     parameters: {
       path: {
         account_id: string;
@@ -1846,7 +1903,7 @@ export interface operations {
       };
     };
     responses: {
-      "200": { content: { "application/json": components["schemas"]["TemplateDraft"] } };
+      "200": { content: { "application/json": components["schemas"]["Template"] } };
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
@@ -1987,13 +2044,14 @@ export interface operations {
     };
     responses: {
       "201": { content: { "application/json": components["schemas"]["CampaignTemplate"] } };
-      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["MarkupErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   getCampaignTemplate: {
@@ -2025,7 +2083,7 @@ export interface operations {
     };
     responses: {
       "200": { content: { "application/json": components["schemas"]["CampaignTemplate"] } };
-      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["MarkupErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
@@ -2033,6 +2091,7 @@ export interface operations {
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   deleteCampaignTemplate: {
@@ -2086,13 +2145,14 @@ export interface operations {
     };
     responses: {
       "201": { content: { "application/json": components["schemas"]["Campaign"] } };
-      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["MarkupErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "409": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   getCampaign: {
@@ -2124,7 +2184,7 @@ export interface operations {
     };
     responses: {
       "200": { content: { "application/json": components["schemas"]["Campaign"] } };
-      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "400": { content: { "application/json": components["schemas"]["MarkupErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "404": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
@@ -2132,6 +2192,7 @@ export interface operations {
       "422": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "503": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
     };
   };
   deleteCampaign: {
@@ -3304,8 +3365,19 @@ export interface operations {
         on_suppressed?: boolean | undefined;
         on_opened?: boolean | undefined;
         on_clicked?: boolean | undefined;
+        on_unsubscribed?: boolean | undefined;
+        on_complained?: boolean | undefined;
         on_suppression_created?: boolean | undefined;
+        on_suppression_deleted?: boolean | undefined;
         on_dns_error?: boolean | undefined;
+        on_contact_created?: boolean | undefined;
+        on_contact_updated?: boolean | undefined;
+        on_contact_deleted?: boolean | undefined;
+        on_contact_added_to_list?: boolean | undefined;
+        on_contact_removed_from_list?: boolean | undefined;
+        on_contact_subscribed?: boolean | undefined;
+        on_contact_unsubscribed?: boolean | undefined;
+        on_contact_complained?: boolean | undefined;
         limit?: number | undefined;
         after?: string | undefined;
         before?: string | undefined;

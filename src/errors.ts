@@ -74,6 +74,40 @@ export interface ApiErrorBody {
   message: string;
 }
 
+/**
+ * One problem of AhaSend Markup (AhaML): one a write refused, in an error's `errors`, or a warning
+ * about AhaML a write stored, in `markup_warnings`.
+ */
+export interface MarkupProblem {
+  /** What is wrong, as a code that stays the same. The AhaML reference lists every code. */
+  code: string;
+  /** What is wrong, in words for a person. */
+  message: string;
+  /**
+   * The line where the problem starts, from 1. Absent when the problem has no place in the AhaML,
+   * as for a size limit.
+   */
+  line?: number;
+  /** The column where the problem starts, from 1, in Unicode characters. Absent with `line`. */
+  column?: number;
+  /**
+   * The element of the problem, each tag with its position among its siblings of the same tag,
+   * such as `Email > Section[2] > Paragraph[1]`. Absent with `line`.
+   */
+  path?: string;
+  /** How to fix the problem, when a fix is known. Warnings have none. */
+  hint?: string;
+}
+
+/**
+ * The body of a 400 from a write that takes `content.markup`. When the write refuses AhaML,
+ * `errors` lists the problems, in document order, up to the first 100, and `message` says how many
+ * there are in all; every other 400 has only `message`.
+ */
+export interface MarkupErrorResponse extends ApiErrorBody {
+  errors?: MarkupProblem[];
+}
+
 export interface SerializedAhaSendError {
   name: string;
   code: AhaSendErrorCode;
@@ -288,6 +322,11 @@ export class AhaSendAPIError extends AhaSendError {
   public readonly body!: ApiErrorBody | string | null;
   public readonly requestId: string | undefined;
   public readonly headers!: Record<string, string>;
+  /**
+   * The problems of AhaML a write refused, from the `errors` of a {@link MarkupErrorResponse};
+   * empty for every other error.
+   */
+  public readonly errors!: readonly MarkupProblem[];
 
   /** Safely identifies API error subclasses across duplicate ESM/CJS package instances. */
   static override is(value: unknown): value is AhaSendAPIError {
@@ -313,6 +352,7 @@ export class AhaSendAPIError extends AhaSendError {
     defineHidden(this, "body", params.body);
     defineHidden(this, "requestId", params.requestId);
     defineHidden(this, "headers", params.headers ?? {});
+    defineHidden(this, "errors", extractMarkupProblems(params.body));
   }
 }
 
@@ -551,6 +591,19 @@ function extractMessage(body: ApiErrorBody | string | null): string | undefined 
     return truncateMessage(body.message);
   }
   return undefined;
+}
+
+function extractMarkupProblems(body: ApiErrorBody | string | null): readonly MarkupProblem[] {
+  if (!body || typeof body !== "object") return [];
+  const problems: unknown = (body as { errors?: unknown }).errors;
+  if (!Array.isArray(problems)) return [];
+  return problems.filter(
+    (problem): problem is MarkupProblem =>
+      typeof problem === "object" &&
+      problem !== null &&
+      typeof (problem as { code?: unknown }).code === "string" &&
+      typeof (problem as { message?: unknown }).message === "string",
+  );
 }
 
 /**

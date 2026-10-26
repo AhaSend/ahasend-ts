@@ -291,8 +291,19 @@ const webhooks: SDK.ListWebhooksParams = {
   on_suppressed: true,
   on_opened: true,
   on_clicked: true,
+  on_unsubscribed: true,
+  on_complained: true,
   on_suppression_created: true,
+  on_suppression_deleted: true,
   on_dns_error: true,
+  on_contact_created: true,
+  on_contact_updated: true,
+  on_contact_deleted: true,
+  on_contact_added_to_list: true,
+  on_contact_removed_from_list: true,
+  on_contact_subscribed: true,
+  on_contact_unsubscribed: true,
+  on_contact_complained: true,
 };
 const statistics: SDK.StatisticsParams = {
   sender_domain: "example.com",
@@ -421,11 +432,11 @@ void client.statistics.deliveryTimes(statistics).withResponse();
 void client.templates.list(templates).withResponse();
 void client.templates.create(templateBody, { idempotencyKey: "package-template" }).withResponse();
 void client.templates.get(uuid).withResponse();
+void client.templates.getPublished(uuid).withResponse();
 void client.templates
   .update(uuid, templateUpdate, { idempotencyKey: "package-template-update" })
   .withResponse();
 void client.templates.delete(uuid).withResponse();
-void client.templates.getDraft(uuid).withResponse();
 void client.templates.discardDraft(uuid).withResponse();
 void client.templates.publish(uuid, { idempotencyKey: "package-template-publish" }).withResponse();
 void client.templates.listVersions(uuid).withResponse();
@@ -619,9 +630,9 @@ const templatesMock: SDK.TemplatesClient = {
   iterate: () => iterator<SDK.Template>(),
   create: () => result<SDK.Template>(),
   get: () => result<SDK.Template>(),
+  getPublished: () => result<SDK.Template>(),
   update: () => result<SDK.Template>(),
   delete: () => result<SDK.SuccessResponse>(),
-  getDraft: () => result<SDK.TemplateDraft>(),
   discardDraft: () => result<SDK.Template>(),
   publish: () => result<SDK.Template>(),
   listVersions: () => result<SDK.ListTemplateVersionsResponse>(),

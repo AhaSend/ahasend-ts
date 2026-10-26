@@ -13,7 +13,7 @@ import {
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
 const EXPECTED_OPERATION_COUNT = 109;
-const EXPECTED_SCHEMA_COUNT = 144;
+const EXPECTED_SCHEMA_COUNT = 146;
 const EXPECTED_ITERATOR_COUNT = 20;
 const EXPECTED_WEBHOOK_COUNT = 22;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 41;
@@ -120,7 +120,7 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["getTemplate", "templates", "get"],
   ["updateTemplate", "templates", "update"],
   ["deleteTemplate", "templates", "delete"],
-  ["getTemplateDraft", "templates", "getDraft"],
+  ["getPublishedTemplate", "templates", "getPublished"],
   ["discardTemplateDraft", "templates", "discardDraft"],
   ["publishTemplate", "templates", "publish"],
   ["listTemplateVersions", "templates", "listVersions"],

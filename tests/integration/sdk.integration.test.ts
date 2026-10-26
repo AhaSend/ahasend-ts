@@ -337,7 +337,7 @@ const OPERATION_CASES = [
     { subject: null, content: { text: "Hello from the packed SDK" } },
   ]),
   operation("deleteTemplate", ["templates"], "delete", [RESOURCE_ID]),
-  operation("getTemplateDraft", ["templates"], "getDraft", [RESOURCE_ID]),
+  operation("getPublishedTemplate", ["templates"], "getPublished", [RESOURCE_ID]),
   operation("discardTemplateDraft", ["templates"], "discardDraft", [RESOURCE_ID]),
   operation("publishTemplate", ["templates"], "publish", [RESOURCE_ID]),
   operation("listTemplateVersions", ["templates"], "listVersions", [RESOURCE_ID]),

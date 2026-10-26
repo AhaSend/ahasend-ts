@@ -340,9 +340,9 @@ const PRIMARY_MATRIX = [
     result: client.templates.delete(IDS.template, REQUEST_OPTIONS),
     input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}` },
   })),
-  primary("getTemplateDraft", "templates", "getDraft", (client) => ({
-    result: client.templates.getDraft(IDS.template, REQUEST_OPTIONS),
-    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/draft` },
+  primary("getPublishedTemplate", "templates", "getPublished", (client) => ({
+    result: client.templates.getPublished(IDS.template, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/templates/${TEMPLATE_ID}/published` },
   })),
   primary("discardTemplateDraft", "templates", "discardDraft", (client) => ({
     result: client.templates.discardDraft(IDS.template, REQUEST_OPTIONS),

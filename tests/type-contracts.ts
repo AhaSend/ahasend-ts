@@ -28,6 +28,8 @@ type WireSchemas = components["schemas"];
  */
 interface PublicSchemaContracts {
   ErrorResponse: SDK.ApiErrorBody;
+  MarkupErrorResponse: SDK.MarkupErrorResponse;
+  MarkupProblem: SDK.MarkupProblem;
   SuccessResponse: SDK.SuccessResponse;
   PaginationInfo: SDK.PaginationMeta;
   APIKeyScope: SDK.APIKeyScope;
@@ -62,7 +64,6 @@ interface PublicSchemaContracts {
   Template: SDK.Template;
   TemplateEditor: SDK.TemplateEditor;
   TemplateContent: SDK.TemplateContent;
-  TemplateDraft: SDK.TemplateDraft;
   TemplatePublisher: SDK.TemplatePublisher;
   TemplateVersion: SDK.TemplateVersion;
   TemplateVersionDetail: SDK.TemplateVersionDetail;
@@ -154,6 +155,7 @@ interface PublicSchemaContracts {
   CreateRouteRequest: SDK.CreateRouteRequest;
   UpdateRouteRequest: SDK.UpdateRouteRequest;
   PaginatedRoutesResponse: SDK.PaginatedResponse<SDK.Route>;
+  WebhookOrigin: SDK.WebhookOrigin;
   Webhook: SDK.Webhook;
   CreatedWebhook: SDK.CreatedWebhook;
   CreateWebhookRequest: SDK.CreateWebhookRequest;

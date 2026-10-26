@@ -86,11 +86,11 @@ describe("SDK artifact generation", () => {
     expect(OPERATION_PROFILE).toEqual(profile);
   });
 
-  it("pins 144 wire schemas and validates complete profile parity", () => {
+  it("pins 146 wire schemas and validates complete profile parity", () => {
     const components = document["components"] as JsonRecord;
     const schemas = components["schemas"] as JsonRecord;
 
-    expect(Object.keys(schemas)).toHaveLength(144);
+    expect(Object.keys(schemas)).toHaveLength(146);
     expect(() => validateOperationProfile(document, profile)).not.toThrow();
     expect(OPERATION_PROFILE.operations).toHaveLength(109);
     expect(OPERATION_PROFILE.iterators).toHaveLength(20);
@@ -152,7 +152,7 @@ describe("SDK artifact generation", () => {
       getTemplate: [[["templates:read"]], false, "safe"],
       updateTemplate: [[["templates:write"]], true, "idempotency_key"],
       deleteTemplate: [[["templates:delete"]], false, "idempotent"],
-      getTemplateDraft: [[["templates:read"]], false, "safe"],
+      getPublishedTemplate: [[["templates:read"]], false, "safe"],
       discardTemplateDraft: [[["templates:write"]], false, "idempotent"],
       publishTemplate: [[["templates:write"]], true, "idempotency_key"],
       listTemplateVersions: [[["templates:read"]], false, "safe"],

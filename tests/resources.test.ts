@@ -826,6 +826,58 @@ describe("MessagesClient", () => {
     expect(message).toHaveProperty("reference_message_id");
   });
 
+  it("get() returns the report message of an out-of-band bounce on its delivery attempt", async () => {
+    const reportMessageId = "0198ffc3-2c0f-7000-8000-4a6d2b3c5d6f";
+    const attempts = [
+      { time: "2026-07-21T08:02:00Z", log: "250 2.0.0 OK", status: "delivered" },
+      {
+        time: "2026-07-21T09:00:00Z",
+        log: "550 5.1.1 user unknown",
+        status: "bounced",
+        report_message_id: reportMessageId,
+      },
+    ];
+    const { fetch } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "message",
+            id: "opaque/message:id",
+            created_at: "2026-07-21T08:00:00Z",
+            updated_at: "2026-07-21T09:00:00Z",
+            sent_at: "2026-07-21T08:02:00Z",
+            delivered_at: "2026-07-21T08:02:00Z",
+            retain_until: "2026-08-21T08:00:00Z",
+            direction: "outbound",
+            is_bounce_notification: false,
+            bounce_classification: "invalid_recipient",
+            delivery_attempts: attempts,
+            message_id: "<opaque/message:id>",
+            subject: "Subject",
+            tags: [],
+            sender: "sender@example.com",
+            recipient: "recipient@example.com",
+            status: "bounced",
+            num_attempts: 1,
+            click_count: 0,
+            open_count: 0,
+            reference_message_id: 42,
+            domain_id: "domain_1",
+            account_id: ACCOUNT_ID,
+            content: "raw message",
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = makeClient(fetch);
+
+    const message = await client.messages.get("0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e");
+
+    expect(message.delivery_attempts).toEqual(attempts);
+    expect(message.delivery_attempts[0]!.report_message_id).toBeUndefined();
+    expect(message.delivery_attempts[1]!.report_message_id).toBe(reportMessageId);
+  });
+
   it("cancel() DELETEs /{id}/cancel (per spec)", async () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);

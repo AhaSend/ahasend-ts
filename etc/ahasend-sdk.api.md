@@ -84,6 +84,7 @@ export class AhaSendAPIError extends AhaSendError {
     });
     // (undocumented)
     readonly body: ApiErrorBody | string | null;
+    readonly errors: readonly MarkupProblem[];
     // (undocumented)
     readonly headers: Record<string, string>;
     static is(value: unknown): value is AhaSendAPIError;
@@ -511,6 +512,7 @@ export interface Campaign extends CampaignListItem {
     exclude_segment_ids: UUID[];
     issues: CampaignIssue[] | null;
     list_ids: UUID[];
+    markup_warnings?: MarkupProblem[];
     ready: boolean | null;
     segment_ids: UUID[];
 }
@@ -648,6 +650,7 @@ export interface CampaignTemplate {
     editor: TemplateEditor;
     // (undocumented)
     id: UUID;
+    markup_warnings?: MarkupProblem[];
     name: string;
     // (undocumented)
     object: "campaign_template";
@@ -1065,8 +1068,20 @@ export type CreateWebhookRequest = {
     on_suppressed?: boolean | undefined;
     on_opened?: boolean | undefined;
     on_clicked?: boolean | undefined;
+    on_unsubscribed?: boolean | undefined;
+    on_complained?: boolean | undefined;
     on_suppression_created?: boolean | undefined;
+    on_suppression_deleted?: boolean | undefined;
     on_dns_error?: boolean | undefined;
+    on_contact_created?: boolean | undefined;
+    on_contact_updated?: boolean | undefined;
+    on_contact_deleted?: boolean | undefined;
+    on_contact_added_to_list?: boolean | undefined;
+    on_contact_removed_from_list?: boolean | undefined;
+    on_contact_subscribed?: boolean | undefined;
+    on_contact_unsubscribed?: boolean | undefined;
+    on_contact_complained?: boolean | undefined;
+    origins?: readonly WebhookOrigin[] | null | undefined;
 } & ({
     scope: "global";
     domains?: readonly string[] | null | undefined;
@@ -1461,9 +1476,36 @@ export type ListWebhooksParams = PaginationParams & {
     on_suppressed?: boolean | undefined;
     on_opened?: boolean | undefined;
     on_clicked?: boolean | undefined;
+    on_unsubscribed?: boolean | undefined;
+    on_complained?: boolean | undefined;
     on_suppression_created?: boolean | undefined;
+    on_suppression_deleted?: boolean | undefined;
     on_dns_error?: boolean | undefined;
+    on_contact_created?: boolean | undefined;
+    on_contact_updated?: boolean | undefined;
+    on_contact_deleted?: boolean | undefined;
+    on_contact_added_to_list?: boolean | undefined;
+    on_contact_removed_from_list?: boolean | undefined;
+    on_contact_subscribed?: boolean | undefined;
+    on_contact_unsubscribed?: boolean | undefined;
+    on_contact_complained?: boolean | undefined;
 };
+
+// @public
+export interface MarkupErrorResponse extends ApiErrorBody {
+    // (undocumented)
+    errors?: MarkupProblem[];
+}
+
+// @public
+export interface MarkupProblem {
+    code: string;
+    column?: number;
+    hint?: string;
+    line?: number;
+    message: string;
+    path?: string;
+}
 
 // @public (undocumented)
 export interface Message extends MessageSummary {
@@ -2176,6 +2218,7 @@ export interface Template {
     has_draft: boolean;
     // (undocumented)
     id: string;
+    markup_warnings?: MarkupProblem[];
     // (undocumented)
     name: string;
     // (undocumented)
@@ -2191,6 +2234,8 @@ export interface Template {
 // @public
 export interface TemplateContent {
     html?: string;
+    markup?: string | null;
+    markup_error?: TemplateMarkupError;
     mjml?: string;
     text?: string;
     text_is_custom: boolean;
@@ -2199,31 +2244,25 @@ export interface TemplateContent {
 // @public
 export interface TemplateContentInput {
     html?: string | undefined;
+    markup?: string | null | undefined;
+    markup_error?: unknown;
     mjml?: string | undefined;
     text?: string | null | undefined;
     text_is_custom?: boolean | undefined;
 }
 
 // @public
-export interface TemplateDraft {
-    content: TemplateContent | null;
+export type TemplateEditor = "advanced" | "simple" | "html";
+
+// @public
+export interface TemplateMarkupError {
     // (undocumented)
-    from: Address | null;
-    // (undocumented)
-    object: "template_draft";
-    // (undocumented)
-    preheader: string;
-    reply_to: Address | null;
-    // (undocumented)
-    subject: string;
-    // (undocumented)
-    template_id: UUID;
-    updated_at: ISODateTime;
-    variables: TemplateVariable[];
+    code: TemplateMarkupErrorCode;
+    message: string;
 }
 
 // @public
-export type TemplateEditor = "advanced" | "simple" | "html";
+export type TemplateMarkupErrorCode = "no_design" | "html_block" | "unmapped_block" | "bad_stored_value" | "renderer_unavailable" | "rate_limited";
 
 // @public
 export interface TemplatePublisher {
@@ -2237,7 +2276,7 @@ export interface TemplatesClient {
     delete(templateId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
     discardDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>;
     get(templateId: string, options?: RequestOptions): AhaSendPromise<Template>;
-    getDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<TemplateDraft>;
+    getPublished(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>;
     getVersion(templateId: UUID, versionId: UUID, options?: RequestOptions): AhaSendPromise<TemplateVersionDetail>;
     iterate(params?: ListTemplatesParams, options?: RequestOptions): AsyncGenerator<Template, void, undefined>;
     list(params?: ListTemplatesParams, options?: RequestOptions): AhaSendPromise<PaginatedResponse<Template>>;
@@ -2456,6 +2495,23 @@ export interface UpdateWebhookRequest {
     // (undocumented)
     on_clicked?: boolean | null | undefined;
     // (undocumented)
+    on_complained?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_added_to_list?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_complained?: boolean | null | undefined;
+    on_contact_created?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_deleted?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_removed_from_list?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_subscribed?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_unsubscribed?: boolean | null | undefined;
+    // (undocumented)
+    on_contact_updated?: boolean | null | undefined;
+    // (undocumented)
     on_delivered?: boolean | null | undefined;
     // (undocumented)
     on_dns_error?: boolean | null | undefined;
@@ -2470,7 +2526,12 @@ export interface UpdateWebhookRequest {
     // (undocumented)
     on_suppression_created?: boolean | null | undefined;
     // (undocumented)
+    on_suppression_deleted?: boolean | null | undefined;
+    // (undocumented)
     on_transient_error?: boolean | null | undefined;
+    // (undocumented)
+    on_unsubscribed?: boolean | null | undefined;
+    origins?: readonly WebhookOrigin[] | null | undefined;
     scope?: WebhookScope | null | undefined;
     url?: string | null | undefined;
 }
@@ -2521,6 +2582,24 @@ export interface Webhook {
     // (undocumented)
     on_clicked: boolean;
     // (undocumented)
+    on_complained: boolean;
+    // (undocumented)
+    on_contact_added_to_list: boolean;
+    // (undocumented)
+    on_contact_complained: boolean;
+    // (undocumented)
+    on_contact_created: boolean;
+    // (undocumented)
+    on_contact_deleted: boolean;
+    // (undocumented)
+    on_contact_removed_from_list: boolean;
+    // (undocumented)
+    on_contact_subscribed: boolean;
+    // (undocumented)
+    on_contact_unsubscribed: boolean;
+    // (undocumented)
+    on_contact_updated: boolean;
+    // (undocumented)
     on_delivered: boolean;
     // (undocumented)
     on_dns_error: boolean;
@@ -2535,7 +2614,12 @@ export interface Webhook {
     // (undocumented)
     on_suppression_created: boolean;
     // (undocumented)
+    on_suppression_deleted: boolean;
+    // (undocumented)
     on_transient_error: boolean;
+    // (undocumented)
+    on_unsubscribed: boolean;
+    origins: WebhookOrigin[] | null;
     // (undocumented)
     scope: WebhookScope;
     // (undocumented)
@@ -2545,6 +2629,9 @@ export interface Webhook {
     // (undocumented)
     url: string;
 }
+
+// @public
+export type WebhookOrigin = "recipient" | "api" | "dashboard" | "system";
 
 // @public
 export interface WebhooksClient {
