@@ -45,9 +45,12 @@ const webhookRuntimeExports = [
   "WebhookVerifier",
   "expressWebhookHandler",
   "fastifyWebhookHandler",
+  "isKnownComplaintReporter",
+  "isKnownContactChangedField",
   "isKnownDeliveryAttemptClassification",
   "isKnownWebhookEvent",
   "isKnownWebhookEventType",
+  "isKnownWebhookOrigin",
   "nextRouteHandler",
 ];
 let esmRoot: RootModule;

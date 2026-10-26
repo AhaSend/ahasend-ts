@@ -39,7 +39,7 @@ type AnyWebhookEvent$1 = KnownWebhookEvent | UnknownWebhookEvent;
 export type AnyWebhookEvent = WebhookEvent | UnknownWebhookEvent;
 
 // @public (undocumented)
-const CANONICAL_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "suppression.created", "domain.dns_error", "message.routing"];
+const CANONICAL_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "message.unsubscribed", "message.complained", "suppression.created", "suppression.deleted", "domain.dns_error", "contact.created", "contact.updated", "contact.deleted", "contact.added_to_list", "contact.removed_from_list", "contact.subscribed", "contact.unsubscribed", "contact.complained", "message.routing"];
 
 // Warning: (ae-forgotten-export) The symbol "CANONICAL_WEBHOOK_EVENT_TYPES" needs to be exported by the entry point index.d.ts
 //
@@ -51,7 +51,7 @@ interface components {
     // (undocumented)
     schemas: {
         MessageWebhookPayload: {
-            type: "message.reception" | "message.delivered" | "message.transient_error" | "message.failed" | "message.bounced" | "message.suppressed" | "message.opened" | "message.clicked";
+            type: "message.reception" | "message.delivered" | "message.transient_error" | "message.failed" | "message.bounced" | "message.suppressed" | "message.opened" | "message.clicked" | "message.unsubscribed" | "message.complained";
             webhook_id: string;
             timestamp: string;
             data: components["schemas"]["MessageWebhookData"];
@@ -77,6 +77,12 @@ interface components {
         MessageOpenedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
             type?: "message.opened";
         };
+        MessageUnsubscribedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
+            type?: "message.unsubscribed";
+        };
+        MessageComplainedWebhookPayload: components["schemas"]["MessageWebhookPayload"] & {
+            type?: "message.complained";
+        };
         MessageClickedWebhookPayload: {
             type: "message.clicked";
             webhook_id: string;
@@ -85,7 +91,7 @@ interface components {
         };
         MessageWebhookData: {
             account_id: string;
-            event: "on_reception" | "on_delivered" | "on_transient_error" | "on_failed" | "on_bounced" | "on_suppressed" | "on_opened" | "on_clicked";
+            event: "on_reception" | "on_delivered" | "on_transient_error" | "on_failed" | "on_bounced" | "on_suppressed" | "on_opened" | "on_clicked" | "on_unsubscribed" | "on_complained";
             from: string;
             recipient: string;
             subject: string;
@@ -95,6 +101,11 @@ interface components {
             ip?: string;
             is_bot?: boolean;
             delivery_attempt?: components["schemas"]["DeliveryAttempt"];
+            unsubscribe?: components["schemas"]["WebhookUnsubscribe"];
+            complaint?: components["schemas"]["WebhookComplaint"];
+            campaign_id?: string;
+            list_id?: string | null;
+            segment_id?: string | null;
         };
         MessageClickedWebhookData: {
             account_id: string;
@@ -108,6 +119,9 @@ interface components {
             ip: string;
             id: string;
             is_bot?: boolean;
+            campaign_id?: string;
+            list_id?: string | null;
+            segment_id?: string | null;
         };
         DeliveryAttempt: {
             classification?: string;
@@ -118,13 +132,14 @@ interface components {
             command?: string;
         } | null;
         SuppressionWebhookPayload: {
-            type: "suppression.created";
+            type: "suppression.created" | "suppression.deleted";
             webhook_id: string;
             timestamp: string;
             data: components["schemas"]["SuppressionWebhookData"];
         };
         SuppressionWebhookData: {
             account_id: string;
+            origin: components["schemas"]["WebhookOrigin"];
             recipient: string;
             created_at: string;
             expires_at: string;
@@ -144,6 +159,103 @@ interface components {
             dkim_valid: boolean;
             dmarc_valid: boolean;
             dns_last_checked_at: string;
+        };
+        WebhookUnsubscribe: {
+            method: "one_click" | "link";
+        };
+        WebhookComplaint: {
+            feedback_type: string;
+            reporter: string;
+        };
+        WebhookOrigin: string;
+        ContactWebhookPayload: {
+            type: "contact.created" | "contact.deleted";
+            webhook_id: string;
+            timestamp: string;
+            data: components["schemas"]["ContactWebhookData"];
+        };
+        ContactCreatedWebhookPayload: components["schemas"]["ContactWebhookPayload"] & {
+            type?: "contact.created";
+        };
+        ContactDeletedWebhookPayload: components["schemas"]["ContactWebhookPayload"] & {
+            type?: "contact.deleted";
+        };
+        ContactUpdatedWebhookPayload: {
+            type: "contact.updated";
+            webhook_id: string;
+            timestamp: string;
+            data: components["schemas"]["ContactUpdatedWebhookData"];
+        };
+        ContactListWebhookPayload: {
+            type: "contact.added_to_list" | "contact.removed_from_list" | "contact.subscribed" | "contact.unsubscribed" | "contact.complained";
+            webhook_id: string;
+            timestamp: string;
+            data: components["schemas"]["ContactListWebhookData"];
+        };
+        ContactAddedToListWebhookPayload: components["schemas"]["ContactListWebhookPayload"] & {
+            type?: "contact.added_to_list";
+        };
+        ContactRemovedFromListWebhookPayload: components["schemas"]["ContactListWebhookPayload"] & {
+            type?: "contact.removed_from_list";
+        };
+        ContactSubscribedWebhookPayload: components["schemas"]["ContactListWebhookPayload"] & {
+            type?: "contact.subscribed";
+        };
+        ContactUnsubscribedWebhookPayload: components["schemas"]["ContactListWebhookPayload"] & {
+            type?: "contact.unsubscribed";
+        };
+        ContactComplainedWebhookPayload: components["schemas"]["ContactListWebhookPayload"] & {
+            type?: "contact.complained";
+        };
+        ContactWebhookData: {
+            account_id: string;
+            origin: components["schemas"]["WebhookOrigin"];
+            campaign_id?: string;
+            segment_id?: string;
+            contact: components["schemas"]["Contact"];
+        };
+        ContactUpdatedWebhookData: components["schemas"]["ContactWebhookData"] & {
+            changed_fields: Array<string>;
+        };
+        ContactListWebhookData: components["schemas"]["ContactWebhookData"] & {
+            list: components["schemas"]["WebhookList"] | null;
+            list_contact: components["schemas"]["WebhookListContact"] | null;
+            previous_subscription_status?: "unconfirmed" | "confirmed" | "unsubscribed" | "complained";
+            complaint?: components["schemas"]["WebhookComplaint"];
+        };
+        WebhookList: {
+            id: string;
+            name: string;
+        };
+        JSONValue: WebhookJSONValue$1;
+        Contact: {
+            object: "contact";
+            id: string;
+            created_at: string;
+            updated_at: string;
+            email: string;
+            first_name: string;
+            last_name: string;
+            status: "enabled" | "disabled" | "blocked";
+            status_reason: string;
+            unsubscribed: boolean;
+            unsubscribed_at: string | null;
+            attributes: {
+                [key: string]: components["schemas"]["JSONValue"];
+            };
+            validation_status: "unvalidated" | "valid" | "invalid" | "risky" | "unknown";
+            last_validated_at: string | null;
+        };
+        WebhookListContact: {
+            object: "list_contact";
+            list_id: string;
+            contact_id: string;
+            email: string;
+            subscription_status: "unconfirmed" | "confirmed" | "unsubscribed" | "complained";
+            subscribed_at: string | null;
+            unsubscribed_at: string | null;
+            created_at: string;
+            updated_at: string;
         };
         RouteWebhookPayload: {
             type: "message.routing";
@@ -184,6 +296,43 @@ interface components {
     };
 }
 
+// Warning: (ae-forgotten-export) The symbol "webhookEvents" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type ContactAddedToListEvent = webhookEvents["contact.added_to_list"];
+
+// @public
+export type ContactComplainedEvent = webhookEvents["contact.complained"];
+
+// @public
+export type ContactCreatedEvent = webhookEvents["contact.created"];
+
+// @public
+export type ContactDeletedEvent = webhookEvents["contact.deleted"];
+
+// Warning: (ae-forgotten-export) The symbol "components" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type ContactEventData = components["schemas"]["ContactWebhookData"];
+
+// @public
+export type ContactListEventData = components["schemas"]["ContactListWebhookData"];
+
+// @public
+export type ContactRemovedFromListEvent = webhookEvents["contact.removed_from_list"];
+
+// @public
+export type ContactSubscribedEvent = webhookEvents["contact.subscribed"];
+
+// @public
+export type ContactUnsubscribedEvent = webhookEvents["contact.unsubscribed"];
+
+// @public
+export type ContactUpdatedEvent = webhookEvents["contact.updated"];
+
+// @public
+export type ContactUpdatedEventData = components["schemas"]["ContactUpdatedWebhookData"];
+
 // @public (undocumented)
 export const DEFAULT_TOLERANCE_SECONDS: number;
 
@@ -195,13 +344,9 @@ const DEPRECATED_WEBHOOK_EVENT_TYPES: readonly ["route.message"];
 // @public (undocumented)
 export type DeprecatedWebhookEventType = (typeof DEPRECATED_WEBHOOK_EVENT_TYPES)[number];
 
-// Warning: (ae-forgotten-export) The symbol "webhookEvents" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type DomainDNSErrorEvent = webhookEvents["domain.dns_error"];
 
-// Warning: (ae-forgotten-export) The symbol "components" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type DomainEventData = components["schemas"]["DomainWebhookData"];
 
@@ -228,6 +373,12 @@ export interface FastifyStyleReply {
 export function fastifyWebhookHandler(verifier: WebhookVerifier, handler: FastifyHandler, options?: WebhookAdapterOptions): (request: NodeStyleRequest, reply: FastifyStyleReply) => Promise<void>;
 
 // @public
+export function isKnownComplaintReporter(reporter: string): reporter is KnownComplaintReporter;
+
+// @public
+export function isKnownContactChangedField(field: string): field is KnownContactChangedField;
+
+// @public
 export function isKnownDeliveryAttemptClassification(classification: string): classification is KnownDeliveryAttemptClassification;
 
 // Warning: (ae-forgotten-export) The symbol "AnyWebhookEvent$1" needs to be exported by the entry point index.d.ts
@@ -238,11 +389,43 @@ export function isKnownWebhookEvent(event: AnyWebhookEvent$1): event is WebhookE
 // @public (undocumented)
 export function isKnownWebhookEventType(type: string): type is WebhookEventType;
 
+// @public
+export function isKnownWebhookOrigin(origin: string): origin is KnownWebhookOrigin;
+
+// @public (undocumented)
+const KNOWN_COMPLAINT_REPORTERS: readonly ["yahoo", "microsoft", "comcast"];
+
+// @public (undocumented)
+const KNOWN_CONTACT_CHANGED_FIELDS: readonly ["email", "first_name", "last_name", "status", "status_reason", "attributes"];
+
 // @public (undocumented)
 const KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS: readonly ["InvalidRecipient", "BadDomain", "InactiveMailbox", "InvalidSender", "QuotaIssues", "NoAnswerFromHost", "BadConnection", "DNSFailure", "RoutingErrors", "TransientFailure", "MessageExpired", "ProtocolErrors", "AuthenticationFailed", "PolicyRelated", "Uncategorized"];
 
 // @public (undocumented)
-const KNOWN_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "suppression.created", "domain.dns_error", "message.routing", "route.message"];
+const KNOWN_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "message.unsubscribed", "message.complained", "suppression.created", "suppression.deleted", "domain.dns_error", "contact.created", "contact.updated", "contact.deleted", "contact.added_to_list", "contact.removed_from_list", "contact.subscribed", "contact.unsubscribed", "contact.complained", "message.routing", "route.message"];
+
+// @public (undocumented)
+const KNOWN_WEBHOOK_ORIGINS: readonly ["recipient", "api", "dashboard", "system"];
+
+// Warning: (ae-forgotten-export) The symbol "KNOWN_COMPLAINT_REPORTERS" needs to be exported by the entry point index.d.ts
+//
+// @public (undocumented)
+type KnownComplaintReporter$1 = (typeof KNOWN_COMPLAINT_REPORTERS)[number];
+
+// Warning: (ae-forgotten-export) The symbol "KnownComplaintReporter$1" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type KnownComplaintReporter = KnownComplaintReporter$1;
+
+// Warning: (ae-forgotten-export) The symbol "KNOWN_CONTACT_CHANGED_FIELDS" needs to be exported by the entry point index.d.ts
+//
+// @public (undocumented)
+type KnownContactChangedField$1 = (typeof KNOWN_CONTACT_CHANGED_FIELDS)[number];
+
+// Warning: (ae-forgotten-export) The symbol "KnownContactChangedField$1" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type KnownContactChangedField = KnownContactChangedField$1;
 
 // Warning: (ae-forgotten-export) The symbol "KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS" needs to be exported by the entry point index.d.ts
 //
@@ -251,6 +434,16 @@ export type KnownDeliveryAttemptClassification = (typeof KNOWN_DELIVERY_ATTEMPT_
 
 // @public (undocumented)
 type KnownWebhookEvent = webhookEvents[keyof webhookEvents];
+
+// Warning: (ae-forgotten-export) The symbol "KNOWN_WEBHOOK_ORIGINS" needs to be exported by the entry point index.d.ts
+//
+// @public (undocumented)
+type KnownWebhookOrigin$1 = (typeof KNOWN_WEBHOOK_ORIGINS)[number];
+
+// Warning: (ae-forgotten-export) The symbol "KnownWebhookOrigin$1" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type KnownWebhookOrigin = KnownWebhookOrigin$1;
 
 // @public (undocumented)
 export const MAX_WEBHOOK_BODY_BYTES = 30000000;
@@ -261,13 +454,16 @@ export type MessageBouncedEvent = webhookEvents["message.bounced"];
 // @public (undocumented)
 export type MessageClickedEvent = webhookEvents["message.clicked"];
 
-// @public (undocumented)
+// @public
 export type MessageClickedEventData = components["schemas"]["MessageClickedWebhookData"];
+
+// @public
+export type MessageComplainedEvent = webhookEvents["message.complained"];
 
 // @public (undocumented)
 export type MessageDeliveredEvent = webhookEvents["message.delivered"];
 
-// @public (undocumented)
+// @public
 export type MessageEventData = components["schemas"]["MessageWebhookData"];
 
 // @public (undocumented)
@@ -289,6 +485,9 @@ export type MessageSuppressedEvent = webhookEvents["message.suppressed"];
 
 // @public (undocumented)
 export type MessageTransientErrorEvent = webhookEvents["message.transient_error"];
+
+// @public
+export type MessageUnsubscribedEvent = webhookEvents["message.unsubscribed"];
 
 // @public (undocumented)
 export type NextHandler = (event: AnyWebhookEvent, request: Request) => Response | Promise<Response>;
@@ -363,7 +562,10 @@ interface SerializedAhaSendError {
 // @public (undocumented)
 export type SuppressionCreatedEvent = webhookEvents["suppression.created"];
 
-// @public (undocumented)
+// @public
+export type SuppressionDeletedEvent = webhookEvents["suppression.deleted"];
+
+// @public
 export type SuppressionEventData = components["schemas"]["SuppressionWebhookData"];
 
 // @public (undocumented)
@@ -410,6 +612,12 @@ export interface WebhookAdapterOptions {
 }
 
 // @public
+export type WebhookComplaint = components["schemas"]["WebhookComplaint"];
+
+// @public
+export type WebhookContact = components["schemas"]["Contact"];
+
+// @public
 export type WebhookDeliveryAttempt = NonNullable<components["schemas"]["DeliveryAttempt"]>;
 
 // @public
@@ -425,16 +633,34 @@ export interface WebhookEnvelope<TType extends Exclude<WebhookEventType, "messag
 }
 
 // @public
-export type WebhookEvent = MessageReceptionEvent | MessageDeliveredEvent | MessageTransientErrorEvent | MessageFailedEvent | MessageBouncedEvent | MessageSuppressedEvent | MessageOpenedEvent | MessageClickedEvent | SuppressionCreatedEvent | DomainDNSErrorEvent | MessageRoutingEvent;
+export type WebhookEvent = MessageReceptionEvent | MessageDeliveredEvent | MessageTransientErrorEvent | MessageFailedEvent | MessageBouncedEvent | MessageSuppressedEvent | MessageOpenedEvent | MessageClickedEvent | MessageUnsubscribedEvent | MessageComplainedEvent | SuppressionCreatedEvent | SuppressionDeletedEvent | DomainDNSErrorEvent | ContactCreatedEvent | ContactUpdatedEvent | ContactDeletedEvent | ContactAddedToListEvent | ContactRemovedFromListEvent | ContactSubscribedEvent | ContactUnsubscribedEvent | ContactComplainedEvent | MessageRoutingEvent;
 
 // @public (undocumented)
 interface webhookEvents {
+    // (undocumented)
+    "contact.added_to_list": components["schemas"]["ContactAddedToListWebhookPayload"];
+    // (undocumented)
+    "contact.complained": components["schemas"]["ContactComplainedWebhookPayload"];
+    // (undocumented)
+    "contact.created": components["schemas"]["ContactCreatedWebhookPayload"];
+    // (undocumented)
+    "contact.deleted": components["schemas"]["ContactDeletedWebhookPayload"];
+    // (undocumented)
+    "contact.removed_from_list": components["schemas"]["ContactRemovedFromListWebhookPayload"];
+    // (undocumented)
+    "contact.subscribed": components["schemas"]["ContactSubscribedWebhookPayload"];
+    // (undocumented)
+    "contact.unsubscribed": components["schemas"]["ContactUnsubscribedWebhookPayload"];
+    // (undocumented)
+    "contact.updated": components["schemas"]["ContactUpdatedWebhookPayload"];
     // (undocumented)
     "domain.dns_error": components["schemas"]["DomainWebhookPayload"];
     // (undocumented)
     "message.bounced": components["schemas"]["MessageBouncedWebhookPayload"];
     // (undocumented)
     "message.clicked": components["schemas"]["MessageClickedWebhookPayload"];
+    // (undocumented)
+    "message.complained": components["schemas"]["MessageComplainedWebhookPayload"];
     // (undocumented)
     "message.delivered": components["schemas"]["MessageDeliveredWebhookPayload"];
     // (undocumented)
@@ -450,7 +676,15 @@ interface webhookEvents {
     // (undocumented)
     "message.transient_error": components["schemas"]["MessageTransientErrorWebhookPayload"];
     // (undocumented)
-    "suppression.created": components["schemas"]["SuppressionWebhookPayload"];
+    "message.unsubscribed": components["schemas"]["MessageUnsubscribedWebhookPayload"];
+    // (undocumented)
+    "suppression.created": Omit<components["schemas"]["SuppressionWebhookPayload"], "type"> & {
+        type: "suppression.created";
+    };
+    // (undocumented)
+    "suppression.deleted": Omit<components["schemas"]["SuppressionWebhookPayload"], "type"> & {
+        type: "suppression.deleted";
+    };
 }
 
 // Warning: (ae-forgotten-export) The symbol "KNOWN_WEBHOOK_EVENT_TYPES" needs to be exported by the entry point index.d.ts
@@ -466,8 +700,28 @@ export interface WebhookHeadersLike {
     get(name: string): string | null | undefined;
 }
 
+// @public (undocumented)
+type WebhookJSONValue$1 = null | boolean | number | string | Array<WebhookJSONValue$1> | {
+    [key: string]: WebhookJSONValue$1;
+};
+
+// @public
+export type WebhookJSONValue = WebhookJSONValue$1;
+
+// @public
+export type WebhookList = components["schemas"]["WebhookList"];
+
+// @public
+export type WebhookListContact = components["schemas"]["WebhookListContact"];
+
+// @public
+export type WebhookOrigin = components["schemas"]["WebhookOrigin"];
+
 // @public
 export type WebhookRawBody = string | Uint8Array;
+
+// @public
+export type WebhookUnsubscribe = components["schemas"]["WebhookUnsubscribe"];
 
 // @public (undocumented)
 export type WebhookVerificationReason = "missing_webhook_id" | "missing_webhook_timestamp" | "missing_webhook_signature" | "invalid_timestamp" | "timestamp_outside_tolerance" | "signature_mismatch" | "invalid_json" | "invalid_payload" | "invalid_event" | "body_too_large";
@@ -485,6 +739,10 @@ export interface WebhookVerifierOptions {
     // (undocumented)
     toleranceSeconds?: number | undefined;
 }
+
+// Warnings were encountered during analysis:
+//
+// dist/webhooks/index.d.ts:199:9 - (ae-forgotten-export) The symbol "WebhookJSONValue$1" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

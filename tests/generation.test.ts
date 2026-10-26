@@ -12,6 +12,8 @@ import {
   AUTHORIZATION_REGISTRY,
   dereferenceResponse,
   generateSdkArtifacts,
+  knownValues,
+  payloadEventTypes,
   resolveAllOfPropertySchema,
   schemaType,
   validationSchema,
@@ -35,6 +37,10 @@ import type {
 } from "../src/generated/operations.js";
 import { OPERATION_PROFILE } from "../src/generated/operation-profile.js";
 import type { components, operations } from "../src/generated/rest-types.js";
+import type {
+  components as WebhookComponents,
+  webhookEvents,
+} from "../src/generated/webhook-types.js";
 
 type JsonRecord = Record<string, unknown>;
 type WireSchemas = components["schemas"];
@@ -335,6 +341,117 @@ describe("SDK artifact generation", () => {
       WireSchemas["JSONValue"]
     >();
   });
+
+  it("narrows a webhook payload schema to the event types it admits", () => {
+    const webhookSchemas = (parseWebhookContract(webhookSource).components as JsonRecord)
+      .schemas as JsonRecord;
+
+    // A schema shared by two events admits both; an `allOf` child narrows its
+    // parent's enum to one.
+    expect(payloadEventTypes(webhookSchemas, "SuppressionWebhookPayload")).toEqual([
+      "suppression.created",
+      "suppression.deleted",
+    ]);
+    expect(payloadEventTypes(webhookSchemas, "MessageUnsubscribedWebhookPayload")).toEqual([
+      "message.unsubscribed",
+    ]);
+    expect(payloadEventTypes(webhookSchemas, "ContactAddedToListWebhookPayload")).toEqual([
+      "contact.added_to_list",
+    ]);
+    expect(() =>
+      payloadEventTypes(
+        { Untyped: { type: "object", properties: { type: { type: "string" } } } },
+        "Untyped",
+      ),
+    ).toThrow(/must declare an enum/);
+    expect(() =>
+      payloadEventTypes(
+        {
+          Base: { type: "object", properties: { type: { type: "string", enum: ["a.created"] } } },
+          Child: {
+            allOf: [
+              { $ref: "#/components/schemas/Base" },
+              { type: "object", properties: { type: { enum: ["a.deleted"] } } },
+            ],
+          },
+        },
+        "Child",
+      ),
+    ).toThrow(/enums disagree/);
+
+    // The generated event map gives each event its own literal type, so a
+    // shared schema still yields a discriminated union.
+    expectTypeOf<
+      webhookEvents["suppression.deleted"]["type"]
+    >().toEqualTypeOf<"suppression.deleted">();
+    expectTypeOf<webhookEvents["suppression.deleted"]["data"]>().toEqualTypeOf<
+      WebhookComponents["schemas"]["SuppressionWebhookData"]
+    >();
+    expectTypeOf<
+      webhookEvents["contact.complained"]["type"]
+    >().toEqualTypeOf<"contact.complained">();
+  });
+
+  it("reads known values off a property, an allOf part, or the schema itself", () => {
+    const webhookSchemas = (parseWebhookContract(webhookSource).components as JsonRecord)
+      .schemas as JsonRecord;
+    expect(knownValues(webhookSchemas, "WebhookComplaint", "reporter", "x-known-values")).toEqual([
+      "yahoo",
+      "microsoft",
+      "comcast",
+    ]);
+    expect(
+      knownValues(webhookSchemas, "ContactUpdatedWebhookData", "changed_fields", "x-known-values"),
+    ).toContain("attributes");
+    // `WebhookOrigin` is a string schema of its own, so its list sits on the
+    // schema rather than on a property.
+    expect(knownValues(webhookSchemas, "WebhookOrigin", undefined, "x-known-values")).toEqual([
+      "recipient",
+      "api",
+      "dashboard",
+      "system",
+    ]);
+    expect(() =>
+      knownValues(
+        { Closed: { type: "string", enum: ["a"] } },
+        "Closed",
+        undefined,
+        "x-known-values",
+      ),
+    ).toThrow(/Closed x-known-values must be a list of strings/);
+    expectTypeOf<WebhookComponents["schemas"]["WebhookOrigin"]>().toEqualTypeOf<string>();
+  });
+
+  it(
+    "emits the recursive webhook JSON value as a top-level alias",
+    { timeout: 120_000 },
+    async () => {
+      const artifacts = await generateSdkArtifacts(openApiSource, webhookSource);
+      const webhookTypes = artifacts.get("src/generated/webhook-types.ts") ?? "";
+      expect(webhookTypes).toContain("export type WebhookJSONValue =");
+      expect(webhookTypes).toContain("JSONValue: WebhookJSONValue;");
+      expectTypeOf<{ nested: Array<{ active: boolean } | null>; count: number }>().toExtend<
+        WebhookComponents["schemas"]["JSONValue"]
+      >();
+      expectTypeOf<WebhookComponents["schemas"]["Contact"]["attributes"][string]>().toEqualTypeOf<
+        WebhookComponents["schemas"]["JSONValue"]
+      >();
+    },
+  );
+
+  it(
+    "reads webhook data composed with allOf as an object, and refuses mixed parts",
+    { timeout: 120_000 },
+    async () => {
+      const changed = parseWebhookContract(webhookSource);
+      const schemas = (changed.components as JsonRecord).schemas as JsonRecord;
+      const updated = schemas.ContactUpdatedWebhookData as { allOf: JsonRecord[] };
+      updated.allOf[1] = { ...updated.allOf[1], type: "string" };
+      await expect(generateSdkArtifacts(openApiSource, JSON.stringify(changed))).rejects.toThrow(
+        /allOf parts must agree on one type/,
+      );
+    },
+  );
 
   it("requires domains for scoped webhook and SMTP credential requests", () => {
     expectTypeOf<{

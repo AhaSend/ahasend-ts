@@ -48,9 +48,33 @@ null`): whose changes the contact and suppression events report, `recipient`, `a
   the `400` body (`MarkupErrorResponse`); empty for every other error.
 - `templates.getPublished()` returns a template's published copy, the one a send uses, with the
   variables a send must supply. Read it to build a send.
+- `@ahasend/sdk/webhooks` types, validates and narrows 11 more webhook events:
+  `message.unsubscribed`, `message.complained`, `suppression.deleted`, and the contact events
+  `contact.created`, `contact.updated`, `contact.deleted`, `contact.added_to_list`,
+  `contact.removed_from_list`, `contact.subscribed`, `contact.unsubscribed` and
+  `contact.complained`. Each has its own event type, such as `MessageUnsubscribedEvent` or
+  `ContactAddedToListEvent`, in the `WebhookEvent` union. The contact event data is
+  `ContactEventData`, `ContactUpdatedEventData` and `ContactListEventData`, with `WebhookContact`,
+  `WebhookList`, `WebhookListContact` and `WebhookJSONValue`. On the events about the contact's
+  unsubscribe from all lists, and on `contact.complained` for a campaign sent to a segment, `list`
+  and `list_contact` are `null`. See "Campaign, suppression, and contact events" in
+  `docs/security-and-webhooks.md`.
+- Message event data gains `campaign_id`, `list_id` and `segment_id` for a campaign message;
+  `list_id` and `segment_id` can be `null`, which means the same as absent. `MessageEventData`
+  also gains `unsubscribe` (`WebhookUnsubscribe`) on `message.unsubscribed` and `complaint`
+  (`WebhookComplaint`) on `message.complained`.
+- Suppression and contact event data carry `origin` (`WebhookOrigin`): who made the change.
+- `origin`, the complaint `reporter` and the entries of `changed_fields` are typed as plain
+  strings, not enums, because their sets are open: a delivery can carry a value this release
+  predates, and the SDK accepts it. `isKnownWebhookOrigin`, `isKnownComplaintReporter` and
+  `isKnownContactChangedField` narrow to the values known today, as `KnownWebhookOrigin`,
+  `KnownComplaintReporter` and `KnownContactChangedField`; keep a branch for everything else.
 
 ### Changed
 
+- `suppression.created` data requires `origin`, as AhaSend sends it, so a delivery without it fails
+  validation. `SuppressionCreatedEvent` and `SuppressionDeletedEvent` share `SuppressionEventData`
+  and each keeps its own literal `type`.
 - `Webhook` requires the new event settings and `origins`, which the API always returns. Code that
   builds a `Webhook` object by hand, as in a test double, needs them.
 - `templates.get()` and the template writes return the working copy: the draft while one exists,

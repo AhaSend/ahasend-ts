@@ -361,9 +361,9 @@ for await (const _message of client.messages.iterate({ status: "Delivered" })) {
 ## Webhook verification
 
 `@ahasend/sdk/webhooks` is a separate import path bundling the
-Standard-Webhooks compliant HMAC-SHA256 verifier, typed event parsers
-for all 11 AhaSend event types, and adapters for Express, Fastify, and
-Next.js. It does not pull in the API client.
+Standard-Webhooks compliant HMAC-SHA256 verifier, typed event parsers for all
+22 AhaSend event types (message, suppression, domain, contact, and route), and
+adapters for Express, Fastify, and Next.js. It does not pull in the API client.
 
 > **Secret format:** AhaSend webhook secrets are raw strings. Pass the
 > secret **exactly as the dashboard shows it** — including any
@@ -453,7 +453,7 @@ with durable processing work, then perform side effects idempotently from that
 work. The
 [security and webhooks guide](https://github.com/AhaSend/ahasend-ts/blob/main/docs/security-and-webhooks.md)
 includes an Express 5.x integration pattern, body limits, adapter failure behavior, safe replay
-handling, and how to read delivery diagnostics off a bounce.
+handling, delivery diagnostics on a bounce, and campaign, suppression, and contact events.
 
 Direct verification and every adapter enforce a fixed 30,000,000-byte webhook body ceiling.
 Adapter option `maxBodyBytes` is only a lower deployment cap; it cannot raise that fixed ceiling.

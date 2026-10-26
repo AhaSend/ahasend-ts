@@ -15,8 +15,8 @@ import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 const EXPECTED_OPERATION_COUNT = 109;
 const EXPECTED_SCHEMA_COUNT = 146;
 const EXPECTED_ITERATOR_COUNT = 20;
-const EXPECTED_WEBHOOK_COUNT = 11;
-const EXPECTED_WEBHOOK_SCHEMA_COUNT = 19;
+const EXPECTED_WEBHOOK_COUNT = 22;
+const EXPECTED_WEBHOOK_SCHEMA_COUNT = 41;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
 const JSON_CONTENT_TYPE = "application/json";
 
@@ -1104,19 +1104,26 @@ function operationType(document, entry, componentSchemas) {
   return lines.join("\n");
 }
 
+// TypeScript rejects a property of `components` whose type indexes itself, so
+// the recursive `JSONValue` schema is written as a top-level alias that
+// `components` then names.
+function recursiveJsonAlias(schema, schemas, alias) {
+  const type = schemaType(schema, 0, undefined, schemas).replaceAll(
+    'components["schemas"]["JSONValue"]',
+    alias,
+  );
+  return `export type ${alias} = ${type};`;
+}
+
 function generateRestTypes(document, operations) {
   const schemas = assertRecord(assertRecord(document.components, "components").schemas, "schemas");
   const recursiveJsonSchema = schemas.JSONValue;
   if (recursiveJsonSchema === undefined) {
     throw new TypeError("Contact contract must define JSONValue");
   }
-  const recursiveJsonType = schemaType(recursiveJsonSchema, 0, undefined, schemas).replaceAll(
-    'components["schemas"]["JSONValue"]',
-    "ContactJSONValue",
-  );
   const lines = [
     GENERATED_HEADER.trimEnd(),
-    `export type ContactJSONValue = ${recursiveJsonType};`,
+    recursiveJsonAlias(recursiveJsonSchema, schemas, "ContactJSONValue"),
     "",
     "export interface paths {",
   ];
@@ -1249,7 +1256,17 @@ function webhookObjectShape(schemaValue, schemas, seen = new Set()) {
 
 function referencedSchemaType(schemaValue, schemas, seen = new Set()) {
   const schema = assertRecord(schemaValue, "webhook property schema");
-  if (typeof schema.$ref !== "string") return schema.type;
+  if (typeof schema.$ref !== "string") {
+    if (schema.type !== undefined || !Array.isArray(schema.allOf)) return schema.type;
+    // An `allOf` without a `type` of its own has the type its parts agree on,
+    // so a data schema that extends another one is still an object.
+    const partTypes = new Set(
+      schema.allOf.map((part) => referencedSchemaType(part, schemas, seen)),
+    );
+    partTypes.delete(undefined);
+    if (partTypes.size > 1) throw new TypeError("Webhook allOf parts must agree on one type");
+    return [...partTypes][0];
+  }
   const name = schemaNameFromReference(schema.$ref);
   if (name === undefined || seen.has(name)) {
     throw new TypeError(`Unsupported webhook property reference ${schema.$ref}`);
@@ -1321,19 +1338,53 @@ function commonWebhookEnvelopeSchema(webhooks, schemas) {
  */
 export const LEGACY_ROUTE_EVENT_TYPES = Object.freeze(["route.message"]);
 
-// Reads a documented-but-unenforced value list off one property. The
+// Reads a documented-but-unenforced value list off one property, or off the
+// schema itself when `propertyKey` is undefined (`WebhookOrigin`). The
 // runtime validator never sees these — `validationSchema()`'s whitelist drops
 // the extension — so they document what the producer emits today without
-// constraining what it may emit tomorrow.
-function knownValues(schemas, schemaName, propertyKey, extension) {
+// constraining what it may emit tomorrow. The property can sit on an `allOf`
+// part, as `changed_fields` does on `ContactUpdatedWebhookData`.
+export function knownValues(schemasValue, schemaName, propertyKey, extension) {
+  const schemas = assertRecord(schemasValue, "Webhook schemas");
   const schema = assertRecord(schemas[schemaName], `webhook schema ${schemaName}`);
-  const properties = assertRecord(schema.properties, `${schemaName}.properties`);
-  const property = assertRecord(properties[propertyKey], `${schemaName}.${propertyKey}`);
-  const values = property[extension];
+  const location = propertyKey === undefined ? schemaName : `${schemaName}.${propertyKey}`;
+  const owner =
+    propertyKey === undefined
+      ? schema
+      : assertRecord(schemaProperty(schema, propertyKey, schemas, new Set()), location);
+  const values = owner[extension];
   if (!Array.isArray(values) || values.some((value) => typeof value !== "string")) {
-    throw new TypeError(`${schemaName}.${propertyKey} ${extension} must be a list of strings`);
+    throw new TypeError(`${location} ${extension} must be a list of strings`);
   }
   return values;
+}
+
+// The event types a payload schema admits: the values every `type` enum on the
+// schema and its `allOf` parts has in common.
+export function payloadEventTypes(schemasValue, schemaName) {
+  const schemas = assertRecord(schemasValue, "Webhook schemas");
+  const schema = assertRecord(schemas[schemaName], `webhook schema ${schemaName}`);
+  const candidates = webhookObjectShape(schema, schemas, new Set([schemaName])).properties.get(
+    "type",
+  );
+  let types;
+  let enumCount = 0;
+  for (const candidate of candidates ?? []) {
+    const values = assertRecord(candidate, `${schemaName}.type`).enum;
+    if (values === undefined) continue;
+    if (!Array.isArray(values) || values.some((value) => typeof value !== "string")) {
+      throw new TypeError(`${schemaName}.type enum must list strings`);
+    }
+    enumCount += 1;
+    types = types === undefined ? values : types.filter((value) => values.includes(value));
+  }
+  if (types === undefined) throw new TypeError(`${schemaName}.type must declare an enum`);
+  if (types.length === 0) {
+    throw new TypeError(
+      `${schemaName}.type enums disagree: the ${enumCount} enums share no event type`,
+    );
+  }
+  return types;
 }
 
 function generateWebhookTypes(document, webhookDigest) {
@@ -1355,33 +1406,65 @@ function generateWebhookTypes(document, webhookDigest) {
     "classification",
     "x-known-values",
   );
+  const knownReporters = knownValues(schemas, "WebhookComplaint", "reporter", "x-known-values");
+  const knownOrigins = knownValues(schemas, "WebhookOrigin", undefined, "x-known-values");
+  const knownChangedFields = knownValues(
+    schemas,
+    "ContactUpdatedWebhookData",
+    "changed_fields",
+    "x-known-values",
+  );
+  const recursiveJsonSchema = schemas.JSONValue;
   const lines = [
     `${GENERATED_HEADER.trimEnd()} Source webhooks.yaml SHA-256: ${webhookDigest}`,
     "",
     `export const WEBHOOK_CONTRACT_SHA256 = ${JSON.stringify(webhookDigest)} as const;`,
     "",
+    ...(recursiveJsonSchema === undefined
+      ? []
+      : [recursiveJsonAlias(recursiveJsonSchema, schemas, "WebhookJSONValue"), ""]),
     `export const WEBHOOK_SCHEMA_NAMES = ${JSON.stringify(Object.keys(schemas))} as const;`,
     `export const CANONICAL_WEBHOOK_EVENT_TYPES = ${JSON.stringify(canonicalTypes)} as const;`,
     `export const DEPRECATED_WEBHOOK_EVENT_TYPES = ${JSON.stringify(deprecatedTypes)} as const;`,
     `export const KNOWN_WEBHOOK_EVENT_TYPES = ${JSON.stringify(knownTypes)} as const;`,
     `export const KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS = ${JSON.stringify(knownClassifications)} as const;`,
+    `export const KNOWN_COMPLAINT_REPORTERS = ${JSON.stringify(knownReporters)} as const;`,
+    `export const KNOWN_WEBHOOK_ORIGINS = ${JSON.stringify(knownOrigins)} as const;`,
+    `export const KNOWN_CONTACT_CHANGED_FIELDS = ${JSON.stringify(knownChangedFields)} as const;`,
     "",
     "export type CanonicalWebhookEventType = (typeof CANONICAL_WEBHOOK_EVENT_TYPES)[number];",
     "export type DeprecatedWebhookEventType = (typeof DEPRECATED_WEBHOOK_EVENT_TYPES)[number];",
     "export type WebhookEventType = (typeof KNOWN_WEBHOOK_EVENT_TYPES)[number];",
     "export type KnownDeliveryAttemptClassification =",
     "  (typeof KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS)[number];",
+    "export type KnownComplaintReporter = (typeof KNOWN_COMPLAINT_REPORTERS)[number];",
+    "export type KnownWebhookOrigin = (typeof KNOWN_WEBHOOK_ORIGINS)[number];",
+    "export type KnownContactChangedField = (typeof KNOWN_CONTACT_CHANGED_FIELDS)[number];",
     "",
     "export interface components {",
     "  schemas: {",
   ];
   for (const [name, schema] of Object.entries(schemas)) {
-    lines.push(`    ${propertyName(name)}: ${schemaType(schema, 2, undefined, schemas)};`);
+    lines.push(
+      `    ${propertyName(name)}: ${
+        name === "JSONValue" ? "WebhookJSONValue" : schemaType(schema, 2, undefined, schemas)
+      };`,
+    );
   }
   lines.push("  };", "}", "", "export interface webhookEvents {");
   for (const [eventType, schemaName] of entries) {
+    const payload = `components["schemas"][${JSON.stringify(schemaName)}]`;
+    const types = payloadEventTypes(schemas, schemaName);
+    if (!types.includes(eventType)) {
+      throw new TypeError(`${schemaName}.type must admit ${eventType}`);
+    }
+    // A payload schema shared by several events (`SuppressionWebhookPayload`)
+    // admits all their types; narrow `type` so each event stays a distinct
+    // member of the discriminated union.
     lines.push(
-      `  ${JSON.stringify(eventType)}: components["schemas"][${JSON.stringify(schemaName)}];`,
+      types.length === 1
+        ? `  ${JSON.stringify(eventType)}: ${payload};`
+        : `  ${JSON.stringify(eventType)}: Omit<${payload}, "type"> & { type: ${JSON.stringify(eventType)} };`,
     );
   }
   lines.push(
