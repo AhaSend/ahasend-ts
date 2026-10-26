@@ -36,8 +36,19 @@ const EVENT_SCHEMAS = {
   "message.suppressed": "MessageSuppressedWebhookPayload",
   "message.opened": "MessageOpenedWebhookPayload",
   "message.clicked": "MessageClickedWebhookPayload",
+  "message.unsubscribed": "MessageUnsubscribedWebhookPayload",
+  "message.complained": "MessageComplainedWebhookPayload",
   "suppression.created": "SuppressionWebhookPayload",
+  "suppression.deleted": "SuppressionWebhookPayload",
   "domain.dns_error": "DomainWebhookPayload",
+  "contact.created": "ContactCreatedWebhookPayload",
+  "contact.updated": "ContactUpdatedWebhookPayload",
+  "contact.deleted": "ContactDeletedWebhookPayload",
+  "contact.added_to_list": "ContactAddedToListWebhookPayload",
+  "contact.removed_from_list": "ContactRemovedFromListWebhookPayload",
+  "contact.subscribed": "ContactSubscribedWebhookPayload",
+  "contact.unsubscribed": "ContactUnsubscribedWebhookPayload",
+  "contact.complained": "ContactComplainedWebhookPayload",
   "message.routing": "RouteWebhookPayload",
   "route.message": "RouteWebhookPayload",
 } as const;
@@ -57,6 +68,8 @@ const SCHEMAS = {
           "message.suppressed",
           "message.opened",
           "message.clicked",
+          "message.unsubscribed",
+          "message.complained",
         ],
       },
       webhook_id: {
@@ -177,6 +190,36 @@ const SCHEMAS = {
       },
     ],
   },
+  MessageUnsubscribedWebhookPayload: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/MessageWebhookPayload",
+      },
+      {
+        type: "object",
+        properties: {
+          type: {
+            enum: ["message.unsubscribed"],
+          },
+        },
+      },
+    ],
+  },
+  MessageComplainedWebhookPayload: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/MessageWebhookPayload",
+      },
+      {
+        type: "object",
+        properties: {
+          type: {
+            enum: ["message.complained"],
+          },
+        },
+      },
+    ],
+  },
   MessageClickedWebhookPayload: {
     type: "object",
     required: ["type", "webhook_id", "timestamp", "data"],
@@ -217,6 +260,8 @@ const SCHEMAS = {
           "on_suppressed",
           "on_opened",
           "on_clicked",
+          "on_unsubscribed",
+          "on_complained",
         ],
       },
       from: {
@@ -245,6 +290,24 @@ const SCHEMAS = {
       },
       delivery_attempt: {
         $ref: "#/components/schemas/DeliveryAttempt",
+      },
+      unsubscribe: {
+        $ref: "#/components/schemas/WebhookUnsubscribe",
+      },
+      complaint: {
+        $ref: "#/components/schemas/WebhookComplaint",
+      },
+      campaign_id: {
+        type: "string",
+        format: "uuid",
+      },
+      list_id: {
+        type: ["string", "null"],
+        format: "uuid",
+      },
+      segment_id: {
+        type: ["string", "null"],
+        format: "uuid",
       },
     },
   },
@@ -297,6 +360,18 @@ const SCHEMAS = {
       is_bot: {
         type: "boolean",
       },
+      campaign_id: {
+        type: "string",
+        format: "uuid",
+      },
+      list_id: {
+        type: ["string", "null"],
+        format: "uuid",
+      },
+      segment_id: {
+        type: ["string", "null"],
+        format: "uuid",
+      },
     },
   },
   DeliveryAttempt: {
@@ -329,7 +404,7 @@ const SCHEMAS = {
     properties: {
       type: {
         type: "string",
-        enum: ["suppression.created"],
+        enum: ["suppression.created", "suppression.deleted"],
       },
       webhook_id: {
         type: "string",
@@ -346,11 +421,22 @@ const SCHEMAS = {
   },
   SuppressionWebhookData: {
     type: "object",
-    required: ["account_id", "recipient", "created_at", "expires_at", "reason", "sending_domain"],
+    required: [
+      "account_id",
+      "origin",
+      "recipient",
+      "created_at",
+      "expires_at",
+      "reason",
+      "sending_domain",
+    ],
     properties: {
       account_id: {
         type: "string",
         format: "uuid",
+      },
+      origin: {
+        $ref: "#/components/schemas/WebhookOrigin",
       },
       recipient: {
         type: "string",
@@ -420,6 +506,454 @@ const SCHEMAS = {
         type: "boolean",
       },
       dns_last_checked_at: {
+        type: "string",
+        format: "date-time",
+      },
+    },
+  },
+  WebhookUnsubscribe: {
+    type: "object",
+    required: ["method"],
+    properties: {
+      method: {
+        type: "string",
+        enum: ["one_click", "link"],
+      },
+    },
+  },
+  WebhookComplaint: {
+    type: "object",
+    required: ["feedback_type", "reporter"],
+    properties: {
+      feedback_type: {
+        type: "string",
+      },
+      reporter: {
+        type: "string",
+      },
+    },
+  },
+  WebhookOrigin: {
+    type: "string",
+  },
+  ContactWebhookPayload: {
+    type: "object",
+    required: ["type", "webhook_id", "timestamp", "data"],
+    properties: {
+      type: {
+        type: "string",
+        enum: ["contact.created", "contact.deleted"],
+      },
+      webhook_id: {
+        type: "string",
+        format: "uuid",
+      },
+      timestamp: {
+        type: "string",
+        format: "date-time",
+      },
+      data: {
+        $ref: "#/components/schemas/ContactWebhookData",
+      },
+    },
+  },
+  ContactCreatedWebhookPayload: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/ContactWebhookPayload",
+      },
+      {
+        type: "object",
+        properties: {
+          type: {
+            enum: ["contact.created"],
+          },
+        },
+      },
+    ],
+  },
+  ContactDeletedWebhookPayload: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/ContactWebhookPayload",
+      },
+      {
+        type: "object",
+        properties: {
+          type: {
+            enum: ["contact.deleted"],
+          },
+        },
+      },
+    ],
+  },
+  ContactUpdatedWebhookPayload: {
+    type: "object",
+    required: ["type", "webhook_id", "timestamp", "data"],
+    properties: {
+      type: {
+        type: "string",
+        enum: ["contact.updated"],
+      },
+      webhook_id: {
+        type: "string",
+        format: "uuid",
+      },
+      timestamp: {
+        type: "string",
+        format: "date-time",
+      },
+      data: {
+        $ref: "#/components/schemas/ContactUpdatedWebhookData",
+      },
+    },
+  },
+  ContactListWebhookPayload: {
+    type: "object",
+    required: ["type", "webhook_id", "timestamp", "data"],
+    properties: {
+      type: {
+        type: "string",
+        enum: [
+          "contact.added_to_list",
+          "contact.removed_from_list",
+          "contact.subscribed",
+          "contact.unsubscribed",
+          "contact.complained",
+        ],
+      },
+      webhook_id: {
+        type: "string",
+        format: "uuid",
+      },
+      timestamp: {
+        type: "string",
+        format: "date-time",
+      },
+      data: {
+        $ref: "#/components/schemas/ContactListWebhookData",
+      },
+    },
+  },
+  ContactAddedToListWebhookPayload: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/ContactListWebhookPayload",
+      },
+      {
+        type: "object",
+        properties: {
+          type: {
+            enum: ["contact.added_to_list"],
+          },
+        },
+      },
+    ],
+  },
+  ContactRemovedFromListWebhookPayload: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/ContactListWebhookPayload",
+      },
+      {
+        type: "object",
+        properties: {
+          type: {
+            enum: ["contact.removed_from_list"],
+          },
+        },
+      },
+    ],
+  },
+  ContactSubscribedWebhookPayload: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/ContactListWebhookPayload",
+      },
+      {
+        type: "object",
+        properties: {
+          type: {
+            enum: ["contact.subscribed"],
+          },
+        },
+      },
+    ],
+  },
+  ContactUnsubscribedWebhookPayload: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/ContactListWebhookPayload",
+      },
+      {
+        type: "object",
+        properties: {
+          type: {
+            enum: ["contact.unsubscribed"],
+          },
+        },
+      },
+    ],
+  },
+  ContactComplainedWebhookPayload: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/ContactListWebhookPayload",
+      },
+      {
+        type: "object",
+        properties: {
+          type: {
+            enum: ["contact.complained"],
+          },
+        },
+      },
+    ],
+  },
+  ContactWebhookData: {
+    type: "object",
+    required: ["account_id", "origin", "contact"],
+    properties: {
+      account_id: {
+        type: "string",
+        format: "uuid",
+      },
+      origin: {
+        $ref: "#/components/schemas/WebhookOrigin",
+      },
+      campaign_id: {
+        type: "string",
+        format: "uuid",
+      },
+      segment_id: {
+        type: "string",
+        format: "uuid",
+      },
+      contact: {
+        $ref: "#/components/schemas/Contact",
+      },
+    },
+  },
+  ContactUpdatedWebhookData: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/ContactWebhookData",
+      },
+      {
+        type: "object",
+        required: ["changed_fields"],
+        properties: {
+          changed_fields: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+          },
+        },
+      },
+    ],
+  },
+  ContactListWebhookData: {
+    allOf: [
+      {
+        $ref: "#/components/schemas/ContactWebhookData",
+      },
+      {
+        type: "object",
+        required: ["list", "list_contact"],
+        properties: {
+          list: {
+            oneOf: [
+              {
+                $ref: "#/components/schemas/WebhookList",
+              },
+              {
+                type: "null",
+              },
+            ],
+          },
+          list_contact: {
+            oneOf: [
+              {
+                $ref: "#/components/schemas/WebhookListContact",
+              },
+              {
+                type: "null",
+              },
+            ],
+          },
+          previous_subscription_status: {
+            type: "string",
+            enum: ["unconfirmed", "confirmed", "unsubscribed", "complained"],
+          },
+          complaint: {
+            $ref: "#/components/schemas/WebhookComplaint",
+          },
+        },
+      },
+    ],
+  },
+  WebhookList: {
+    type: "object",
+    required: ["id", "name"],
+    properties: {
+      id: {
+        type: "string",
+        format: "uuid",
+      },
+      name: {
+        type: "string",
+      },
+    },
+  },
+  JSONValue: {
+    oneOf: [
+      {
+        type: "null",
+      },
+      {
+        type: "boolean",
+      },
+      {
+        type: "number",
+      },
+      {
+        type: "string",
+      },
+      {
+        type: "array",
+        items: {
+          $ref: "#/components/schemas/JSONValue",
+        },
+      },
+      {
+        type: "object",
+        additionalProperties: {
+          $ref: "#/components/schemas/JSONValue",
+        },
+      },
+    ],
+  },
+  Contact: {
+    type: "object",
+    required: [
+      "object",
+      "id",
+      "created_at",
+      "updated_at",
+      "email",
+      "first_name",
+      "last_name",
+      "status",
+      "status_reason",
+      "unsubscribed",
+      "unsubscribed_at",
+      "attributes",
+      "validation_status",
+      "last_validated_at",
+    ],
+    properties: {
+      object: {
+        type: "string",
+        enum: ["contact"],
+      },
+      id: {
+        type: "string",
+        format: "uuid",
+      },
+      created_at: {
+        type: "string",
+        format: "date-time",
+      },
+      updated_at: {
+        type: "string",
+        format: "date-time",
+      },
+      email: {
+        type: "string",
+      },
+      first_name: {
+        type: "string",
+      },
+      last_name: {
+        type: "string",
+      },
+      status: {
+        type: "string",
+        enum: ["enabled", "disabled", "blocked"],
+      },
+      status_reason: {
+        type: "string",
+      },
+      unsubscribed: {
+        type: "boolean",
+      },
+      unsubscribed_at: {
+        type: ["string", "null"],
+        format: "date-time",
+      },
+      attributes: {
+        type: "object",
+        additionalProperties: {
+          $ref: "#/components/schemas/JSONValue",
+        },
+      },
+      validation_status: {
+        type: "string",
+        enum: ["unvalidated", "valid", "invalid", "risky", "unknown"],
+      },
+      last_validated_at: {
+        type: ["string", "null"],
+        format: "date-time",
+      },
+    },
+  },
+  WebhookListContact: {
+    type: "object",
+    required: [
+      "object",
+      "list_id",
+      "contact_id",
+      "email",
+      "subscription_status",
+      "subscribed_at",
+      "unsubscribed_at",
+      "created_at",
+      "updated_at",
+    ],
+    properties: {
+      object: {
+        type: "string",
+        enum: ["list_contact"],
+      },
+      list_id: {
+        type: "string",
+        format: "uuid",
+      },
+      contact_id: {
+        type: "string",
+        format: "uuid",
+      },
+      email: {
+        type: "string",
+      },
+      subscription_status: {
+        type: "string",
+        enum: ["unconfirmed", "confirmed", "unsubscribed", "complained"],
+      },
+      subscribed_at: {
+        type: ["string", "null"],
+        format: "date-time",
+      },
+      unsubscribed_at: {
+        type: ["string", "null"],
+        format: "date-time",
+      },
+      created_at: {
+        type: "string",
+        format: "date-time",
+      },
+      updated_at: {
         type: "string",
         format: "date-time",
       },

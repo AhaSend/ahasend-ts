@@ -5,13 +5,18 @@ import {
   WebhookVerifier,
   isKnownWebhookEvent,
   type AnyWebhookEvent,
+  type ContactCreatedEvent,
+  type ContactUnsubscribedEvent,
+  type ContactUpdatedEvent,
   type DomainDNSErrorEvent,
   type MessageClickedEvent,
+  type MessageComplainedEvent,
   type MessageDeliveredEvent,
   type MessageOpenedEvent,
   type MessageRoutingEvent,
   type RouteAttachment,
   type SuppressionCreatedEvent,
+  type SuppressionDeletedEvent,
   type WebhookEvent,
   type WebhookVerifierOptions,
   type WebhookVerificationReason,
@@ -91,6 +96,14 @@ describe("webhook public types", () => {
     expectTypeOf<MessageClickedEvent["webhook_id"]>().toEqualTypeOf<string>();
     expectTypeOf<SuppressionCreatedEvent["webhook_id"]>().toEqualTypeOf<string>();
     expectTypeOf<DomainDNSErrorEvent["webhook_id"]>().toEqualTypeOf<string>();
+
+    // The same holds for the campaign, suppression, and contact events.
+    expectTypeOf<IsOptional<MessageComplainedEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<IsOptional<SuppressionDeletedEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<IsOptional<ContactCreatedEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<IsOptional<ContactUpdatedEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<IsOptional<ContactUnsubscribedEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<ContactUnsubscribedEvent["webhook_id"]>().toEqualTypeOf<string>();
 
     expectTypeOf<IsOptional<MessageRoutingEvent, "route_id">>().toEqualTypeOf<false>();
     expectTypeOf<MessageRoutingEvent["route_id"]>().toEqualTypeOf<string>();

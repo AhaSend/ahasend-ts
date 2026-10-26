@@ -132,6 +132,171 @@
       "webhookTimestamp": "1700000000",
       "signature": "v1,jAwB/poTWyO3SgF+1e53U8+0Y8daxZEeCVpEu2CMvDY=",
       "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-unsubscribed-list",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-unsubscribed-list.json",
+      "rawBodySha256": "4ecdb7e5340ca2b21c51b8c76985a87b88dee0cb12cf85071ae6b90a2b95b372",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_unsubscribed_list",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,5VbDfotPtYaekf6B3xZVGoq3txp1C/vPpznA2B2vV2A=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-complained-segment-unknown-reporter",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-complained-segment-unknown-reporter.json",
+      "rawBodySha256": "e96cf215880515c35a1d42950f2aebe7a86047d6ac01a5be5e2cfd9b15a2f2b8",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_complained_segment_unknown_reporter",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,ZY3a5c95Tr++dYYChHKpFjVutmTReQafLqh2Dwwvo8E=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "message-clicked-campaign-without-list-and-segment",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/message-clicked-campaign-without-list-and-segment.json",
+      "rawBodySha256": "82ab93b16c8419e6764b97b2c8d597d68db20e94e8d252400a5e3036bbd037d3",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_message_clicked_campaign_without_list_and_segment",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,iWuCxTJH7DeQkdjoSiZ+qiaOzN+qU2NORIo7hu4FfAg=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "suppression-created-recipient",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/suppression-created-recipient.json",
+      "rawBodySha256": "f7e6fc144f51eb9d39c25ceabf738cb63efd336fd4fc7bdb504d71d796d6a6be",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_suppression_created_recipient",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,8zKZSS48fCV5T5BcSjxECm5lpao6OtajfUR6Accb3r4=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "suppression-deleted",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/suppression-deleted.json",
+      "rawBodySha256": "e66eba104ae609a38a712ee2599d38bbc5c5d33970fd3e97be18896bc8920290",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_suppression_deleted",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,EyojnwLNtzwVtT8b6thQr7GSUv6yqtzVkPqOMPZ9w7k=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-created-nested-attributes",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-created-nested-attributes.json",
+      "rawBodySha256": "88583b97b2c8ef1407be184eb29d911f6000dcd961ecf372956d83446f2aae5a",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_created_nested_attributes",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,+dwCl7aKlRemVt5Nm7hktdvfIFLMdR/1QtWdnFwrXUw=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-updated-unknown-changed-field",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-updated-unknown-changed-field.json",
+      "rawBodySha256": "757f19a94e3a9c02b3eed2c4b8ec700f28d56d5d1074235987a3eacdec70bafb",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_updated_unknown_changed_field",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,WkCsaX2kIETDJl7zudeknuDMYqkZT7chTbVtQRIZ5m4=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-updated-unknown-contact-field",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-updated-unknown-contact-field.json",
+      "rawBodySha256": "02bcdcf8dfad97950e944c158344ea1be52427e709b01d10cebf0b3e8548e2a0",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_updated_unknown_contact_field",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,pRZjv9JhTSiwBIvGn/JTkB793TDFMQAKUdTxBILh1EI=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-deleted",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-deleted.json",
+      "rawBodySha256": "9e30bc645077ad5ad25070d01dbc36b62898f58a9375cf2baf2d3b67e0311fde",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_deleted",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,WH5gC13T5X4C69MUPeTValikPeDaplSbzuyBEsw+Hz8=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-added-to-list",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-added-to-list.json",
+      "rawBodySha256": "a2ba683a04cee21bbc73de39822b190ae407b6cca25b2e898e1475515a9d505c",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_added_to_list",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,TWDUowEz4HrmrA1X3+qlA6Td4nqDlzB1QGWpu6s/WcM=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-removed-from-list",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-removed-from-list.json",
+      "rawBodySha256": "67716aeca25a49eccdf6a3009269b23a62fc2812e16415af762364e81bf9764f",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_removed_from_list",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,3MVu008A29wnVkaV1dvGRxqCS3w74pxESNciw2RGh3M=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-subscribed-all-lists",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-subscribed-all-lists.json",
+      "rawBodySha256": "fbfd5d158152fb8b95a099663ca26335430023f0a3c31840c422eb620ab8d079",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_subscribed_all_lists",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,cjCSxjQSTTUKOleZKRxvBTrZlpMhvo8vGeFOJzEe9vA=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-unsubscribed-segment-campaign",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-unsubscribed-segment-campaign.json",
+      "rawBodySha256": "c77552a6dfb4d40e77d52ef073c1af2ec559d1e73e40f12ee2020d5f368e6344",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_unsubscribed_segment_campaign",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,ydESF7V5pYFB3NUjvDScixXS2C0ofBxFMJ5CVOBROtw=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-complained-list",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-complained-list.json",
+      "rawBodySha256": "1667e65d64b96d39a9808441c47e925de78aeaf7d851fad18f830e39f2acfb03",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_complained_list",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,Ge/k82wymu6hRkegDaX0s7oBWLf5eUVSbjZH97ycgIs=",
+      "expectedResult": "valid"
+    },
+    {
+      "fixtureId": "contact-created-unknown-origin",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/contact-created-unknown-origin.json",
+      "rawBodySha256": "51d10d5a7959f77ee9cda32162ccabcc402aaf33138ccf64574b72c287bd955f",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_contact_created_unknown_origin",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,I7qaQqkZkXCDpUODyx05wrFL/JqkWq0D+9kKV44tiYo=",
+      "expectedResult": "valid"
     }
   ]
 }

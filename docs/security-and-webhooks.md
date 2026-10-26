@@ -92,9 +92,10 @@ key or diagnostic logs.
 bounce classifier assigned. The response is usually the destination's own, but a failure raised
 inside AhaSend carries AhaSend's description of it instead.
 
-It is optional and frequently absent. The seven events that share the message data shape all
-declare it, so read what arrives rather than asserting an attempt cannot appear; `message.clicked`
-and `message.routing` have their own data shapes and never carry one.
+It is optional and frequently absent. The nine events that share the message data shape all
+declare it, so read what arrives rather than asserting an attempt cannot appear; `message.clicked`,
+`message.routing`, and the suppression, domain, and contact events have their own data shapes and
+never carry one.
 
 Even the three that do carry it omit it when no SMTP attempt was recorded: an out-of-band bounce
 that arrives after the destination already accepted the message, a message handled outside SMTP
@@ -165,6 +166,89 @@ response text, and a sandbox send does carry one even though it never reaches SM
 of the outcome it was asked to simulate, which may then not agree with the representative
 `smtp_code` and `response` beside it. Do not calibrate a `classification` branch against sandbox
 traffic.
+
+## Campaign, suppression, and contact events
+
+Message events of a campaign message also carry `campaign_id`, `list_id`, and `segment_id`.
+`list_id` and `segment_id` are `null` when the campaign did not reach the recipient through a list
+or a segment; a `null` means the same as an absent field. Two message events are sent only for
+campaign email:
+
+- `message.unsubscribed`: the recipient unsubscribed. `data.unsubscribe.method` is `one_click` or
+  `link`.
+- `message.complained`: the recipient's mailbox provider reported the email as spam.
+  `data.complaint` carries the report.
+
+Both can repeat for the same message, so drop the repeats by `type` and `data.id`.
+
+`suppression.created` and `suppression.deleted` carry the suppression and its `origin`.
+
+Contact events are available to accounts with the marketing features. Every contact event carries
+the `contact` and its `origin`:
+
+- `contact.created`, `contact.updated`, and `contact.deleted` report changes to the contact.
+  `contact.updated` lists the changed fields in `data.changed_fields`.
+- `contact.added_to_list`, `contact.removed_from_list`, `contact.subscribed`,
+  `contact.unsubscribed`, and `contact.complained` also carry the `list` and the membership
+  (`list_contact`). When the event is about the contact's unsubscribe from all lists rather than one
+  list, both are `null`. Check them before you read a membership.
+
+`origin` says who made the change: `recipient`, `api` (your API calls), `dashboard`, or `system`
+(AhaSend). A handler that writes to the AhaSend API on every `contact.updated` gets its own write
+back as a new event with `origin: "api"`; skip the write when the contact already has the values it
+wants.
+
+Events do not arrive in the order in which they happened. Order them by their `timestamp`.
+
+Three values are open sets: `origin`, the complaint `reporter`, and the entries of
+`changed_fields`. A delivery can carry a value that this release does not know. The SDK accepts it,
+and so should your handler: `isKnownWebhookOrigin`, `isKnownComplaintReporter`, and
+`isKnownContactChangedField` narrow to the values known today and leave the rest to a fallback
+branch. Contact `attributes` values can be any JSON value.
+
+```ts
+import {
+  isKnownComplaintReporter,
+  isKnownContactChangedField,
+  isKnownWebhookEvent,
+  type AnyWebhookEvent,
+} from "@ahasend/sdk/webhooks";
+
+declare function unsubscribeEverywhere(contactId: string): Promise<void>;
+declare function setMembership(listId: string, contactId: string, status: string): Promise<void>;
+declare function countComplaint(reporter: string): void;
+declare function syncContact(contactId: string, field: string | undefined): Promise<void>;
+
+async function onContactEvent(event: AnyWebhookEvent): Promise<void> {
+  if (!isKnownWebhookEvent(event)) return; // an event type added after this release
+  switch (event.type) {
+    case "contact.unsubscribed":
+    case "contact.complained": {
+      const { contact, list, list_contact } = event.data;
+      if (list === null || list_contact === null) {
+        // Unsubscribed from all lists, not from one list.
+        await unsubscribeEverywhere(contact.id);
+      } else {
+        await setMembership(list.id, contact.id, list_contact.subscription_status);
+      }
+      const reporter = event.data.complaint?.reporter;
+      if (reporter !== undefined) {
+        countComplaint(isKnownComplaintReporter(reporter) ? reporter : "other");
+      }
+      break;
+    }
+    case "contact.updated":
+      for (const field of event.data.changed_fields) {
+        // A field added after this release syncs the whole contact.
+        await syncContact(
+          event.data.contact.id,
+          isKnownContactChangedField(field) ? field : undefined,
+        );
+      }
+      break;
+  }
+}
+```
 
 ## Adapter boundaries
 

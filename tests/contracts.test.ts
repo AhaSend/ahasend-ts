@@ -1401,7 +1401,7 @@ describe("captured webhook evidence", () => {
 
     await expect(validateWebhookEvidence(process.cwd())).resolves.toMatchObject({
       captureCount: 3,
-      syntheticCount: 12,
+      syntheticCount: 27,
     });
   });
 
@@ -1715,10 +1715,35 @@ describe("captured webhook evidence", () => {
 });
 
 describe("synthetic webhook fixtures", () => {
+  // The campaign, suppression, and contact events have no captured evidence
+  // yet, so the synthetic corpus is what proves the verifier parses each of
+  // them. A new event type cannot join the contract without a fixture.
+  it("carries a signed fixture for every campaign, suppression, and contact event", () => {
+    const fixtureTypes = new Set(
+      (syntheticManifest.fixtures as JsonRecord[]).map(
+        (fixture) =>
+          (
+            JSON.parse(
+              readFileSync(resolve(process.cwd(), fixture.bodyPath as string), "utf8"),
+            ) as JsonRecord
+          ).type,
+      ),
+    );
+    const eventTypes = Object.keys(record(webhookDocument.webhooks)).filter(
+      (eventType) =>
+        eventType.startsWith("contact.") ||
+        eventType.startsWith("suppression.") ||
+        eventType === "message.unsubscribed" ||
+        eventType === "message.complained",
+    );
+    expect(eventTypes).toHaveLength(12);
+    expect(eventTypes.filter((eventType) => !fixtureTypes.has(eventType))).toEqual([]);
+  });
+
   it("validates independently and stays outside captured evidence", () => {
     const captures = capturedManifest.captures as JsonRecord[];
     const fixtures = syntheticManifest.fixtures as JsonRecord[];
-    expect(fixtures).toHaveLength(12);
+    expect(fixtures).toHaveLength(27);
     expect(captures.every((capture) => !(capture.bodyPath as string).includes("/synthetic/"))).toBe(
       true,
     );

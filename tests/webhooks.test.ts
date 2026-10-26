@@ -11,7 +11,10 @@ import type { components as WebhookComponents } from "../src/generated/webhook-t
 import {
   CANONICAL_WEBHOOK_EVENT_TYPES,
   DEPRECATED_WEBHOOK_EVENT_TYPES,
+  KNOWN_COMPLAINT_REPORTERS,
+  KNOWN_CONTACT_CHANGED_FIELDS,
   KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS,
+  KNOWN_WEBHOOK_ORIGINS,
   WEBHOOK_CONTRACT_SHA256,
   WEBHOOK_SCHEMA_NAMES,
 } from "../src/generated/webhook-types.js";
@@ -22,8 +25,36 @@ import {
 } from "../src/generated/webhook-validators.js";
 import { isKnownWebhookEvent } from "../src/webhooks/events.js";
 import {
+  isKnownComplaintReporter,
+  isKnownContactChangedField,
   isKnownDeliveryAttemptClassification,
+  isKnownWebhookOrigin,
+  type AnyWebhookEvent,
+  type ContactAddedToListEvent,
+  type ContactComplainedEvent,
+  type ContactCreatedEvent,
+  type ContactDeletedEvent,
+  type ContactEventData,
+  type ContactListEventData,
+  type ContactRemovedFromListEvent,
+  type ContactSubscribedEvent,
+  type ContactUnsubscribedEvent,
+  type ContactUpdatedEvent,
+  type ContactUpdatedEventData,
   type DeprecatedWebhookEventType,
+  type KnownComplaintReporter,
+  type KnownContactChangedField,
+  type KnownWebhookOrigin,
+  type MessageComplainedEvent,
+  type MessageUnsubscribedEvent,
+  type SuppressionCreatedEvent,
+  type SuppressionDeletedEvent,
+  type WebhookComplaint,
+  type WebhookContact,
+  type WebhookJSONValue,
+  type WebhookList,
+  type WebhookListContact,
+  type WebhookOrigin,
   type KnownDeliveryAttemptClassification,
   type MessageBouncedEvent,
   type MessageClickedEventData,
@@ -114,6 +145,48 @@ const SYNTHETIC_BODY_DIGESTS = new Map<string, string>([
     "message-bounced-attempt-with-description",
     "ceb338baba3678d9066395577a115c08ef9b5c55472e0819ddea32f951d047f9",
   ],
+  ["message-unsubscribed-list", "4ecdb7e5340ca2b21c51b8c76985a87b88dee0cb12cf85071ae6b90a2b95b372"],
+  [
+    "message-complained-segment-unknown-reporter",
+    "e96cf215880515c35a1d42950f2aebe7a86047d6ac01a5be5e2cfd9b15a2f2b8",
+  ],
+  [
+    "message-clicked-campaign-without-list-and-segment",
+    "82ab93b16c8419e6764b97b2c8d597d68db20e94e8d252400a5e3036bbd037d3",
+  ],
+  [
+    "suppression-created-recipient",
+    "f7e6fc144f51eb9d39c25ceabf738cb63efd336fd4fc7bdb504d71d796d6a6be",
+  ],
+  ["suppression-deleted", "e66eba104ae609a38a712ee2599d38bbc5c5d33970fd3e97be18896bc8920290"],
+  [
+    "contact-created-nested-attributes",
+    "88583b97b2c8ef1407be184eb29d911f6000dcd961ecf372956d83446f2aae5a",
+  ],
+  [
+    "contact-updated-unknown-changed-field",
+    "757f19a94e3a9c02b3eed2c4b8ec700f28d56d5d1074235987a3eacdec70bafb",
+  ],
+  [
+    "contact-updated-unknown-contact-field",
+    "02bcdcf8dfad97950e944c158344ea1be52427e709b01d10cebf0b3e8548e2a0",
+  ],
+  ["contact-deleted", "9e30bc645077ad5ad25070d01dbc36b62898f58a9375cf2baf2d3b67e0311fde"],
+  ["contact-added-to-list", "a2ba683a04cee21bbc73de39822b190ae407b6cca25b2e898e1475515a9d505c"],
+  ["contact-removed-from-list", "67716aeca25a49eccdf6a3009269b23a62fc2812e16415af762364e81bf9764f"],
+  [
+    "contact-subscribed-all-lists",
+    "fbfd5d158152fb8b95a099663ca26335430023f0a3c31840c422eb620ab8d079",
+  ],
+  [
+    "contact-unsubscribed-segment-campaign",
+    "c77552a6dfb4d40e77d52ef073c1af2ec559d1e73e40f12ee2020d5f368e6344",
+  ],
+  ["contact-complained-list", "1667e65d64b96d39a9808441c47e925de78aeaf7d851fad18f830e39f2acfb03"],
+  [
+    "contact-created-unknown-origin",
+    "51d10d5a7959f77ee9cda32162ccabcc402aaf33138ccf64574b72c287bd955f",
+  ],
 ]);
 
 // A fixture id is a claim, and self-consistent evidence cannot check a claim:
@@ -188,6 +261,168 @@ const DELIVERY_ATTEMPT_FIXTURE_EXPECTATIONS = new Map<string, unknown>([
       description: "A temporary problem inside AhaSend prevented delivery.",
     },
   ],
+  // Campaign, suppression and contact events carry no attempt; their content
+  // is pinned by EVENT_FIXTURE_EXPECTATIONS below.
+  ["message-unsubscribed-list", "absent"],
+  ["message-complained-segment-unknown-reporter", "absent"],
+  ["message-clicked-campaign-without-list-and-segment", "absent"],
+  ["suppression-created-recipient", "absent"],
+  ["suppression-deleted", "absent"],
+  ["contact-created-nested-attributes", "absent"],
+  ["contact-updated-unknown-changed-field", "absent"],
+  ["contact-updated-unknown-contact-field", "absent"],
+  ["contact-deleted", "absent"],
+  ["contact-added-to-list", "absent"],
+  ["contact-removed-from-list", "absent"],
+  ["contact-subscribed-all-lists", "absent"],
+  ["contact-unsubscribed-segment-campaign", "absent"],
+  ["contact-complained-list", "absent"],
+  ["contact-created-unknown-origin", "absent"],
+]);
+
+// The claim each campaign, suppression and contact fixture is named for: its
+// type, the data it must carry, and the data keys it must not carry.
+// `undefined` in `absent` means the key is not on the wire at all, which is
+// what tells "absent" apart from an explicit `null`.
+const EVENT_FIXTURE_EXPECTATIONS = new Map<
+  string,
+  { type: string; data: Record<string, unknown>; absent?: readonly string[] }
+>([
+  [
+    "message-unsubscribed-list",
+    {
+      type: "message.unsubscribed",
+      data: {
+        event: "on_unsubscribed",
+        unsubscribe: { method: "one_click" },
+        campaign_id: "00000000-0000-4000-8000-000000000030",
+        list_id: "00000000-0000-4000-8000-000000000020",
+        segment_id: null,
+      },
+      absent: ["complaint", "delivery_attempt"],
+    },
+  ],
+  [
+    "message-complained-segment-unknown-reporter",
+    {
+      type: "message.complained",
+      data: {
+        event: "on_complained",
+        complaint: { feedback_type: "abuse", reporter: "future-feedback-loop" },
+        campaign_id: "00000000-0000-4000-8000-000000000030",
+        list_id: null,
+        segment_id: "00000000-0000-4000-8000-000000000040",
+      },
+      absent: ["unsubscribe"],
+    },
+  ],
+  [
+    "message-clicked-campaign-without-list-and-segment",
+    {
+      type: "message.clicked",
+      data: { campaign_id: "00000000-0000-4000-8000-000000000030" },
+      absent: ["list_id", "segment_id"],
+    },
+  ],
+  [
+    "suppression-created-recipient",
+    { type: "suppression.created", data: { origin: "recipient", reason: "Unsubscribed" } },
+  ],
+  ["suppression-deleted", { type: "suppression.deleted", data: { origin: "api" } }],
+  [
+    "contact-created-nested-attributes",
+    {
+      type: "contact.created",
+      data: {
+        origin: "api",
+        contact: {
+          attributes: {
+            plan: "pro",
+            seats: 3,
+            trial: false,
+            note: null,
+            tags: ["a", 1, null],
+            address: { city: "Paris", geo: { lat: 48.85 } },
+          },
+        },
+      },
+      absent: ["campaign_id", "segment_id"],
+    },
+  ],
+  [
+    "contact-updated-unknown-changed-field",
+    {
+      type: "contact.updated",
+      data: { origin: "dashboard", changed_fields: ["first_name", "future_field"] },
+    },
+  ],
+  [
+    "contact-updated-unknown-contact-field",
+    {
+      type: "contact.updated",
+      data: { contact: { future_field: "added later" }, changed_fields: ["attributes"] },
+    },
+  ],
+  ["contact-deleted", { type: "contact.deleted", data: { origin: "system" } }],
+  [
+    "contact-added-to-list",
+    {
+      type: "contact.added_to_list",
+      data: {
+        list: { id: "00000000-0000-4000-8000-000000000020", name: "Newsletter" },
+        list_contact: { subscription_status: "confirmed", future_field: "added later" },
+      },
+      absent: ["previous_subscription_status", "complaint"],
+    },
+  ],
+  [
+    "contact-removed-from-list",
+    {
+      type: "contact.removed_from_list",
+      data: { origin: "dashboard", list_contact: { subscription_status: "confirmed" } },
+    },
+  ],
+  [
+    "contact-subscribed-all-lists",
+    {
+      type: "contact.subscribed",
+      data: { list: null, list_contact: null },
+      absent: ["previous_subscription_status"],
+    },
+  ],
+  [
+    "contact-unsubscribed-segment-campaign",
+    {
+      type: "contact.unsubscribed",
+      data: {
+        origin: "recipient",
+        campaign_id: "00000000-0000-4000-8000-000000000030",
+        segment_id: "00000000-0000-4000-8000-000000000040",
+        contact: { unsubscribed: true },
+        list: null,
+        list_contact: null,
+      },
+      absent: ["previous_subscription_status"],
+    },
+  ],
+  [
+    "contact-complained-list",
+    {
+      type: "contact.complained",
+      data: {
+        origin: "recipient",
+        campaign_id: "00000000-0000-4000-8000-000000000030",
+        list_contact: { subscription_status: "complained" },
+        previous_subscription_status: "confirmed",
+        complaint: { feedback_type: "abuse", reporter: "yahoo" },
+      },
+      absent: ["segment_id"],
+    },
+  ],
+  [
+    "contact-created-unknown-origin",
+    { type: "contact.created", data: { origin: "origin-added-later" } },
+  ],
 ]);
 const CONFIGURED_WEBHOOK_BODIES = [
   {
@@ -227,6 +462,21 @@ const CONFIGURED_WEBHOOK_BODIES = [
     timestamp: "2026-07-14T15:03:23Z",
     data: {
       account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      recipient: "receiver@example.com",
+      created_at: "2026-07-14T15:03:23Z",
+      expires_at: "2026-08-13T15:03:23Z",
+      origin: "system",
+      reason: "Too many hard bounces",
+      sending_domain: "example.com",
+    },
+  },
+  {
+    type: "suppression.deleted",
+    webhook_id: BODY_WEBHOOK_ID,
+    timestamp: "2026-07-14T15:03:23Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      origin: "api",
       recipient: "receiver@example.com",
       created_at: "2026-07-14T15:03:23Z",
       expires_at: "2026-08-13T15:03:23Z",
@@ -380,9 +630,9 @@ describe("generated webhook schema", () => {
     const webhooks = record(document["webhooks"]);
 
     expect(WEBHOOK_SCHEMA_NAMES).toEqual(Object.keys(schemas));
-    expect(WEBHOOK_SCHEMA_NAMES).toHaveLength(19);
+    expect(WEBHOOK_SCHEMA_NAMES).toHaveLength(41);
     expect(CANONICAL_WEBHOOK_EVENT_TYPES).toEqual(Object.keys(webhooks));
-    expect(CANONICAL_WEBHOOK_EVENT_TYPES).toHaveLength(11);
+    expect(CANONICAL_WEBHOOK_EVENT_TYPES).toHaveLength(22);
 
     for (const [eventType, webhookValue] of Object.entries(webhooks)) {
       const post = record(record(webhookValue)["post"]);
@@ -429,7 +679,7 @@ describe("generated webhook schema", () => {
   });
 
   it("requires webhook_id on every configured-webhook envelope", async () => {
-    // All six configured-webhook envelopes always carry webhook_id, so
+    // Every configured-webhook envelope always carries webhook_id, so
     // the key is always on the wire. It was optional only because the fixture
     // it was aligned against omitted it, and that fixture was generated rather
     // than captured. Routed messages are the exception and carry route_id.
@@ -750,6 +1000,353 @@ describe("delivery attempt public surface", () => {
 
     expect(KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS).toEqual(classification["x-known-values"]);
     expect(classification["enum"]).toBeUndefined();
+  });
+});
+
+const NEW_EVENT_TYPES = [
+  "message.unsubscribed",
+  "message.complained",
+  "suppression.deleted",
+  "contact.created",
+  "contact.updated",
+  "contact.deleted",
+  "contact.added_to_list",
+  "contact.removed_from_list",
+  "contact.subscribed",
+  "contact.unsubscribed",
+  "contact.complained",
+] as const;
+
+function specExample(eventType: string): Record<string, unknown> {
+  const webhooks = record(parseWebhookContract(WEBHOOK_SOURCE)["webhooks"]);
+  const post = record(record(webhooks[eventType])["post"]);
+  const content = record(record(post["requestBody"])["content"]);
+  return structuredClone(record(record(content["application/json"])["example"]));
+}
+
+function withData(
+  event: Record<string, unknown>,
+  change: (data: Record<string, unknown>) => void,
+): Record<string, unknown> {
+  const copy = structuredClone(event);
+  change(record(copy["data"]));
+  return copy;
+}
+
+function specKnownValues(schemaName: string, propertyKey: string): unknown {
+  const schemas = record(record(parseWebhookContract(WEBHOOK_SOURCE)["components"])["schemas"]);
+  const schema = record(schemas[schemaName]);
+  const parts = Array.isArray(schema["allOf"]) ? (schema["allOf"] as unknown[]) : [schema];
+  for (const part of parts) {
+    const properties = record(part)["properties"];
+    if (properties !== undefined && Object.hasOwn(record(properties), propertyKey)) {
+      return record(record(properties)[propertyKey])["x-known-values"];
+    }
+  }
+  throw new TypeError(`${schemaName}.${propertyKey} not found`);
+}
+
+describe("campaign, suppression, and contact events", () => {
+  it("validates the spec example of every new event and keeps its type", () => {
+    expect(CANONICAL_WEBHOOK_EVENT_TYPES).toEqual(expect.arrayContaining([...NEW_EVENT_TYPES]));
+    for (const eventType of NEW_EVENT_TYPES) {
+      const example = specExample(eventType);
+      expect(example["type"], eventType).toBe(eventType);
+      expect(validateKnownWebhookEvent(example), eventType).toBe(true);
+      expect(isKnownWebhookEvent(example as AnyWebhookEvent), eventType).toBe(true);
+    }
+  });
+
+  it("narrows each new event type to its own event and data", () => {
+    function assertNarrowing(event: AnyWebhookEvent): void {
+      if (!isKnownWebhookEvent(event)) return;
+      switch (event.type) {
+        case "message.unsubscribed":
+          expectTypeOf(event).toEqualTypeOf<MessageUnsubscribedEvent>();
+          expectTypeOf(event.data).toEqualTypeOf<MessageEventData>();
+          break;
+        case "message.complained":
+          expectTypeOf(event).toEqualTypeOf<MessageComplainedEvent>();
+          expectTypeOf(event.data.complaint).toEqualTypeOf<WebhookComplaint | undefined>();
+          break;
+        case "suppression.created":
+          expectTypeOf(event).toEqualTypeOf<SuppressionCreatedEvent>();
+          break;
+        case "suppression.deleted":
+          expectTypeOf(event).toEqualTypeOf<SuppressionDeletedEvent>();
+          expectTypeOf(event.data.origin).toEqualTypeOf<WebhookOrigin>();
+          break;
+        case "contact.created":
+          expectTypeOf(event).toEqualTypeOf<ContactCreatedEvent>();
+          expectTypeOf(event.data).toEqualTypeOf<ContactEventData>();
+          break;
+        case "contact.updated":
+          expectTypeOf(event).toEqualTypeOf<ContactUpdatedEvent>();
+          expectTypeOf(event.data).toEqualTypeOf<ContactUpdatedEventData>();
+          break;
+        case "contact.deleted":
+          expectTypeOf(event).toEqualTypeOf<ContactDeletedEvent>();
+          break;
+        case "contact.added_to_list":
+          expectTypeOf(event).toEqualTypeOf<ContactAddedToListEvent>();
+          expectTypeOf(event.data).toEqualTypeOf<ContactListEventData>();
+          break;
+        case "contact.removed_from_list":
+          expectTypeOf(event).toEqualTypeOf<ContactRemovedFromListEvent>();
+          break;
+        case "contact.subscribed":
+          expectTypeOf(event).toEqualTypeOf<ContactSubscribedEvent>();
+          break;
+        case "contact.unsubscribed":
+          expectTypeOf(event).toEqualTypeOf<ContactUnsubscribedEvent>();
+          break;
+        case "contact.complained":
+          expectTypeOf(event).toEqualTypeOf<ContactComplainedEvent>();
+          break;
+      }
+    }
+    expectTypeOf(assertNarrowing).parameter(0).toEqualTypeOf<AnyWebhookEvent>();
+
+    // The two suppression events share one payload schema; each still has a
+    // single literal type, so a switch tells them apart.
+    expectTypeOf<SuppressionCreatedEvent["type"]>().toEqualTypeOf<"suppression.created">();
+    expectTypeOf<SuppressionDeletedEvent["type"]>().toEqualTypeOf<"suppression.deleted">();
+    expectTypeOf<ContactCreatedEvent["type"]>().toEqualTypeOf<"contact.created">();
+    expectTypeOf<ContactComplainedEvent["type"]>().toEqualTypeOf<"contact.complained">();
+  });
+
+  it("types the nullable, absent, and open fields as the spec declares them", () => {
+    expectTypeOf<MessageEventData["campaign_id"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<MessageEventData["list_id"]>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<MessageEventData["segment_id"]>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<MessageClickedEventData["list_id"]>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<MessageClickedEventData["segment_id"]>().toEqualTypeOf<
+      string | null | undefined
+    >();
+    // On contact data, campaign_id and segment_id are absent, never null.
+    expectTypeOf<ContactEventData["campaign_id"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<ContactEventData["segment_id"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<ContactListEventData["list"]>().toEqualTypeOf<WebhookList | null>();
+    expectTypeOf<ContactListEventData["list_contact"]>().toEqualTypeOf<WebhookListContact | null>();
+    expectTypeOf<WebhookContact["attributes"]>().toEqualTypeOf<{
+      [key: string]: WebhookJSONValue;
+    }>();
+    expectTypeOf<WebhookContact["unsubscribed_at"]>().toEqualTypeOf<string | null>();
+
+    // Open sets are plain strings; the known values are a narrowing, not a
+    // constraint on what a delivery can carry.
+    expectTypeOf<WebhookComplaint["reporter"]>().toEqualTypeOf<string>();
+    expectTypeOf<WebhookOrigin>().toEqualTypeOf<string>();
+    expectTypeOf<KnownWebhookOrigin>().toEqualTypeOf<
+      "recipient" | "api" | "dashboard" | "system"
+    >();
+    expectTypeOf<ContactUpdatedEventData["changed_fields"]>().toEqualTypeOf<Array<string>>();
+    expectTypeOf<KnownComplaintReporter>().toEqualTypeOf<"yahoo" | "microsoft" | "comcast">();
+    expectTypeOf<KnownContactChangedField>().toEqualTypeOf<
+      "email" | "first_name" | "last_name" | "status" | "status_reason" | "attributes"
+    >();
+  });
+
+  it("treats null and absent list_id and segment_id the same on message data", () => {
+    for (const eventType of [
+      "message.unsubscribed",
+      "message.complained",
+      "message.clicked",
+    ] as const) {
+      const example = withData(specExample(eventType), (data) => {
+        data["campaign_id"] = "8b0f4c2e-5d1a-4f6b-9c3e-2a7d1e9f0b44";
+      });
+      for (const key of ["list_id", "segment_id"]) {
+        const asNull = withData(example, (data) => {
+          data[key] = null;
+        });
+        const asAbsent = withData(example, (data) => {
+          Reflect.deleteProperty(data, key);
+        });
+        const asUuid = withData(example, (data) => {
+          data[key] = "c3e1a9d2-7f4b-4e8a-b5c6-1d2e3f4a5b6c";
+        });
+        const asNumber = withData(example, (data) => {
+          data[key] = 1;
+        });
+        expect(validateKnownWebhookEvent(asNull), `${eventType} ${key} null`).toBe(true);
+        expect(validateKnownWebhookEvent(asAbsent), `${eventType} ${key} absent`).toBe(true);
+        expect(validateKnownWebhookEvent(asUuid), `${eventType} ${key} uuid`).toBe(true);
+        expect(validateKnownWebhookEvent(asNumber), `${eventType} ${key} number`).toBe(false);
+      }
+    }
+  });
+
+  it("accepts null list and list_contact on the events about all lists", () => {
+    for (const eventType of [
+      "contact.subscribed",
+      "contact.unsubscribed",
+      "contact.complained",
+    ] as const) {
+      const allLists = withData(specExample(eventType), (data) => {
+        data["list"] = null;
+        data["list_contact"] = null;
+        Reflect.deleteProperty(data, "previous_subscription_status");
+        data["campaign_id"] = "3af77d52-096f-42a2-8cc7-b6eccdccff8e";
+        data["segment_id"] = "5bf2c0d4-8a1e-4c3b-9d7f-6e5a4b3c2d1e";
+      });
+      expect(validateKnownWebhookEvent(allLists), eventType).toBe(true);
+
+      // `list` and `list_contact` are required: absent is not the same as null here.
+      const withoutList = withData(allLists, (data) => {
+        Reflect.deleteProperty(data, "list");
+      });
+      expect(validateKnownWebhookEvent(withoutList), `${eventType} without list`).toBe(false);
+      const stringMembership = withData(allLists, (data) => {
+        data["list_contact"] = "membership";
+      });
+      expect(validateKnownWebhookEvent(stringMembership), `${eventType} string`).toBe(false);
+    }
+  });
+
+  it("keeps the complaint reporter an open set", () => {
+    for (const eventType of ["message.complained", "contact.complained"] as const) {
+      const unknownReporter = withData(specExample(eventType), (data) => {
+        data["complaint"] = { feedback_type: "fraud", reporter: "feedback-loop-added-later" };
+      });
+      expect(validateKnownWebhookEvent(unknownReporter), eventType).toBe(true);
+      const withoutReporter = withData(specExample(eventType), (data) => {
+        data["complaint"] = { feedback_type: "abuse" };
+      });
+      expect(validateKnownWebhookEvent(withoutReporter), `${eventType} no reporter`).toBe(false);
+    }
+
+    for (const reporter of KNOWN_COMPLAINT_REPORTERS) {
+      expect(isKnownComplaintReporter(reporter), reporter).toBe(true);
+    }
+    expect(isKnownComplaintReporter("feedback-loop-added-later")).toBe(false);
+    expect(isKnownComplaintReporter("Yahoo")).toBe(false);
+    expect(KNOWN_COMPLAINT_REPORTERS).toEqual(specKnownValues("WebhookComplaint", "reporter"));
+
+    const reporter: string = "yahoo";
+    if (isKnownComplaintReporter(reporter)) {
+      expectTypeOf(reporter).toEqualTypeOf<KnownComplaintReporter>();
+    }
+  });
+
+  it("keeps origin an open set", () => {
+    for (const eventType of ["contact.created", "suppression.deleted"] as const) {
+      const unknownOrigin = withData(specExample(eventType), (data) => {
+        data["origin"] = "origin-added-later";
+      });
+      expect(validateKnownWebhookEvent(unknownOrigin), eventType).toBe(true);
+      const numericOrigin = withData(specExample(eventType), (data) => {
+        data["origin"] = 1;
+      });
+      expect(validateKnownWebhookEvent(numericOrigin), `${eventType} numeric`).toBe(false);
+    }
+
+    for (const origin of KNOWN_WEBHOOK_ORIGINS) {
+      expect(isKnownWebhookOrigin(origin), origin).toBe(true);
+    }
+    expect(isKnownWebhookOrigin("origin-added-later")).toBe(false);
+    const schemas = record(record(parseWebhookContract(WEBHOOK_SOURCE)["components"])["schemas"]);
+    const originSchema = record(schemas["WebhookOrigin"]);
+    expect(originSchema["enum"]).toBeUndefined();
+    expect(KNOWN_WEBHOOK_ORIGINS).toEqual(originSchema["x-known-values"]);
+
+    const origin: string = "api";
+    if (isKnownWebhookOrigin(origin)) {
+      expectTypeOf(origin).toEqualTypeOf<KnownWebhookOrigin>();
+    }
+  });
+
+  it("keeps changed_fields an open set", () => {
+    const unknownField = withData(specExample("contact.updated"), (data) => {
+      data["changed_fields"] = ["first_name", "field_added_later"];
+    });
+    expect(validateKnownWebhookEvent(unknownField)).toBe(true);
+    const withoutChangedFields = withData(specExample("contact.updated"), (data) => {
+      Reflect.deleteProperty(data, "changed_fields");
+    });
+    expect(validateKnownWebhookEvent(withoutChangedFields)).toBe(false);
+    const nonStringField = withData(specExample("contact.updated"), (data) => {
+      data["changed_fields"] = [1];
+    });
+    expect(validateKnownWebhookEvent(nonStringField)).toBe(false);
+
+    for (const field of KNOWN_CONTACT_CHANGED_FIELDS) {
+      expect(isKnownContactChangedField(field), field).toBe(true);
+    }
+    expect(isKnownContactChangedField("field_added_later")).toBe(false);
+    // The unsubscribe from all lists sends its own events, never contact.updated.
+    expect(isKnownContactChangedField("unsubscribed")).toBe(false);
+    expect(KNOWN_CONTACT_CHANGED_FIELDS).toEqual(
+      specKnownValues("ContactUpdatedWebhookData", "changed_fields"),
+    );
+  });
+
+  it("accepts any JSON value as a contact attribute and fields added later", () => {
+    const nested = withData(specExample("contact.created"), (data) => {
+      record(data["contact"])["attributes"] = {
+        plan: "pro",
+        seats: 3,
+        ratio: 0.5,
+        trial: false,
+        note: null,
+        tags: ["a", 1, null, { deep: [true] }],
+        address: { city: "Paris", geo: { lat: 48.85, lng: 2.35 } },
+      };
+    });
+    expect(validateKnownWebhookEvent(nested)).toBe(true);
+
+    const contactField = withData(specExample("contact.updated"), (data) => {
+      record(data["contact"])["field_added_later"] = "value";
+    });
+    expect(validateKnownWebhookEvent(contactField)).toBe(true);
+    const membershipField = withData(specExample("contact.added_to_list"), (data) => {
+      record(data["list_contact"])["field_added_later"] = "value";
+    });
+    expect(validateKnownWebhookEvent(membershipField)).toBe(true);
+
+    const attributesArray = withData(specExample("contact.created"), (data) => {
+      record(data["contact"])["attributes"] = ["not", "an", "object"];
+    });
+    expect(validateKnownWebhookEvent(attributesArray)).toBe(false);
+  });
+
+  it("enforces the closed values and required fields the spec declares", () => {
+    const rejected: Array<[string, Record<string, unknown>]> = [
+      [
+        "suppression without origin",
+        withData(specExample("suppression.deleted"), (data) => {
+          Reflect.deleteProperty(data, "origin");
+        }),
+      ],
+      [
+        "unknown unsubscribe method",
+        withData(specExample("message.unsubscribed"), (data) => {
+          data["unsubscribe"] = { method: "email" };
+        }),
+      ],
+      [
+        "unknown previous subscription status",
+        withData(specExample("contact.subscribed"), (data) => {
+          data["previous_subscription_status"] = "pending";
+        }),
+      ],
+      [
+        "contact without email",
+        withData(specExample("contact.deleted"), (data) => {
+          Reflect.deleteProperty(record(data["contact"]), "email");
+        }),
+      ],
+    ];
+    for (const [label, event] of rejected) {
+      expect(validateKnownWebhookEvent(event), label).toBe(false);
+    }
+  });
+
+  it("keeps an event type this release does not know an unknown event", () => {
+    const future = { ...specExample("contact.updated"), type: "contact.merged" };
+    expect(validateKnownWebhookEvent(future)).toBe(false);
+    expect(validateUnknownWebhookEvent(future)).toBe(true);
+    expect(isKnownWebhookEvent(future as AnyWebhookEvent)).toBe(false);
   });
 });
 
@@ -1113,6 +1710,9 @@ describe("WebhookVerifier", () => {
     const fixtureIds = manifest.fixtures.map(({ fixtureId }) => fixtureId).sort();
     expect([...DELIVERY_ATTEMPT_FIXTURE_EXPECTATIONS.keys()].sort()).toEqual(fixtureIds);
     expect([...SYNTHETIC_BODY_DIGESTS.keys()].sort()).toEqual(fixtureIds);
+    expect(
+      [...EVENT_FIXTURE_EXPECTATIONS.keys()].filter((fixtureId) => !fixtureIds.includes(fixtureId)),
+    ).toEqual([]);
 
     for (const fixture of manifest.fixtures) {
       const rawBody = readFileSync(resolve(ROOT, fixture.bodyPath));
@@ -1151,6 +1751,31 @@ describe("WebhookVerifier", () => {
         expect(Object.hasOwn(eventData, "delivery_attempt"), fixture.fixtureId).toBe(false);
       } else {
         expect(eventData["delivery_attempt"], fixture.fixtureId).toEqual(expectedAttempt);
+      }
+
+      // A campaign, suppression or contact fixture cannot join the corpus
+      // without the claim its name makes.
+      const payloadType = String(record(payload)["type"]);
+      if (
+        /^(contact|suppression)\./.test(payloadType) ||
+        payloadType === "message.unsubscribed" ||
+        payloadType === "message.complained" ||
+        Object.hasOwn(record(record(payload)["data"]), "campaign_id")
+      ) {
+        expect(
+          EVENT_FIXTURE_EXPECTATIONS.has(fixture.fixtureId),
+          `${fixture.fixtureId} has no EVENT_FIXTURE_EXPECTATIONS entry`,
+        ).toBe(true);
+      }
+
+      const expectedEvent = EVENT_FIXTURE_EXPECTATIONS.get(fixture.fixtureId);
+      if (expectedEvent !== undefined) {
+        expect(event.type, fixture.fixtureId).toBe(expectedEvent.type);
+        expect(isKnownWebhookEvent(event), fixture.fixtureId).toBe(true);
+        expect(eventData, fixture.fixtureId).toMatchObject(expectedEvent.data);
+        for (const key of expectedEvent.absent ?? []) {
+          expect(Object.hasOwn(eventData, key), `${fixture.fixtureId} ${key}`).toBe(false);
+        }
       }
 
       const expectedIsBot = IS_BOT_FIXTURE_EXPECTATIONS.get(fixture.fixtureId);

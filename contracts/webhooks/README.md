@@ -64,10 +64,12 @@ outside the corpus, and each one makes an attestation quietly false if skipped:
   deliberate edit rather than an invisible one. These are the out-of-band
   evidence, so they must move deliberately. If you cannot say why a digest
   changed, do not paste the new one in.
-- **The content expectations** — `DELIVERY_ATTEMPT_FIXTURE_EXPECTATIONS` and
-  `IS_BOT_FIXTURE_EXPECTATIONS` in `tests/webhooks.test.ts`, and the captured
-  equivalents in `tests/contracts.test.ts`. A fixture id is a claim; these are
-  what check it.
+- **The content expectations** — `DELIVERY_ATTEMPT_FIXTURE_EXPECTATIONS`,
+  `IS_BOT_FIXTURE_EXPECTATIONS` and `EVENT_FIXTURE_EXPECTATIONS` in
+  `tests/webhooks.test.ts`, and the captured equivalents in
+  `tests/contracts.test.ts`. A fixture id is a claim; these are what check it.
+  Every campaign, suppression and contact fixture needs an
+  `EVENT_FIXTURE_EXPECTATIONS` entry.
 
 Everything else fails loudly: fixture counts, `toHaveLength` assertions, and
 `npm run contracts:check` all move on their own.
