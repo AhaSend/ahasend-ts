@@ -43,6 +43,74 @@ describe("createApiError", () => {
     expect(err.message).toBe("bad");
   });
 
+  it("holds every problem of a markup refusal in errors", () => {
+    const problems = [
+      {
+        code: "unknown_attribute",
+        message: 'Paragraph has no attribute "color"',
+        line: 4,
+        column: 14,
+        path: "Email > Section[2] > Paragraph[1]",
+        hint: 'wrap the text in <Color value="..."> instead',
+      },
+      {
+        code: "bad_color",
+        message: "Color has a bad value",
+        line: 6,
+        column: 12,
+        path: "Email > Button[1]",
+      },
+    ];
+    const err = createApiError({
+      status: 400,
+      body: { message: "content.markup has 2 problems", errors: problems } as errors.ApiErrorBody,
+    });
+
+    expect(err).toBeInstanceOf(AhaSendBadRequestError);
+    expect(err.errors).toEqual(problems);
+    expect(Object.keys(err)).not.toContain("errors");
+    expect(err.toJSON()).not.toHaveProperty("errors");
+  });
+
+  it("holds a lone problem that has no place in the AhaML", () => {
+    const problem = { code: "too_large", message: "content.markup is too large" };
+    const err = createApiError({
+      status: 400,
+      body: { message: "content.markup has 1 problem", errors: [problem] } as errors.ApiErrorBody,
+    });
+
+    expect(err.errors).toEqual([problem]);
+  });
+
+  it.each([
+    ["a body with only a message", { message: "bad" }],
+    ["a text body", "Bad Request"],
+    ["no body", null],
+    ["errors that are not a list", { message: "bad", errors: "many" }],
+  ])("gives an empty errors list for %s", (_name, body) => {
+    const err = createApiError({ status: 400, body: body as errors.ApiErrorBody | string | null });
+
+    expect(err.errors).toEqual([]);
+  });
+
+  it("drops entries of errors that are not problems", () => {
+    const problem = {
+      code: "syntax",
+      message: "The text is not well-formed XML",
+      line: 1,
+      column: 1,
+    };
+    const err = createApiError({
+      status: 400,
+      body: {
+        message: "content.markup has 1 problem",
+        errors: [problem, null, "syntax", { code: "syntax" }, { message: "no code" }],
+      } as errors.ApiErrorBody,
+    });
+
+    expect(err.errors).toEqual([problem]);
+  });
+
   it("maps generic 422 to AhaSendUnprocessableEntityError (NOT a BadRequest)", () => {
     const err = createApiError({ status: 422, body: { message: "validation failed" } });
     expect(err).toBeInstanceOf(AhaSendUnprocessableEntityError);

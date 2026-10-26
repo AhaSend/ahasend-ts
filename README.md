@@ -500,7 +500,7 @@ Hierarchy:
 
 ```
 AhaSendError
-├── AhaSendAPIError                      (any non-2xx; .status .body .requestId .headers)
+├── AhaSendAPIError                      (any non-2xx; .status .body .requestId .headers .errors)
 │   ├── AhaSendBadRequestError           400
 │   ├── AhaSendAuthenticationError       401
 │   ├── AhaSendPermissionError           403 (missing scope)
@@ -701,7 +701,7 @@ subject, the preview text and both bodies, and its default sender and reply-to w
 variables come only from each recipient's `substitutions`.
 
 ```ts
-const template = await client.templates.get("00000000-0000-4000-8000-000000000009");
+const template = await client.templates.getPublished("00000000-0000-4000-8000-000000000009");
 const required = template.variables.filter((variable) => variable.required);
 console.log("Template loaded.", { requiredCount: required.length });
 
@@ -722,7 +722,7 @@ the email, `condition` for a value that only decides whether a part of the email
 `item_fields` names the fields each element needs:
 
 ```ts
-const template = await client.templates.get("00000000-0000-4000-8000-000000000009");
+const template = await client.templates.getPublished("00000000-0000-4000-8000-000000000009");
 const listVariable = template.variables.find((variable) => variable.kind === "list");
 console.log("List variable found.", { fieldCount: listVariable?.item_fields?.length ?? 0 });
 
@@ -793,8 +793,9 @@ console.log("Template send accepted.", { count: res.data.length });
 
 `client.templates` creates and changes transactional templates. A template has a published copy,
 which is what a send uses, and a draft, the same draft the dashboard edits. A write changes the
-draft; pass `publish: true`, or call `publish()`, to make sends use it. Every write but `delete()`
-returns the published copy, whose `has_draft` says whether changes are still waiting.
+draft; pass `publish: true`, or call `publish()`, to make sends use it. `get()` and every write but
+`delete()` return the working copy: the draft while one exists, and the published copy otherwise.
+`has_draft` says which. `getPublished()` returns the published copy, which is what a send uses.
 
 ```ts
 // The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
@@ -813,33 +814,44 @@ const updated = await client.templates.update(template.id, {
 });
 console.log("Template drafted.", { id: updated.id });
 
-const draft = await client.templates.getDraft(template.id);
-console.log("Draft read.", { templateId: draft.template_id });
+const working = await client.templates.get(template.id);
+console.log("Working copy read.", { id: working.id });
 await client.templates.publish(template.id);
 ```
 
-- `content.mjml` makes an `advanced` template and `content.html` an `html` template; a template
-  with neither must name its `editor`. The editor never changes after create, and the design of a
-  `simple` template can be changed only in the dashboard.
+- `content.markup` makes a `simple` template, `content.mjml` an `advanced` template and
+  `content.html` an `html` template; a template with none of them must name its `editor`. The
+  editor never changes after create.
+- A `simple` design is read and written as AhaSend Markup (AhaML), which the AhaSend docs
+  describe. A read of one template or version, and the answer to a write, give it in
+  `content.markup`; when AhaML cannot be made, `markup` is `null` and `content.markup_error` says
+  why. A write that carries `content.markup` answers with `markup_warnings`, and refused AhaML
+  answers `400` (`AhaSendBadRequestError`) whose `errors` lists each problem with its `code`,
+  `message` and, when it has a place, `line`, `column` and `path`.
 - MJML is compiled in strict mode. Images and stylesheets must use `https://` URLs, such as
   `https://example.com/logo.png`, as the API cannot upload files; any other absolute URL, such as
   `http:`, `//`, `data:` or `cid:`, answers `400`. A URL that starts with a `{{ variable }}` is
   accepted.
 - `content.text` is the plain text version. `null` makes it from the HTML. Left out beside a new
-  `mjml` or `html`, it keeps a custom text, which must still render; otherwise the text is made
-  from the new HTML.
-  A non-null `content` of `getDraft()`, or of `get()` when `has_draft` is false, can be sent back as it
-  is for an `advanced` or `html` template. While a draft exists, `get()` returns the published
-  `content`, and sending it back replaces the draft's design.
+  `markup`, `mjml` or `html`, it keeps a custom text, which must still render; otherwise the text
+  is made from the new HTML.
+  A non-null `content` of `get()` can be sent back as it is, so a template read, changed and sent
+  back to `update()` builds on what was read. While a draft exists, a design equal to the
+  published copy's takes the published copy's stored design, and a draft that then equals the
+  published copy is dropped. A `content` sent back is still checked, so a stored `simple` design
+  that breaks a rule of AhaML, such as an image that is not an `https://` URL, is refused.
 - The draft is shared with the dashboard, so `publish()` publishes changes made there too.
   `discardDraft()` drops the draft.
 - `listVersions()` lists the published versions, newest first, without paging; a template keeps
   its 50 most recent versions. `getVersion()` returns one with its content, and `restoreVersion()` copies it
   into the draft, publishing it too with `{ publish: true }`.
-- A write that keeps meeting other changes to the same template answers `503`. The SDK retries
-  `discardDraft()`, and retries `update()`, `publish()` and `restoreVersion()` when they carry an
-  idempotency key, which they do unless you turn `autoGenerate` off and pass none. You see the
-  `503` only when the retries run out.
+- A write answers `503` with `Retry-After`, and writes nothing, when it keeps meeting other changes
+  to the same template, or when the AhaML in `content.markup` cannot be read now because the
+  service that reads it is down or busy. The SDK retries `discardDraft()`, and retries `create()`,
+  `update()`, `publish()` and `restoreVersion()`, and `create()` and `update()` of
+  `client.campaignTemplates` and `client.campaigns`, when they carry an idempotency key, which
+  they do unless you turn `autoGenerate` off and pass none. You see the `503` only when the
+  retries run out.
 - Creating and changing templates needs `templates:write`, and `delete()` needs `templates:delete`.
 
 ## Manage campaigns
@@ -878,7 +890,8 @@ console.log("Campaign send accepted.", {
 
 - A campaign made from a campaign template copies its design; later changes to the template do not
   reach the campaign. The design can also come from `content` or an empty design of an `editor`,
-  by the rules of "Manage templates". A `simple` design can be changed only in the dashboard.
+  by the rules of "Manage templates". A `simple` design is written with `content.markup`, and a
+  design saved later in the dashboard, also from an editor opened before the write, replaces it.
 - `send()` moves the campaign to `validating`, and the same list validation and review as a send
   from the dashboard move it on; read `status` and `status_reason` with `get()`. A campaign with
   issues, or one the send's checks stop, answers `400` (`AhaSendBadRequestError`) whose `body` is

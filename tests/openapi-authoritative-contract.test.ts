@@ -229,10 +229,12 @@ describe("authoritative OpenAPI model contracts", () => {
       "editor",
       "has_draft",
     ]);
-    // List items leave `content` out, so it is the one optional field.
+    // List items leave `content` out, and only the answer to a write that carried
+    // `content.markup` has `markup_warnings`, so these two are the optional fields.
     expect(Object.keys(properties("Template"))).toEqual([
       ...(schema("Template").required as string[]),
       "content",
+      "markup_warnings",
     ]);
     expect(nullableProperties("Template")).toEqual([]);
     expect(property("Template", "editor").$ref).toBe("#/components/schemas/TemplateEditor");
@@ -247,6 +249,24 @@ describe("authoritative OpenAPI model contracts", () => {
       "html",
       "text",
       "text_is_custom",
+      "markup",
+      "markup_error",
+    ]);
+    expect(nullableProperties("TemplateContent")).toEqual(["markup"]);
+    expect(property("TemplateContent", "markup_error").required).toEqual(["code", "message"]);
+    expect(
+      record(
+        record(property("TemplateContent", "markup_error").properties, "markup_error properties")
+          .code,
+        "markup_error.code",
+      ).enum,
+    ).toEqual([
+      "no_design",
+      "html_block",
+      "unmapped_block",
+      "bad_stored_value",
+      "renderer_unavailable",
+      "rate_limited",
     ]);
     expect(property("Template", "object").enum).toEqual(["template"]);
     expect(property("Template", "variables")).toMatchObject({
@@ -277,18 +297,7 @@ describe("authoritative OpenAPI model contracts", () => {
     });
   });
 
-  it("pins the template draft, version and write models", () => {
-    expect(schema("TemplateDraft").required).toEqual([
-      "object",
-      "template_id",
-      "updated_at",
-      "subject",
-      "preheader",
-      "variables",
-      "from",
-      "reply_to",
-      "content",
-    ]);
+  it("pins the template version and write models", () => {
     expect(schema("TemplateVersion").required).toEqual([
       "object",
       "id",
@@ -317,16 +326,20 @@ describe("authoritative OpenAPI model contracts", () => {
     );
     expect(properties("UpdateTemplateRequest")).not.toHaveProperty("editor");
     expect(schema("CreateTemplateRequest").required).toEqual(["name"]);
-    expect(nullableProperties("TemplateContentInput")).toEqual(["text"]);
+    expect(nullableProperties("TemplateContentInput")).toEqual(["text", "markup"]);
+    // A read `content` can be sent back as it is, so the input takes any `markup_error`.
+    expect(property("TemplateContentInput", "markup_error")).not.toHaveProperty("type");
     expect(schema("RestoreTemplateVersionRequest").required).toBeUndefined();
     expect(Object.keys(properties("RestoreTemplateVersionRequest"))).toEqual(["publish"]);
   });
 
   it("pins the campaign template and campaign read models", () => {
-    // List items leave `content` out, so it is the one optional field.
+    // List items leave `content` out, and only the answer to a write that carried
+    // `content.markup` has `markup_warnings`, so these two are the optional fields.
     expect(Object.keys(properties("CampaignTemplate"))).toEqual([
       ...(schema("CampaignTemplate").required as string[]),
       "content",
+      "markup_warnings",
     ]);
     expect(property("CampaignTemplate", "content").oneOf).toEqual([
       { $ref: "#/components/schemas/TemplateContent" },
@@ -361,6 +374,12 @@ describe("authoritative OpenAPI model contracts", () => {
       "content",
       "ready",
       "issues",
+    ]);
+    // Only the answer to a write that carried `content.markup` has `markup_warnings`, so it is
+    // the one optional field.
+    expect(Object.keys(record(campaign[1]!.properties, "Campaign properties"))).toEqual([
+      ...(campaign[1]!.required as string[]),
+      "markup_warnings",
     ]);
     expect(schema("CampaignStatus").enum).toEqual([
       "draft",
@@ -557,6 +576,53 @@ describe("authoritative OpenAPI model contracts", () => {
     ]);
     expect(property("PaginationInfo", "next_cursor").type).toBe("string");
     expect(property("PaginationInfo", "previous_cursor").type).toBe("string");
+  });
+
+  it("gives the six markup writes a 400 that lists every problem", () => {
+    expect(schema("MarkupErrorResponse").required).toEqual(["message"]);
+    expect(Object.keys(properties("MarkupErrorResponse"))).toEqual(["message", "errors"]);
+    expect(property("MarkupErrorResponse", "errors")).toMatchObject({
+      type: "array",
+      maxItems: 100,
+      items: { $ref: "#/components/schemas/MarkupProblem" },
+    });
+    expect(schema("MarkupProblem").required).toEqual(["code", "message"]);
+    expect(Object.keys(properties("MarkupProblem"))).toEqual([
+      "code",
+      "message",
+      "line",
+      "column",
+      "path",
+      "hint",
+    ]);
+
+    const paths = record(document.paths, "OpenAPI paths");
+    const markupWrites = [
+      "createTemplate",
+      "updateTemplate",
+      "createCampaignTemplate",
+      "updateCampaignTemplate",
+      "createCampaign",
+      "updateCampaign",
+    ];
+    const writes = Object.values(paths).flatMap((item) =>
+      Object.values(record(item, "OpenAPI path item")).filter(
+        (operation): operation is JsonRecord =>
+          operation !== null &&
+          typeof operation === "object" &&
+          markupWrites.includes((operation as JsonRecord).operationId as string),
+      ),
+    );
+    expect(writes).toHaveLength(6);
+    for (const operation of writes) {
+      const badRequest = record(
+        record(operation.responses, "responses")["400"],
+        `${String(operation.operationId)} 400`,
+      );
+      expect(JSON.stringify(badRequest.content)).toContain(
+        '"$ref":"#/components/schemas/MarkupErrorResponse"',
+      );
+    }
   });
 
   it("keeps ErrorResponse closed to its required message", () => {

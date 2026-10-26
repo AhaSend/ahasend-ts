@@ -1,4 +1,4 @@
-import type { ApiErrorBody } from "../errors.js";
+import type { ApiErrorBody, MarkupProblem } from "../errors.js";
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
@@ -137,6 +137,11 @@ export interface Campaign extends CampaignListItem {
    * unless the campaign is a draft.
    */
   issues: CampaignIssue[] | null;
+  /**
+   * Warnings about the AhaML in `content.markup`, up to the first 100; empty when there are none.
+   * Present only in the answer to a write that carried `content.markup`.
+   */
+  markup_warnings?: MarkupProblem[];
 }
 
 /** The campaign a send accepted, in `validating`, with what the send wants you to know. */
@@ -194,8 +199,8 @@ export interface CreateCampaignRequest {
   /**
    * The editor of the design. Without `content` the campaign gets an empty design of this
    * editor, which the dashboard's editor opens. With `content`, it is required when the content
-   * holds neither `mjml` nor `html`, and must agree with it otherwise. Not accepted with
-   * `template_id`.
+   * holds none of `markup`, `mjml` and `html`, and must agree with it otherwise; `markup` means
+   * `simple`, also beside `html`. Not accepted with `template_id`.
    */
   editor?: TemplateEditor | undefined;
   /**
@@ -239,8 +244,8 @@ export interface UpdateCampaignRequest {
   exclude_segment_ids?: readonly UUID[] | undefined;
   /**
    * The content of the design, by the rules of {@link TemplateContentInput}, in the design's
-   * editor. For a `simple` design, send only `text`. A campaign with no design yet needs `mjml`
-   * or `html`, which sets its editor.
+   * editor. A `simple` design is written with `markup`. A campaign with no design yet needs
+   * `markup`, `mjml` or `html`, which sets its editor.
    */
   content?: TemplateContentInput | undefined;
 }
@@ -417,8 +422,10 @@ export interface CampaignsClient {
   get(campaignId: UUID, options?: RequestOptions): AhaSendPromise<Campaign>;
 
   /**
-   * Change a draft campaign. The design of a `simple` campaign can be changed only in the
-   * dashboard: send only `content.text` for one. A list or segment that does not exist, too many
+   * Change a draft campaign. The design of a `simple` campaign is written as AhaSend Markup
+   * (AhaML) in `content.markup`. Between this request and a dashboard editor open on the same
+   * campaign, the later design save wins, also from an editor opened before this request: the
+   * dashboard's editor saves the whole design. A list or segment that does not exist, too many
    * lists or segments, or an audience with no list or segment to send to is refused with 400. An
    * audience change that finds a segment being rebuilt answers 409; that refusal is stored for the
    * idempotency key, so retry it with a new key. Authorization requires `campaigns:write`.

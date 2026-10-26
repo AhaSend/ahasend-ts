@@ -217,9 +217,16 @@ console.log("Template found.", { id: template.id, name: template.name });`,
     `// The SDK sends a fresh Idempotency-Key automatically and reuses it on its own retries.
 const templateId = "00000000-0000-4000-8000-000000000009";
 // Fields go to the template's draft; publish: true also publishes it.
+// A simple design is written as AhaSend Markup (AhaML) in content.markup.
 const template = await client.templates.update(templateId, {
   subject: "Welcome to the team, {{ first_name }}",
-  preheader: null,
+  content: {
+    markup: \`<Email version="1">
+  <Heading level="3">Welcome to the team</Heading>
+  <Paragraph>Hi <Var name="first_name" fallback="there"/>, thanks for signing up.</Paragraph>
+</Email>
+\`,
+  },
   publish: true,
 });
 console.log("Template updated.", { id: template.id, hasDraft: template.has_draft });`,
@@ -233,12 +240,17 @@ const result = await client.templates.delete(templateId);
 console.log("Template deleted.", { message: result.message });`,
   ),
   entry(
-    "getTemplateDraft",
-    "GET /v2/accounts/{account_id}/templates/{template_id}/draft",
-    "client.templates.getDraft",
+    "getPublishedTemplate",
+    "GET /v2/accounts/{account_id}/templates/{template_id}/published",
+    "client.templates.getPublished",
     `const templateId = "00000000-0000-4000-8000-000000000009";
-const draft = await client.templates.getDraft(templateId);
-console.log("Template draft found.", { templateId: draft.template_id, subject: draft.subject });`,
+// The published copy is the one a send uses; get() returns the draft while one exists.
+const template = await client.templates.getPublished(templateId);
+console.log("Published template found.", {
+  subject: template.subject,
+  hasDraft: template.has_draft,
+  variables: template.variables.length,
+});`,
   ),
   entry(
     "discardTemplateDraft",

@@ -6,6 +6,7 @@ import {
   AhaSendIdempotencyConflictError,
   AhaSendRateLimitError,
 } from "../src/errors.js";
+import type { MarkupErrorResponse } from "../src/errors.js";
 import type {
   CampaignRecipient,
   ListCampaignRecipientsParams,
@@ -100,6 +101,29 @@ function page(data: unknown[], pagination: Record<string, unknown>): Response {
   return json({ object: "list", data, pagination });
 }
 
+const MARKUP = `<Email version="1">
+  <Paragraph>Hello</Paragraph>
+</Email>
+`;
+
+const SIMPLE_CONTENT = { ...CONTENT, markup: MARKUP } as const;
+
+// The text of the paragraph starts with `{{`, which stays text, so the write warns about it.
+const WARNED_MARKUP = `<Email version="1">
+  <Paragraph>{{ first_name }}, hello</Paragraph>
+</Email>
+`;
+
+const MARKUP_WARNINGS = [
+  {
+    code: "jinja_in_text",
+    message: "Text holds {{, which stays text",
+    line: 2,
+    column: 14,
+    path: "Email > Paragraph[1]",
+  },
+];
+
 async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
   return await promise.then(
     () => undefined,
@@ -174,6 +198,28 @@ describe("CampaignTemplatesClient", () => {
     expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
     expect(calls[0]!.body).toBe('{"content":{"text":null}}');
     expect(withEditor).toBeDefined();
+  });
+
+  it("create() sends content.markup and returns the AhaML with its warnings", async () => {
+    const { fetch, calls } = captureFetch(() =>
+      json(
+        {
+          ...CAMPAIGN_TEMPLATE,
+          editor: "simple",
+          content: { ...CONTENT, markup: WARNED_MARKUP },
+          markup_warnings: MARKUP_WARNINGS,
+        },
+        201,
+      ),
+    );
+    const body = { name: "Newsletter", content: { markup: WARNED_MARKUP } };
+
+    const template = await makeClient(fetch).campaignTemplates.create(body);
+
+    expect(JSON.parse(calls[0]!.body!)).toEqual(body);
+    expect(template.editor).toBe("simple");
+    expect(template.content?.markup).toBe(WARNED_MARKUP);
+    expect(template.markup_warnings).toEqual(MARKUP_WARNINGS);
   });
 
   it("get() and delete() address one campaign template", async () => {
@@ -340,6 +386,51 @@ describe("CampaignsClient", () => {
     expect(calls[0]!.body).toBe('{"subject":null,"reply_to":null}');
     expect(withEditor).toBeDefined();
     expect(withTemplate).toBeDefined();
+  });
+
+  it("update() sends content.markup and returns the AhaML with its warnings", async () => {
+    const { fetch, calls } = captureFetch(() =>
+      json({ ...CAMPAIGN, editor: "simple", content: SIMPLE_CONTENT, markup_warnings: [] }),
+    );
+
+    const campaign = await makeClient(fetch).campaigns.update(CAMPAIGN_ID, {
+      content: { markup: MARKUP },
+    });
+
+    expect(calls[0]!.body).toBe(JSON.stringify({ content: { markup: MARKUP } }));
+    expect(campaign.content?.markup).toBe(MARKUP);
+    expect(campaign.markup_warnings).toEqual([]);
+  });
+
+  it("update() surfaces every problem of refused AhaML", async () => {
+    const refusal = {
+      message: "content.markup has 2 problems",
+      errors: [
+        {
+          code: "unknown_tag",
+          message: "Unknown tag <Paragrph>",
+          line: 2,
+          column: 3,
+          path: "Email > Paragrph[1]",
+          hint: "use <Paragraph>",
+        },
+        {
+          code: "missing_attribute",
+          message: "Button needs href",
+          line: 3,
+          column: 3,
+          path: "Email > Button[1]",
+        },
+      ],
+    } satisfies MarkupErrorResponse;
+    const { fetch } = captureFetch(() => json(refusal, 400));
+
+    const error = await rejectionOf(
+      makeClient(fetch).campaigns.update(CAMPAIGN_ID, { content: { markup: MARKUP } }),
+    );
+
+    expect(error).toBeInstanceOf(AhaSendBadRequestError);
+    expect((error as AhaSendBadRequestError).errors).toEqual(refusal.errors);
   });
 
   it("maps a status refusal and an in-progress key to different 409 errors", async () => {

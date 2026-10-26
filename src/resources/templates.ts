@@ -1,3 +1,4 @@
+import type { MarkupProblem } from "../errors.js";
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
@@ -55,15 +56,45 @@ export interface TemplateVariable {
  * The editor a template is designed with. It never changes after the template is created.
  *
  * - `advanced`: designed in MJML.
- * - `simple`: designed with the dashboard's simple editor. Its HTML can be read but changed only
- *   in the dashboard.
+ * - `simple`: designed with the dashboard's simple editor. Its HTML is made from the design and
+ *   cannot be changed through the API. A read of one item gives the design as AhaSend Markup
+ *   (AhaML) in `content.markup`, and a write changes the design with `content.markup`.
  * - `html`: an HTML template.
  */
 export type TemplateEditor = "advanced" | "simple" | "html";
 
 /**
+ * Why a `simple` design could not be read as AhaML.
+ *
+ * - `no_design`: the design has no blocks yet.
+ * - `html_block`: the design holds an HTML block, which AhaML cannot show. Remove the block in the
+ *   dashboard to read and write the design as AhaML.
+ * - `unmapped_block`: the design holds a block or a mark that AhaML has no tag for.
+ * - `bad_stored_value`: the design holds a value that AhaML cannot write.
+ * - `renderer_unavailable`: AhaML cannot be made now. Read the design again later.
+ * - `rate_limited`: the account reads and writes AhaML more often than its limit allows. Read the
+ *   design again in a second.
+ */
+export type TemplateMarkupErrorCode =
+  | "no_design"
+  | "html_block"
+  | "unmapped_block"
+  | "bad_stored_value"
+  | "renderer_unavailable"
+  | "rate_limited";
+
+/** Why `content.markup` is `null`. */
+export interface TemplateMarkupError {
+  code: TemplateMarkupErrorCode;
+  /** What went wrong, in words for a person. */
+  message: string;
+}
+
+/**
  * A template's content. A key that does not apply to the template's editor is left out, and so
- * are `mjml`, `html` and `text` when they are empty.
+ * are `mjml`, `html` and `text` when they are empty. A read of one `simple` design also gives the
+ * design as AhaSend Markup (AhaML) in `markup`. When AhaML cannot be made, the read still
+ * succeeds, with `markup` set to `null` and `markup_error` saying why.
  */
 export interface TemplateContent {
   /** The MJML source. Only for `advanced` templates. */
@@ -74,60 +105,67 @@ export interface TemplateContent {
   text?: string;
   /** Whether the text was written rather than made from the HTML. */
   text_is_custom: boolean;
+  /**
+   * The design as AhaSend Markup (AhaML). Only for `simple` designs, and then always present.
+   * `null` when AhaML cannot be made; `markup_error` then says why.
+   */
+  markup?: string | null;
+  /** Why `markup` is `null`. Present only when it is. */
+  markup_error?: TemplateMarkupError;
 }
 
-/** A transactional template: its published copy, which is what a send uses. */
+/**
+ * A transactional template. `get()` and the writes return its working copy: the draft while one
+ * exists, and the published copy otherwise. `getPublished()`, `list()` and `iterate()` return its
+ * published copy, which is what a send uses.
+ */
 export interface Template {
   object: "template";
   id: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
   name: string;
-  /** The published subject. Empty until one is published; a send's own `subject` wins over it. */
+  /**
+   * This copy's subject. Empty until one is set. A send uses the published subject, unless it
+   * names its own `subject`.
+   */
   subject: string;
-  /** The published preview text, injected into the delivered HTML when it is set. */
+  /** This copy's preview text, which a send of the published copy injects into the HTML. */
   preheader: string;
   /**
-   * Every variable the design uses. A send takes the values only from each recipient's
-   * `substitutions`, and each variable's `kind` says what shape of value to send.
+   * Every variable this copy's design uses. A send uses the published copy's variables, which
+   * `getPublished()` returns, and takes the values only from each recipient's `substitutions`.
+   * Each variable's `kind` says what shape of value to send.
    */
   variables: TemplateVariable[];
   /**
-   * The default sender, used by a send that names no `from`. `null` when the
-   * template has none, and then every send naming it must give a `from`.
+   * This copy's default sender. A send that names no `from` uses the published copy's. `null`
+   * when the copy has none; a send of a published copy with none must give a `from`.
    */
   from: Address | null;
   /**
-   * The default reply-to address, used by a send that sets no reply-to, also one
-   * that names its own `from`. `null` when the template has none. It has the
-   * shape of a send's `reply_to`, and its `name` is always empty.
+   * This copy's default reply-to address. A send that sets no reply-to, also one that names its
+   * own `from`, uses the published copy's. `null` when the copy has none. It has the shape of a
+   * send's `reply_to`, and its `name` is always empty.
    */
   reply_to: Address | null;
   editor: TemplateEditor;
-  /** Whether changes saved in the dashboard or through the API wait to be published. */
+  /**
+   * Whether changes saved in the dashboard or through the API wait to be published. `get()`
+   * returns the draft while one exists.
+   */
   has_draft: boolean;
   /**
-   * The published content; `null` when the published copy has no body. Absent from the items of
-   * `list()` and `iterate()`; every other method that returns a Template sets it.
+   * This copy's content; `null` when it has no body, as for the published copy of a template that
+   * was never published. Absent from the items of `list()` and `iterate()`; every other method
+   * that returns a Template sets it.
    */
   content?: TemplateContent | null;
-}
-
-/** A template's draft: the changes saved in the dashboard or through the API, not yet published. */
-export interface TemplateDraft {
-  object: "template_draft";
-  template_id: UUID;
-  /** When the draft last changed. */
-  updated_at: ISODateTime;
-  subject: string;
-  preheader: string;
-  /** Every variable the draft uses, as a send would require them once the draft is published. */
-  variables: TemplateVariable[];
-  from: Address | null;
-  /** The draft's default reply-to address. Its `name` is always empty. */
-  reply_to: Address | null;
-  /** The draft's content; `null` when the draft has no body. */
-  content: TemplateContent | null;
+  /**
+   * Warnings about the AhaML in `content.markup`, up to the first 100; empty when there are none.
+   * Present only in the answer to a write that carried `content.markup`.
+   */
+  markup_warnings?: MarkupProblem[];
 }
 
 /** Who published a template version. */
@@ -176,11 +214,18 @@ export interface ListTemplateVersionsResponse {
 }
 
 /**
- * The content of a template write. It holds at most one of `mjml` and `html`, and at least one
- * of `mjml`, `html` and `text`. For an `advanced` or `html` template, the `content` a TemplateDraft
- * returns, or a Template with no draft, can be sent back as it is. While a draft exists, a Template's `content` is the published
- * one, and sending it back replaces the draft's design. For a `simple` template, send back only
- * `text`.
+ * The content of a template write. It holds at most one of `mjml` and `html`, never `markup`
+ * beside `mjml`, and at least one of `markup`, `mjml`, `html` and `text`. The `content` that
+ * `get()` returns, the working copy, can be sent back as it is. While a draft exists, a design
+ * equal to the published copy's, which `getPublished()` returns, takes the published copy's
+ * stored design, and a draft that then equals the published copy is dropped.
+ *
+ * A `simple` design is written as AhaSend Markup (AhaML) in `markup`. Its `html` is made from the
+ * design: beside `markup` it is ignored without any check, and without `markup` it is ignored
+ * when it equals the working copy's stored HTML, and refused otherwise, an empty `html` included.
+ * AhaML that prints the same as the stored design keeps that design and its HTML. A read
+ * `content` sent back is still checked, so a stored design that breaks a rule of AhaML, also one
+ * saved in the dashboard, is refused, such as an image that is not an `https://` URL.
  */
 export interface TemplateContentInput {
   /**
@@ -190,17 +235,28 @@ export interface TemplateContentInput {
   mjml?: string | undefined;
   /**
    * The HTML; only for `html` templates. Images and stylesheets must use `https://` URLs; a URL
-   * that starts with a `{{ variable }}` is accepted.
+   * that starts with a `{{ variable }}` is accepted. The HTML of a `simple` design is made from
+   * its `markup`, and is accepted only as the rules above give.
    */
   html?: string | undefined;
   /**
-   * The plain text version. `null` makes the text from the HTML. Left out beside a new `mjml` or
-   * `html`, it keeps the draft's text when that text is custom, and that text must still render;
-   * otherwise, and on a create, the text is made from the new HTML.
+   * The plain text version. `null` makes the text from the HTML. Left out beside a new `markup`,
+   * `mjml` or `html`, it keeps the draft's text when that text is custom, and that text must still
+   * render; otherwise, and on a create, the text is made from the new HTML.
    */
   text?: string | null | undefined;
   /** Accepted so a read `content` can be sent back, and ignored. */
   text_is_custom?: boolean | undefined;
+  /**
+   * The design as AhaSend Markup (AhaML); only for `simple` designs. On a create, and on a
+   * campaign with no design yet, it means `editor: "simple"`. The answer lists warnings about it in
+   * `markup_warnings`. A refused `markup` throws an `AhaSendBadRequestError` whose `errors` lists
+   * the problems. `null` is the same as no `markup`, and an empty string is refused. The writes
+   * that carry it count against a per-account limit, beside the API's own rate limit.
+   */
+  markup?: string | null | undefined;
+  /** Accepted so a read `content` can be sent back, and ignored, whatever it holds. */
+  markup_error?: unknown;
 }
 
 /**
@@ -211,8 +267,9 @@ export interface CreateTemplateRequest {
   /** 1–255 characters after trimming. */
   name: string;
   /**
-   * Required when `content` holds neither `mjml` nor `html`. `content.mjml` means `advanced` and
-   * `content.html` means `html`; an `editor` that disagrees with the content is refused.
+   * Required when `content` holds none of `markup`, `mjml` and `html`. `content.markup` means
+   * `simple`, also beside `content.html`; `content.mjml` means `advanced`, and `content.html`
+   * alone means `html`. An `editor` that disagrees with the content is refused.
    */
   editor?: TemplateEditor | undefined;
   subject?: string | null | undefined;
@@ -266,7 +323,9 @@ export type ListTemplatesParams = PaginationParams;
 /**
  * Manage the account's transactional templates. A write changes the template's draft, the same
  * draft the dashboard edits, and sends use the published copy until the draft is published. A
- * publish publishes the whole draft, including changes made in the dashboard.
+ * publish publishes the whole draft, including changes made in the dashboard. `get()` and the
+ * writes return the working copy, so a template read, changed and sent back to `update()` builds
+ * on what was read; `getPublished()` returns the copy a send uses.
  */
 export interface TemplatesClient {
   /**
@@ -286,7 +345,9 @@ export interface TemplatesClient {
 
   /**
    * Create a template. MJML is compiled in strict mode, and images and stylesheets must use
-   * `https://` URLs. Authorization requires `templates:write`.
+   * `https://` URLs. A 503 means the AhaML in `content.markup` could not be read now, because the
+   * service that reads it is down or busy; nothing was written, and the request can be sent again
+   * after `Retry-After`. Authorization requires `templates:write`.
    */
   create(
     body: CreateTemplateRequest,
@@ -294,16 +355,24 @@ export interface TemplatesClient {
   ): AhaSendPromise<Template>;
 
   /**
-   * Retrieve one template's published copy by UUID, with its content and the variables a send
-   * must supply. Authorization requires `templates:read`.
+   * Retrieve one template's working copy by UUID: its draft while it has one, and its published
+   * copy otherwise; `has_draft` says which. Authorization requires `templates:read`.
    */
   get(templateId: string, options?: RequestOptions): AhaSendPromise<Template>;
 
   /**
-   * Change a template and return its published copy; `has_draft` says whether a draft is left.
+   * Retrieve one template's published copy by UUID, the one a send uses, with its content and the
+   * variables a send must supply. Read it to build a send. Authorization requires `templates:read`.
+   */
+  getPublished(templateId: UUID, options?: RequestOptions): AhaSendPromise<Template>;
+
+  /**
+   * Change a template and return its working copy; `has_draft` says whether a draft is left.
    * Sending the same request again changes nothing more, and a retry with the same idempotency
-   * key replays the first answer. A 503 means the template kept changing while the request wrote
-   * it; the request can be sent again. Authorization requires `templates:write`.
+   * key replays the first answer. A 503 means nothing was written, for one of two reasons: the
+   * template kept changing while the request wrote it, or the AhaML in `content.markup` could not
+   * be read now, because the service that reads it is down or busy. The request can be sent again
+   * after `Retry-After`. Authorization requires `templates:write`.
    */
   update(
     templateId: UUID,
@@ -313,12 +382,6 @@ export interface TemplatesClient {
 
   /** Delete a template; sends of it fail from then on. Authorization requires `templates:delete`. */
   delete(templateId: UUID, options?: RequestOptions): AhaSendPromise<SuccessResponse>;
-
-  /**
-   * Retrieve a template's draft. A template with no draft answers 404.
-   * Authorization requires `templates:read`.
-   */
-  getDraft(templateId: UUID, options?: RequestOptions): AhaSendPromise<TemplateDraft>;
 
   /**
    * Discard a template's draft and return the published copy. A template with no draft is
@@ -412,6 +475,14 @@ class TemplatesClientImplementation implements TemplatesClient {
     );
   }
 
+  getPublished(templateId: UUID, options: RequestOptions = {}): AhaSendPromise<Template> {
+    return this.#operations.execute(
+      "getPublishedTemplate",
+      { path: { account_id: this.#accountId, template_id: templateId } },
+      forwardOptions(options),
+    );
+  }
+
   update(
     templateId: UUID,
     body: UpdateTemplateRequest,
@@ -427,14 +498,6 @@ class TemplatesClientImplementation implements TemplatesClient {
   delete(templateId: UUID, options: RequestOptions = {}): AhaSendPromise<SuccessResponse> {
     return this.#operations.execute(
       "deleteTemplate",
-      { path: { account_id: this.#accountId, template_id: templateId } },
-      forwardOptions(options),
-    );
-  }
-
-  getDraft(templateId: UUID, options: RequestOptions = {}): AhaSendPromise<TemplateDraft> {
-    return this.#operations.execute(
-      "getTemplateDraft",
       { path: { account_id: this.#accountId, template_id: templateId } },
       forwardOptions(options),
     );

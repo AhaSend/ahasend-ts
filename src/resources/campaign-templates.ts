@@ -1,3 +1,4 @@
+import type { MarkupProblem } from "../errors.js";
 import type { OperationExecutor } from "../operations.js";
 import { paginate } from "../pagination.js";
 import type {
@@ -33,6 +34,11 @@ export interface CampaignTemplate {
    * CampaignTemplate sets it.
    */
   content?: TemplateContent | null;
+  /**
+   * Warnings about the AhaML in `content.markup`, up to the first 100; empty when there are none.
+   * Present only in the answer to a write that carried `content.markup`.
+   */
+  markup_warnings?: MarkupProblem[];
 }
 
 /** A new campaign template. */
@@ -40,9 +46,10 @@ export interface CreateCampaignTemplateRequest {
   /** 1–255 characters after trimming. */
   name: string;
   /**
-   * Required when `content` holds neither `mjml` nor `html`. `content.mjml` means `advanced` and
-   * `content.html` means `html`; an `editor` that disagrees with the content is refused. Without
-   * `content` the campaign template gets an empty design, which the dashboard's editor opens.
+   * Required when `content` holds none of `markup`, `mjml` and `html`. `content.markup` means
+   * `simple`, also beside `content.html`; `content.mjml` means `advanced`, and `content.html`
+   * alone means `html`. An `editor` that disagrees with the content is refused. Without `content`
+   * the campaign template gets an empty design, which the dashboard's editor opens.
    */
   editor?: TemplateEditor | undefined;
   /**
@@ -58,7 +65,7 @@ export interface UpdateCampaignTemplateRequest {
   name?: string | undefined;
   /**
    * The content, by the rules of {@link TemplateContentInput}, where the draft means the campaign
-   * template itself. For a `simple` campaign template, send only `text`.
+   * template itself. A `simple` design is written with `markup`.
    */
   content?: TemplateContentInput | undefined;
 }
@@ -104,7 +111,9 @@ export interface CampaignTemplatesClient {
   /**
    * Change a campaign template's name, its content, or both, at once. Campaigns already made from
    * it keep their own copies. A name or content equal to the stored one changes nothing, so the
-   * same request can be sent again. Authorization requires `templates:write`.
+   * same request can be sent again. A design saved later in the dashboard, also from an editor
+   * opened before this request, replaces the design this request wrote: the dashboard's editor
+   * saves the whole design. Authorization requires `templates:write`.
    */
   update(
     templateId: UUID,

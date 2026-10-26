@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { AhaSendClient } from "../src/client.js";
-import { AhaSendNotFoundError } from "../src/errors.js";
+import { AhaSendBadRequestError, AhaSendNotFoundError } from "../src/errors.js";
+import type { MarkupErrorResponse, MarkupProblem } from "../src/errors.js";
 import type {
   BatchUpsertContactInput,
   Contact,
@@ -25,7 +26,7 @@ import type {
   ListTemplatesParams,
   ListTemplateVersionsResponse,
   Template,
-  TemplateDraft,
+  TemplateContentInput,
   TemplateVariableKind,
   TemplateVersionDetail,
   UpdateTemplateRequest,
@@ -1041,6 +1042,12 @@ const TEMPLATE_CONTENT = {
   text_is_custom: false,
 } as const;
 
+const SIMPLE_CONTENT = {
+  html: "<html><p>Hello {{ first_name | default('there') }}</p></html>",
+  text: "Hello",
+  text_is_custom: false,
+} as const;
+
 function templatePage(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -1352,6 +1359,130 @@ describe("TemplatesClient", () => {
     expect(withNullContent).toBeDefined();
   });
 
+  it("update() sends content.markup and returns the AhaML with its warnings", async () => {
+    // The text of the paragraph starts with `{{`, which stays text, so the write warns about it.
+    const markup = `<Email version="1">
+  <Paragraph>{{ first_name }}, hello</Paragraph>
+</Email>
+`;
+    const warnings: MarkupProblem[] = [
+      {
+        code: "jinja_in_text",
+        message: "Text holds {{, which stays text",
+        line: 2,
+        column: 14,
+        path: "Email > Paragraph[1]",
+      },
+    ];
+    const { fetch, calls } = captureFetch(() =>
+      templatePage({
+        ...TEMPLATE_RESPONSE,
+        editor: "simple",
+        content: { ...SIMPLE_CONTENT, markup },
+        markup_warnings: warnings,
+      }),
+    );
+    const client = makeClient(fetch);
+
+    const template = await client.templates.update(TEMPLATE_ID, { content: { markup } });
+
+    expect(calls[0]!.operationId).toBe("updateTemplate");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ content: { markup } });
+    expect(template.content?.markup).toBe(markup);
+    expect(template.content?.markup_error).toBeUndefined();
+    expect(template.markup_warnings).toEqual(warnings);
+  });
+
+  it("get() returns a null markup with the reason AhaML cannot be made", async () => {
+    const markupError = {
+      code: "html_block",
+      message: "The design holds an HTML block, which AhaML cannot show",
+    } as const;
+    const { fetch } = captureFetch(() =>
+      templatePage({
+        ...TEMPLATE_RESPONSE,
+        editor: "simple",
+        has_draft: true,
+        content: { ...SIMPLE_CONTENT, markup: null, markup_error: markupError },
+      }),
+    );
+    const client = makeClient(fetch);
+
+    const working = await client.templates.get(TEMPLATE_ID);
+
+    expect(working.content?.markup).toBeNull();
+    expect(working.content?.markup_error).toEqual(markupError);
+    expectTypeOf(working.content!.markup_error!.code).toEqualTypeOf<
+      | "no_design"
+      | "html_block"
+      | "unmapped_block"
+      | "bad_stored_value"
+      | "renderer_unavailable"
+      | "rate_limited"
+    >();
+  });
+
+  it("update() sends a read simple content back as it is, markup_error included", async () => {
+    const read = {
+      ...SIMPLE_CONTENT,
+      markup: null,
+      markup_error: { code: "renderer_unavailable", message: "AhaML cannot be made now" },
+    } as const;
+    const { fetch, calls } = captureFetch(() => templatePage(TEMPLATE_RESPONSE));
+    const client = makeClient(fetch);
+    const content: TemplateContentInput = read;
+
+    await client.templates.update(TEMPLATE_ID, { content });
+
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ content: read });
+  });
+
+  it("a refused markup write throws a bad request error that holds every problem", async () => {
+    const refusal = {
+      message: "content.markup has 3 problems",
+      errors: [
+        {
+          code: "unknown_attribute",
+          message: 'Paragraph has no attribute "color"',
+          line: 4,
+          column: 14,
+          path: "Email > Section[2] > Paragraph[1]",
+          hint: 'wrap the text in <Color value="..."> instead',
+        },
+        {
+          code: "bad_url",
+          message: "Image src must be an https:// URL",
+          line: 7,
+          column: 10,
+          path: "Email > Image[1]",
+        },
+        {
+          code: "missing_attribute",
+          message: "Button needs an href",
+          line: 9,
+          column: 5,
+          path: "Email > Section[3] > Button[1]",
+        },
+      ],
+    } satisfies MarkupErrorResponse;
+    const { fetch, calls } = captureFetch(() => templatePage(refusal, 400));
+    const client = makeClient(fetch);
+
+    const rejection = await client.templates
+      .update(TEMPLATE_ID, { content: { markup: "<Email/>" } })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(rejection).toBeInstanceOf(AhaSendBadRequestError);
+    const error = rejection as AhaSendBadRequestError;
+    expect(error.message).toBe("content.markup has 3 problems");
+    expect(error.errors).toEqual(refusal.errors);
+    expect(error.body).toEqual(refusal);
+    expect(calls).toHaveLength(1);
+  });
+
   it("delete() removes the template", async () => {
     const { fetch, calls } = captureFetch(() => templatePage({ message: "template deleted" }));
     const client = makeClient(fetch);
@@ -1364,32 +1495,24 @@ describe("TemplatesClient", () => {
     expect(result).toEqual({ message: "template deleted" });
   });
 
-  it("getDraft() and discardDraft() address the draft path", async () => {
-    const draft = {
-      object: "template_draft",
-      template_id: TEMPLATE_ID,
-      updated_at: "2026-09-10T12:00:00Z",
-      subject: "Draft subject",
-      preheader: "",
-      variables: [],
-      from: null,
-      reply_to: null,
-      content: null,
-    } as const;
+  it("getPublished() reads the published path, and discardDraft() the draft path", async () => {
+    const published = { ...TEMPLATE_RESPONSE, has_draft: true, content: TEMPLATE_CONTENT } as const;
     const { fetch, calls } = captureFetch((_call, index) =>
-      templatePage(index === 0 ? draft : TEMPLATE_RESPONSE),
+      templatePage(index === 0 ? published : TEMPLATE_RESPONSE),
     );
     const client = makeClient(fetch);
 
-    const read: TemplateDraft = await client.templates.getDraft(TEMPLATE_ID);
+    const read: Template = await client.templates.getPublished(TEMPLATE_ID);
     const discarded: Template = await client.templates.discardDraft(TEMPLATE_ID);
 
-    const draftPath = `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}/draft`;
-    expect(calls.map(({ operationId, method, url }) => [operationId, method, url])).toEqual([
-      ["getTemplateDraft", "GET", draftPath],
-      ["discardTemplateDraft", "DELETE", draftPath],
+    const templatePath = `https://api.test/v2/accounts/${ACCOUNT_ID}/templates/${TEMPLATE_ID}`;
+    expect(
+      calls.map(({ operationId, method, url, body }) => [operationId, method, url, body]),
+    ).toEqual([
+      ["getPublishedTemplate", "GET", `${templatePath}/published`, undefined],
+      ["discardTemplateDraft", "DELETE", `${templatePath}/draft`, undefined],
     ]);
-    expect(read).toEqual(draft);
+    expect(read).toEqual(published);
     expect(discarded.has_draft).toBe(false);
   });
 

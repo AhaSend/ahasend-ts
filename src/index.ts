@@ -26,7 +26,13 @@ export {
   AhaSendUnprocessableEntityError,
   isAhaSendError,
 } from "./errors.js";
-export type { AhaSendErrorCode, ApiErrorBody, SerializedAhaSendError } from "./errors.js";
+export type {
+  AhaSendErrorCode,
+  ApiErrorBody,
+  MarkupErrorResponse,
+  MarkupProblem,
+  SerializedAhaSendError,
+} from "./errors.js";
 
 export { IdempotencyKeyBuilder, generateIdempotencyKey } from "./idempotency.js";
 export type { IdempotencyConfig } from "./idempotency.js";
@@ -97,8 +103,9 @@ export type {
   Template,
   TemplateContent,
   TemplateContentInput,
-  TemplateDraft,
   TemplateEditor,
+  TemplateMarkupError,
+  TemplateMarkupErrorCode,
   TemplatePublisher,
   TemplatesClient,
   TemplateVariable,
