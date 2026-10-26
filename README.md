@@ -190,30 +190,30 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 
 ## Resources
 
-| Resource                      | Methods                                                                                                                                       |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `client.messages`             | `send`, `sendTemplate`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                                |
-| `client.templates`            | `list`, `iterate`, `create`, `get`, `update`, `delete`, `getDraft`, `discardDraft`, `publish`, `listVersions`, `getVersion`, `restoreVersion` |
-| `client.campaignTemplates`    | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                        |
-| `client.campaigns`            | `list`, `iterate`, `create`, `get`, `update`, `delete`, `duplicate`, `send`, `unschedule`, `test`, `getStats`, plus nested `recipients`       |
-| `client.campaigns.recipients` | `list`, `iterate` (a campaign's recipients in one status or bounce classification)                                                            |
-| `client.domains`              | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                                                            |
-| `client.apiKeys`              | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                        |
-| `client.webhooks`             | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`)                               |
-| `client.statistics`           | `deliverability`, `bounces`, `deliveryTimes`                                                                                                  |
-| `client.contacts`             | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists` and `segments`                                     |
-| `client.contacts.lists`       | `list`, `iterate` (the lists one contact is on)                                                                                               |
-| `client.contacts.segments`    | `list`, `iterate` (the segments one contact is a member of)                                                                                   |
-| `client.lists`                | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                                                |
-| `client.lists.contacts`       | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                                                          |
-| `client.segments`             | `list`, `iterate`, `create`, `preview`, `get`, `update`, `delete`, plus nested `contacts`                                                     |
-| `client.segments.contacts`    | `list`, `iterate` (a segment's members)                                                                                                       |
-| `client.suppressions`         | `list`, `iterate`, `create`, `delete`, `wipe`                                                                                                 |
-| `client.routes`               | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                                                      |
-| `client.accounts`             | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                                                   |
-| `client.smtpCredentials`      | `list`, `iterate`, `create`, `get`, `delete`                                                                                                  |
-| `client.subAccounts`          | `list`, `iterate`, `create`, `usage`, `get`, `update`, `delete`, `suspend`, `unsuspend`, `unpauseDomain`, plus nested `apiKeys`               |
-| `client.ping()`               | Health check (`GET /v2/ping`)                                                                                                                 |
+| Resource                      | Methods                                                                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.messages`             | `send`, `sendTemplate`, `sendConversation`, `list`, `iterate`, `get`, `cancel`                                                                    |
+| `client.templates`            | `list`, `iterate`, `create`, `get`, `update`, `delete`, `getPublished`, `discardDraft`, `publish`, `listVersions`, `getVersion`, `restoreVersion` |
+| `client.campaignTemplates`    | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                            |
+| `client.campaigns`            | `list`, `iterate`, `create`, `get`, `update`, `delete`, `duplicate`, `send`, `unschedule`, `test`, `getStats`, plus nested `recipients`           |
+| `client.campaigns.recipients` | `list`, `iterate` (a campaign's recipients in one status or bounce classification)                                                                |
+| `client.domains`              | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                                                                |
+| `client.apiKeys`              | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                            |
+| `client.webhooks`             | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`)                                   |
+| `client.statistics`           | `deliverability`, `bounces`, `deliveryTimes`                                                                                                      |
+| `client.contacts`             | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists` and `segments`                                         |
+| `client.contacts.lists`       | `list`, `iterate` (the lists one contact is on)                                                                                                   |
+| `client.contacts.segments`    | `list`, `iterate` (the segments one contact is a member of)                                                                                       |
+| `client.lists`                | `list`, `iterate`, `create`, `get`, `update`, `delete`, plus nested `contacts`                                                                    |
+| `client.lists.contacts`       | `list`, `iterate`, `upsert`, `delete`, `batchAdd` (a list's members)                                                                              |
+| `client.segments`             | `list`, `iterate`, `create`, `preview`, `get`, `update`, `delete`, plus nested `contacts`                                                         |
+| `client.segments.contacts`    | `list`, `iterate` (a segment's members)                                                                                                           |
+| `client.suppressions`         | `list`, `iterate`, `create`, `delete`, `wipe`                                                                                                     |
+| `client.routes`               | `list`, `iterate`, `create`, `get`, `update`, `delete` (inbound routing)                                                                          |
+| `client.accounts`             | `get`, `update`, `listMembers`, `addMember`, `removeMember`                                                                                       |
+| `client.smtpCredentials`      | `list`, `iterate`, `create`, `get`, `delete`                                                                                                      |
+| `client.subAccounts`          | `list`, `iterate`, `create`, `usage`, `get`, `update`, `delete`, `suspend`, `unsuspend`, `unpauseDomain`, plus nested `apiKeys`                   |
+| `client.ping()`               | Health check (`GET /v2/ping`)                                                                                                                     |
 
 Every method carries JSDoc — hover in your editor for parameter
 constraints, required scopes, and behavioural notes.
