@@ -221,9 +221,9 @@ export interface ListTemplateVersionsResponse {
  * stored design, and a draft that then equals the published copy is dropped.
  *
  * A `simple` design is written as AhaSend Markup (AhaML) in `markup`. Its `html` is made from the
- * design: beside `markup` it is ignored, and without `markup` it is ignored when it equals the
- * working copy's stored HTML, and refused otherwise; an empty `html` is refused, as for every
- * editor. AhaML that prints the same as the stored design keeps that design and its HTML. A read
+ * design: beside `markup` it is ignored without any check, and without `markup` it is ignored
+ * when it equals the working copy's stored HTML, and refused otherwise, an empty `html` included.
+ * AhaML that prints the same as the stored design keeps that design and its HTML. A read
  * `content` sent back is still checked, so a stored design that breaks a rule of AhaML, also one
  * saved in the dashboard, is refused, such as an image that is not an `https://` URL.
  */
