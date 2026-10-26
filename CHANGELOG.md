@@ -35,7 +35,7 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   `on_contact_complained`. Each is off unless set, so an existing webhook gets nothing new. The
   contact events need the contact read scopes on the API key.
 - `Webhook`, `CreateWebhookRequest` and `UpdateWebhookRequest` gain `origins` (`WebhookOrigin[] |
-  null`): whose changes the contact and suppression events report, `recipient`, `api`,
+null`): whose changes the contact and suppression events report, `recipient`, `api`,
   `dashboard` or `system`; `null` means every origin. An empty array is refused with `400`.
 
 ### Changed
