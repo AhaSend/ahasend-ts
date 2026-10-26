@@ -31,29 +31,36 @@ const rootApiReport = readFileSync(resolve(root, "etc/ahasend-sdk.api.md"), "utf
 const webhookApiReport = readFileSync(resolve(root, "etc/ahasend-sdk-webhooks.api.md"), "utf8");
 
 const releaseSection = changelog.slice(
+  changelog.indexOf("## [0.5.0]"),
   changelog.indexOf("## [0.4.0]"),
-  changelog.indexOf("## [0.3.0]"),
 );
 
-describe("v0.4.0 release source alignment", () => {
+describe("v0.5.0 release source alignment", () => {
   it("pins the package, lockfile, runtime, changelog, and root declaration report", () => {
     expect(packageManifest.name).toBe("@ahasend/sdk");
-    expect(packageManifest.version).toBe("0.4.0");
-    expect(packageLock.version).toBe("0.4.0");
-    expect(packageLock.packages[""]?.version).toBe("0.4.0");
-    expect(versionSource).toContain('export const SDK_VERSION = "0.4.0";');
-    expect(changelog).toContain("## [0.4.0] — 2026-10-19");
-    expect(changelog).not.toContain("## [0.4.0] — Unreleased");
-    expect(rootApiReport).toContain('export const SDK_VERSION = "0.4.0";');
+    expect(packageManifest.version).toBe("0.5.0");
+    expect(packageLock.version).toBe("0.5.0");
+    expect(packageLock.packages[""]?.version).toBe("0.5.0");
+    expect(versionSource).toContain('export const SDK_VERSION = "0.5.0";');
+    expect(changelog).toContain("## [0.5.0] — 2026-10-26");
+    expect(changelog).not.toContain("## [0.5.0] — Unreleased");
+    expect(rootApiReport).toContain('export const SDK_VERSION = "0.5.0";');
   });
 
-  it("announces the new issue code, the send check answers and the template variable kinds", () => {
+  it("announces segments, AhaML, the published template read and the new webhook events", () => {
     expect(releaseSection).toContain("### Added");
-    for (const name of ["text_unchecked", "TemplateVariableKind", "kind", "item_fields"]) {
+    expect(releaseSection).toContain("### Changed");
+    expect(releaseSection).toContain("### Removed");
+    for (const name of [
+      "client.segments",
+      "content.markup",
+      "getPublished()",
+      "templates.getDraft()",
+      "contact.created",
+      "isKnownWebhookOrigin",
+    ]) {
       expect(releaseSection, name).toContain("`" + name + "`");
     }
-    expect(releaseSection).toContain("`400`");
-    expect(releaseSection).toContain("`503`");
   });
 
   it("uses runtime-neutral package wording without changing the Node engine or dependency policy", () => {
@@ -163,13 +170,13 @@ describe("v0.4.0 release source alignment", () => {
     expect(runbook).toContain('CANDIDATE_TARBALL="$(find "$RUNTIME_SMOKE_DIR"');
   });
 
-  it("uses the v0.4.0 tag in release and recovery commands", () => {
-    expect(runbook).toContain("git tag v0.4.0\ngit push origin v0.4.0");
-    expect(runbook).toContain("git tag -d v0.4.0 && git push origin :refs/tags/v0.4.0");
+  it("uses the v0.5.0 tag in release and recovery commands", () => {
+    expect(runbook).toContain("git tag v0.5.0\ngit push origin v0.5.0");
+    expect(runbook).toContain("git tag -d v0.5.0 && git push origin :refs/tags/v0.5.0");
     // Any tag that is not this release's is stale, whichever release preceded
     // it — and the push and delete forms count too, not just `git tag`.
-    expect(runbook).not.toMatch(/git tag (?:-d )?v(?!0\.4\.0\b)/u);
-    expect(runbook).not.toMatch(/git push origin (?::refs\/tags\/)?v(?!0\.4\.0\b)/u);
+    expect(runbook).not.toMatch(/git tag (?:-d )?v(?!0\.5\.0\b)/u);
+    expect(runbook).not.toMatch(/git push origin (?::refs\/tags\/)?v(?!0\.5\.0\b)/u);
   });
 
   it("pins each artifact validator's usage line to the signature the runbook prints", () => {
