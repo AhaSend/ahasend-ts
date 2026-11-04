@@ -26,7 +26,7 @@ import type { TemplateContent, TemplateContentInput, TemplateEditor } from "./te
  * Where a campaign is in its life. Only a `draft` can be changed or deleted.
  *
  * - `draft`: being prepared.
- * - `validating`: scheduled, and its lists are being checked.
+ * - `validating`: scheduled, and its lists and segments are being checked.
  * - `waiting_for_review`: held for a review before it sends.
  * - `scheduled`: accepted, waiting for its send time.
  * - `sending`: sending now.
@@ -458,7 +458,7 @@ export interface CampaignsClient {
 
   /**
    * Send a draft campaign now, or at `send_at`. The campaign moves to `validating` and goes
-   * through the same list validation and review as a send from the dashboard; read `status` and
+   * through the same contact validation and review as a send from the dashboard; read `status` and
    * `status_reason` with `get()`. A campaign with issues, or one the send's checks stop, is
    * refused with an `AhaSendBadRequestError` whose `body` is a {@link CampaignNotReady}. To
    * change the send time, unschedule the campaign and send it again.
