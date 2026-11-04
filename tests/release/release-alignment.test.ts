@@ -242,8 +242,12 @@ describe("v0.5.0 release source alignment", () => {
       expect(listed, `jobs that consume ${secret}`).toEqual(consumers(secret!));
     }
 
-    // next-publish has no NPM_TOKEN: it publishes with provenance.
-    expect(runbook).toContain("`npm publish --provenance` with `id-token: write`");
+    // Registry writes go through npm trusted publishing: the runbook names one
+    // entry per npm environment, and next-publish publishes with provenance.
+    expect(runbook).toMatch(
+      /^\| `npm-next`\s+\| publish\s+\| `npm publish --provenance` in `next-publish`/mu,
+    );
+    expect(runbook).toMatch(/^\| `npm-latest`\s+\| \*\*Allow npm dist-tag\*\*\s+\|/mu);
     const publishJob = workflow.jobs["next-publish"] as {
       readonly steps: readonly { readonly run?: string }[];
     };

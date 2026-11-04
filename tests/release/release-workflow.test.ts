@@ -78,11 +78,11 @@ function expectAssertedNpmToolchain(job: unknown, label: string): void {
   expect(setupIndex, `${label} setup-node step`).toBeGreaterThanOrEqual(0);
   expect(install, `${label} npm install step`).toMatchObject({
     name: "Install asserted npm version",
-    run: "npm install --global npm@11.12.0",
+    run: "npm install --global npm@11.21.1",
   });
   expect(verification, `${label} npm version step`).toMatchObject({
     name: "Verify asserted npm version",
-    run: 'test "$(npm --version)" = "11.12.0"',
+    run: 'test "$(npm --version)" = "11.21.1"',
   });
 }
 
@@ -368,7 +368,7 @@ describe("single-run release workflow", () => {
   it("provisions the declared npm executable before every release job uses it", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
 
-    expect(packageJson["packageManager"]).toBe("npm@11.12.0");
+    expect(packageJson["packageManager"]).toBe("npm@11.21.1");
     for (const jobName of [
       "source-gate",
       "candidate",
@@ -1125,15 +1125,25 @@ describe("single-run release workflow", () => {
     );
     expect(
       record(
+        record(jobs["latest-promotion"], "latest promotion")["permissions"],
+        "promotion permissions",
+      ),
+    ).toEqual({ contents: "read", "id-token": "write" });
+    expect(
+      record(
         record(jobs["github-release"], "GitHub release")["permissions"],
         "release permissions",
       ),
-    ).toEqual({ contents: "write" });
+    ).toEqual({ contents: "write", "id-token": "write" });
     expect(
       record(
         record(jobs["release-compensation"], "compensation")["permissions"],
         "compensation permissions",
       ),
-    ).toEqual({ contents: "write" });
+    ).toEqual({ contents: "write", "id-token": "write" });
+  });
+
+  it("authenticates every npm registry write through trusted publishing, never a stored token", () => {
+    expect(workflowSource).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN/u);
   });
 });
