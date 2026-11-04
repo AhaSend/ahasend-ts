@@ -175,10 +175,14 @@ describe("dependency audit policy", () => {
     // packed-output tests assert. Every miniflare release pins undici 7.29.1,
     // which GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472 and GHSA-xjj6-f33q-929c
     // (high) affect; the override moves wrangler's miniflare to the fixed
-    // 7.30.1 until a miniflare release carries it.
+    // 7.30.1 until a miniflare release carries it. GHSA-g3hv-75wg-m249
+    // (moderate) affects every minimatch below 11.0.1, and eslint,
+    // typescript-eslint and api-extractor all still depend on 3.x or 10.x; the
+    // override moves the whole tree to 11.x until they accept it.
     expect(packageJson.overrides).toEqual({
       esbuild: "0.28.1",
       miniflare: { undici: "7.30.1" },
+      minimatch: "11.0.4",
     });
     expect(lockfilePackage("node_modules/esbuild")).toMatchObject({
       version: "0.28.1",
@@ -188,6 +192,15 @@ describe("dependency audit policy", () => {
       version: "7.30.1",
       dev: true,
     });
+    expect(lockfilePackage("node_modules/minimatch")).toMatchObject({
+      version: "11.0.4",
+      dev: true,
+    });
+    expect(
+      Object.keys(packageLock.packages).filter(
+        (path) => path.endsWith("node_modules/minimatch") && path !== "node_modules/minimatch",
+      ),
+    ).toEqual([]);
   });
 
   it("pins the corrected development tools without adding production dependencies", () => {
