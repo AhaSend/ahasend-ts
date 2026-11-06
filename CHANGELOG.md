@@ -26,6 +26,13 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   (`RouteEventData`) is the routed inbound message's ID, which `messages.get()` takes. Events that
   AhaSend sent before it made this change carry an older `id` form, which still validates but which
   `messages.get()` does not take.
+- The copies of a `messages.sendConversation()` send, one for every To, Cc and Bcc recipient, share
+  one `message_id_header`, so replies from every recipient refer to the same email. Before, each
+  copy had its own Message-ID header. Each copy keeps its own `id`. Pass a copy's `id` to
+  `messages.get()` or `messages.cancel()`; the shared `message_id_header` names no message, and the
+  API answers HTTP 404 (`AhaSendNotFoundError`) for it. Pass the
+  `message_id_header` to the `message_id_header` filter of `messages.list()` to find every copy.
+  Webhook events of the copies share `message_id_header` too; `data.id` tells them apart.
 
 ## [0.5.0] — 2026-10-26
 
