@@ -25,7 +25,7 @@ const body = JSON.stringify({
     recipient: "recipient@example.com",
     subject: "Hello",
     message_id_header: "<demo@example.com>",
-    id: "msg_demo_1",
+    id: "019a0c3e-7c3e-7b2a-9d4e-5f6a7b8c9d0e",
   },
 });
 

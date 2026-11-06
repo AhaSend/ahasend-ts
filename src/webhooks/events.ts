@@ -111,6 +111,12 @@ export type WebhookDeliveryAttempt = NonNullable<components["schemas"]["Delivery
 /**
  * Data of every message event except `message.clicked`.
  *
+ * `id` is the message's ID, which `messages.get()` takes. For a message sent
+ * through the API, it is the `id` that `messages.send()`,
+ * `messages.sendTemplate()` or `messages.sendConversation()` returned. For a
+ * campaign message, `id` only identifies that message's events, because the
+ * API does not return campaign messages.
+ *
  * The events of a campaign message also carry `campaign_id`, `list_id`, and
  * `segment_id`. `list_id` is `null` when the campaign did not reach the
  * recipient through a list, and `segment_id` is `null` when it did not reach
@@ -125,6 +131,10 @@ export type MessageEventData = components["schemas"]["MessageWebhookData"];
  * Data of `message.clicked`. Like {@link MessageEventData}, a campaign message
  * also carries `campaign_id`, and `list_id` and `segment_id`, which can be
  * `null`.
+ *
+ * `id` is the message's ID, as on {@link MessageEventData}: `messages.get()`
+ * takes it, and for a campaign message it only identifies that message's
+ * events.
  */
 export type MessageClickedEventData = components["schemas"]["MessageClickedWebhookData"];
 /**
@@ -298,6 +308,10 @@ export type ContactListEventData = components["schemas"]["ContactListWebhookData
  * an attachment.
  */
 export type RouteAttachment = components["schemas"]["RouteAttachment"];
+/**
+ * Data of `message.routing`: an inbound message that a route forwards. `id` is
+ * the inbound message's ID, which `messages.get()` takes.
+ */
 export type RouteEventData = components["schemas"]["RouteWebhookData"];
 
 export type MessageReceptionEvent = webhookEvents["message.reception"];
