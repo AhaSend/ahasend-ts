@@ -129,7 +129,7 @@ export type SandboxResult = "deliver" | "bounce" | "defer" | "fail" | "suppress"
 /**
  * Body for {@link MessagesClient.send}. Each recipient receives a
  * **separate** message (with their own substitutions applied); use
- * {@link MessagesClient.sendConversation} for a single message with
+ * {@link MessagesClient.sendConversation} for one email with
  * multiple To/Cc/Bcc recipients, with Bcc recipients hidden.
  */
 export interface CreateMessageRequest {
@@ -273,6 +273,7 @@ export interface SendMessageResult {
    * The Message-ID header of this recipient's email, with its angle brackets,
    * such as `<0199f1c2-7d3a-7b4e-9a1f-2c3d4e5f6a7b@example.com>`, or `null`
    * when the message was not sent.
+   * All copies of a conversation send share it.
    * `list({ message_id_header })` filters by it.
    */
   message_id_header?: string | null;
@@ -358,7 +359,8 @@ export type ListMessagesParams = PaginationParams & {
   subject?: string | undefined;
   /**
    * Filter by the Message-ID header, with its angle brackets. The send result
-   * gives it as `message_id_header`.
+   * gives it as `message_id_header`. All copies of a conversation send share
+   * it, so it finds every copy.
    */
   message_id_header?: string | undefined;
   tags?: string | undefined;
@@ -463,9 +465,12 @@ export interface MessagesClient {
   ): AhaSendPromise<SendMessageResponse>;
 
   /**
-   * Send a single message to multiple To/Cc/Bcc recipients (combined ≤ 50).
+   * Send one email to multiple To/Cc/Bcc recipients (combined ≤ 50).
    * To and Cc recipients can see one another; Bcc recipients remain hidden.
-   * Use {@link send} for individualized fan-out.
+   * Every To, Cc and Bcc recipient gets its own copy of the email, with its
+   * own `id`, which {@link get} and {@link cancel} take. All copies share one
+   * `message_id_header`, so replies from every recipient refer to the same
+   * email. Use {@link send} for individualized fan-out.
    *
    * **This is a multi-status operation.** A 202 does not mean every recipient
    * was accepted: the promise resolves with one {@link SendMessageResult} per
@@ -532,7 +537,8 @@ export interface MessagesClient {
    * Cancel a queued or scheduled message. Only possible before the
    * first delivery attempt; already-sent messages cannot be recalled.
    * Takes the message's `id` that {@link send}, {@link sendTemplate} or
-   * {@link sendConversation} returns.
+   * {@link sendConversation} returns. For a conversation send, it cancels
+   * only the copy whose `id` it takes.
    *
    * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
    * matching the message's `sender` domain.
@@ -630,9 +636,12 @@ class MessagesClientImplementation implements MessagesClient {
   }
 
   /**
-   * Send a single message to multiple To/Cc/Bcc recipients (combined ≤ 50).
+   * Send one email to multiple To/Cc/Bcc recipients (combined ≤ 50).
    * To and Cc recipients can see one another; Bcc recipients remain hidden.
-   * Use {@link send} for individualized fan-out.
+   * Every To, Cc and Bcc recipient gets its own copy of the email, with its
+   * own `id`, which {@link get} and {@link cancel} take. All copies share one
+   * `message_id_header`, so replies from every recipient refer to the same
+   * email. Use {@link send} for individualized fan-out.
    *
    * Every message is checked before it is sent. Content that cannot be
    * rendered with a recipient's values is refused with HTTP 400
@@ -712,7 +721,8 @@ class MessagesClientImplementation implements MessagesClient {
    * Cancel a queued or scheduled message. Only possible before the
    * first delivery attempt; already-sent messages cannot be recalled.
    * Takes the message's `id` that {@link send}, {@link sendTemplate} or
-   * {@link sendConversation} returns.
+   * {@link sendConversation} returns. For a conversation send, it cancels
+   * only the copy whose `id` it takes.
    *
    * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
    * matching the message's `sender` domain.

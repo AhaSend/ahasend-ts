@@ -6,6 +6,16 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The copies of a `messages.sendConversation()` send, one for every To, Cc and Bcc recipient, share
+  one `message_id_header`, so replies from every recipient refer to the same email. Before, each
+  copy had its own Message-ID header. Each copy keeps its own `id`. Pass a copy's `id` to
+  `messages.get()` or `messages.cancel()`; the shared `message_id_header` names no message, and the
+  API answers HTTP 404 (`AhaSendNotFoundError`) for it. Pass the `message_id_header` to the
+  `message_id_header` filter of `messages.list()` to find every copy. Webhook events of the copies
+  share `message_id_header` too; `data.id` tells them apart.
+
 ## [0.6.0] — 2026-11-09
 
 ### Added

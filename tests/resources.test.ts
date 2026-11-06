@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { AhaSendClient } from "../src/client.js";
-import { AhaSendConfigurationError, AhaSendServerError, isAhaSendError } from "../src/errors.js";
+import {
+  AhaSendConfigurationError,
+  AhaSendNotFoundError,
+  AhaSendServerError,
+  isAhaSendError,
+} from "../src/errors.js";
 import type { OperationRequestBodyById } from "../src/generated/operations.js";
 import type { components } from "../src/generated/rest-types.js";
 import type {
@@ -624,6 +629,100 @@ describe("MessagesClient", () => {
 
     expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages/conversation`);
     expect(calls[0]!.operationId).toBe("createConversationMessage");
+  });
+
+  // One copy per To, Cc and Bcc recipient: each has its own `id`, and all
+  // share one Message-ID whose UUID is no copy's `id`.
+  const conversationHeader = "<019a0c3e-7c3e-7000-8000-5f6a7b8c9d00@mail.example.com>";
+  const conversationCopies = [
+    { id: "019a0c3e-7c3e-7b2a-9d4e-5f6a7b8c9d01", email: "to@example.com" },
+    { id: "019a0c3e-7c3e-7b2a-9d4e-5f6a7b8c9d02", email: "cc@example.com" },
+    { id: "019a0c3e-7c3e-7b2a-9d4e-5f6a7b8c9d03", email: "bcc@example.com" },
+  ].map(({ id, email }) => ({
+    object: "message",
+    id,
+    message_id_header: conversationHeader,
+    recipient: { email, name: "" },
+    status: "scheduled",
+    error: null,
+  }));
+  const conversationFetch = () =>
+    captureFetch((call) =>
+      call.operationId === "createConversationMessage"
+        ? new Response(JSON.stringify({ object: "list", data: conversationCopies }), {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          })
+        : new Response(JSON.stringify({ message: "ok" }), {
+            headers: { "content-type": "application/json" },
+          }),
+    );
+  const sendConversationToThree = (client: ReturnType<typeof makeClient>) =>
+    client.messages.sendConversation({
+      from: { email: "a@b.com" },
+      to: [{ email: "to@example.com" }],
+      cc: [{ email: "cc@example.com" }],
+      bcc: [{ email: "bcc@example.com" }],
+      subject: "hi",
+      text_content: "hi",
+    });
+
+  it("sendConversation() returns one result per copy, each with its own id and one shared message_id_header", async () => {
+    const { fetch } = conversationFetch();
+    const client = makeClient(fetch);
+
+    const response = await sendConversationToThree(client);
+
+    expectTypeOf(response.data).toEqualTypeOf<SendMessageResult[]>();
+    expect(response.data).toEqual(conversationCopies);
+    expect(new Set(response.data.map((copy) => copy.id)).size).toBe(3);
+    expect(new Set(response.data.map((copy) => copy.message_id_header))).toEqual(
+      new Set([conversationHeader]),
+    );
+  });
+
+  it("cancel() of one conversation copy hits only that copy's path", async () => {
+    const { fetch, calls } = conversationFetch();
+    const client = makeClient(fetch);
+
+    const response = await sendConversationToThree(client);
+    await client.messages.cancel(response.data[1]!.id!);
+
+    expect(calls.map((call) => call.url).slice(1)).toEqual([
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/019a0c3e-7c3e-7b2a-9d4e-5f6a7b8c9d02/cancel`,
+    ]);
+  });
+
+  it("sends the UUID of a conversation's shared message_id_header, which names no message", async () => {
+    // The API knows the copies by their own ids and answers 404 for the
+    // UUID of the shared header only.
+    const headerUUID = "019a0c3e-7c3e-7000-8000-5f6a7b8c9d00";
+    const { fetch, calls } = captureFetch((call) =>
+      call.url.includes(headerUUID)
+        ? new Response(JSON.stringify({ message: "message not found" }), {
+            status: 404,
+            headers: { "content-type": "application/json" },
+          })
+        : new Response(JSON.stringify({ message: "ok" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+    );
+    const client = makeClient(fetch);
+
+    await expect(client.messages.get(conversationHeader)).rejects.toBeInstanceOf(
+      AhaSendNotFoundError,
+    );
+    await expect(client.messages.cancel(conversationHeader)).rejects.toBeInstanceOf(
+      AhaSendNotFoundError,
+    );
+    await expect(client.messages.cancel(conversationCopies[0]!.id)).resolves.toBeDefined();
+
+    expect(calls.map((call) => call.url)).toEqual([
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${headerUUID}`,
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${headerUUID}/cancel`,
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${conversationCopies[0]!.id}/cancel`,
+    ]);
   });
 
   it("retries a busy template check with the same key on every send", async () => {
