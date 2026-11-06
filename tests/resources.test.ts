@@ -326,6 +326,8 @@ describe("MessagesClient", () => {
       conversation.cc?.push({ email: "another@example.com" });
     }
 
+    // No `message_id_header`: older send responses, and Idempotency-Key
+    // replays of them, lack the key.
     const result: SendMessageResult = {
       object: "message",
       id: null,
@@ -333,6 +335,9 @@ describe("MessagesClient", () => {
       status: "error",
       error: "rejected",
     };
+    expectTypeOf<SendMessageResult["message_id_header"]>().toEqualTypeOf<
+      string | null | undefined
+    >();
     const { id: _id, ...withoutId } = result;
     const { error: _error, ...withoutError } = result;
     // @ts-expect-error id is a required response key.
@@ -460,6 +465,50 @@ describe("MessagesClient", () => {
     });
     expect(message.data[0]).toHaveProperty("id");
     expect(message.data[0]).toHaveProperty("error");
+  });
+
+  it("send() returns the message's bare UUID id and its Message-ID header", async () => {
+    const id = "0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e";
+    const header = `<${id}@mail.example.com>`;
+    const { fetch } = captureFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              {
+                object: "message",
+                id,
+                message_id_header: header,
+                recipient: { email: "x@y.com", name: "Recipient" },
+                status: "queued",
+                error: null,
+              },
+              {
+                object: "message",
+                id: null,
+                message_id_header: null,
+                recipient: { email: "suppressed@y.com", name: "" },
+                status: "error",
+                error: "suppressed",
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = makeClient(fetch);
+
+    const response = await client.messages.send({
+      from: { email: "a@b.com" },
+      recipients: [{ email: "x@y.com" }, { email: "suppressed@y.com" }],
+      subject: "hi",
+      text_content: "hi",
+    });
+
+    expectTypeOf(response.data[0]!.message_id_header).toEqualTypeOf<string | null | undefined>();
+    expect(response.data[0]).toMatchObject({ id, message_id_header: header });
+    expect(response.data[1]).toMatchObject({ id: null, message_id_header: null });
   });
 
   it("sendTemplate() posts the template and recipient substitutions to /messages/template", async () => {
@@ -804,7 +853,7 @@ describe("MessagesClient", () => {
 
     expect(calls[0]!.method).toBe("GET");
     // Only the UUID travels: the server reads path parameters undecoded, so
-    // the percent-encoded full Message-ID form was refused as
+    // the percent-encoded `<uuid@domain>` form was refused as
     // `invalid message_id` by the real API (first live acceptance run).
     expect(calls[0]!.url).toBe(
       `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e`,
@@ -891,7 +940,49 @@ describe("MessagesClient", () => {
     expect(calls[0]!.operationId).toBe("cancelMessage");
   });
 
-  it("normalizes every documented message ID form to the bare UUID", async () => {
+  it("get() and cancel() take the bare UUID id that a send returns", async () => {
+    const id = "0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e";
+    const { fetch, calls } = captureFetch((call) =>
+      call.operationId === "createMessage"
+        ? new Response(
+            JSON.stringify({
+              object: "list",
+              data: [
+                {
+                  object: "message",
+                  id,
+                  message_id_header: `<${id}@mail.example.com>`,
+                  recipient: { email: "x@y.com", name: "" },
+                  status: "scheduled",
+                  error: null,
+                },
+              ],
+            }),
+            { headers: { "content-type": "application/json" } },
+          )
+        : new Response(JSON.stringify({ message: "ok" }), {
+            headers: { "content-type": "application/json" },
+          }),
+    );
+    const client = makeClient(fetch);
+
+    const sent = await client.messages.send({
+      from: { email: "a@b.com" },
+      recipients: [{ email: "x@y.com" }],
+      subject: "hi",
+      text_content: "hi",
+    });
+    const sentId = sent.data[0]!.id!;
+    await client.messages.get(sentId);
+    await client.messages.cancel(sentId);
+
+    expect(calls.map((call) => call.url).slice(1)).toEqual([
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${id}`,
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${id}/cancel`,
+    ]);
+  });
+
+  it("normalizes the bare UUID and the older `<uuid@domain>` form to the bare UUID", async () => {
     const uuid = "0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e";
     const forms: readonly (readonly [string, string])[] = [
       [uuid, uuid],
@@ -914,7 +1005,15 @@ describe("MessagesClient", () => {
     const { fetch, calls } = captureFetch();
     const client = makeClient(fetch);
 
-    for (const bad of ["opaque/message:id", "", "  ", "<@mail.example.com>", "not-a-uuid"]) {
+    for (const bad of [
+      "opaque/message:id",
+      "",
+      "  ",
+      "<@mail.example.com>",
+      "not-a-uuid",
+      // 32 hex characters without hyphens are not a message `id`.
+      "0198ffc32c0f700080004a6d2b3c5d6e",
+    ]) {
       // Synchronous, like every local validation in this SDK.
       expect(() => client.messages.get(bad), bad).toThrow(AhaSendConfigurationError);
       expect(() => client.messages.cancel(bad), bad).toThrow(AhaSendConfigurationError);

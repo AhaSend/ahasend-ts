@@ -450,6 +450,7 @@ export interface components {
     CreateSingleMessageResponse: {
       object: "message";
       id: string | null;
+      message_id_header?: string | null;
       recipient: components["schemas"]["Recipient"] & {
         name: string;
       };
