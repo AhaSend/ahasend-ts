@@ -7864,7 +7864,7 @@ paths:
         - name: message_id
           in: path
           required: true
-          description: "The message's ID: the `id` that [Create Message](https://ahasend.com/docs/api-reference/messages/create-message), [Create Template Message](https://ahasend.com/docs/api-reference/messages/create-template-message) or [Create Conversation Message](https://ahasend.com/docs/api-reference/messages/create-conversation) returned. The form `<uuid@domain>` is also read, by its UUID, when the path carries it unencoded."
+          description: "The message's ID: the `id` that [Create Message](https://ahasend.com/docs/api-reference/messages/create-message), [Create Template Message](https://ahasend.com/docs/api-reference/messages/create-template-message) or [Create Conversation Message](https://ahasend.com/docs/api-reference/messages/create-conversation) returned."
           schema:
             type: string
       security:
@@ -7970,7 +7970,7 @@ paths:
         - name: message_id
           in: path
           required: true
-          description: "The message's ID: the `id` that [Create Message](https://ahasend.com/docs/api-reference/messages/create-message), [Create Template Message](https://ahasend.com/docs/api-reference/messages/create-template-message) or [Create Conversation Message](https://ahasend.com/docs/api-reference/messages/create-conversation) returned. The form `<uuid@domain>` is also read, by its UUID, when the path carries it unencoded."
+          description: "The message's ID: the `id` that [Create Message](https://ahasend.com/docs/api-reference/messages/create-message), [Create Template Message](https://ahasend.com/docs/api-reference/messages/create-template-message) or [Create Conversation Message](https://ahasend.com/docs/api-reference/messages/create-conversation) returned."
           schema:
             type: string
       security:
