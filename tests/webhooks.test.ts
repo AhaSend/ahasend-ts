@@ -585,7 +585,7 @@ describe("generated webhook schema", () => {
         recipient: "recipient@example.com",
         subject: "Welcome to our service",
         message_id_header: "<message-id-12345@localhost>",
-        id: "407926766d2711f09b30960002cafe7c",
+        id: "019a0c3e-7c3e-7b2a-9d4e-5f6a7b8c9d0e",
       },
     };
     const withAttempt = (delivery_attempt: unknown): unknown => ({
@@ -1646,7 +1646,7 @@ function routeEventWithAttachments(
     route_id: "b33c56aa-4bb8-4796-a44e-e204c2a9cb49",
     timestamp: "2026-07-14T15:04:07.123456789Z",
     data: {
-      id: "route-message-1",
+      id: "019a0c3f-1d2e-7f3a-8b4c-5d6e7f8a9b0c",
       from: "Customer <customer@example.net>",
       reply_to: "customer@example.net",
       to: "inbound@example.com",
@@ -2194,7 +2194,7 @@ describe("WebhookVerifier", () => {
       route_id: "abe11757-2886-4b55-96f1-0e0afc95795a",
       timestamp: "2026-07-14T15:04:07Z",
       data: {
-        id: "route-message-1",
+        id: "019a0c3f-1d2e-7f3a-8b4c-5d6e7f8a9b0c",
         from: "sender@example.com",
         reply_to: "sender@example.com",
         to: "support@example.com",
