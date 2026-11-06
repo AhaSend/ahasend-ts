@@ -42,6 +42,7 @@ declare function result<T>(): SDK.AhaSendPromise<T>;
 declare function iterator<T>(): AsyncGenerator<T, void, undefined>;
 
 const uuid = "11111111-1111-4111-8111-111111111111";
+// The `<uuid@domain>` form that older send results held; get() and cancel() still read it.
 const messageId = "<11111111-1111-4111-8111-111111111111@example.com>";
 
 const messageBody: SDK.CreateMessageRequest = {
@@ -514,6 +515,26 @@ const nestedGroup: SDK.SegmentGroup = {
 void client.segments.preview({ definition: segmentDefinition }, { idempotencyKey: "not-accepted" });
 // @ts-expect-error A segment update takes no idempotency key.
 void client.segments.update(uuid, {}, { idempotencyKey: "not-accepted" });
+const sentMessage: SDK.SendMessageResult = {
+  object: "message",
+  id: uuid,
+  message_id_header: `<${uuid}@example.com>`,
+  recipient: { email: "recipient@example.com", name: "" },
+  status: "queued",
+  error: null,
+};
+// Older send results, and Idempotency-Key replays of them, lack message_id_header.
+const olderSentMessage: SDK.SendMessageResult = {
+  object: "message",
+  id: messageId,
+  recipient: { email: "recipient@example.com", name: "" },
+  status: "queued",
+  error: null,
+};
+const sentMessageIdHeader: string | null | undefined = sentMessage.message_id_header;
+void client.messages.get(sentMessage.id ?? uuid);
+void client.messages.cancel(sentMessage.id ?? uuid);
+void [olderSentMessage, sentMessageIdHeader];
 declare const packageAttempt: SDK.DeliveryAttempt;
 const packageReportMessageId: string | undefined = packageAttempt.report_message_id;
 void [packageRecipientSource, nestedGroup, packageReportMessageId];

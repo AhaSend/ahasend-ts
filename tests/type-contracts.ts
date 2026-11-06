@@ -418,6 +418,29 @@ type MessageSignatures = [
   >,
 ];
 
+type SendMessageResultContracts = [
+  Expect<Equal<SDK.SendMessageResult["message_id_header"], string | null | undefined>>,
+  Expect<
+    Equal<
+      SDK.SendMessageResult["message_id_header"],
+      WireSchemas["CreateSingleMessageResponse"]["message_id_header"]
+    >
+  >,
+  // Optional: older send responses, and Idempotency-Key replays of them, lack the key.
+  Expect<
+    Extends<
+      {
+        object: "message";
+        id: string;
+        recipient: SDK.Recipient & { name: string };
+        status: "queued";
+        error: null;
+      },
+      SDK.SendMessageResult
+    >
+  >,
+];
+
 declare const messageListResult: SDK.AhaSendPromise<SDK.PaginatedResponse<SDK.MessageSummary>>;
 declare const messageIteratorResult: AsyncGenerator<SDK.MessageSummary, void, undefined>;
 declare const sendMessageResult: SDK.AhaSendPromise<SDK.SendMessageResponse>;
@@ -1927,6 +1950,7 @@ export type DeclarationContracts = [
   CommonSignatures,
   ClientSignatures,
   MessageSignatures,
+  SendMessageResultContracts,
   DomainSignatures,
   APIKeySignatures,
   WebhookSignatures,

@@ -6,6 +6,21 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `SendMessageResult` gains `message_id_header`: the Message-ID header of the recipient's email,
+  with its angle brackets, or `null` when the message was not sent. The `message_id_header` filter
+  of `messages.list()` finds the message by it. The result of an older send, or of an
+  Idempotency-Key replay of one, does not carry it.
+
+### Changed
+
+- The `id` of a send result (`messages.send()`, `sendTemplate()` and `sendConversation()`) is the
+  message's ID as a bare UUID, the `id` that `messages.get()` and `messages.list()` show. It was in
+  the form `<uuid@domain>`. `messages.get()` and `messages.cancel()` take the bare UUID, and still
+  read the `<uuid@domain>` form of an older send by its UUID. If you passed a send result's `id`
+  to the `message_id_header` filter of `messages.list()`, pass its `message_id_header` instead.
+
 ## [0.5.0] — 2026-10-26
 
 ### Added

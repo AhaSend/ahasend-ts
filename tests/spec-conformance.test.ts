@@ -65,9 +65,9 @@ const IDEMPOTENCY_KEY = "matrix-idempotency-key";
 const IDS = {
   key: API_KEY_ID,
   domain: HOSTNAME,
-  // Full generated Message-ID form: the facade must reduce it to the bare
-  // UUID, the one spelling the server reads back identically (it does not
-  // decode path parameters).
+  // The `<uuid@domain>` form that older send responses held: the facade must
+  // reduce it to the bare UUID, the one spelling the server reads back
+  // identically (it does not decode path parameters).
   message: "<0198ffc3-2c0f-7000-8000-4a6d2b3c5d6e@mail.example.com>",
   user: USER_ID,
   subAccount: SUB_ACCOUNT_ID,
