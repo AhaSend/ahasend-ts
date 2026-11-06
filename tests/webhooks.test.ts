@@ -69,6 +69,7 @@ import {
   type WebhookEventType,
 } from "../src/webhooks/index.js";
 import { AhaSendConfigurationError } from "../src/errors.js";
+import { ACCOUNT_ID, captureFetch, makeClient } from "./helpers/resource-call.js";
 import {
   AhaSendWebhookVerificationError,
   MAX_WEBHOOK_BODY_BYTES,
@@ -810,7 +811,7 @@ describe("generated webhook schema", () => {
       route_id: "abe11757-2886-4b55-96f1-0e0afc95795a",
       timestamp: "2024-05-06T13:15:46Z",
       data: {
-        id: "route-message-1",
+        id: "019a0c3f-1d2e-7f3a-8b4c-5d6e7f8a9b0c",
         from: "sender@example.com",
         reply_to: "sender@example.com",
         to: "support@example.com",
@@ -884,6 +885,63 @@ describe("generated webhook schema", () => {
         data: {},
       }),
     ).toBe(false);
+  });
+});
+
+describe("message ID in webhook data", () => {
+  const MESSAGE_ID = "019a0c3e-7c3e-7b2a-9d4e-5f6a7b8c9d0e";
+  const delivered = {
+    type: "message.delivered",
+    webhook_id: BODY_WEBHOOK_ID,
+    timestamp: "2024-05-06T10:05:16.687031577Z",
+    data: {
+      account_id: "4cdd7bdd-294e-4762-892f-83d40abf5a87",
+      event: "on_delivered",
+      from: "sender@example.com",
+      recipient: "recipient@example.com",
+      subject: "Welcome to our service",
+      message_id_header: "<message-id-12345@localhost>",
+      id: MESSAGE_ID,
+    },
+  } satisfies MessageDeliveredEvent;
+
+  it("validates a message event whose id is a UUID or the older 32-hex form", () => {
+    expect(validateKnownWebhookEvent(delivered)).toBe(true);
+    // Events sent before the id became the message's ID are still in flight.
+    expect(
+      validateKnownWebhookEvent({
+        ...delivered,
+        data: { ...delivered.data, id: "407926766d2711f09b30960002cafe7c" },
+      }),
+    ).toBe(true);
+  });
+
+  it("passes a delivered event's id to messages.get() unchanged", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    await client.messages.get(delivered.data.id).catch(() => undefined);
+
+    expect(calls[0]!.operationId).toBe("getMessage");
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${MESSAGE_ID}`);
+  });
+
+  it("validates the spec's message.routing example and passes its id to messages.get()", async () => {
+    const document = parseWebhookContract(WEBHOOK_SOURCE);
+    const post = record(record(record(document["webhooks"])["message.routing"])["post"]);
+    const content = record(record(post["requestBody"])["content"]);
+    const routing = record(content["application/json"])["example"];
+    expect(validateKnownWebhookEvent(routing)).toBe(true);
+    const routedId = record(record(routing)["data"])["id"];
+    expect(routedId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+    await client.messages.get(routedId as string).catch(() => undefined);
+
+    expect(calls[0]!.url).toBe(
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${routedId as string}`,
+    );
   });
 });
 
