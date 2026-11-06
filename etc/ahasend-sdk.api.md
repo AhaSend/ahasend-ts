@@ -1580,7 +1580,6 @@ export interface MessageSummary {
     direction: "inbound" | "outbound";
     // (undocumented)
     domain_id: UUID;
-    // (undocumented)
     id: string | null;
     // (undocumented)
     is_bounce_notification: boolean;
@@ -1966,6 +1965,7 @@ export interface SendMessageResult {
     // (undocumented)
     error: string | null;
     id: string | null;
+    message_id_header?: string | null;
     // (undocumented)
     object: "message";
     // (undocumented)

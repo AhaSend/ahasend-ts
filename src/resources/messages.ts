@@ -21,22 +21,14 @@ import {
 const MESSAGE_UUID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 /**
- * Reduce a caller-supplied message ID to the bare UUID the API routes on.
+ * Check a caller-supplied message ID and return the UUID that goes in the
+ * request path.
  *
- * `send` returns ids in generated Message-ID form — `<uuid@sender-domain>` —
- * and the server's own parser trims the angle brackets and everything from
- * the `@` onward before parsing a UUID. Mirroring that here instead of
- * sending the full form matters because of an encoding asymmetry the first
- * live acceptance run surfaced: a client must percent-encode `<`, `@`, and
- * `>` in a path segment, but the server reads path parameters undecoded, so
- * an encoded full form arrives as `%3C…%40…%3E` and is refused with HTTP 400
- * `invalid message_id`. The bare UUID contains only unreserved characters —
- * encoded and raw are the same bytes — so it is the one spelling both sides
- * read identically.
+ * The message's `id` is a UUID. It contains only unreserved characters, so it
+ * needs no percent-encoding in a path segment.
  *
- * Anything that does not contain a UUID in that shape is refused locally as
- * {@link AhaSendConfigurationError}, before a request is dispatched. The
- * message does not echo the value.
+ * A malformed value is refused locally as {@link AhaSendConfigurationError},
+ * before a request is dispatched. The message does not echo the value.
  */
 function messagePathId(messageId: string): string {
   let candidate = typeof messageId === "string" ? messageId.trim() : "";
@@ -45,9 +37,7 @@ function messagePathId(messageId: string): string {
   const atIndex = candidate.indexOf("@");
   if (atIndex !== -1) candidate = candidate.slice(0, atIndex);
   if (!MESSAGE_UUID_PATTERN.test(candidate)) {
-    throw new AhaSendConfigurationError(
-      "AhaSend: `messageId` must be a message UUID, optionally in the generated Message-ID form `<uuid@domain>`.",
-    );
+    throw new AhaSendConfigurationError("AhaSend: `messageId` must be the message's `id`, a UUID.");
   }
   return candidate;
 }
@@ -275,13 +265,17 @@ export type SendMessageStatus = "queued" | "scheduled" | "error";
 export interface SendMessageResult {
   object: "message";
   /**
-   * Generated Message-ID of the queued message, e.g. `<uuid@host>`, or `null`
-   * when the message was not sent.
-   *
-   * When non-null, this value can be passed directly to {@link MessagesClient.get}
-   * or {@link MessagesClient.cancel}; those methods also accept its bare UUID portion.
+   * The message's ID, a UUID, or `null` when the message was not sent.
+   * {@link MessagesClient.get} and {@link MessagesClient.cancel} take it.
    */
   id: string | null;
+  /**
+   * The Message-ID header of this recipient's email, with its angle brackets,
+   * such as `<0199f1c2-7d3a-7b4e-9a1f-2c3d4e5f6a7b@example.com>`, or `null`
+   * when the message was not sent.
+   * `list({ message_id_header })` filters by it.
+   */
+  message_id_header?: string | null;
   recipient: Recipient & { name: string };
   status: SendMessageStatus;
   error: string | null;
@@ -325,6 +319,7 @@ export interface MessageContentParsed {
 
 export interface MessageSummary {
   object: "message";
+  /** The message's ID. */
   id: string | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -361,6 +356,10 @@ export type ListMessagesParams = PaginationParams & {
   sender?: string | undefined;
   recipient?: string | undefined;
   subject?: string | undefined;
+  /**
+   * Filter by the Message-ID header, with its angle brackets. The send result
+   * gives it as `message_id_header`.
+   */
   message_id_header?: string | undefined;
   tags?: string | undefined;
   from_time?: ISODateTime | undefined;
@@ -520,11 +519,9 @@ export interface MessagesClient {
   ): AsyncGenerator<MessageSummary, void, undefined>;
 
   /**
-   * Fetch a single message by its message ID. Accepts the generated
-   * Message-ID returned by {@link send} when non-null, or its bare UUID
-   * portion. Only the UUID is sent as the path segment — the server routes on
-   * it, and it needs no percent-encoding — and a value containing no UUID is
-   * refused locally as {@link AhaSendConfigurationError}.
+   * Fetch a single message by its ID: the `id` that {@link send},
+   * {@link sendTemplate} or {@link sendConversation} returns. A malformed
+   * value is refused locally as {@link AhaSendConfigurationError}.
    *
    * Authorization requires `messages:read:all` or `messages:read:{domain}`
    * matching the message's `sender` domain.
@@ -534,8 +531,8 @@ export interface MessagesClient {
   /**
    * Cancel a queued or scheduled message. Only possible before the
    * first delivery attempt; already-sent messages cannot be recalled.
-   * Accepts the generated Message-ID returned by {@link send} when non-null,
-   * or its bare UUID portion.
+   * Takes the message's `id` that {@link send}, {@link sendTemplate} or
+   * {@link sendConversation} returns.
    *
    * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
    * matching the message's `sender` domain.
@@ -696,11 +693,9 @@ class MessagesClientImplementation implements MessagesClient {
   }
 
   /**
-   * Fetch a single message by its message ID. Accepts the generated
-   * Message-ID returned by {@link send} when non-null, or its bare UUID
-   * portion. Only the UUID is sent as the path segment — the server routes on
-   * it, and it needs no percent-encoding — and a value containing no UUID is
-   * refused locally as {@link AhaSendConfigurationError}.
+   * Fetch a single message by its ID: the `id` that {@link send},
+   * {@link sendTemplate} or {@link sendConversation} returns. A malformed
+   * value is refused locally as {@link AhaSendConfigurationError}.
    *
    * Authorization requires `messages:read:all` or `messages:read:{domain}`
    * matching the message's `sender` domain.
@@ -716,8 +711,8 @@ class MessagesClientImplementation implements MessagesClient {
   /**
    * Cancel a queued or scheduled message. Only possible before the
    * first delivery attempt; already-sent messages cannot be recalled.
-   * Accepts the generated Message-ID returned by {@link send} when non-null,
-   * or its bare UUID portion.
+   * Takes the message's `id` that {@link send}, {@link sendTemplate} or
+   * {@link sendConversation} returns.
    *
    * Authorization requires `messages:cancel:all` or `messages:cancel:{domain}`
    * matching the message's `sender` domain.
