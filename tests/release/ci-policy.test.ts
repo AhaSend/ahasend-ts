@@ -71,11 +71,11 @@ function expectAssertedNpmToolchain(job: unknown, label: string): void {
   expect(setupIndex, `${label} setup-node step`).toBeGreaterThanOrEqual(0);
   expect(steps[setupIndex + 1], `${label} npm install step`).toMatchObject({
     name: "Install asserted npm version",
-    run: "npm install --global npm@11.12.0",
+    run: "npm install --global npm@11.21.1",
   });
   expect(steps[setupIndex + 2], `${label} npm version step`).toMatchObject({
     name: "Verify asserted npm version",
-    run: 'test "$(npm --version)" = "11.12.0"',
+    run: 'test "$(npm --version)" = "11.21.1"',
   });
 }
 
@@ -384,7 +384,7 @@ describe("CI policy", () => {
   it("provisions the declared npm executable before CI commands", () => {
     const jobs = record(record(workflow, "workflow")["jobs"], "jobs");
 
-    expect(packageJson.packageManager).toBe("npm@11.12.0");
+    expect(packageJson.packageManager).toBe("npm@11.21.1");
     expectAssertedNpmToolchain(jobs["test"], "test job");
     expectAssertedNpmToolchain(jobs["coverage"], "coverage job");
     expectAssertedNpmToolchain(jobs["workerd"], "workerd job");

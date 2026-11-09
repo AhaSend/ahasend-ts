@@ -16,9 +16,10 @@ queue, not cancel.
 
 ## One-time setup
 
-You need four GitHub Actions **secrets** and three **environments**. Without
-them the workflow fails partway through, after it has already published to the
-`next` dist-tag or mutated the release account.
+You need three GitHub Actions **secrets**, three **environments**, and two npm
+**trusted-publisher entries**. Without them the workflow fails partway through,
+after it has already published to the `next` dist-tag or mutated the release
+account.
 
 ### Environments
 
@@ -153,24 +154,38 @@ no real mail" covers the messages and campaign APIs, which this repo controls �
 
 ### Secrets
 
-| Secret                     | Consumed by                                                  | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `AHASEND_API_KEY`          | `live-gates`                                                 | Needs **every** scope — live acceptance exercises every operation that has a scenario, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `contacts:read`, `contacts:write`, `contacts:delete`, `lists:read`, `lists:write`, `lists:delete`, `templates:read`, `templates:write`, `templates:delete`, `campaigns:read`, `campaigns:write`, `campaigns:delete`, `campaigns:send`, `segments:read`, `segments:write`, `segments:delete`, `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
-| `AHASEND_ACCOUNT_ID`       | `live-gates`                                                 | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `AHASEND_LIVE_CONFIG_JSON` | `live-gates`                                                 | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `NPM_TOKEN`                | `latest-promotion`, `github-release`, `release-compensation` | Granular token with write access to `@ahasend/sdk`. Used only for `npm view`/`npm dist-tag` — publication itself is tokenless (see below).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Secret                     | Consumed by  | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AHASEND_API_KEY`          | `live-gates` | Needs **every** scope — live acceptance exercises every operation that has a scenario, and a missing scope fails mid-run as a 403. The ones habitually left off a broad key: `contacts:read`, `contacts:write`, `contacts:delete`, `lists:read`, `lists:write`, `lists:delete`, `templates:read`, `templates:write`, `templates:delete`, `campaigns:read`, `campaigns:write`, `campaigns:delete`, `campaigns:send`, `segments:read`, `segments:write`, `segments:delete`, `suppressions:wipe` (deliberately separate from `suppressions:delete`), the `sub-accounts:*` family (read/write/delete/suspend/usage), and `sub-account-api-keys:*` (read/write/delete). |
+| `AHASEND_ACCOUNT_ID`       | `live-gates` | The account the live scenarios run against.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `AHASEND_LIVE_CONFIG_JSON` | `live-gates` | Schema below. Validated with **exact** key matching.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
-> **`next-publish` has no `NPM_TOKEN`.** It runs
-> `npm publish --provenance` with `id-token: write`, which
-> means it depends on **npm trusted publishing** being configured for
-> `@ahasend/sdk` against this repository, `release.yml`, and the `npm-next`
-> environment. That configuration exists on npmjs.com since v0.1.0 shipped
-> (trusted publishing cannot be configured on a package that does not exist
-> yet, so the first release carried a `NODE_AUTH_TOKEN` exception on the
-> publish step; it has been removed). If the trusted-publisher entry is ever
-> deleted, `next-publish` fails with an authentication error — restore the
-> entry, or as a stopgap re-add
-> `env: { NODE_AUTH_TOKEN: secrets.NPM_TOKEN }` to the publish step.
+### npm trusted publishing
+
+No npm token is stored anywhere. Every npm registry write authenticates through
+**npm trusted publishing**: the job asks GitHub for a short-lived identity token
+(`id-token: write`), and npm exchanges it for a short-lived npm credential.
+`@ahasend/sdk` needs two trusted-publisher entries on npmjs.com (package
+**Settings** → **Trusted publishing**), both for this repository and `release.yml`:
+
+| Environment  | Setting                | Authorizes                                                                                  |
+| ------------ | ---------------------- | ------------------------------------------------------------------------------------------- |
+| `npm-next`   | publish                | `npm publish --provenance` in `next-publish`                                                |
+| `npm-latest` | **Allow npm dist-tag** | `npm dist-tag add`/`rm` in `latest-promotion`, `github-release`, and `release-compensation` |
+
+Dist-tag access needs npm 11.21.0 or later; the workflow pins 11.21.1. `npm view`
+reads of the public package need no credential.
+
+npm does not check an entry when it is saved, `npm whoami` does not test trusted
+publishing, and a failed exchange falls back silently to no usable credential. A
+missing or mistyped entry therefore shows up only as an authentication error from
+the publish or dist-tag step itself. Entry fields are case-sensitive and must
+match exactly.
+
+Set the package's **Publishing access** to **Require two-factor authentication
+and disallow tokens**, so no npm token can publish or move a tag. Trusted
+publishing keeps working under that setting, and a maintainer can still move a
+tag by hand from a 2FA-authenticated `npm login`.
 
 ### `AHASEND_LIVE_CONFIG_JSON`
 
@@ -313,8 +328,8 @@ Then confirm:
 - [ ] `package.json` `version`, `src/version.ts`, and the `CHANGELOG.md` heading
       all agree.
 - [ ] `CHANGELOG.md` describes what actually ships.
-- [ ] npm trusted publishing is configured for `@ahasend/sdk` (see above), or
-      `next-publish` has been given a token.
+- [ ] Both npm trusted-publisher entries exist for `@ahasend/sdk` (see
+      [npm trusted publishing](#npm-trusted-publishing)).
 - [ ] The core Node/package gate and the separate workerd, Deno, and Bun gates
       are green.
 - [ ] The `AHASEND_LIVE_CONFIG_JSON` account preconditions still hold — domains

@@ -31,10 +31,10 @@ jobs:
           cache: npm
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - run: npm ci
 
@@ -178,10 +178,10 @@ jobs:
           cache: npm
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - run: npm ci
 
@@ -240,10 +240,10 @@ jobs:
           cache: npm
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - run: npm ci
 
@@ -294,10 +294,10 @@ jobs:
           cache: npm
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - run: npm ci
 
@@ -342,10 +342,10 @@ jobs:
           cache: npm
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - run: npm ci
 
@@ -390,10 +390,10 @@ jobs:
           cache: npm
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - run: npm ci
 
@@ -439,10 +439,10 @@ jobs:
           cache: npm
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - run: npm ci
 
@@ -559,10 +559,10 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -650,10 +650,10 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -837,6 +837,9 @@ jobs:
     if: ${{ needs.live-gates.result == 'success' && needs.registry-smoke.result == 'success' }}
     runs-on: ubuntu-latest
     environment: npm-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -844,10 +847,10 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -879,8 +882,6 @@ jobs:
 
       - name: Capture the prior latest tag
         if: ${{ steps.retained_promotion_state.outcome == 'failure' }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           PACKAGE_JSON="$(tar -xzOf "$TARBALL" package/package.json)"
@@ -961,8 +962,6 @@ jobs:
           NODE
 
       - name: Promote only the verified version
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           export SDK_TARBALL="$TARBALL"
@@ -982,6 +981,7 @@ jobs:
     environment: npm-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -989,10 +989,10 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1020,8 +1020,6 @@ jobs:
           path: /tmp/release-tools
 
       - name: Re-establish and verify latest before release
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           SDK_TARBALL_SHA256="$(tr -d '\n' < "$TARBALL.sha256")"
@@ -1071,6 +1069,7 @@ jobs:
     environment: npm-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -1078,10 +1077,10 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install asserted npm version
-        run: npm install --global npm@11.12.0
+        run: npm install --global npm@11.21.1
 
       - name: Verify asserted npm version
-        run: test "$(npm --version)" = "11.12.0"
+        run: test "$(npm --version)" = "11.21.1"
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1110,7 +1109,6 @@ jobs:
       - name: Restore latest and remove an incomplete release
         env:
           GH_TOKEN: ${{ github.token }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           FAILED=0
           TARBALL="$(find /tmp/candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
