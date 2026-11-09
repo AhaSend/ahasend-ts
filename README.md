@@ -1037,11 +1037,11 @@ console.log("Recipients read.", { segmentCount: fromSegments.length });
   These refusals change nothing, and the SDK does not retry them; call again later, or after the
   campaign no longer needs the segment.
 - `campaigns.create()`, `duplicate()` and an `update()` that changes the audience answer `409`
-  while a segment of the audience is being rebuilt. The API stores that refusal for the idempotency
-  key and replays it for 24 hours, so call again in a minute with a new key: a call without
-  `idempotencyKey` gets one. `campaigns.delete()` of a campaign that a segment names in a
-  `campaign` condition, and `lists.delete()` of a list that a segment names in a `list` condition,
-  answer `409` with a message that names those segments.
+  while a segment of the audience is being rebuilt. The API does not store that refusal for the
+  idempotency key, so a retry with the same key runs again: call again in a minute.
+  `campaigns.delete()` of a campaign that a segment names in a `campaign` condition, and
+  `lists.delete()` of a list that a segment names in a `list` condition, answer `409` with a
+  message that names those segments.
 
 ## Domain sending type and pauses
 

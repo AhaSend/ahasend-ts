@@ -37,9 +37,8 @@ does not declare them retry-safe.
 Campaign audiences and segments have their own terminal `AhaSendConflictError` cases:
 
 - `campaigns.create()`, `campaigns.duplicate()` and a `campaigns.update()` that changes the
-  audience answer `409` while a segment of the audience is being rebuilt. The API stores that
-  refusal for the key and replays it for 24 hours, so a retry needs a new
-  key: call again in a minute without `idempotencyKey`, or with a new one.
+  audience answer `409` while a segment of the audience is being rebuilt. The API does not store
+  that refusal for the key, so a retry with the same key runs again: call again in a minute.
 - `segments.create()` answers `409` when the account already has 100 segments, or when a list or
   campaign that the definition names is being changed. That refusal, like every 4xx of a segment
   create, is not stored, so a retry with the same key runs again.

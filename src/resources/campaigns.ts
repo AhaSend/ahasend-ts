@@ -407,8 +407,8 @@ export interface CampaignsClient {
    * compiled in strict mode, and images and stylesheets must use `https://` URLs. A list, segment
    * or campaign template that does not exist, too many lists or segments, or an audience with no
    * list or segment to send to is refused with 400. A segment of the audience that is being
-   * rebuilt answers 409; that refusal is stored for the idempotency key, so retry it with a new
-   * key. Authorization requires `campaigns:write`.
+   * rebuilt answers 409; that refusal is not stored for the idempotency key, so a retry in a
+   * minute with the same key runs again. Authorization requires `campaigns:write`.
    */
   create(
     body: CreateCampaignRequest,
@@ -427,8 +427,9 @@ export interface CampaignsClient {
    * campaign, the later design save wins, also from an editor opened before this request: the
    * dashboard's editor saves the whole design. A list or segment that does not exist, too many
    * lists or segments, or an audience with no list or segment to send to is refused with 400. An
-   * audience change that finds a segment being rebuilt answers 409; that refusal is stored for the
-   * idempotency key, so retry it with a new key. Authorization requires `campaigns:write`.
+   * audience change that finds a segment being rebuilt answers 409; that refusal is not stored for
+   * the idempotency key, so a retry in a minute with the same key runs again. Authorization
+   * requires `campaigns:write`.
    */
   update(
     campaignId: UUID,
@@ -447,8 +448,9 @@ export interface CampaignsClient {
    * Make a new draft from a campaign in any status: a copy of its design, subject, preview text,
    * sender, reply-to address, and its lists and segments that still exist, included and excluded.
    * When none of its included lists and segments still exists, the copy has no lists or segments.
-   * A segment of the audience that is being rebuilt answers 409; that refusal is stored for the
-   * idempotency key, so retry it with a new key. Authorization requires `campaigns:write`.
+   * A segment of the audience that is being rebuilt answers 409; that refusal is not stored for the
+   * idempotency key, so a retry in a minute with the same key runs again. Authorization requires
+   * `campaigns:write`.
    */
   duplicate(
     campaignId: UUID,
