@@ -6,6 +6,8 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-09
+
 ### Added
 
 - `SendMessageResult` gains `message_id_header`: the Message-ID header of the recipient's email,
@@ -17,15 +19,17 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 - The `id` of a send result (`messages.send()`, `sendTemplate()` and `sendConversation()`) is the
   message's ID as a bare UUID, the `id` that `messages.get()` and `messages.list()` show. It was in
-  the form `<uuid@domain>`. `messages.get()` and `messages.cancel()` take the bare UUID, and still
-  read the `<uuid@domain>` form of an older send by its UUID. If you passed a send result's `id`
-  to the `message_id_header` filter of `messages.list()`, pass its `message_id_header` instead.
+  the form `<uuid@domain>`, the Message-ID header, which is now in `message_id_header`.
+  `messages.get()` and `messages.cancel()` take the bare UUID, and still read the `<uuid@domain>`
+  form of an older send by its UUID. If you passed a send result's `id` to the `message_id_header`
+  filter of `messages.list()`, pass its `message_id_header` instead.
 - The `data.id` of a message webhook (`MessageEventData`, `MessageClickedEventData`) is the
   message's ID, which `messages.get()` takes; for a message sent through the API, it is the `id` of
-  the send result. For a campaign message, it only groups the events of that message. The `data.id`
-  of a `message.routing` event (`RouteEventData`) is the routed inbound message's ID, which
-  `messages.get()` takes. Events that AhaSend sent before it made this change carry an older `id`
-  form, which still validates and which `messages.get()` and `messages.cancel()` also take.
+  the send result. The `data.id` of a `message.routing` event (`RouteEventData`) is the routed
+  inbound message's ID, which `messages.get()` takes. For a campaign message, `data.id` is a
+  lowercase hyphenated UUID that only groups the events of that message. Before this change,
+  `data.id` was 32 hex characters. Events sent then still validate, and `messages.get()` and
+  `messages.cancel()` take the 32-hex `data.id` of a message that is not a campaign message.
 
 ## [0.5.0] — 2026-10-26
 
