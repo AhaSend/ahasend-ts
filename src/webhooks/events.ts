@@ -116,6 +116,8 @@ export type WebhookDeliveryAttempt = NonNullable<components["schemas"]["Delivery
  * `messages.sendTemplate()` or `messages.sendConversation()` returned. For a
  * campaign message, `id` only identifies that message's events, because the
  * API does not return campaign messages.
+ * `message_id_header` is shared by all copies of a conversation send; `id`
+ * tells them apart.
  *
  * The events of a campaign message also carry `campaign_id`, `list_id`, and
  * `segment_id`. `list_id` is `null` when the campaign did not reach the
@@ -134,7 +136,8 @@ export type MessageEventData = components["schemas"]["MessageWebhookData"];
  *
  * `id` is the message's ID, as on {@link MessageEventData}: `messages.get()`
  * takes it, and for a campaign message it only identifies that message's
- * events.
+ * events. `message_id_header` is shared by all copies of a conversation send;
+ * `id` tells them apart.
  */
 export type MessageClickedEventData = components["schemas"]["MessageClickedWebhookData"];
 /**
