@@ -18,7 +18,7 @@ import {
   type IdempotencyRequestOptions,
 } from "./_helpers.js";
 
-const MESSAGE_UUID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const MESSAGE_ID_PATTERN = /^(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{32})$/i;
 
 /**
  * Check a caller-supplied message ID and return the UUID that goes in the
@@ -36,7 +36,7 @@ function messagePathId(messageId: string): string {
   if (candidate.endsWith(">")) candidate = candidate.slice(0, -1);
   const atIndex = candidate.indexOf("@");
   if (atIndex !== -1) candidate = candidate.slice(0, atIndex);
-  if (!MESSAGE_UUID_PATTERN.test(candidate)) {
+  if (!MESSAGE_ID_PATTERN.test(candidate)) {
     throw new AhaSendConfigurationError("AhaSend: `messageId` must be the message's `id`, a UUID.");
   }
   return candidate;

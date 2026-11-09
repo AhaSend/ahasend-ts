@@ -1011,14 +1011,28 @@ describe("MessagesClient", () => {
       "  ",
       "<@mail.example.com>",
       "not-a-uuid",
-      // 32 hex characters without hyphens are not a message `id`.
-      "0198ffc32c0f700080004a6d2b3c5d6e",
+      // 31 hex characters are neither a UUID nor the older 32-hex form.
+      "0198ffc32c0f700080004a6d2b3c5d6",
     ]) {
       // Synchronous, like every local validation in this SDK.
       expect(() => client.messages.get(bad), bad).toThrow(AhaSendConfigurationError);
       expect(() => client.messages.cancel(bad), bad).toThrow(AhaSendConfigurationError);
     }
     expect(calls).toHaveLength(0);
+  });
+
+  it("passes an older 32-hex message ID from a webhook event through to the API", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+    const olderId = "407926766d2711f09b30960002cafe7c";
+
+    await client.messages.get(olderId).catch(() => undefined);
+    await client.messages.cancel(olderId).catch(() => undefined);
+
+    expect(calls.map((call) => call.url)).toEqual([
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${olderId}`,
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/messages/${olderId}/cancel`,
+    ]);
   });
 });
 

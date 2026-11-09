@@ -523,7 +523,7 @@ export interface NodeStyleResponse {
 // @public
 export type RouteAttachment = components["schemas"]["RouteAttachment"];
 
-// @public (undocumented)
+// @public
 export type RouteEventData = components["schemas"]["RouteWebhookData"];
 
 // @public @deprecated (undocumented)

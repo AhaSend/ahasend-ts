@@ -20,6 +20,12 @@ this project adheres to [Semantic Versioning](https://semver.org/).
   the form `<uuid@domain>`. `messages.get()` and `messages.cancel()` take the bare UUID, and still
   read the `<uuid@domain>` form of an older send by its UUID. If you passed a send result's `id`
   to the `message_id_header` filter of `messages.list()`, pass its `message_id_header` instead.
+- The `data.id` of a message webhook (`MessageEventData`, `MessageClickedEventData`) is the
+  message's ID, which `messages.get()` takes; for a message sent through the API, it is the `id` of
+  the send result. For a campaign message, it only groups the events of that message. The `data.id`
+  of a `message.routing` event (`RouteEventData`) is the routed inbound message's ID, which
+  `messages.get()` takes. Events that AhaSend sent before it made this change carry an older `id`
+  form, which still validates and which `messages.get()` and `messages.cancel()` also take.
 
 ## [0.5.0] — 2026-10-26
 
