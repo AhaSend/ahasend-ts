@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { collectOperations, parseOpenApi } from "../scripts/generate-contracts.mjs";
 import { generateApiReference } from "../scripts/generate-docs.mjs";
 import { NODE_SAMPLE_REGISTRY } from "../scripts/node-code-samples.mjs";
@@ -53,9 +53,22 @@ function securityScopes(operation: Readonly<Record<string, unknown>>): string[] 
   );
 }
 
+// The reference takes several seconds to generate, more than a test's time
+// limit on a slow runner when every test generates it. It is generated once,
+// in a hook, which has a longer limit.
+let reference: Promise<string> | undefined;
+function apiReference(): Promise<string> {
+  reference ??= generateApiReference();
+  return reference;
+}
+
 describe("generated API reference", () => {
+  beforeAll(async () => {
+    await apiReference();
+  });
+
   it("reproduces the committed reference byte-for-byte", { timeout: 120_000 }, async () => {
-    const generated = await generateApiReference();
+    const generated = await apiReference();
     expect(readFileSync(referencePath, "utf8")).toBe(generated);
 
     const check = spawnSync(process.execPath, ["scripts/generate-docs.mjs", "--check"], {
@@ -70,7 +83,7 @@ describe("generated API reference", () => {
     "accounts for all 110 methods and 21 iterators exactly once",
     { timeout: 120_000 },
     async () => {
-      const reference = await generateApiReference();
+      const reference = await apiReference();
       const methodMarkers = [...reference.matchAll(/<!-- operation: ([A-Za-z0-9]+) -->/g)].map(
         ([, operationId]) => operationId,
       );
@@ -100,7 +113,7 @@ describe("generated API reference", () => {
   );
 
   it("renders one registry SDK sample on its matching public facade", async () => {
-    const reference = await generateApiReference();
+    const reference = await apiReference();
     const sampleMarkers = [...reference.matchAll(/<!-- sdk-sample: ([A-Za-z0-9]+) -->/g)].map(
       ([, operationId]) => operationId,
     );
@@ -137,7 +150,7 @@ describe("generated API reference", () => {
   });
 
   it("retains OpenAPI scopes, security alternatives, idempotency, and authorization", async () => {
-    const reference = await generateApiReference();
+    const reference = await apiReference();
 
     for (const { operationId, operation } of operations) {
       const contents = section(reference, "operation", operationId);
@@ -186,7 +199,7 @@ describe("generated API reference", () => {
   });
 
   it("documents list limits and cursor XOR for every paginated method and iterator", async () => {
-    const reference = await generateApiReference();
+    const reference = await apiReference();
 
     for (const mapping of OPERATION_PROFILE.iterators) {
       if (FORWARD_ONLY_OPERATION_IDS.has(mapping.operationId)) continue;
@@ -202,7 +215,7 @@ describe("generated API reference", () => {
   });
 
   it("documents the page limit and the forward-only cursor of email statistics", async () => {
-    const reference = await generateApiReference();
+    const reference = await apiReference();
     const parameters = operations.find(({ operationId }) => operationId === "getEmailStatistics")!
       .operation.parameters as Array<{ name: string }>;
     expect(parameters.map(({ name }) => name)).toContain("after");
@@ -220,7 +233,7 @@ describe("generated API reference", () => {
   });
 
   it("documents the complete contact safety and lifecycle boundary", async () => {
-    const reference = await generateApiReference();
+    const reference = await apiReference();
 
     for (const phrase of [
       "`contacts:read`, `contacts:write`, and `contacts:delete` permissions",
@@ -238,7 +251,7 @@ describe("generated API reference", () => {
   });
 
   it("documents the list permission, count, batch, and removal contract", async () => {
-    const reference = await generateApiReference();
+    const reference = await apiReference();
 
     for (const phrase of [
       "`lists:read`, `lists:write`, and `lists:delete` permissions",
@@ -254,7 +267,7 @@ describe("generated API reference", () => {
   });
 
   it("names the conditional contacts:read scope on the member listing and its iterator", async () => {
-    const reference = await generateApiReference();
+    const reference = await apiReference();
     const conditional =
       "- **Conditional scope:** also requires `contacts:read` when `include_contacts` is `true`; without it the API answers `403`.";
 
@@ -273,7 +286,7 @@ describe("generated API reference", () => {
   });
 
   it("keeps every public model link resolvable", async () => {
-    const reference = await generateApiReference();
+    const reference = await apiReference();
     const links = [...reference.matchAll(/\[[A-Za-z][A-Za-z0-9_]*\]\((\.\.\/src\/[^)]+)\)/g)].map(
       ([, link]) => link!,
     );
