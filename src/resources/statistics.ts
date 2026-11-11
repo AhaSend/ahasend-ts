@@ -80,7 +80,7 @@ export interface DeliveryTimeStatisticsResponse {
 export interface EmailStatisticsParams {
   /**
    * Start of the range, included. It is rounded down to the start of its period. Defaults to 30
-   * days before `to_time`.
+   * days before `to_time`. It cannot be before 2000-01-01.
    */
   from_time?: ISODateTime | undefined;
   /**
@@ -94,8 +94,8 @@ export interface EmailStatisticsParams {
    */
   group_by?: StatisticsGranularity | undefined;
   /**
-   * Comma-separated domain names of the account, deleted domains included; the key must be able
-   * to read every name. Defaults to every domain the key can read.
+   * Comma-separated domain names of the account, at most 50, deleted domains included; the key
+   * must be able to read every name. Defaults to every domain the key can read.
    */
   sender_domain?: string | undefined;
   /**
