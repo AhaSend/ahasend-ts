@@ -26,6 +26,11 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `Webhook` requires `on_sending_type_changed`, which the API always returns. Code that builds a
   `Webhook` object by hand, as in a test double, needs it.
+- The documentation of the statistics methods names the API key scopes `statistics:read:all` and
+  `statistics:read:{domain}`. The API also accepts `statistics-transactional:read:all` and
+  `statistics-transactional:read:{domain}`, which give the same access, so keys with those scopes
+  keep working. The API returns a scope as it was saved; the SDK sends each scope as given and does
+  not check its name.
 
 ## [0.7.0] — 2026-11-11
 

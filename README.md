@@ -1115,10 +1115,9 @@ for await (const _page of client.statistics.emailsPages({
   out bots and scanners.
 - A range can be at most 31 days for `group_by: "hour"`, 366 days for `day` and `week`, and 5
   calendar years for `month`; a longer range answers `400` (`AhaSendBadRequestError`).
-- The key needs `statistics-transactional:read:all` or at least one
-  `statistics-transactional:read:{domain}` scope, and must be able to read every domain in
-  `sender_domain`. Without `sender_domain`, a key with domain scopes reads the domains named in its
-  scopes.
+- The key needs `statistics:read:all` or at least one `statistics:read:{domain}` scope, and must be
+  able to read every domain in `sender_domain`. Without `sender_domain`, a key with domain scopes
+  reads the domains named in its scopes.
 
 ## License
 

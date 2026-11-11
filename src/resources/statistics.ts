@@ -190,9 +190,8 @@ export interface EmailStatisticsResponse {
 export interface StatisticsClient {
   /**
    * Return reception, delivery, bounce, open, and click counts bucketed by `group_by`.
-   * Authorization requires `statistics-transactional:read:all` or
-   * `statistics-transactional:read:{domain}` for every comma-separated
-   * `sender_domain` value.
+   * Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every
+   * comma-separated `sender_domain` value.
    */
   deliverability(
     params?: StatisticsParams,
@@ -201,9 +200,8 @@ export interface StatisticsClient {
 
   /**
    * Return bounce counts broken down by classification for each time bucket.
-   * Authorization requires `statistics-transactional:read:all` or
-   * `statistics-transactional:read:{domain}` for every comma-separated
-   * `sender_domain` value.
+   * Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every
+   * comma-separated `sender_domain` value.
    */
   bounces(
     params?: StatisticsParams,
@@ -212,9 +210,8 @@ export interface StatisticsClient {
 
   /**
    * Return average delivery latency and its recipient-domain breakdown per time bucket.
-   * Authorization requires `statistics-transactional:read:all` or
-   * `statistics-transactional:read:{domain}` for every comma-separated
-   * `sender_domain` value.
+   * Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every
+   * comma-separated `sender_domain` value.
    */
   deliveryTimes(
     params?: StatisticsParams,
@@ -229,10 +226,9 @@ export interface StatisticsClient {
    * `breakdown: "domain"`, one call returns one page of up to `limit` domains; use
    * {@link StatisticsClient.emailsPages} to read every page. `totals` covers the whole request on
    * every page.
-   * Authorization requires `statistics-transactional:read:all` or
-   * `statistics-transactional:read:{domain}` for every comma-separated
-   * `sender_domain` value. Without `sender_domain`, a key with domain scopes reads the domains
-   * named in its scopes.
+   * Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every
+   * comma-separated `sender_domain` value. Without `sender_domain`, a key with domain scopes
+   * reads the domains named in its scopes.
    */
   emails(
     params?: EmailStatisticsParams,
@@ -262,9 +258,8 @@ class StatisticsClientImplementation implements StatisticsClient {
 
   /**
    * Return reception, delivery, bounce, open, and click counts bucketed by `group_by`.
-   * Authorization requires `statistics-transactional:read:all` or
-   * `statistics-transactional:read:{domain}` for every comma-separated
-   * `sender_domain` value.
+   * Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every
+   * comma-separated `sender_domain` value.
    */
   deliverability(
     params: StatisticsParams = {},
@@ -282,9 +277,8 @@ class StatisticsClientImplementation implements StatisticsClient {
 
   /**
    * Return bounce counts broken down by classification for each time bucket.
-   * Authorization requires `statistics-transactional:read:all` or
-   * `statistics-transactional:read:{domain}` for every comma-separated
-   * `sender_domain` value.
+   * Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every
+   * comma-separated `sender_domain` value.
    */
   bounces(
     params: StatisticsParams = {},
@@ -302,9 +296,8 @@ class StatisticsClientImplementation implements StatisticsClient {
 
   /**
    * Return average delivery latency and its recipient-domain breakdown per time bucket.
-   * Authorization requires `statistics-transactional:read:all` or
-   * `statistics-transactional:read:{domain}` for every comma-separated
-   * `sender_domain` value.
+   * Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every
+   * comma-separated `sender_domain` value.
    */
   deliveryTimes(
     params: StatisticsParams = {},
@@ -328,10 +321,9 @@ class StatisticsClientImplementation implements StatisticsClient {
    * `breakdown: "domain"`, one call returns one page of up to `limit` domains; use
    * {@link StatisticsClient.emailsPages} to read every page. `totals` covers the whole request on
    * every page.
-   * Authorization requires `statistics-transactional:read:all` or
-   * `statistics-transactional:read:{domain}` for every comma-separated
-   * `sender_domain` value. Without `sender_domain`, a key with domain scopes reads the domains
-   * named in its scopes.
+   * Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every
+   * comma-separated `sender_domain` value. Without `sender_domain`, a key with domain scopes
+   * reads the domains named in its scopes.
    */
   emails(
     params: EmailStatisticsParams = {},

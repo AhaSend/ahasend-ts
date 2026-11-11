@@ -3505,11 +3505,11 @@ client.statistics.deliverability(params?: StatisticsParams, options?: RequestOpt
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/transactional/deliverability`
 - **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [DeliverabilityStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: DeliverabilityStatisticsResponse`
-- **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
-- **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
+- **Scopes:** `statistics:read:all`, `statistics:read:{domain}`
+- **Security alternatives:** `BearerAuth: statistics:read:all` **or** `BearerAuth: statistics:read:{domain}`
 - **Idempotency:** Not supported by this operation.
-- **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
-- **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
+- **Resource authorization:** Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every comma-separated `sender_domain` value.
+- **Authorization rule:** `comma_separated_query_domains`; global role `statistics:read:all`; domain role `statistics:read:{domain}`
 
 <!-- sdk-sample: getDeliverabilityStatistics -->
 
@@ -3538,11 +3538,11 @@ client.statistics.bounces(params?: StatisticsParams, options?: RequestOptions): 
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/transactional/bounce`
 - **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [BounceStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: BounceStatisticsResponse`
-- **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
-- **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
+- **Scopes:** `statistics:read:all`, `statistics:read:{domain}`
+- **Security alternatives:** `BearerAuth: statistics:read:all` **or** `BearerAuth: statistics:read:{domain}`
 - **Idempotency:** Not supported by this operation.
-- **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
-- **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
+- **Resource authorization:** Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every comma-separated `sender_domain` value.
+- **Authorization rule:** `comma_separated_query_domains`; global role `statistics:read:all`; domain role `statistics:read:{domain}`
 
 <!-- sdk-sample: getBounceStatistics -->
 
@@ -3571,11 +3571,11 @@ client.statistics.deliveryTimes(params?: StatisticsParams, options?: RequestOpti
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/transactional/delivery-time`
 - **Models:** [StatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [DeliveryTimeStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: DeliveryTimeStatisticsResponse`
-- **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
-- **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
+- **Scopes:** `statistics:read:all`, `statistics:read:{domain}`
+- **Security alternatives:** `BearerAuth: statistics:read:all` **or** `BearerAuth: statistics:read:{domain}`
 - **Idempotency:** Not supported by this operation.
-- **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
-- **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
+- **Resource authorization:** Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every comma-separated `sender_domain` value.
+- **Authorization rule:** `comma_separated_query_domains`; global role `statistics:read:all`; domain role `statistics:read:{domain}`
 
 <!-- sdk-sample: getDeliveryTimeStatistics -->
 
@@ -3604,11 +3604,11 @@ client.statistics.emails(params?: EmailStatisticsParams, options?: RequestOption
 - **HTTP:** `GET /v2/accounts/{account_id}/statistics/emails`
 - **Models:** [EmailStatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [EmailStatisticsResponse](../src/resources/statistics.ts)
 - **OpenAPI models:** `200: EmailStatisticsResponse`
-- **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
-- **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
+- **Scopes:** `statistics:read:all`, `statistics:read:{domain}`
+- **Security alternatives:** `BearerAuth: statistics:read:all` **or** `BearerAuth: statistics:read:{domain}`
 - **Idempotency:** Not supported by this operation.
-- **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
-- **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
+- **Resource authorization:** Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every comma-separated `sender_domain` value.
+- **Authorization rule:** `comma_separated_query_domains`; global role `statistics:read:all`; domain role `statistics:read:{domain}`
 - **Pagination:** `limit` accepts at most 50 domains per page (default 25). Paging is forward only: use `pagination.next_cursor` as `after` to move forward.
 
 <!-- sdk-sample: getEmailStatistics -->

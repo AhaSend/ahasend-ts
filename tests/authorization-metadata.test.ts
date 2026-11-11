@@ -31,22 +31,10 @@ const STANDARD_SECURITY_PAIRS = {
   createSMTPCredential: ["smtp-credentials:write:all", "smtp-credentials:write:{domain}"],
   getSMTPCredential: ["smtp-credentials:read:all", "smtp-credentials:read:{domain}"],
   deleteSMTPCredential: ["smtp-credentials:delete:all", "smtp-credentials:delete:{domain}"],
-  getDeliverabilityStatistics: [
-    "statistics-transactional:read:all",
-    "statistics-transactional:read:{domain}",
-  ],
-  getBounceStatistics: [
-    "statistics-transactional:read:all",
-    "statistics-transactional:read:{domain}",
-  ],
-  getDeliveryTimeStatistics: [
-    "statistics-transactional:read:all",
-    "statistics-transactional:read:{domain}",
-  ],
-  getEmailStatistics: [
-    "statistics-transactional:read:all",
-    "statistics-transactional:read:{domain}",
-  ],
+  getDeliverabilityStatistics: ["statistics:read:all", "statistics:read:{domain}"],
+  getBounceStatistics: ["statistics:read:all", "statistics:read:{domain}"],
+  getDeliveryTimeStatistics: ["statistics:read:all", "statistics:read:{domain}"],
+  getEmailStatistics: ["statistics:read:all", "statistics:read:{domain}"],
 } as const;
 
 const EXPECTED_AUTHORIZATION = {
@@ -144,45 +132,33 @@ const EXPECTED_AUTHORIZATION = {
     kind: "comma_separated_query_domains",
     queryParameter: "sender_domain",
     quantifier: "every",
-    roles: {
-      global: "statistics-transactional:read:all",
-      domain: "statistics-transactional:read:{domain}",
-    },
+    roles: { global: "statistics:read:all", domain: "statistics:read:{domain}" },
     summary:
-      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
+      "Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every comma-separated `sender_domain` value.",
   },
   getBounceStatistics: {
     kind: "comma_separated_query_domains",
     queryParameter: "sender_domain",
     quantifier: "every",
-    roles: {
-      global: "statistics-transactional:read:all",
-      domain: "statistics-transactional:read:{domain}",
-    },
+    roles: { global: "statistics:read:all", domain: "statistics:read:{domain}" },
     summary:
-      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
+      "Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every comma-separated `sender_domain` value.",
   },
   getDeliveryTimeStatistics: {
     kind: "comma_separated_query_domains",
     queryParameter: "sender_domain",
     quantifier: "every",
-    roles: {
-      global: "statistics-transactional:read:all",
-      domain: "statistics-transactional:read:{domain}",
-    },
+    roles: { global: "statistics:read:all", domain: "statistics:read:{domain}" },
     summary:
-      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
+      "Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every comma-separated `sender_domain` value.",
   },
   getEmailStatistics: {
     kind: "comma_separated_query_domains",
     queryParameter: "sender_domain",
     quantifier: "every",
-    roles: {
-      global: "statistics-transactional:read:all",
-      domain: "statistics-transactional:read:{domain}",
-    },
+    roles: { global: "statistics:read:all", domain: "statistics:read:{domain}" },
     summary:
-      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
+      "Authorization requires `statistics:read:all` or `statistics:read:{domain}` for every comma-separated `sender_domain` value.",
   },
   getMessages: {
     kind: "authorized_domain_filter",
