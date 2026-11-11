@@ -214,7 +214,7 @@ function validateRegistrySmokePolicy(workflowValue: unknown): void {
       'PACKAGE="$PACKAGE_NAME@$PACKAGE_VERSION"',
       "for ATTEMPT in 1 2 3 4 5",
       'test "$ATTEMPT" -lt 5',
-      "sleep 15",
+      "sleep 120",
     ]) {
       if (!source.includes(fragment)) {
         throw new TypeError(`${label} must bind the exact package and use a bounded retry.`);
