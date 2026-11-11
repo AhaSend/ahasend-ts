@@ -167,7 +167,7 @@ of the outcome it was asked to simulate, which may then not agree with the repre
 `smtp_code` and `response` beside it. Do not calibrate a `classification` branch against sandbox
 traffic.
 
-## Campaign, suppression, and contact events
+## Campaign, suppression, contact, and domain events
 
 Message events of a campaign message also carry `campaign_id`, `list_id`, and `segment_id`.
 `list_id` and `segment_id` are `null` when the campaign did not reach the recipient through a list
@@ -198,13 +198,21 @@ the `contact` and its `origin`:
 back as a new event with `origin: "api"`; skip the write when the contact already has the values it
 wants.
 
+Domain events have no `origin`. `domain.dns_error` reports a problem with the DNS records of a
+domain. `domain.sending_type_changed` reports a change of the sending type of a domain between
+`transactional` and `marketing`: `data.previous_sending_type` and `data.sending_type` are the
+sending type before and after the change, and `data.source` says who changed it: `customer` (you,
+in the dashboard or through the API), `admin` (AhaSend support), or `automatic` (AhaSend, when a
+transactional domain sends marketing email).
+
 Events do not arrive in the order in which they happened. Order them by their `timestamp`.
 
-Three values are open sets: `origin`, the complaint `reporter`, and the entries of
-`changed_fields`. A delivery can carry a value that this release does not know. The SDK accepts it,
-and so should your handler: `isKnownWebhookOrigin`, `isKnownComplaintReporter`, and
-`isKnownContactChangedField` narrow to the values known today and leave the rest to a fallback
-branch. Contact `attributes` values can be any JSON value.
+Four values are open sets: `origin`, the complaint `reporter`, the entries of `changed_fields`, and
+the `source` of `domain.sending_type_changed`. A delivery can carry a value that this release does
+not know. The SDK accepts it, and so should your handler: `isKnownWebhookOrigin`,
+`isKnownComplaintReporter`, `isKnownContactChangedField`, and `isKnownDomainSendingTypeChangeSource`
+narrow to the values known today and leave the rest to a fallback branch. Contact `attributes`
+values can be any JSON value.
 
 ```ts
 import {
@@ -246,6 +254,32 @@ async function onContactEvent(event: AnyWebhookEvent): Promise<void> {
         );
       }
       break;
+  }
+}
+```
+
+A handler for `domain.sending_type_changed` keeps a fallback branch for `source` in the same way:
+
+```ts
+import {
+  isKnownDomainSendingTypeChangeSource,
+  isKnownWebhookEvent,
+  type AnyWebhookEvent,
+} from "@ahasend/sdk/webhooks";
+
+declare function recordSendingType(domain: string, sendingType: string): Promise<void>;
+declare function alertTeam(message: string): Promise<void>;
+
+async function onDomainEvent(event: AnyWebhookEvent): Promise<void> {
+  if (!isKnownWebhookEvent(event)) return; // an event type added after this release
+  if (event.type !== "domain.sending_type_changed") return;
+  const { domain, sending_type, source } = event.data;
+  await recordSendingType(domain, sending_type);
+  if (!isKnownDomainSendingTypeChangeSource(source)) {
+    // A source added after this release: keep the change and accept the delivery.
+    await alertTeam(`${domain} is now a ${sending_type} domain (source: ${source})`);
+  } else if (source === "automatic") {
+    await alertTeam(`${domain} sent marketing email and is now a marketing domain`);
   }
 }
 ```

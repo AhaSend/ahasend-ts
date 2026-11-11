@@ -297,6 +297,7 @@ const webhooks: SDK.ListWebhooksParams = {
   on_suppression_created: true,
   on_suppression_deleted: true,
   on_dns_error: true,
+  on_sending_type_changed: true,
   on_contact_created: true,
   on_contact_updated: true,
   on_contact_deleted: true,

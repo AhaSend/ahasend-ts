@@ -9,6 +9,7 @@ import {
   type ContactUnsubscribedEvent,
   type ContactUpdatedEvent,
   type DomainDNSErrorEvent,
+  type DomainSendingTypeChangedEvent,
   type MessageClickedEvent,
   type MessageComplainedEvent,
   type MessageDeliveredEvent,
@@ -104,6 +105,10 @@ describe("webhook public types", () => {
     expectTypeOf<IsOptional<ContactUpdatedEvent, "webhook_id">>().toEqualTypeOf<false>();
     expectTypeOf<IsOptional<ContactUnsubscribedEvent, "webhook_id">>().toEqualTypeOf<false>();
     expectTypeOf<ContactUnsubscribedEvent["webhook_id"]>().toEqualTypeOf<string>();
+
+    // The same holds for domain.sending_type_changed.
+    expectTypeOf<IsOptional<DomainSendingTypeChangedEvent, "webhook_id">>().toEqualTypeOf<false>();
+    expectTypeOf<DomainSendingTypeChangedEvent["webhook_id"]>().toEqualTypeOf<string>();
 
     expectTypeOf<IsOptional<MessageRoutingEvent, "route_id">>().toEqualTypeOf<false>();
     expectTypeOf<MessageRoutingEvent["route_id"]>().toEqualTypeOf<string>();

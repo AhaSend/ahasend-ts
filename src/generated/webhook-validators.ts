@@ -41,6 +41,7 @@ const EVENT_SCHEMAS = {
   "suppression.created": "SuppressionWebhookPayload",
   "suppression.deleted": "SuppressionWebhookPayload",
   "domain.dns_error": "DomainWebhookPayload",
+  "domain.sending_type_changed": "DomainSendingTypeChangedPayload",
   "contact.created": "ContactCreatedWebhookPayload",
   "contact.updated": "ContactUpdatedWebhookPayload",
   "contact.deleted": "ContactDeletedWebhookPayload",
@@ -508,6 +509,51 @@ const SCHEMAS = {
       dns_last_checked_at: {
         type: "string",
         format: "date-time",
+      },
+    },
+  },
+  DomainSendingTypeChangedPayload: {
+    type: "object",
+    required: ["type", "webhook_id", "timestamp", "data"],
+    properties: {
+      type: {
+        type: "string",
+        enum: ["domain.sending_type_changed"],
+      },
+      webhook_id: {
+        type: "string",
+        format: "uuid",
+      },
+      timestamp: {
+        type: "string",
+        format: "date-time",
+      },
+      data: {
+        $ref: "#/components/schemas/DomainSendingTypeChangedData",
+      },
+    },
+  },
+  DomainSendingTypeChangedData: {
+    type: "object",
+    required: ["account_id", "domain", "previous_sending_type", "sending_type", "source"],
+    properties: {
+      account_id: {
+        type: "string",
+        format: "uuid",
+      },
+      domain: {
+        type: "string",
+      },
+      previous_sending_type: {
+        type: "string",
+        enum: ["transactional", "marketing"],
+      },
+      sending_type: {
+        type: "string",
+        enum: ["transactional", "marketing"],
+      },
+      source: {
+        type: "string",
       },
     },
   },

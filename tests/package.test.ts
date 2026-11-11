@@ -48,6 +48,7 @@ const webhookRuntimeExports = [
   "isKnownComplaintReporter",
   "isKnownContactChangedField",
   "isKnownDeliveryAttemptClassification",
+  "isKnownDomainSendingTypeChangeSource",
   "isKnownWebhookEvent",
   "isKnownWebhookEventType",
   "isKnownWebhookOrigin",

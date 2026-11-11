@@ -14,6 +14,7 @@ import {
   KNOWN_COMPLAINT_REPORTERS,
   KNOWN_CONTACT_CHANGED_FIELDS,
   KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS,
+  KNOWN_DOMAIN_SENDING_TYPE_CHANGE_SOURCES,
   KNOWN_WEBHOOK_ORIGINS,
   WEBHOOK_CONTRACT_SHA256,
   WEBHOOK_SCHEMA_NAMES,
@@ -28,6 +29,7 @@ import {
   isKnownComplaintReporter,
   isKnownContactChangedField,
   isKnownDeliveryAttemptClassification,
+  isKnownDomainSendingTypeChangeSource,
   isKnownWebhookOrigin,
   type AnyWebhookEvent,
   type ContactAddedToListEvent,
@@ -42,8 +44,11 @@ import {
   type ContactUpdatedEvent,
   type ContactUpdatedEventData,
   type DeprecatedWebhookEventType,
+  type DomainSendingTypeChangedEvent,
+  type DomainSendingTypeChangedEventData,
   type KnownComplaintReporter,
   type KnownContactChangedField,
+  type KnownDomainSendingTypeChangeSource,
   type KnownWebhookOrigin,
   type MessageComplainedEvent,
   type MessageUnsubscribedEvent,
@@ -161,6 +166,10 @@ const SYNTHETIC_BODY_DIGESTS = new Map<string, string>([
   ],
   ["suppression-deleted", "e66eba104ae609a38a712ee2599d38bbc5c5d33970fd3e97be18896bc8920290"],
   [
+    "domain-sending-type-changed",
+    "5db5947eaf1d90d0fe206f7039c8f16808d72eeb7d0a20461c36e14f57e50247",
+  ],
+  [
     "contact-created-nested-attributes",
     "88583b97b2c8ef1407be184eb29d911f6000dcd961ecf372956d83446f2aae5a",
   ],
@@ -262,13 +271,14 @@ const DELIVERY_ATTEMPT_FIXTURE_EXPECTATIONS = new Map<string, unknown>([
       description: "A temporary problem inside AhaSend prevented delivery.",
     },
   ],
-  // Campaign, suppression and contact events carry no attempt; their content
-  // is pinned by EVENT_FIXTURE_EXPECTATIONS below.
+  // Campaign, suppression, domain and contact events carry no attempt; their
+  // content is pinned by EVENT_FIXTURE_EXPECTATIONS below.
   ["message-unsubscribed-list", "absent"],
   ["message-complained-segment-unknown-reporter", "absent"],
   ["message-clicked-campaign-without-list-and-segment", "absent"],
   ["suppression-created-recipient", "absent"],
   ["suppression-deleted", "absent"],
+  ["domain-sending-type-changed", "absent"],
   ["contact-created-nested-attributes", "absent"],
   ["contact-updated-unknown-changed-field", "absent"],
   ["contact-updated-unknown-contact-field", "absent"],
@@ -281,8 +291,8 @@ const DELIVERY_ATTEMPT_FIXTURE_EXPECTATIONS = new Map<string, unknown>([
   ["contact-created-unknown-origin", "absent"],
 ]);
 
-// The claim each campaign, suppression and contact fixture is named for: its
-// type, the data it must carry, and the data keys it must not carry.
+// The claim each campaign, suppression, domain and contact fixture is named
+// for: its type, the data it must carry, and the data keys it must not carry.
 // `undefined` in `absent` means the key is not on the wire at all, which is
 // what tells "absent" apart from an explicit `null`.
 const EVENT_FIXTURE_EXPECTATIONS = new Map<
@@ -330,6 +340,20 @@ const EVENT_FIXTURE_EXPECTATIONS = new Map<
     { type: "suppression.created", data: { origin: "recipient", reason: "Unsubscribed" } },
   ],
   ["suppression-deleted", { type: "suppression.deleted", data: { origin: "api" } }],
+  [
+    "domain-sending-type-changed",
+    {
+      type: "domain.sending_type_changed",
+      data: {
+        account_id: "4cdd7bdd-294e-4762-892f-83d40abf5a87",
+        domain: "example.com",
+        previous_sending_type: "transactional",
+        sending_type: "marketing",
+        source: "customer",
+      },
+      absent: ["id", "origin"],
+    },
+  ],
   [
     "contact-created-nested-attributes",
     {
@@ -498,6 +522,18 @@ const CONFIGURED_WEBHOOK_BODIES = [
       dns_last_checked_at: "2026-07-14T15:03:24Z",
     },
   },
+  {
+    type: "domain.sending_type_changed",
+    webhook_id: BODY_WEBHOOK_ID,
+    timestamp: "2026-07-14T15:03:25Z",
+    data: {
+      account_id: "835d2a9f-2c7e-4e8f-96f6-5b7d4b8521aa",
+      domain: "example.com",
+      previous_sending_type: "marketing",
+      sending_type: "transactional",
+      source: "admin",
+    },
+  },
 ] as const;
 
 function record(value: unknown): Record<string, unknown> {
@@ -631,9 +667,9 @@ describe("generated webhook schema", () => {
     const webhooks = record(document["webhooks"]);
 
     expect(WEBHOOK_SCHEMA_NAMES).toEqual(Object.keys(schemas));
-    expect(WEBHOOK_SCHEMA_NAMES).toHaveLength(41);
+    expect(WEBHOOK_SCHEMA_NAMES).toHaveLength(43);
     expect(CANONICAL_WEBHOOK_EVENT_TYPES).toEqual(Object.keys(webhooks));
-    expect(CANONICAL_WEBHOOK_EVENT_TYPES).toHaveLength(22);
+    expect(CANONICAL_WEBHOOK_EVENT_TYPES).toHaveLength(23);
 
     for (const [eventType, webhookValue] of Object.entries(webhooks)) {
       const post = record(record(webhookValue)["post"]);
@@ -1065,6 +1101,7 @@ describe("delivery attempt public surface", () => {
     expectTypeOf<WebhookComponents["schemas"]["DomainWebhookData"]>().not.toHaveProperty(
       "delivery_attempt",
     );
+    expectTypeOf<DomainSendingTypeChangedEventData>().not.toHaveProperty("delivery_attempt");
     expectTypeOf<WebhookComponents["schemas"]["RouteWebhookData"]>().not.toHaveProperty(
       "delivery_attempt",
     );
@@ -1426,6 +1463,108 @@ describe("campaign, suppression, and contact events", () => {
     expect(validateKnownWebhookEvent(future)).toBe(false);
     expect(validateUnknownWebhookEvent(future)).toBe(true);
     expect(isKnownWebhookEvent(future as AnyWebhookEvent)).toBe(false);
+  });
+});
+
+describe("domain.sending_type_changed", () => {
+  it("validates the spec example and narrows it to its own event and data", () => {
+    const example = specExample("domain.sending_type_changed");
+    expect(example["type"]).toBe("domain.sending_type_changed");
+    expect(validateKnownWebhookEvent(example)).toBe(true);
+    expect(isKnownWebhookEvent(example as AnyWebhookEvent)).toBe(true);
+
+    function assertNarrowing(event: AnyWebhookEvent): void {
+      if (!isKnownWebhookEvent(event)) return;
+      if (event.type === "domain.sending_type_changed") {
+        expectTypeOf(event).toEqualTypeOf<DomainSendingTypeChangedEvent>();
+        expectTypeOf(event.data).toEqualTypeOf<DomainSendingTypeChangedEventData>();
+      }
+    }
+    expectTypeOf(assertNarrowing).parameter(0).toEqualTypeOf<AnyWebhookEvent>();
+    expectTypeOf<
+      DomainSendingTypeChangedEvent["type"]
+    >().toEqualTypeOf<"domain.sending_type_changed">();
+  });
+
+  it("types source as an open string and the sending types as closed", () => {
+    expectTypeOf<DomainSendingTypeChangedEventData["source"]>().toEqualTypeOf<string>();
+    expectTypeOf<KnownDomainSendingTypeChangeSource>().toEqualTypeOf<
+      "customer" | "admin" | "automatic"
+    >();
+    expectTypeOf<DomainSendingTypeChangedEventData["previous_sending_type"]>().toEqualTypeOf<
+      "transactional" | "marketing"
+    >();
+    expectTypeOf<DomainSendingTypeChangedEventData["sending_type"]>().toEqualTypeOf<
+      "transactional" | "marketing"
+    >();
+    // The event has no origin: `source` says who made the change.
+    expectTypeOf<DomainSendingTypeChangedEventData>().not.toHaveProperty("origin");
+  });
+
+  it("keeps source an open set", () => {
+    const unknownSource = withData(specExample("domain.sending_type_changed"), (data) => {
+      data["source"] = "source-added-later";
+    });
+    expect(validateKnownWebhookEvent(unknownSource)).toBe(true);
+    expect(isKnownWebhookEvent(unknownSource as AnyWebhookEvent)).toBe(true);
+    const numericSource = withData(specExample("domain.sending_type_changed"), (data) => {
+      data["source"] = 1;
+    });
+    expect(validateKnownWebhookEvent(numericSource)).toBe(false);
+
+    for (const source of ["customer", "admin", "automatic"]) {
+      expect(isKnownDomainSendingTypeChangeSource(source), source).toBe(true);
+    }
+    expect(isKnownDomainSendingTypeChangeSource("source-added-later")).toBe(false);
+    expect(isKnownDomainSendingTypeChangeSource("Customer")).toBe(false);
+
+    const schemas = record(record(parseWebhookContract(WEBHOOK_SOURCE)["components"])["schemas"]);
+    const sourceSchema = record(
+      record(record(schemas["DomainSendingTypeChangedData"])["properties"])["source"],
+    );
+    expect(sourceSchema["enum"]).toBeUndefined();
+    expect(KNOWN_DOMAIN_SENDING_TYPE_CHANGE_SOURCES).toEqual(
+      specKnownValues("DomainSendingTypeChangedData", "source"),
+    );
+
+    const source: string = "automatic";
+    if (isKnownDomainSendingTypeChangeSource(source)) {
+      expectTypeOf(source).toEqualTypeOf<KnownDomainSendingTypeChangeSource>();
+    }
+  });
+
+  it("enforces the closed sending types and the required fields", () => {
+    const rejected: Array<[string, Record<string, unknown>]> = [
+      [
+        "unknown sending_type",
+        withData(specExample("domain.sending_type_changed"), (data) => {
+          data["sending_type"] = "broadcast";
+        }),
+      ],
+      [
+        "unknown previous_sending_type",
+        withData(specExample("domain.sending_type_changed"), (data) => {
+          data["previous_sending_type"] = "broadcast";
+        }),
+      ],
+    ];
+    for (const key of ["account_id", "domain", "previous_sending_type", "sending_type", "source"]) {
+      rejected.push([
+        `without ${key}`,
+        withData(specExample("domain.sending_type_changed"), (data) => {
+          Reflect.deleteProperty(data, key);
+        }),
+      ]);
+    }
+    for (const [label, event] of rejected) {
+      expect(validateKnownWebhookEvent(event), label).toBe(false);
+    }
+
+    const schemas = record(record(parseWebhookContract(WEBHOOK_SOURCE)["components"])["schemas"]);
+    const properties = record(record(schemas["DomainSendingTypeChangedData"])["properties"]);
+    for (const key of ["previous_sending_type", "sending_type"]) {
+      expect(record(properties[key])["enum"], key).toEqual(["transactional", "marketing"]);
+    }
   });
 });
 
@@ -1832,11 +1971,12 @@ describe("WebhookVerifier", () => {
         expect(eventData["delivery_attempt"], fixture.fixtureId).toEqual(expectedAttempt);
       }
 
-      // A campaign, suppression or contact fixture cannot join the corpus
-      // without the claim its name makes.
+      // A campaign, suppression, contact or sending-type fixture cannot join
+      // the corpus without the claim its name makes.
       const payloadType = String(record(payload)["type"]);
       if (
         /^(contact|suppression)\./.test(payloadType) ||
+        payloadType === "domain.sending_type_changed" ||
         payloadType === "message.unsubscribed" ||
         payloadType === "message.complained" ||
         Object.hasOwn(record(record(payload)["data"]), "campaign_id")

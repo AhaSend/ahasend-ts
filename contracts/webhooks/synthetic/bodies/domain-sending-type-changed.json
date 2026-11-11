@@ -1,0 +1,1 @@
+{"type":"domain.sending_type_changed","webhook_id":"abe11757-2886-4b55-96f1-0e0afc95795a","timestamp":"2026-11-09T10:15:00Z","data":{"account_id":"4cdd7bdd-294e-4762-892f-83d40abf5a87","domain":"example.com","previous_sending_type":"transactional","sending_type":"marketing","source":"customer"}}

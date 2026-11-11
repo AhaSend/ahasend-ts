@@ -68,7 +68,7 @@ outside the corpus, and each one makes an attestation quietly false if skipped:
   `IS_BOT_FIXTURE_EXPECTATIONS` and `EVENT_FIXTURE_EXPECTATIONS` in
   `tests/webhooks.test.ts`, and the captured equivalents in
   `tests/contracts.test.ts`. A fixture id is a claim; these are what check it.
-  Every campaign, suppression and contact fixture needs an
+  Every campaign, suppression, contact and sending-type fixture needs an
   `EVENT_FIXTURE_EXPECTATIONS` entry.
 
 Everything else fails loudly: fixture counts, `toHaveLength` assertions, and

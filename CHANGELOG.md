@@ -6,6 +6,27 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `Webhook`, `CreateWebhookRequest`, `UpdateWebhookRequest` and `ListWebhooksParams` gain
+  `on_sending_type_changed`, the setting of the `domain.sending_type_changed` event. It is off
+  unless set, so an existing webhook gets nothing new.
+- `@ahasend/sdk/webhooks` types, validates and narrows `domain.sending_type_changed`, sent when the
+  sending type of a domain changes between `transactional` and `marketing`. Its event type is
+  `DomainSendingTypeChangedEvent`, in the `WebhookEvent` union, and its data is
+  `DomainSendingTypeChangedEventData`: `account_id`, `domain`, `previous_sending_type`,
+  `sending_type` and `source`, which says who changed the sending type. The event has no `origin`.
+  See "Campaign, suppression, contact, and domain events" in `docs/security-and-webhooks.md`.
+- `source` of `domain.sending_type_changed` is typed as a plain string, not an enum, because its set
+  is open: a delivery can carry a value this release predates, and the SDK accepts it.
+  `isKnownDomainSendingTypeChangeSource` narrows to the values known today, `customer`, `admin` and
+  `automatic`, as `KnownDomainSendingTypeChangeSource`; keep a branch for everything else.
+
+### Changed
+
+- `Webhook` requires `on_sending_type_changed`, which the API always returns. Code that builds a
+  `Webhook` object by hand, as in a test double, needs it.
+
 ## [0.7.0] — 2026-11-11
 
 ### Added

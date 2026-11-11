@@ -15,8 +15,8 @@ import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 const EXPECTED_OPERATION_COUNT = 110;
 const EXPECTED_SCHEMA_COUNT = 149;
 const EXPECTED_ITERATOR_COUNT = 21;
-const EXPECTED_WEBHOOK_COUNT = 22;
-const EXPECTED_WEBHOOK_SCHEMA_COUNT = 41;
+const EXPECTED_WEBHOOK_COUNT = 23;
+const EXPECTED_WEBHOOK_SCHEMA_COUNT = 43;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
 const JSON_CONTENT_TYPE = "application/json";
 
@@ -1427,6 +1427,12 @@ function generateWebhookTypes(document, webhookDigest) {
     "changed_fields",
     "x-known-values",
   );
+  const knownSendingTypeChangeSources = knownValues(
+    schemas,
+    "DomainSendingTypeChangedData",
+    "source",
+    "x-known-values",
+  );
   const recursiveJsonSchema = schemas.JSONValue;
   const lines = [
     `${GENERATED_HEADER.trimEnd()} Source webhooks.yaml SHA-256: ${webhookDigest}`,
@@ -1444,6 +1450,7 @@ function generateWebhookTypes(document, webhookDigest) {
     `export const KNOWN_COMPLAINT_REPORTERS = ${JSON.stringify(knownReporters)} as const;`,
     `export const KNOWN_WEBHOOK_ORIGINS = ${JSON.stringify(knownOrigins)} as const;`,
     `export const KNOWN_CONTACT_CHANGED_FIELDS = ${JSON.stringify(knownChangedFields)} as const;`,
+    `export const KNOWN_DOMAIN_SENDING_TYPE_CHANGE_SOURCES = ${JSON.stringify(knownSendingTypeChangeSources)} as const;`,
     "",
     "export type CanonicalWebhookEventType = (typeof CANONICAL_WEBHOOK_EVENT_TYPES)[number];",
     "export type DeprecatedWebhookEventType = (typeof DEPRECATED_WEBHOOK_EVENT_TYPES)[number];",
@@ -1453,6 +1460,8 @@ function generateWebhookTypes(document, webhookDigest) {
     "export type KnownComplaintReporter = (typeof KNOWN_COMPLAINT_REPORTERS)[number];",
     "export type KnownWebhookOrigin = (typeof KNOWN_WEBHOOK_ORIGINS)[number];",
     "export type KnownContactChangedField = (typeof KNOWN_CONTACT_CHANGED_FIELDS)[number];",
+    "export type KnownDomainSendingTypeChangeSource =",
+    "  (typeof KNOWN_DOMAIN_SENDING_TYPE_CHANGE_SOURCES)[number];",
     "",
     "export interface components {",
     "  schemas: {",

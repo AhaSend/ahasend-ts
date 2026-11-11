@@ -1296,6 +1296,7 @@ export interface components {
       on_suppression_created: boolean;
       on_suppression_deleted: boolean;
       on_dns_error: boolean;
+      on_sending_type_changed: boolean;
       on_contact_created: boolean;
       on_contact_updated: boolean;
       on_contact_deleted: boolean;
@@ -1332,6 +1333,7 @@ export interface components {
       on_suppression_created?: boolean | undefined;
       on_suppression_deleted?: boolean | undefined;
       on_dns_error?: boolean | undefined;
+      on_sending_type_changed?: boolean | undefined;
       on_contact_created?: boolean | undefined;
       on_contact_updated?: boolean | undefined;
       on_contact_deleted?: boolean | undefined;
@@ -1370,6 +1372,7 @@ export interface components {
       on_suppression_created?: boolean | null | undefined;
       on_suppression_deleted?: boolean | null | undefined;
       on_dns_error?: boolean | null | undefined;
+      on_sending_type_changed?: boolean | null | undefined;
       on_contact_created?: boolean | null | undefined;
       on_contact_updated?: boolean | null | undefined;
       on_contact_deleted?: boolean | null | undefined;
@@ -3397,6 +3400,7 @@ export interface operations {
         on_suppression_created?: boolean | undefined;
         on_suppression_deleted?: boolean | undefined;
         on_dns_error?: boolean | undefined;
+        on_sending_type_changed?: boolean | undefined;
         on_contact_created?: boolean | undefined;
         on_contact_updated?: boolean | undefined;
         on_contact_deleted?: boolean | undefined;

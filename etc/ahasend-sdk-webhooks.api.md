@@ -39,7 +39,7 @@ type AnyWebhookEvent$1 = KnownWebhookEvent | UnknownWebhookEvent;
 export type AnyWebhookEvent = WebhookEvent | UnknownWebhookEvent;
 
 // @public (undocumented)
-const CANONICAL_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "message.unsubscribed", "message.complained", "suppression.created", "suppression.deleted", "domain.dns_error", "contact.created", "contact.updated", "contact.deleted", "contact.added_to_list", "contact.removed_from_list", "contact.subscribed", "contact.unsubscribed", "contact.complained", "message.routing"];
+const CANONICAL_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "message.unsubscribed", "message.complained", "suppression.created", "suppression.deleted", "domain.dns_error", "domain.sending_type_changed", "contact.created", "contact.updated", "contact.deleted", "contact.added_to_list", "contact.removed_from_list", "contact.subscribed", "contact.unsubscribed", "contact.complained", "message.routing"];
 
 // Warning: (ae-forgotten-export) The symbol "CANONICAL_WEBHOOK_EVENT_TYPES" needs to be exported by the entry point index.d.ts
 //
@@ -159,6 +159,19 @@ interface components {
             dkim_valid: boolean;
             dmarc_valid: boolean;
             dns_last_checked_at: string;
+        };
+        DomainSendingTypeChangedPayload: {
+            type: "domain.sending_type_changed";
+            webhook_id: string;
+            timestamp: string;
+            data: components["schemas"]["DomainSendingTypeChangedData"];
+        };
+        DomainSendingTypeChangedData: {
+            account_id: string;
+            domain: string;
+            previous_sending_type: "transactional" | "marketing";
+            sending_type: "transactional" | "marketing";
+            source: string;
         };
         WebhookUnsubscribe: {
             method: "one_click" | "link";
@@ -347,8 +360,14 @@ export type DeprecatedWebhookEventType = (typeof DEPRECATED_WEBHOOK_EVENT_TYPES)
 // @public (undocumented)
 export type DomainDNSErrorEvent = webhookEvents["domain.dns_error"];
 
-// @public (undocumented)
+// @public
 export type DomainEventData = components["schemas"]["DomainWebhookData"];
+
+// @public
+export type DomainSendingTypeChangedEvent = webhookEvents["domain.sending_type_changed"];
+
+// @public
+export type DomainSendingTypeChangedEventData = components["schemas"]["DomainSendingTypeChangedData"];
 
 // @public (undocumented)
 export type ExpressHandler = (event: AnyWebhookEvent, req: NodeStyleRequest, res: NodeStyleResponse) => Promise<void> | void;
@@ -381,6 +400,9 @@ export function isKnownContactChangedField(field: string): field is KnownContact
 // @public
 export function isKnownDeliveryAttemptClassification(classification: string): classification is KnownDeliveryAttemptClassification;
 
+// @public
+export function isKnownDomainSendingTypeChangeSource(source: string): source is KnownDomainSendingTypeChangeSource;
+
 // Warning: (ae-forgotten-export) The symbol "AnyWebhookEvent$1" needs to be exported by the entry point index.d.ts
 //
 // @public
@@ -402,7 +424,10 @@ const KNOWN_CONTACT_CHANGED_FIELDS: readonly ["email", "first_name", "last_name"
 const KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS: readonly ["InvalidRecipient", "BadDomain", "InactiveMailbox", "InvalidSender", "QuotaIssues", "NoAnswerFromHost", "BadConnection", "DNSFailure", "RoutingErrors", "TransientFailure", "MessageExpired", "ProtocolErrors", "AuthenticationFailed", "PolicyRelated", "Uncategorized"];
 
 // @public (undocumented)
-const KNOWN_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "message.unsubscribed", "message.complained", "suppression.created", "suppression.deleted", "domain.dns_error", "contact.created", "contact.updated", "contact.deleted", "contact.added_to_list", "contact.removed_from_list", "contact.subscribed", "contact.unsubscribed", "contact.complained", "message.routing", "route.message"];
+const KNOWN_DOMAIN_SENDING_TYPE_CHANGE_SOURCES: readonly ["customer", "admin", "automatic"];
+
+// @public (undocumented)
+const KNOWN_WEBHOOK_EVENT_TYPES: readonly ["message.reception", "message.delivered", "message.transient_error", "message.failed", "message.bounced", "message.suppressed", "message.opened", "message.clicked", "message.unsubscribed", "message.complained", "suppression.created", "suppression.deleted", "domain.dns_error", "domain.sending_type_changed", "contact.created", "contact.updated", "contact.deleted", "contact.added_to_list", "contact.removed_from_list", "contact.subscribed", "contact.unsubscribed", "contact.complained", "message.routing", "route.message"];
 
 // @public (undocumented)
 const KNOWN_WEBHOOK_ORIGINS: readonly ["recipient", "api", "dashboard", "system"];
@@ -431,6 +456,16 @@ export type KnownContactChangedField = KnownContactChangedField$1;
 //
 // @public (undocumented)
 export type KnownDeliveryAttemptClassification = (typeof KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS)[number];
+
+// Warning: (ae-forgotten-export) The symbol "KNOWN_DOMAIN_SENDING_TYPE_CHANGE_SOURCES" needs to be exported by the entry point index.d.ts
+//
+// @public (undocumented)
+type KnownDomainSendingTypeChangeSource$1 = (typeof KNOWN_DOMAIN_SENDING_TYPE_CHANGE_SOURCES)[number];
+
+// Warning: (ae-forgotten-export) The symbol "KnownDomainSendingTypeChangeSource$1" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type KnownDomainSendingTypeChangeSource = KnownDomainSendingTypeChangeSource$1;
 
 // @public (undocumented)
 type KnownWebhookEvent = webhookEvents[keyof webhookEvents];
@@ -633,7 +668,7 @@ export interface WebhookEnvelope<TType extends Exclude<WebhookEventType, "messag
 }
 
 // @public
-export type WebhookEvent = MessageReceptionEvent | MessageDeliveredEvent | MessageTransientErrorEvent | MessageFailedEvent | MessageBouncedEvent | MessageSuppressedEvent | MessageOpenedEvent | MessageClickedEvent | MessageUnsubscribedEvent | MessageComplainedEvent | SuppressionCreatedEvent | SuppressionDeletedEvent | DomainDNSErrorEvent | ContactCreatedEvent | ContactUpdatedEvent | ContactDeletedEvent | ContactAddedToListEvent | ContactRemovedFromListEvent | ContactSubscribedEvent | ContactUnsubscribedEvent | ContactComplainedEvent | MessageRoutingEvent;
+export type WebhookEvent = MessageReceptionEvent | MessageDeliveredEvent | MessageTransientErrorEvent | MessageFailedEvent | MessageBouncedEvent | MessageSuppressedEvent | MessageOpenedEvent | MessageClickedEvent | MessageUnsubscribedEvent | MessageComplainedEvent | SuppressionCreatedEvent | SuppressionDeletedEvent | DomainDNSErrorEvent | DomainSendingTypeChangedEvent | ContactCreatedEvent | ContactUpdatedEvent | ContactDeletedEvent | ContactAddedToListEvent | ContactRemovedFromListEvent | ContactSubscribedEvent | ContactUnsubscribedEvent | ContactComplainedEvent | MessageRoutingEvent;
 
 // @public (undocumented)
 interface webhookEvents {
@@ -655,6 +690,8 @@ interface webhookEvents {
     "contact.updated": components["schemas"]["ContactUpdatedWebhookPayload"];
     // (undocumented)
     "domain.dns_error": components["schemas"]["DomainWebhookPayload"];
+    // (undocumented)
+    "domain.sending_type_changed": components["schemas"]["DomainSendingTypeChangedPayload"];
     // (undocumented)
     "message.bounced": components["schemas"]["MessageBouncedWebhookPayload"];
     // (undocumented)
@@ -742,7 +779,7 @@ export interface WebhookVerifierOptions {
 
 // Warnings were encountered during analysis:
 //
-// dist/webhooks/index.d.ts:199:9 - (ae-forgotten-export) The symbol "WebhookJSONValue$1" needs to be exported by the entry point index.d.ts
+// dist/webhooks/index.d.ts:214:9 - (ae-forgotten-export) The symbol "WebhookJSONValue$1" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

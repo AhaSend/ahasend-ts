@@ -44,6 +44,7 @@ export interface Webhook {
   on_suppression_created: boolean;
   on_suppression_deleted: boolean;
   on_dns_error: boolean;
+  on_sending_type_changed: boolean;
   on_contact_created: boolean;
   on_contact_updated: boolean;
   on_contact_deleted: boolean;
@@ -54,7 +55,7 @@ export interface Webhook {
   on_contact_complained: boolean;
   /**
    * The origins of the contact and suppression events the webhook gets, or `null` for every
-   * origin. Message events and `domain.dns_error` have no origin, and the webhook always gets them.
+   * origin. Message events and domain events have no origin, and the webhook always gets them.
    */
   origins: WebhookOrigin[] | null;
   scope: WebhookScope;
@@ -92,6 +93,7 @@ export type CreateWebhookRequest = {
   on_suppression_created?: boolean | undefined;
   on_suppression_deleted?: boolean | undefined;
   on_dns_error?: boolean | undefined;
+  on_sending_type_changed?: boolean | undefined;
   /** The contact events need the contact read scopes on the API key. */
   on_contact_created?: boolean | undefined;
   on_contact_updated?: boolean | undefined;
@@ -132,6 +134,7 @@ export interface UpdateWebhookRequest {
   on_suppression_created?: boolean | null | undefined;
   on_suppression_deleted?: boolean | null | undefined;
   on_dns_error?: boolean | null | undefined;
+  on_sending_type_changed?: boolean | null | undefined;
   /** The contact events need the contact read scopes on the API key. */
   on_contact_created?: boolean | null | undefined;
   on_contact_updated?: boolean | null | undefined;
@@ -167,6 +170,7 @@ export type ListWebhooksParams = PaginationParams & {
   on_suppression_created?: boolean | undefined;
   on_suppression_deleted?: boolean | undefined;
   on_dns_error?: boolean | undefined;
+  on_sending_type_changed?: boolean | undefined;
   on_contact_created?: boolean | undefined;
   on_contact_updated?: boolean | undefined;
   on_contact_deleted?: boolean | undefined;

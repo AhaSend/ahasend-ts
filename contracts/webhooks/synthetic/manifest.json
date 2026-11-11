@@ -189,6 +189,17 @@
       "expectedResult": "valid"
     },
     {
+      "fixtureId": "domain-sending-type-changed",
+      "bodyPath": "contracts/webhooks/synthetic/bodies/domain-sending-type-changed.json",
+      "rawBodySha256": "5db5947eaf1d90d0fe206f7039c8f16808d72eeb7d0a20461c36e14f57e50247",
+      "keyPath": "contracts/webhooks/synthetic/keys/configured-webhook.key",
+      "keySha256": "da5a09d01d09338edf5e02d08477d3cc06d9cfc0726ff9a842dfff99efd8a6d9",
+      "webhookId": "msg_synthetic_domain_sending_type_changed",
+      "webhookTimestamp": "1700000000",
+      "signature": "v1,p/qnGjy2PDkm94dMQmzBwaxpj3UZWRgd4JQm37vKmAg=",
+      "expectedResult": "valid"
+    },
+    {
       "fixtureId": "contact-created-nested-attributes",
       "bodyPath": "contracts/webhooks/synthetic/bodies/contact-created-nested-attributes.json",
       "rawBodySha256": "88583b97b2c8ef1407be184eb29d911f6000dcd961ecf372956d83446f2aae5a",
