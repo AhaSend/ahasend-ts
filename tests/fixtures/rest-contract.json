@@ -1097,21 +1097,9 @@
     "createSMTPCredential": ["smtp-credentials:write:all", "smtp-credentials:write:{domain}"],
     "getSMTPCredential": ["smtp-credentials:read:all", "smtp-credentials:read:{domain}"],
     "deleteSMTPCredential": ["smtp-credentials:delete:all", "smtp-credentials:delete:{domain}"],
-    "getDeliverabilityStatistics": [
-      "statistics-transactional:read:all",
-      "statistics-transactional:read:{domain}"
-    ],
-    "getBounceStatistics": [
-      "statistics-transactional:read:all",
-      "statistics-transactional:read:{domain}"
-    ],
-    "getDeliveryTimeStatistics": [
-      "statistics-transactional:read:all",
-      "statistics-transactional:read:{domain}"
-    ],
-    "getEmailStatistics": [
-      "statistics-transactional:read:all",
-      "statistics-transactional:read:{domain}"
-    ]
+    "getDeliverabilityStatistics": ["statistics:read:all", "statistics:read:{domain}"],
+    "getBounceStatistics": ["statistics:read:all", "statistics:read:{domain}"],
+    "getDeliveryTimeStatistics": ["statistics:read:all", "statistics:read:{domain}"],
+    "getEmailStatistics": ["statistics:read:all", "statistics:read:{domain}"]
   }
 }
