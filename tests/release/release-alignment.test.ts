@@ -31,31 +31,32 @@ const rootApiReport = readFileSync(resolve(root, "etc/ahasend-sdk.api.md"), "utf
 const webhookApiReport = readFileSync(resolve(root, "etc/ahasend-sdk-webhooks.api.md"), "utf8");
 
 const releaseSection = changelog.slice(
+  changelog.indexOf("## [0.7.0]"),
   changelog.indexOf("## [0.6.0]"),
-  changelog.indexOf("## [0.5.0]"),
 );
 
-describe("v0.6.0 release source alignment", () => {
+describe("v0.7.0 release source alignment", () => {
   it("pins the package, lockfile, runtime, changelog, and root declaration report", () => {
     expect(packageManifest.name).toBe("@ahasend/sdk");
-    expect(packageManifest.version).toBe("0.6.0");
-    expect(packageLock.version).toBe("0.6.0");
-    expect(packageLock.packages[""]?.version).toBe("0.6.0");
-    expect(versionSource).toContain('export const SDK_VERSION = "0.6.0";');
-    expect(changelog).toContain("## [0.6.0] — 2026-11-09");
-    expect(changelog).not.toContain("## [0.6.0] — Unreleased");
-    expect(rootApiReport).toContain('export const SDK_VERSION = "0.6.0";');
+    expect(packageManifest.version).toBe("0.7.0");
+    expect(packageLock.version).toBe("0.7.0");
+    expect(packageLock.packages[""]?.version).toBe("0.7.0");
+    expect(versionSource).toContain('export const SDK_VERSION = "0.7.0";');
+    expect(changelog).toContain("## [0.7.0] — 2026-11-11");
+    expect(changelog).not.toContain("## [0.7.0] — Unreleased");
+    expect(rootApiReport).toContain('export const SDK_VERSION = "0.7.0";');
   });
 
-  it("announces the bare-UUID send id, message_id_header and the webhook data.id", () => {
+  it("announces the email statistics methods and the shared conversation Message-ID", () => {
     expect(releaseSection).toContain("### Added");
     expect(releaseSection).toContain("### Changed");
     for (const name of [
+      "client.statistics.emails()",
+      "client.statistics.emailsPages()",
+      "EmailStatisticsParams",
+      "EmailStatisticsResponse",
+      "messages.sendConversation()",
       "message_id_header",
-      "SendMessageResult",
-      "MessageEventData",
-      "RouteEventData",
-      "data.id",
     ]) {
       expect(releaseSection, name).toContain("`" + name + "`");
     }
@@ -168,13 +169,13 @@ describe("v0.6.0 release source alignment", () => {
     expect(runbook).toContain('CANDIDATE_TARBALL="$(find "$RUNTIME_SMOKE_DIR"');
   });
 
-  it("uses the v0.6.0 tag in release and recovery commands", () => {
-    expect(runbook).toContain("git tag v0.6.0\ngit push origin v0.6.0");
-    expect(runbook).toContain("git tag -d v0.6.0 && git push origin :refs/tags/v0.6.0");
+  it("uses the v0.7.0 tag in release and recovery commands", () => {
+    expect(runbook).toContain("git tag v0.7.0\ngit push origin v0.7.0");
+    expect(runbook).toContain("git tag -d v0.7.0 && git push origin :refs/tags/v0.7.0");
     // Any tag that is not this release's is stale, whichever release preceded
     // it — and the push and delete forms count too, not just `git tag`.
-    expect(runbook).not.toMatch(/git tag (?:-d )?v(?!0\.6\.0\b)/u);
-    expect(runbook).not.toMatch(/git push origin (?::refs\/tags\/)?v(?!0\.6\.0\b)/u);
+    expect(runbook).not.toMatch(/git tag (?:-d )?v(?!0\.7\.0\b)/u);
+    expect(runbook).not.toMatch(/git push origin (?::refs\/tags\/)?v(?!0\.7\.0\b)/u);
   });
 
   it("pins each artifact validator's usage line to the signature the runbook prints", () => {
