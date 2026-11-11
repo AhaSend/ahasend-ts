@@ -350,8 +350,8 @@ describe("REST schema golden contracts", () => {
     }
   });
 
-  it("pins all 24 standard authorization alternatives as independent OR branches", () => {
-    expect(Object.keys(fixture.authorizationAlternatives)).toHaveLength(24);
+  it("pins all 25 standard authorization alternatives as independent OR branches", () => {
+    expect(Object.keys(fixture.authorizationAlternatives)).toHaveLength(25);
 
     const actual = Object.fromEntries(
       operations

@@ -199,9 +199,12 @@ export function assertRateLimitSetting(
   }
 }
 
-/** Map an API path to one of the two documented rate-limit tiers. */
+/**
+ * Map an API path to one of the two documented rate-limit tiers. Only the transactional
+ * statistics endpoints have the statistics limit; email statistics have the standard one.
+ */
 export function detectCategory(_method: string, path: string): EndpointCategory {
-  return path.includes("/statistics/") ? "statistics" : "standard";
+  return path.includes("/statistics/transactional/") ? "statistics" : "standard";
 }
 
 interface RateLimitClock {

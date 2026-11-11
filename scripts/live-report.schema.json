@@ -47,19 +47,21 @@
     "tarballSha256": { "$ref": "#/definitions/sha256" },
     "operations": {
       "type": "array",
-      "minItems": 109,
-      "maxItems": 109,
+      "minItems": 110,
+      "maxItems": 110,
       "items": { "$ref": "#/definitions/result" }
     },
     "iterators": {
       "type": "array",
-      "minItems": 20,
-      "maxItems": 20,
+      "minItems": 21,
+      "maxItems": 21,
       "items": {
         "allOf": [
           { "$ref": "#/definitions/result" },
           {
-            "properties": { "method": { "const": "iterate" } },
+            "properties": {
+              "method": { "type": "string", "pattern": "^(?:iterate|[a-z][A-Za-z0-9]*Pages)$" }
+            },
             "required": ["method"]
           }
         ]

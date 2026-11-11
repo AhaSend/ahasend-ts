@@ -823,6 +823,195 @@
         "scope": "scoped",
         "domains": []
       }
+    },
+    {
+      "id": "email-statistics-without-breakdown-nulls",
+      "schema": "EmailStatisticsResponse",
+      "valid": true,
+      "value": {
+        "object": "email_statistics",
+        "from_time": "2026-10-01T00:00:00Z",
+        "to_time": "2026-11-01T00:00:00Z",
+        "group_by": "month",
+        "breakdown": null,
+        "totals": {
+          "reception_count": 12,
+          "delivered_count": 10,
+          "bounced_count": 1,
+          "suppressed_count": 1,
+          "complained_count": 0,
+          "deferred_count": 3,
+          "opened_count": 7,
+          "clicked_count": 2
+        },
+        "data": [
+          {
+            "from_timestamp": "2026-10-01T00:00:00Z",
+            "to_timestamp": "2026-11-01T00:00:00Z",
+            "sender_domain": null,
+            "reception_count": 12,
+            "delivered_count": 10,
+            "bounced_count": 1,
+            "suppressed_count": 1,
+            "complained_count": 0,
+            "deferred_count": 3,
+            "opened_count": 7,
+            "clicked_count": 2
+          }
+        ],
+        "pagination": {
+          "has_more": false
+        }
+      }
+    },
+    {
+      "id": "email-statistics-domain-breakdown-page",
+      "schema": "EmailStatisticsResponse",
+      "valid": true,
+      "value": {
+        "object": "email_statistics",
+        "from_time": "2026-10-01T00:00:00Z",
+        "to_time": "2026-11-01T00:00:00Z",
+        "group_by": "month",
+        "breakdown": "domain",
+        "totals": {
+          "reception_count": 12,
+          "delivered_count": 10,
+          "bounced_count": 1,
+          "suppressed_count": 1,
+          "complained_count": 0,
+          "deferred_count": 3,
+          "opened_count": 7,
+          "clicked_count": 2
+        },
+        "data": [
+          {
+            "from_timestamp": "2026-10-01T00:00:00Z",
+            "to_timestamp": "2026-11-01T00:00:00Z",
+            "sender_domain": "example.com",
+            "reception_count": 12,
+            "delivered_count": 10,
+            "bounced_count": 1,
+            "suppressed_count": 1,
+            "complained_count": 0,
+            "deferred_count": 3,
+            "opened_count": 7,
+            "clicked_count": 2
+          }
+        ],
+        "pagination": {
+          "has_more": true,
+          "next_cursor": "ZXhhbXBsZS5jb20="
+        }
+      }
+    },
+    {
+      "id": "email-statistics-required-breakdown-omitted",
+      "schema": "EmailStatisticsResponse",
+      "valid": false,
+      "value": {
+        "object": "email_statistics",
+        "from_time": "2026-10-01T00:00:00Z",
+        "to_time": "2026-11-01T00:00:00Z",
+        "group_by": "month",
+        "totals": {
+          "reception_count": 12,
+          "delivered_count": 10,
+          "bounced_count": 1,
+          "suppressed_count": 1,
+          "complained_count": 0,
+          "deferred_count": 3,
+          "opened_count": 7,
+          "clicked_count": 2
+        },
+        "data": [
+          {
+            "from_timestamp": "2026-10-01T00:00:00Z",
+            "to_timestamp": "2026-11-01T00:00:00Z",
+            "sender_domain": null,
+            "reception_count": 12,
+            "delivered_count": 10,
+            "bounced_count": 1,
+            "suppressed_count": 1,
+            "complained_count": 0,
+            "deferred_count": 3,
+            "opened_count": 7,
+            "clicked_count": 2
+          }
+        ],
+        "pagination": {
+          "has_more": false
+        }
+      }
+    },
+    {
+      "id": "email-statistics-required-pagination-omitted",
+      "schema": "EmailStatisticsResponse",
+      "valid": false,
+      "value": {
+        "object": "email_statistics",
+        "from_time": "2026-10-01T00:00:00Z",
+        "to_time": "2026-11-01T00:00:00Z",
+        "group_by": "month",
+        "breakdown": null,
+        "totals": {
+          "reception_count": 12,
+          "delivered_count": 10,
+          "bounced_count": 1,
+          "suppressed_count": 1,
+          "complained_count": 0,
+          "deferred_count": 3,
+          "opened_count": 7,
+          "clicked_count": 2
+        },
+        "data": [
+          {
+            "from_timestamp": "2026-10-01T00:00:00Z",
+            "to_timestamp": "2026-11-01T00:00:00Z",
+            "sender_domain": null,
+            "reception_count": 12,
+            "delivered_count": 10,
+            "bounced_count": 1,
+            "suppressed_count": 1,
+            "complained_count": 0,
+            "deferred_count": 3,
+            "opened_count": 7,
+            "clicked_count": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "email-statistics-row-sender-domain-omitted",
+      "schema": "EmailStatistics",
+      "valid": false,
+      "value": {
+        "from_timestamp": "2026-10-01T00:00:00Z",
+        "to_timestamp": "2026-11-01T00:00:00Z",
+        "reception_count": 12,
+        "delivered_count": 10,
+        "bounced_count": 1,
+        "suppressed_count": 1,
+        "complained_count": 0,
+        "deferred_count": 3,
+        "opened_count": 7,
+        "clicked_count": 2
+      }
+    },
+    {
+      "id": "email-statistics-totals-negative-counter",
+      "schema": "EmailStatisticsTotals",
+      "valid": false,
+      "value": {
+        "reception_count": 12,
+        "delivered_count": -1,
+        "bounced_count": 1,
+        "suppressed_count": 1,
+        "complained_count": 0,
+        "deferred_count": 3,
+        "opened_count": 7,
+        "clicked_count": 2
+      }
     }
   ],
   "apiKeySecrets": {
@@ -917,6 +1106,10 @@
       "statistics-transactional:read:{domain}"
     ],
     "getDeliveryTimeStatistics": [
+      "statistics-transactional:read:all",
+      "statistics-transactional:read:{domain}"
+    ],
+    "getEmailStatistics": [
       "statistics-transactional:read:all",
       "statistics-transactional:read:{domain}"
     ]

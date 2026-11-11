@@ -218,6 +218,7 @@ export interface paths {
   "/v2/accounts/{account_id}/statistics/transactional/delivery-time": {
     get: operations["getDeliveryTimeStatistics"];
   };
+  "/v2/accounts/{account_id}/statistics/emails": { get: operations["getEmailStatistics"] };
 }
 
 export interface components {
@@ -1464,6 +1465,31 @@ export interface components {
     DeliveryTimeStatisticsResponse: {
       object: "list";
       data: Array<components["schemas"]["DeliveryTimeStatistics"]>;
+    };
+    EmailStatisticsTotals: {
+      reception_count: number;
+      delivered_count: number;
+      bounced_count: number;
+      suppressed_count: number;
+      complained_count: number;
+      deferred_count: number;
+      opened_count: number;
+      clicked_count: number;
+    };
+    EmailStatistics: {
+      from_timestamp: string;
+      to_timestamp: string;
+      sender_domain: string | null;
+    } & components["schemas"]["EmailStatisticsTotals"];
+    EmailStatisticsResponse: {
+      object: "email_statistics";
+      from_time: string;
+      to_time: string;
+      group_by: "hour" | "day" | "week" | "month";
+      breakdown: "domain" | null;
+      totals: components["schemas"]["EmailStatisticsTotals"];
+      data: Array<components["schemas"]["EmailStatistics"]>;
+      pagination: components["schemas"]["PaginationInfo"];
     };
   };
 }
@@ -3598,6 +3624,30 @@ export interface operations {
       "200": {
         content: { "application/json": components["schemas"]["DeliveryTimeStatisticsResponse"] };
       };
+      "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "429": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+      "500": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
+    };
+  };
+  getEmailStatistics: {
+    parameters: {
+      path: {
+        account_id: string;
+      };
+      query: {
+        from_time?: string | undefined;
+        to_time?: string | undefined;
+        group_by?: "hour" | "day" | "week" | "month" | undefined;
+        sender_domain?: string | undefined;
+        breakdown?: "domain" | undefined;
+        limit?: number | undefined;
+        after?: string | undefined;
+      };
+    };
+    responses: {
+      "200": { content: { "application/json": components["schemas"]["EmailStatisticsResponse"] } };
       "400": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "401": { content: { "application/json": components["schemas"]["ErrorResponse"] } };
       "403": { content: { "application/json": components["schemas"]["ErrorResponse"] } };

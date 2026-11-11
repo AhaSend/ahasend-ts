@@ -1063,6 +1063,20 @@ console.log("Bounce statistics loaded.", { buckets: statistics.data.length });`,
 });
 console.log("Delivery-time statistics loaded.", { buckets: statistics.data.length });`,
   ),
+  entry(
+    "getEmailStatistics",
+    "GET /v2/accounts/{account_id}/statistics/emails",
+    "client.statistics.emails",
+    `const statistics = await client.statistics.emails({
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-04-01T00:00:00Z",
+  group_by: "month",
+});
+console.log("Email statistics loaded.", {
+  periods: statistics.data.length,
+  delivered: statistics.totals.delivered_count,
+});`,
+  ),
 ]);
 
 export const NODE_OPERATION_KEYS = Object.freeze(

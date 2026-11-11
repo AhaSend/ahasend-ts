@@ -173,6 +173,9 @@ interface PublicSchemaContracts {
   DeliveryTimeStatistics: SDK.DeliveryTimeStatistics;
   DeliveryTime: SDK.DeliveryTimeBreakdown;
   DeliveryTimeStatisticsResponse: SDK.DeliveryTimeStatisticsResponse;
+  EmailStatisticsTotals: SDK.EmailStatisticsTotals;
+  EmailStatistics: SDK.EmailStatistics;
+  EmailStatisticsResponse: SDK.EmailStatisticsResponse;
 }
 
 type AllWireSchemasHavePublicContracts = Expect<
@@ -209,11 +212,12 @@ type ReadonlyArrays<Value> = Value extends readonly unknown[]
 
 /**
  * The shared pagination envelope accepts both the optional cursors used by
- * PaginationInfo and the required nullable cursors used by contacts.
+ * PaginationInfo and the required nullable cursors used by contacts. The
+ * email statistics response carries the same shared `pagination` envelope.
  */
 type PaginationSchema = Extract<
   keyof PublicSchemaContracts,
-  "PaginationInfo" | "ContactPagination" | `Paginated${string}Response`
+  "PaginationInfo" | "ContactPagination" | `Paginated${string}Response` | "EmailStatisticsResponse"
 >;
 
 type BidirectionalSchema = Exclude<
@@ -752,16 +756,42 @@ type StatisticsSignatures = [
       ) => SDK.AhaSendPromise<SDK.DeliveryTimeStatisticsResponse>
     >
   >,
+  Expect<
+    Equal<
+      SDK.StatisticsClient["emails"],
+      (
+        params?: SDK.EmailStatisticsParams,
+        options?: SDK.RequestOptions,
+      ) => SDK.AhaSendPromise<SDK.EmailStatisticsResponse>
+    >
+  >,
+  Expect<
+    Equal<
+      SDK.StatisticsClient["emailsPages"],
+      (
+        params?: SDK.EmailStatisticsParams,
+        options?: SDK.RequestOptions,
+      ) => AsyncGenerator<SDK.EmailStatisticsResponse, void, undefined>
+    >
+  >,
+  Expect<Equal<SDK.EmailStatisticsResponse["breakdown"], "domain" | null>>,
+  Expect<Equal<SDK.EmailStatistics["sender_domain"], string | null>>,
+  Expect<Equal<SDK.EmailStatisticsResponse["pagination"], SDK.PaginationMeta>>,
+  Expect<Equal<SDK.EmailStatisticsParams["breakdown"], "domain" | undefined>>,
 ];
 
 declare const deliverabilityStatisticsResult: SDK.AhaSendPromise<SDK.DeliverabilityStatisticsResponse>;
 declare const bounceStatisticsResult: SDK.AhaSendPromise<SDK.BounceStatisticsResponse>;
 declare const deliveryTimeStatisticsResult: SDK.AhaSendPromise<SDK.DeliveryTimeStatisticsResponse>;
+declare const emailStatisticsResult: SDK.AhaSendPromise<SDK.EmailStatisticsResponse>;
+declare const emailStatisticsPages: AsyncGenerator<SDK.EmailStatisticsResponse, void, undefined>;
 
 const structuralStatisticsMock: SDK.StatisticsClient = {
   deliverability: () => deliverabilityStatisticsResult,
   bounces: () => bounceStatisticsResult,
   deliveryTimes: () => deliveryTimeStatisticsResult,
+  emails: () => emailStatisticsResult,
+  emailsPages: () => emailStatisticsPages,
 };
 
 type ContactSignatures = [

@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
-export const EXPECTED_LIVE_OPERATION_COUNT: 109;
-export const EXPECTED_LIVE_ITERATOR_COUNT: 20;
+export const EXPECTED_LIVE_OPERATION_COUNT: 110;
+export const EXPECTED_LIVE_ITERATOR_COUNT: 21;
 
 export interface LiveMapping {
   readonly operationId: string;
@@ -251,6 +251,8 @@ export interface StatisticsLiveFacade {
   readonly deliverability: (...args: never[]) => unknown;
   readonly bounces: (...args: never[]) => unknown;
   readonly deliveryTimes: (...args: never[]) => unknown;
+  readonly emails: (...args: never[]) => unknown;
+  readonly emailsPages: (...args: never[]) => AsyncIterable<unknown>;
 }
 
 export interface StatisticsLiveClient {
@@ -272,6 +274,7 @@ export interface StatisticsAuthorizationRegistry {
   readonly getDeliverabilityStatistics: StatisticsAuthorizationRule;
   readonly getBounceStatistics: StatisticsAuthorizationRule;
   readonly getDeliveryTimeStatistics: StatisticsAuthorizationRule;
+  readonly getEmailStatistics: StatisticsAuthorizationRule;
   readonly [operationId: string]: unknown;
 }
 
@@ -1187,7 +1190,7 @@ export interface LiveReportSummary {
   readonly package: { readonly name: "@ahasend/sdk"; readonly version: string };
   readonly operations: number;
   readonly iterators: number;
-  readonly authorizationOutcomes: 11;
+  readonly authorizationOutcomes: 12;
   readonly sandboxOutcomes: 3;
   readonly unexpectedFailures: 0;
   readonly cleanupFailures: 0;

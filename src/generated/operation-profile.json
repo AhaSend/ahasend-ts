@@ -545,6 +545,11 @@
       "operationId": "getDeliveryTimeStatistics",
       "facade": "statistics",
       "method": "deliveryTimes"
+    },
+    {
+      "operationId": "getEmailStatistics",
+      "facade": "statistics",
+      "method": "emails"
     }
   ],
   "iterators": [
@@ -647,6 +652,11 @@
       "operationId": "getSMTPCredentials",
       "facade": "smtpCredentials",
       "method": "iterate"
+    },
+    {
+      "operationId": "getEmailStatistics",
+      "facade": "statistics",
+      "method": "emailsPages"
     }
   ]
 }

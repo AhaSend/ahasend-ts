@@ -6,6 +6,23 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `client.statistics.emails()` returns the email counts of the account, or of each of its domains,
+  in hourly, daily, weekly or monthly UTC periods, for any time in the account's history; the
+  message metadata retention period does not limit them. The counts cover transactional, campaign
+  and inbound mail. Each row and `totals` carry `reception_count`, `delivered_count`,
+  `bounced_count`, `suppressed_count`, `complained_count`, `deferred_count`, `opened_count` and
+  `clicked_count`. `deferred_count`, `opened_count` and `clicked_count` count events, so they
+  differ from the same fields of `statistics.deliverability()`, which counts messages. With
+  `breakdown: "domain"`, a response is one page of up to `limit` domains, and
+  `client.statistics.emailsPages()` yields every page as a whole response, `totals` included. Both
+  methods use the standard local pacing bucket, not the 1 request/second statistics bucket. Code
+  that implements `StatisticsClient` structurally, such as a test mock, must add `emails` and
+  `emailsPages`. The methods need `statistics-transactional:read:all` or
+  `statistics-transactional:read:{domain}`. The new types are `EmailStatisticsParams`,
+  `EmailStatisticsResponse`, `EmailStatistics` and `EmailStatisticsTotals`.
+
 ### Changed
 
 - The copies of a `messages.sendConversation()` send, one for every To, Cc and Bcc recipient, share

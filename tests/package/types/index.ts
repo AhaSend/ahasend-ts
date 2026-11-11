@@ -310,6 +310,12 @@ const statistics: SDK.StatisticsParams = {
   sender_domain: "example.com",
   group_by: "day",
 };
+const emailStatistics: SDK.EmailStatisticsParams = {
+  sender_domain: "example.com",
+  group_by: "month",
+  breakdown: "domain",
+  limit: 10,
+};
 const readonlyHeaders: Readonly<Record<string, string>> = {
   "x-correlation-id": "package-type-fixture",
 };
@@ -429,6 +435,8 @@ void client.webhooks.delete(uuid).withResponse();
 void client.statistics.deliverability(statistics).withResponse();
 void client.statistics.bounces(statistics).withResponse();
 void client.statistics.deliveryTimes(statistics).withResponse();
+void client.statistics.emails(emailStatistics).withResponse();
+void client.statistics.emailsPages(emailStatistics).next();
 
 void client.templates.list(templates).withResponse();
 void client.templates.create(templateBody, { idempotencyKey: "package-template" }).withResponse();
@@ -644,6 +652,8 @@ const statisticsMock: SDK.StatisticsClient = {
   deliverability: () => result<SDK.DeliverabilityStatisticsResponse>(),
   bounces: () => result<SDK.BounceStatisticsResponse>(),
   deliveryTimes: () => result<SDK.DeliveryTimeStatisticsResponse>(),
+  emails: () => result<SDK.EmailStatisticsResponse>(),
+  emailsPages: () => iterator<SDK.EmailStatisticsResponse>(),
 };
 
 const templatesMock: SDK.TemplatesClient = {

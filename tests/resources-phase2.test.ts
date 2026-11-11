@@ -20,6 +20,7 @@ import type {
   BounceClassificationCount,
   DeliverabilityStatistics,
   DeliveryTimeStatistics,
+  EmailStatisticsResponse,
 } from "../src/resources/statistics.js";
 import type { ListSuppressionsParams, Suppression } from "../src/resources/suppressions.js";
 import type {
@@ -458,6 +459,196 @@ describe("StatisticsClient", () => {
       "getBounceStatistics",
       "getDeliveryTimeStatistics",
     ]);
+  });
+});
+
+const EMAIL_STATISTICS_COUNTS = {
+  reception_count: 61000,
+  delivered_count: 60100,
+  bounced_count: 610,
+  suppressed_count: 290,
+  complained_count: 4,
+  deferred_count: 800,
+  opened_count: 20100,
+  clicked_count: 2800,
+} as const;
+
+function emailStatisticsBody(
+  breakdown: "domain" | null,
+  rows: readonly (string | null)[],
+  pagination: EmailStatisticsResponse["pagination"],
+): EmailStatisticsResponse {
+  return {
+    object: "email_statistics",
+    from_time: "2026-08-01T00:00:00Z",
+    to_time: "2026-09-01T00:00:00Z",
+    group_by: "month",
+    breakdown,
+    totals: { ...EMAIL_STATISTICS_COUNTS, delivered_count: 120200 },
+    data: rows.map((senderDomain) => ({
+      from_timestamp: "2026-08-01T00:00:00Z",
+      to_timestamp: "2026-09-01T00:00:00Z",
+      sender_domain: senderDomain,
+      ...EMAIL_STATISTICS_COUNTS,
+    })),
+    pagination,
+  };
+}
+
+function emailStatisticsResponse(body: EmailStatisticsResponse): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("StatisticsClient email statistics", () => {
+  it("emails() sends every parameter, limit and after included, to getEmailStatistics", async () => {
+    const { fetch, calls } = captureFetch(() =>
+      emailStatisticsResponse(emailStatisticsBody("domain", [], { has_more: false })),
+    );
+    const client = makeClient(fetch);
+
+    await client.statistics.emails(
+      {
+        from_time: "2026-08-01T00:00:00Z",
+        to_time: "2026-11-01T00:00:00Z",
+        group_by: "month",
+        sender_domain: "example.com,example.org",
+        breakdown: "domain",
+        limit: 10,
+        after: "ZXhhbXBsZS5jb20=",
+      },
+      { headers: { "x-trace-id": "email-stats-1" } },
+    );
+
+    const url = new URL(calls[0]!.url);
+    expect(calls[0]!.method).toBe("GET");
+    expect(url.pathname).toBe(`/v2/accounts/${ACCOUNT_ID}/statistics/emails`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      from_time: "2026-08-01T00:00:00Z",
+      to_time: "2026-11-01T00:00:00Z",
+      group_by: "month",
+      sender_domain: "example.com,example.org",
+      breakdown: "domain",
+      limit: "10",
+      after: "ZXhhbXBsZS5jb20=",
+    });
+    expect(calls[0]!.headers["x-trace-id"]).toBe("email-stats-1");
+    expect(calls[0]!.operationId).toBe("getEmailStatistics");
+  });
+
+  it("emails() sends no parameter that is unset", async () => {
+    const { fetch, calls } = captureFetch(() =>
+      emailStatisticsResponse(emailStatisticsBody(null, [null], { has_more: false })),
+    );
+    const client = makeClient(fetch);
+
+    await client.statistics.emails();
+    await client.statistics.emails({
+      group_by: "week",
+      sender_domain: undefined,
+      limit: undefined,
+    });
+
+    expect(calls.map(({ url }) => url)).toEqual([
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/statistics/emails`,
+      `https://api.test/v2/accounts/${ACCOUNT_ID}/statistics/emails?group_by=week`,
+    ]);
+  });
+
+  it("emails() refuses before, which the endpoint does not accept, without a request", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+
+    expect(() =>
+      client.statistics.emails({ before: "cursor" } as unknown as Parameters<
+        typeof client.statistics.emails
+      >[0]),
+    ).toThrow('Unknown query parameter "before" for getEmailStatistics');
+    expect(calls).toHaveLength(0);
+  });
+
+  it("emails() decodes a response with a null breakdown and null row sender_domain", async () => {
+    const body = emailStatisticsBody(null, [null, null], { has_more: false });
+    const { fetch } = captureFetch(() => emailStatisticsResponse(body));
+    const client = makeClient(fetch);
+
+    const response = await client.statistics.emails({ group_by: "month" });
+
+    expect(response).toEqual(body);
+    expect(response.breakdown).toBeNull();
+    expect(response.data.map(({ sender_domain }) => sender_domain)).toEqual([null, null]);
+    expect(response.totals.complained_count).toBe(4);
+    expect(response.pagination).toEqual({ has_more: false });
+  });
+
+  it("emailsPages() yields both responses of a two-page breakdown and sends next_cursor as after", async () => {
+    const firstPage = emailStatisticsBody("domain", ["a.example", "b.example"], {
+      has_more: true,
+      next_cursor: "Yi5leGFtcGxl",
+    });
+    const secondPage = emailStatisticsBody("domain", ["c.example"], { has_more: false });
+    const { fetch, calls } = captureFetch((_call, index) =>
+      emailStatisticsResponse(index === 0 ? firstPage : secondPage),
+    );
+    const client = makeClient(fetch);
+
+    const responses: EmailStatisticsResponse[] = [];
+    for await (const response of client.statistics.emailsPages(
+      { group_by: "month", breakdown: "domain", limit: 2 },
+      { headers: { "x-trace-id": "email-pages" } },
+    )) {
+      responses.push(response);
+    }
+
+    expect(responses).toEqual([firstPage, secondPage]);
+    expect(responses.map(({ totals }) => totals.delivered_count)).toEqual([120200, 120200]);
+    expect(calls.map(({ url }) => Object.fromEntries(new URL(url).searchParams))).toEqual([
+      { group_by: "month", breakdown: "domain", limit: "2" },
+      { group_by: "month", breakdown: "domain", limit: "2", after: "Yi5leGFtcGxl" },
+    ]);
+    expect(calls.map(({ headers }) => headers["x-trace-id"])).toEqual([
+      "email-pages",
+      "email-pages",
+    ]);
+    expect(calls.every(({ operationId }) => operationId === "getEmailStatistics")).toBe(true);
+  });
+
+  it("emailsPages() throws when a page has another range than the first page", async () => {
+    const firstPage = emailStatisticsBody("domain", ["a.example"], {
+      has_more: true,
+      next_cursor: "YS5leGFtcGxl",
+    });
+    const secondPage = {
+      ...emailStatisticsBody("domain", ["b.example"], { has_more: false }),
+      to_time: "2099-01-01T00:00:00Z",
+    };
+    const { fetch } = captureFetch((_call, index) =>
+      emailStatisticsResponse(index === 0 ? firstPage : secondPage),
+    );
+    const client = makeClient(fetch);
+
+    const responses: EmailStatisticsResponse[] = [];
+    await expect(async () => {
+      for await (const response of client.statistics.emailsPages({ breakdown: "domain" })) {
+        responses.push(response);
+      }
+    }).rejects.toThrow("Email statistics range changed between pages");
+    expect(responses).toEqual([firstPage]);
+  });
+
+  it("emailsPages() yields the one response of a request without a breakdown", async () => {
+    const body = emailStatisticsBody(null, [null], { has_more: false });
+    const { fetch, calls } = captureFetch(() => emailStatisticsResponse(body));
+    const client = makeClient(fetch);
+
+    const responses: EmailStatisticsResponse[] = [];
+    for await (const response of client.statistics.emailsPages()) responses.push(response);
+
+    expect(responses).toEqual([body]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(`https://api.test/v2/accounts/${ACCOUNT_ID}/statistics/emails`);
   });
 });
 

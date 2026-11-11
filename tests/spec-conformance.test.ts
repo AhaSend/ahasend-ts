@@ -99,6 +99,22 @@ const STATISTICS_PARAMS = {
   sender_domain: "example.test",
   group_by: "day",
 } as const;
+const EMAIL_STATISTICS_PARAMS = {
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-04-01T00:00:00Z",
+  group_by: "month",
+  sender_domain: "example.test,example.org",
+  breakdown: "domain",
+  ...PAGINATION_PARAMS,
+} as const;
+const EMAIL_STATISTICS_QUERY = {
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-04-01T00:00:00Z",
+  group_by: "month",
+  sender_domain: "example.test,example.org",
+  breakdown: "domain",
+  ...PAGINATION_QUERY,
+} as const;
 
 interface OpenAPIParameter {
   readonly $ref?: string;
@@ -161,7 +177,7 @@ interface PrimaryMatrixRow {
 interface IteratorMatrixRow {
   readonly operationId: OperationId;
   readonly facade: string;
-  readonly method: "iterate";
+  readonly method: "iterate" | "emailsPages";
   readonly invoke: (client: AhaSendClient) => Invocation;
 }
 
@@ -969,6 +985,10 @@ const PRIMARY_MATRIX = [
       query: STATISTICS_PARAMS,
     },
   })),
+  primary("getEmailStatistics", "statistics", "emails", (client) => ({
+    result: client.statistics.emails(EMAIL_STATISTICS_PARAMS, REQUEST_OPTIONS),
+    input: { path: `${ACCOUNT_PATH}/statistics/emails`, query: EMAIL_STATISTICS_QUERY },
+  })),
 ] as const satisfies readonly PrimaryMatrixRow[];
 
 const ITERATOR_MATRIX = [
@@ -1113,13 +1133,22 @@ const ITERATOR_MATRIX = [
     result: client.smtpCredentials.iterate(PAGINATION_PARAMS, REQUEST_OPTIONS).next(),
     input: { path: `${ACCOUNT_PATH}/smtp-credentials`, query: PAGINATION_QUERY },
   })),
+  iterator(
+    "getEmailStatistics",
+    "statistics",
+    (client) => ({
+      result: client.statistics.emailsPages(EMAIL_STATISTICS_PARAMS, REQUEST_OPTIONS).next(),
+      input: { path: `${ACCOUNT_PATH}/statistics/emails`, query: EMAIL_STATISTICS_QUERY },
+    }),
+    "emailsPages",
+  ),
 ] as const satisfies readonly IteratorMatrixRow[];
 
 describe("Facade operation conformance matrix", () => {
-  it("accounts for all 109 implemented operations", () => {
-    expect(PRIMARY_MATRIX).toHaveLength(109);
-    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(109);
-    expect(OPERATION_PROFILE.operations).toHaveLength(109);
+  it("accounts for all 110 implemented operations", () => {
+    expect(PRIMARY_MATRIX).toHaveLength(110);
+    expect(new Set(PRIMARY_MATRIX.map(({ operationId }) => operationId)).size).toBe(110);
+    expect(OPERATION_PROFILE.operations).toHaveLength(110);
     expect(profileShape(OPERATION_PROFILE.operations)).toEqual(profileShape(PRIMARY_MATRIX));
   });
 
@@ -1131,12 +1160,12 @@ describe("Facade operation conformance matrix", () => {
 });
 
 describe("Facade iterator conformance matrix", () => {
-  it("accounts for all twenty implemented iterator aliases", () => {
-    expect(ITERATOR_MATRIX).toHaveLength(20);
+  it("accounts for all 21 implemented iterator aliases", () => {
+    expect(ITERATOR_MATRIX).toHaveLength(21);
     expect(new Set(ITERATOR_MATRIX.map(({ facade, method }) => `${facade}.${method}`)).size).toBe(
-      20,
+      21,
     );
-    expect(OPERATION_PROFILE.iterators).toHaveLength(20);
+    expect(OPERATION_PROFILE.iterators).toHaveLength(21);
     expect(profileShape(OPERATION_PROFILE.iterators)).toEqual(profileShape(ITERATOR_MATRIX));
   });
 
@@ -1195,7 +1224,7 @@ describe("Non-empty request array coverage", () => {
 describe("Generated operation inventory", () => {
   it("maps every OpenAPI operation to one descriptor and profile row", () => {
     const operationIds = [...specOperations.keys()];
-    expect(operationIds).toHaveLength(109);
+    expect(operationIds).toHaveLength(110);
     expect(Object.keys(OPERATION_DESCRIPTORS)).toEqual(operationIds);
     expect(OPERATION_PROFILE.operations.map(({ operationId }) => operationId)).toEqual(
       operationIds,
@@ -1216,8 +1245,9 @@ function iterator(
   operationId: OperationId,
   facade: string,
   invoke: (client: AhaSendClient) => Invocation,
+  method: IteratorMatrixRow["method"] = "iterate",
 ): IteratorMatrixRow {
-  return { operationId, facade, method: "iterate", invoke };
+  return { operationId, facade, method, invoke };
 }
 
 function profileShape(

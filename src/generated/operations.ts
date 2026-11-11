@@ -242,6 +242,17 @@ export const RESOURCE_AUTHORIZATION = {
     summary:
       "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
   },
+  getEmailStatistics: {
+    kind: "comma_separated_query_domains",
+    queryParameter: "sender_domain",
+    quantifier: "every",
+    roles: {
+      global: "statistics-transactional:read:all",
+      domain: "statistics-transactional:read:{domain}",
+    },
+    summary:
+      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
+  },
   getMessages: {
     kind: "authorized_domain_filter",
     resource: "message",
@@ -4305,6 +4316,75 @@ export const OPERATION_DESCRIPTORS = {
       {
         status: 200,
         schema: "DeliveryTimeStatisticsResponse",
+      },
+    ],
+    idempotency: false,
+    retry: "safe",
+    security: [["statistics-transactional:read:all"], ["statistics-transactional:read:{domain}"]],
+    resourceAuthorization: {
+      kind: "comma_separated_query_domains",
+      queryParameter: "sender_domain",
+      quantifier: "every",
+      roles: {
+        global: "statistics-transactional:read:all",
+        domain: "statistics-transactional:read:{domain}",
+      },
+      summary:
+        "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
+    },
+  },
+  getEmailStatistics: {
+    method: "GET",
+    path: "/v2/accounts/{account_id}/statistics/emails",
+    pathParameters: [
+      {
+        name: "account_id",
+        required: true,
+        format: "uuid",
+      },
+    ],
+    query: [
+      {
+        name: "from_time",
+        required: false,
+        format: "date-time",
+      },
+      {
+        name: "to_time",
+        required: false,
+        format: "date-time",
+      },
+      {
+        name: "group_by",
+        required: false,
+        format: null,
+      },
+      {
+        name: "sender_domain",
+        required: false,
+        format: null,
+      },
+      {
+        name: "breakdown",
+        required: false,
+        format: null,
+      },
+      {
+        name: "limit",
+        required: false,
+        format: null,
+      },
+      {
+        name: "after",
+        required: false,
+        format: null,
+      },
+    ],
+    body: null,
+    success: [
+      {
+        status: 200,
+        schema: "EmailStatisticsResponse",
       },
     ],
     idempotency: false,
