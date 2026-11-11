@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AhaSendError, isAhaSendError } from "../src/index.js";
-import { collect, paginate } from "../src/pagination.js";
-import type { PaginatedResponse } from "../src/types/common.js";
+import { collect, paginate, paginatePages } from "../src/pagination.js";
+import type { PaginatedResponse, PaginationMeta } from "../src/types/common.js";
 import { AhaSendClient } from "../src/client.js";
 import { ACCOUNT_ID } from "./helpers/resource-call.js";
 
@@ -221,6 +221,89 @@ describe("paginate", () => {
 
     i = 0;
     expect(await collect(fetchPage, {}, 2)).toEqual([1, 2]);
+  });
+});
+
+describe("paginatePages", () => {
+  interface Page {
+    readonly total: number;
+    readonly pagination: PaginationMeta;
+  }
+  interface PageParams {
+    readonly filter?: string;
+    readonly after?: string | undefined;
+  }
+
+  it("yields each whole page and sends the previous next_cursor as after", async () => {
+    const pages: Page[] = [
+      { total: 7, pagination: { has_more: true, next_cursor: "p2" } },
+      { total: 7, pagination: { has_more: false } },
+    ];
+    let i = 0;
+    const fetchPage = vi.fn(async (_params: PageParams) => pages[i++]!);
+
+    const out: Page[] = [];
+    for await (const page of paginatePages(fetchPage, { filter: "kept" })) out.push(page);
+
+    expect(out).toEqual(pages);
+    expect(fetchPage.mock.calls.map(([params]) => params)).toEqual([
+      { filter: "kept" },
+      { filter: "kept", after: "p2" },
+    ]);
+  });
+
+  it("yields the one page when has_more is false", async () => {
+    const fetchPage = vi.fn(async (_params: PageParams) => ({
+      total: 3,
+      pagination: { has_more: false, next_cursor: "stale" },
+    }));
+
+    const out: Page[] = [];
+    for await (const page of paginatePages(fetchPage, {})) out.push(page);
+
+    expect(out).toHaveLength(1);
+    expect(fetchPage).toHaveBeenCalledOnce();
+  });
+
+  it("stops when has_more is true but next_cursor is missing or null", async () => {
+    for (const pagination of [{ has_more: true }, { has_more: true, next_cursor: null }]) {
+      const fetchPage = vi.fn(async (_params: PageParams) => ({ total: 1, pagination }));
+
+      const out: Page[] = [];
+      for await (const page of paginatePages(fetchPage, {})) out.push(page);
+
+      expect(out, JSON.stringify(pagination)).toHaveLength(1);
+      expect(fetchPage).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("rejects a cursor that would revisit a page, including the starting cursor", async () => {
+    const fetchPage = vi.fn(async (_params: PageParams) => ({
+      total: 1,
+      pagination: { has_more: true, next_cursor: "start" },
+    }));
+
+    const error = await (async () => {
+      for await (const page of paginatePages(fetchPage, { after: "start" })) void page;
+    })().catch((cause: unknown) => cause);
+
+    expect(isAhaSendError(error)).toBe(true);
+    expect(error).toMatchObject({ message: "Pagination cursor did not advance" });
+    expect(fetchPage).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a 2xx page without a pagination object with a branded error", async () => {
+    for (const malformed of [{}, { pagination: null }, null]) {
+      const fetchPage = vi.fn(async (_params: PageParams) => malformed as unknown as Page);
+      const error: unknown = await (async () => {
+        for await (const page of paginatePages(fetchPage, {})) void page;
+      })().catch((cause: unknown) => cause);
+
+      expect(isAhaSendError(error), `page ${JSON.stringify(malformed)}`).toBe(true);
+      expect(error).toMatchObject({
+        message: "Pagination page is malformed: expected a `pagination` object",
+      });
+    }
   });
 });
 

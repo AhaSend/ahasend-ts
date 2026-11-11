@@ -4,7 +4,7 @@
 
 This file is generated from the canonical operation profile, SDK sample registry, OpenAPI contract, resource-authorization registry, and exported TypeScript declarations.
 
-It contains exactly 109 API methods and 20 async iterators.
+It contains exactly 110 API methods and 21 async iterators.
 
 ## Contact management
 
@@ -3592,6 +3592,44 @@ const statistics = await client.statistics.deliveryTimes({
 console.log("Delivery-time statistics loaded.", { buckets: statistics.data.length });
 ```
 
+<!-- operation: getEmailStatistics -->
+
+### statistics.emails
+
+```ts
+client.statistics.emails(params?: EmailStatisticsParams, options?: RequestOptions): AhaSendPromise<EmailStatisticsResponse>
+```
+
+- **Operation ID:** `getEmailStatistics`
+- **HTTP:** `GET /v2/accounts/{account_id}/statistics/emails`
+- **Models:** [EmailStatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [AhaSendPromise](../src/types/common.ts), [EmailStatisticsResponse](../src/resources/statistics.ts)
+- **OpenAPI models:** `200: EmailStatisticsResponse`
+- **Scopes:** `statistics-transactional:read:all`, `statistics-transactional:read:{domain}`
+- **Security alternatives:** `BearerAuth: statistics-transactional:read:all` **or** `BearerAuth: statistics-transactional:read:{domain}`
+- **Idempotency:** Not supported by this operation.
+- **Resource authorization:** Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.
+- **Authorization rule:** `comma_separated_query_domains`; global role `statistics-transactional:read:all`; domain role `statistics-transactional:read:{domain}`
+- **Pagination:** `limit` accepts at most 50 domains per page (default 25). Paging is forward only: use `pagination.next_cursor` as `after` to move forward.
+
+<!-- sdk-sample: getEmailStatistics -->
+
+#### Node.js 22+ (AhaSend SDK)
+
+```javascript
+import { AhaSendClient } from "@ahasend/sdk";
+
+const client = AhaSendClient.fromEnv();
+const statistics = await client.statistics.emails({
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-04-01T00:00:00Z",
+  group_by: "month",
+});
+console.log("Email statistics loaded.", {
+  periods: statistics.data.length,
+  delivered: statistics.totals.delivered_count,
+});
+```
+
 ## Async iterators
 
 <!-- iterator: getAPIKeys -->
@@ -3834,3 +3872,15 @@ client.smtpCredentials.iterate(params?: PaginationParams, options?: RequestOptio
 - **Operation ID:** `getSMTPCredentials`
 - **Models:** [PaginationParams](../src/types/common.ts), [RequestOptions](../src/types/common.ts), [SMTPCredential](../src/resources/smtp-credentials.ts)
 - **Pagination:** `limit` accepts at most 100 items (default 100). Pass at most one of `after` or `before`: use `pagination.next_cursor` as `after` to move forward, or `pagination.previous_cursor` as `before` to move backward.
+
+<!-- iterator: getEmailStatistics -->
+
+### statistics.emailsPages
+
+```ts
+client.statistics.emailsPages(params?: EmailStatisticsParams, options?: RequestOptions): AsyncGenerator<EmailStatisticsResponse, void, undefined>
+```
+
+- **Operation ID:** `getEmailStatistics`
+- **Models:** [EmailStatisticsParams](../src/resources/statistics.ts), [RequestOptions](../src/types/common.ts), [EmailStatisticsResponse](../src/resources/statistics.ts)
+- **Pagination:** `limit` accepts at most 50 domains per page (default 25). Paging is forward only: use `pagination.next_cursor` as `after` to move forward.

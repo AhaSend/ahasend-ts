@@ -203,7 +203,7 @@ export class AhaSendClient {
     return this.#webhooks;
   }
 
-  /** Query deliverability, bounce, and delivery-time statistics. */
+  /** Query deliverability, bounce, delivery-time, and email statistics. */
   get statistics(): Readonly<StatisticsClient> {
     return this.#statistics;
   }

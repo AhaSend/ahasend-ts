@@ -1258,6 +1258,48 @@ export interface DuplicateCampaignRequest {
 }
 
 // @public
+export interface EmailStatistics extends EmailStatisticsTotals {
+    from_timestamp: ISODateTime;
+    sender_domain: string | null;
+    to_timestamp: ISODateTime;
+}
+
+// @public
+export interface EmailStatisticsParams {
+    after?: string | undefined;
+    breakdown?: "domain" | undefined;
+    from_time?: ISODateTime | undefined;
+    group_by?: StatisticsGranularity | undefined;
+    limit?: number | undefined;
+    sender_domain?: string | undefined;
+    to_time?: ISODateTime | undefined;
+}
+
+// @public
+export interface EmailStatisticsResponse {
+    breakdown: "domain" | null;
+    data: EmailStatistics[];
+    from_time: ISODateTime;
+    group_by: StatisticsGranularity;
+    object: "email_statistics";
+    pagination: PaginationMeta;
+    to_time: ISODateTime;
+    totals: EmailStatisticsTotals;
+}
+
+// @public
+export interface EmailStatisticsTotals {
+    bounced_count: number;
+    clicked_count: number;
+    complained_count: number;
+    deferred_count: number;
+    delivered_count: number;
+    opened_count: number;
+    reception_count: number;
+    suppressed_count: number;
+}
+
+// @public
 export interface EmbeddedContactList {
     // (undocumented)
     created_at: ISODateTime;
@@ -2049,6 +2091,8 @@ export interface StatisticsClient {
     bounces(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<BounceStatisticsResponse>;
     deliverability(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliverabilityStatisticsResponse>;
     deliveryTimes(params?: StatisticsParams, options?: RequestOptions): AhaSendPromise<DeliveryTimeStatisticsResponse>;
+    emails(params?: EmailStatisticsParams, options?: RequestOptions): AhaSendPromise<EmailStatisticsResponse>;
+    emailsPages(params?: EmailStatisticsParams, options?: RequestOptions): AsyncGenerator<EmailStatisticsResponse, void, undefined>;
 }
 
 // @public (undocumented)

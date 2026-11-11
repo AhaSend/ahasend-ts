@@ -74,10 +74,18 @@ function trackSettlements(promises: Promise<void>[]): ReturnType<typeof vi.fn>[]
 }
 
 describe("detectCategory", () => {
-  it("uses the statistics tier only for statistics paths", () => {
-    expect(detectCategory("GET", "/v2/accounts/abc/statistics/deliverability")).toBe("statistics");
+  it("uses the statistics tier only for transactional statistics paths", () => {
+    for (const report of ["deliverability", "bounce", "delivery-time"]) {
+      expect(detectCategory("GET", `/v2/accounts/abc/statistics/transactional/${report}`)).toBe(
+        "statistics",
+      );
+    }
     expect(detectCategory("POST", "/v2/accounts/abc/messages")).toBe("standard");
     expect(detectCategory("GET", "/v2/ping")).toBe("standard");
+  });
+
+  it("paces email statistics in the standard tier", () => {
+    expect(detectCategory("GET", "/v2/accounts/abc/statistics/emails")).toBe("standard");
   });
 });
 
@@ -201,7 +209,7 @@ describe("RateLimiter", () => {
 
   it.each([
     ["standard", "/v2/ping"],
-    ["statistics", "/v2/accounts/a/statistics/bounce"],
+    ["statistics", "/v2/accounts/a/statistics/transactional/bounce"],
   ] as const)(
     "bounds the %s bucket without installing an overload abort listener",
     async (_category, path) => {
@@ -344,13 +352,13 @@ describe("RateLimiter", () => {
     );
     await Promise.all([
       limiter.acquire("GET", "/v2/ping"),
-      limiter.acquire("GET", "/v2/accounts/a/statistics/bounce"),
+      limiter.acquire("GET", "/v2/accounts/a/statistics/transactional/bounce"),
     ]);
     const queued = [
       limiter.acquire("GET", "/v2/ping"),
       limiter.acquire("GET", "/v2/ping"),
-      limiter.acquire("GET", "/v2/accounts/a/statistics/bounce"),
-      limiter.acquire("GET", "/v2/accounts/a/statistics/bounce"),
+      limiter.acquire("GET", "/v2/accounts/a/statistics/transactional/bounce"),
+      limiter.acquire("GET", "/v2/accounts/a/statistics/transactional/bounce"),
     ];
     const settlements = trackSettlements(queued);
     expect(fakeClock.scheduled).toHaveLength(2);
@@ -378,10 +386,10 @@ describe("RateLimiter", () => {
     );
     await Promise.all([
       limiter.acquire("GET", "/v2/ping"),
-      limiter.acquire("GET", "/v2/accounts/a/statistics/bounce"),
+      limiter.acquire("GET", "/v2/accounts/a/statistics/transactional/bounce"),
     ]);
     const standard = [limiter.acquire("GET", "/v2/ping"), limiter.acquire("GET", "/v2/ping")];
-    const statistics = limiter.acquire("GET", "/v2/accounts/a/statistics/bounce");
+    const statistics = limiter.acquire("GET", "/v2/accounts/a/statistics/transactional/bounce");
     const standardSettlements = trackSettlements(standard);
     const statisticsSettlement = trackSettlements([statistics])[0];
     const [standardSleep, statisticsSleep] = fakeClock.scheduled;
@@ -674,7 +682,7 @@ describe("pacing queue capacity", () => {
     );
 
     await limiter.acquire("POST", "/v2/accounts/a/messages");
-    await limiter.acquire("GET", "/v2/accounts/a/statistics/deliverability");
+    await limiter.acquire("GET", "/v2/accounts/a/statistics/transactional/deliverability");
 
     const standardQueued = limiter.acquire("POST", "/v2/accounts/a/messages");
     void standardQueued.catch(() => undefined);
@@ -684,15 +692,17 @@ describe("pacing queue capacity", () => {
 
     // The statistics bucket still has room, and reports its own limit.
     const statisticsQueued = Array.from({ length: 5 }, () =>
-      limiter.acquire("GET", "/v2/accounts/a/statistics/deliverability"),
+      limiter.acquire("GET", "/v2/accounts/a/statistics/transactional/deliverability"),
     );
     statisticsQueued.forEach((promise) => void promise.catch(() => undefined));
-    const refused = limiter.acquire("GET", "/v2/accounts/a/statistics/deliverability").then(
-      () => {
-        throw new Error("expected the acquisition to be refused");
-      },
-      (reason: unknown) => reason as AhaSendRateLimitQueueFullError,
-    );
+    const refused = limiter
+      .acquire("GET", "/v2/accounts/a/statistics/transactional/deliverability")
+      .then(
+        () => {
+          throw new Error("expected the acquisition to be refused");
+        },
+        (reason: unknown) => reason as AhaSendRateLimitQueueFullError,
+      );
     expect((await refused).category).toBe("statistics");
     expect((await refused).maxQueue).toBe(5);
   });

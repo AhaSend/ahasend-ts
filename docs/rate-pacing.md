@@ -17,8 +17,10 @@ const client = new AhaSendClient({
 
 The SDK uses independent in-memory token buckets for standard and statistics operations. Defaults
 are 100 requests/second with a 200-request burst for standard calls and 1 request/second with a
-one-request burst for statistics calls. Each category can be disabled independently, and every
-configured burst must be at least one token.
+one-request burst for statistics calls. The statistics bucket paces the transactional statistics
+calls (`statistics.deliverability()`, `bounces()`, and `deliveryTimes()`); `statistics.emails()`
+and `emailsPages()` have the standard limit and use the standard bucket. Each category can be
+disabled independently, and every configured burst must be at least one token.
 
 Configured rates must be at least `1000 / 2_147_483_647` requests per second (approximately
 `4.6566e-7`). Lower rates would require a token wait longer than the maximum delay supported by

@@ -43,6 +43,10 @@ const STANDARD_SECURITY_PAIRS = {
     "statistics-transactional:read:all",
     "statistics-transactional:read:{domain}",
   ],
+  getEmailStatistics: [
+    "statistics-transactional:read:all",
+    "statistics-transactional:read:{domain}",
+  ],
 } as const;
 
 const EXPECTED_AUTHORIZATION = {
@@ -159,6 +163,17 @@ const EXPECTED_AUTHORIZATION = {
       "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
   },
   getDeliveryTimeStatistics: {
+    kind: "comma_separated_query_domains",
+    queryParameter: "sender_domain",
+    quantifier: "every",
+    roles: {
+      global: "statistics-transactional:read:all",
+      domain: "statistics-transactional:read:{domain}",
+    },
+    summary:
+      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
+  },
+  getEmailStatistics: {
     kind: "comma_separated_query_domains",
     queryParameter: "sender_domain",
     quantifier: "every",
@@ -311,6 +326,7 @@ const SOURCE_BY_OPERATION = {
   getDeliverabilityStatistics: "src/resources/statistics.ts",
   getBounceStatistics: "src/resources/statistics.ts",
   getDeliveryTimeStatistics: "src/resources/statistics.ts",
+  getEmailStatistics: "src/resources/statistics.ts",
 } as const satisfies Readonly<Record<keyof typeof EXPECTED_AUTHORIZATION, string>>;
 
 function normalizedJSDocForOperation(source: string, operationId: string): string {
@@ -398,7 +414,7 @@ function mutableAuthorizationRegistry(): MutableRegistry {
 }
 
 describe("authorization metadata conformance", () => {
-  it("keeps all 24 standard Security Requirement OR pairs independent", () => {
+  it("keeps all 25 standard Security Requirement OR pairs independent", () => {
     const pairOperationIds = Object.entries(OPERATION_DESCRIPTORS)
       .filter(([, descriptor]) => descriptor.security.length === 2)
       .map(([operationId]) => operationId)
@@ -417,7 +433,7 @@ describe("authorization metadata conformance", () => {
   });
 
   it("matches every structured resource rule and its public JSDoc", () => {
-    expect(Object.keys(EXPECTED_AUTHORIZATION)).toHaveLength(23);
+    expect(Object.keys(EXPECTED_AUTHORIZATION)).toHaveLength(24);
     expect(() => assertAuthorizationConformance(RESOURCE_AUTHORIZATION)).not.toThrow();
   });
 

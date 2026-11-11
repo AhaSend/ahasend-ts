@@ -33,7 +33,7 @@ Put a required-reviewer protection rule on `npm-latest` at minimum. `live-gates`
 mutates a real account, so `live-release` deserves one too.
 
 **What live-gates actually does.** The live report needs a passed result for all
-109 operations, and live acceptance exercises every one of them against a real
+110 operations, and live acceptance exercises every one of them against a real
 account. It does **not** deliver mail: every send sets `sandbox: true`, and
 `requireSandboxMessageRequest` in `scripts/live-acceptance.mjs` refuses to run a
 request without it. No campaign is ever sent or test-sent: the campaign send and
@@ -60,11 +60,18 @@ paused or unpaused, so the run changes nothing there.
 
 The run therefore needs a server that has the domain sending type and pause fields,
 the unpause route, the template send route, the template write routes, the
-template default sender, the message `template_id`, the campaign routes and the
-segment routes: deploy the API before tagging a release that includes them, or
-live-gates fails on `getDomains`, `createDomain`, `unpauseSubAccountDomain`,
-`listTemplates`, `getTemplate`, `createTemplateMessage`, `createTemplate`,
-`getMessages`, `getMessage`, `createCampaignTemplate` and `createSegment`.
+template default sender, the message `template_id`, the campaign routes, the
+segment routes and the email statistics route: deploy the API before tagging a
+release that includes them, or live-gates fails on `getDomains`, `createDomain`,
+`unpauseSubAccountDomain`, `listTemplates`, `getTemplate`, `createTemplateMessage`,
+`createTemplate`, `getMessages`, `getMessage`, `createCampaignTemplate`,
+`createSegment` and `getEmailStatistics`.
+
+The statistics scenarios call each statistics method with the authorized sender
+domain, with the unauthorized one, and with both, and require the last two to
+answer 400. The email statistics scenario then reads a domain breakdown with
+one domain per page and walks `statistics.emailsPages()` over at most two
+pages; it changes nothing on the account.
 
 The template scenarios create their own templates, so the account needs none.
 The read and send scenarios first create and publish a disposable `html`
@@ -228,9 +235,11 @@ Account preconditions:
   is DNS-invalid, checks that a
   send to it is rejected, and deletes it in cleanup. A copy left behind by a
   failed run must be removed before re-tagging.
-- `neverRegisteredDomain` must not exist on the account at all. The run also
-  names it as the domain to unpause on the disposable sub-account, which owns
-  no domains.
+- `neverRegisteredDomain` must not exist on the account at all, and must never
+  have been added to it: the statistics scenarios use it as the unauthorized
+  sender domain, and the email statistics endpoint also reads deleted domains,
+  so a deleted copy makes that probe succeed. The run also names it as the
+  domain to unpause on the disposable sub-account, which owns no domains.
 - `lifecycleDomain` must **not** exist on the account either — the run creates
   it (the `createDomainScenarioRegistry` call in
   `scripts/run-live-acceptance.mjs`), drives it through the full

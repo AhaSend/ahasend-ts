@@ -24,8 +24,8 @@ import {
 } from "./run-source-gates.mjs";
 import { SECRET_PATTERNS } from "./secret-patterns.mjs";
 
-export const EXPECTED_LIVE_OPERATION_COUNT = 109;
-export const EXPECTED_LIVE_ITERATOR_COUNT = 20;
+export const EXPECTED_LIVE_OPERATION_COUNT = 110;
+export const EXPECTED_LIVE_ITERATOR_COUNT = 21;
 
 const packageName = "@ahasend/sdk";
 const domainOperationIds = Object.freeze([
@@ -48,7 +48,17 @@ const statisticsOperationIds = Object.freeze([
   "getDeliverabilityStatistics",
   "getBounceStatistics",
   "getDeliveryTimeStatistics",
+  "getEmailStatistics",
 ]);
+/** The statistics operation whose responses are pages of a domain breakdown. */
+const emailStatisticsOperationId = "getEmailStatistics";
+/** The `object` each statistics operation's response carries. */
+const statisticsResponseObjects = Object.freeze({
+  getDeliverabilityStatistics: "list",
+  getBounceStatistics: "list",
+  getDeliveryTimeStatistics: "list",
+  getEmailStatistics: "email_statistics",
+});
 const contactOperationIds = Object.freeze([
   "getContacts",
   "createContact",
@@ -302,6 +312,17 @@ function parseMappings(value, expectedCount, label, expectedMethod) {
   return Object.freeze(mappings);
 }
 
+/**
+ * An iterator shares its primary's facade. A list operation's iterator is `iterate` and yields
+ * the list items; any other operation's iterator is `<method>Pages` and yields whole responses.
+ */
+function iteratorAttachesToPrimary(iterator, primary) {
+  if (primary.facade !== iterator.facade) return false;
+  return primary.method === "list"
+    ? iterator.method === "iterate"
+    : iterator.method === `${primary.method}Pages`;
+}
+
 export function validatePackagedLiveProfile({
   profileSource,
   profileSidecar,
@@ -341,7 +362,6 @@ export function validatePackagedLiveProfile({
     profile.iterators,
     EXPECTED_LIVE_ITERATOR_COUNT,
     "Iterator inventory",
-    "iterate",
   );
   const operationsById = new Map(operations.map((operation) => [operation.operationId, operation]));
   for (const iterator of iterators) {
@@ -351,9 +371,9 @@ export function validatePackagedLiveProfile({
         `Iterator ${iterator.operationId} is orphaned from the primary operation inventory.`,
       );
     }
-    if (primary.facade !== iterator.facade || primary.method !== "list") {
+    if (!iteratorAttachesToPrimary(iterator, primary)) {
       throw new TypeError(
-        `Iterator ${iterator.operationId} must attach to its corresponding list-operation mapping.`,
+        `Iterator ${iterator.operationId} must attach to its corresponding list-operation mapping as iterate, or to its primary mapping as ${primary.method}Pages.`,
       );
     }
   }
@@ -1560,9 +1580,21 @@ function assertStatisticsMappings(profile, authorization) {
     );
   }
 
+  const iterators = profile.iterators.filter(({ facade }) => facade === "statistics");
+  if (
+    iterators.length !== 1 ||
+    iterators[0]?.operationId !== emailStatisticsOperationId ||
+    iterators[0]?.method !== "emailsPages"
+  ) {
+    throw new TypeError(
+      `Packaged statistics iterator must link ${emailStatisticsOperationId} emailsPages to its primary operation.`,
+    );
+  }
+
   const authorizationRegistry = requireObject(authorization, "Packaged authorization registry");
   return Object.freeze({
     operations: new Map(actual.map((mapping) => [mapping.operationId, mapping])),
+    iterator: iterators[0],
     authorization: new Map(
       actual.map(({ operationId }) => [
         operationId,
@@ -1601,6 +1633,7 @@ async function runStatisticsAuthorizationCase({
   senderDomain,
   expectedDomainCount,
   expectedAuthorized,
+  expectedObject,
   label,
 }) {
   const params = Object.freeze({ [rule.queryParameter]: senderDomain });
@@ -1642,8 +1675,8 @@ async function runStatisticsAuthorizationCase({
   }
 
   const response = requireObject(responseValue, `${label} response`);
-  if (response.object !== "list" || !Array.isArray(response.data)) {
-    throw new TypeError(`${label} response must be a statistics list.`);
+  if (response.object !== expectedObject || !Array.isArray(response.data)) {
+    throw new TypeError(`${label} response must be a statistics ${expectedObject}.`);
   }
   return Object.freeze({
     authorized: true,
@@ -1652,10 +1685,61 @@ async function runStatisticsAuthorizationCase({
   });
 }
 
+/** Domains on each page of the email statistics breakdown, and the most pages the iterator reads. */
+const emailStatisticsPageLimit = 1;
+const emailStatisticsMaxPages = 2;
+
+function requireEmailStatisticsPage(value, label) {
+  const response = requireObject(value, label);
+  if (
+    response.object !== "email_statistics" ||
+    response.breakdown !== "domain" ||
+    !Array.isArray(response.data)
+  ) {
+    throw new TypeError(`${label} must be an email statistics page of a domain breakdown.`);
+  }
+  requireObject(response.totals, `${label} totals`);
+  const pagination = requireObject(response.pagination, `${label} pagination`);
+  if (typeof pagination.has_more !== "boolean") {
+    throw new TypeError(`${label} pagination has_more must be a boolean.`);
+  }
+  return response;
+}
+
+/**
+ * Read the first page of a domain breakdown, one domain per page, then walk the page iterator
+ * over at most two pages, so an account with two domains that have counts crosses a page.
+ */
+async function runEmailStatisticsPagingCase(emails, emailsPages, label) {
+  const pageParams = Object.freeze({ breakdown: "domain", limit: emailStatisticsPageLimit });
+  const page = requireEmailStatisticsPage(await emails(pageParams), `${label} first page`);
+  let pages = 0;
+  for await (const response of emailsPages(pageParams)) {
+    requireEmailStatisticsPage(response, `${label} iterator page ${pages}`);
+    pages += 1;
+    if (pages >= emailStatisticsMaxPages) break;
+  }
+  if (pages === 0) throw new TypeError(`${label} iterator yielded no response.`);
+  return Object.freeze({
+    evidence: Object.freeze({
+      direction: "forward",
+      limit: emailStatisticsPageLimit,
+      pageItems: page.data.length,
+    }),
+    iteratorEvidence: Object.freeze({
+      direction: "forward",
+      items: pages,
+      limit: emailStatisticsPageLimit,
+    }),
+  });
+}
+
 /**
  * Build one scenario for each statistics operation. Every scenario exercises a
  * permitted domain, a denied domain, and a permitted-first/denied-second pair
- * using the packaged authorization rule that requires every value to pass.
+ * using the packaged authorization rule that requires every value to pass. The
+ * email statistics scenario also pages a domain breakdown and records its
+ * page iterator as the linked subcase.
  */
 export function createStatisticsScenarioRegistry({
   profile,
@@ -1665,10 +1749,16 @@ export function createStatisticsScenarioRegistry({
 }) {
   const mappings = assertStatisticsMappings(profile, authorization);
   const domains = requireStatisticsDomains(senderDomains);
+  const emailsPages = requireMappedClientMethod(
+    client,
+    mappings.iterator,
+    `Statistics ${emailStatisticsOperationId} iterator scenario`,
+  );
   const scenarios = new Map(
     statisticsOperationIds.map((operationId) => {
       const mapping = mappings.operations.get(operationId);
       const rule = mappings.authorization.get(operationId);
+      const expectedObject = statisticsResponseObjects[operationId];
       const method = requireMappedClientMethod(
         client,
         mapping,
@@ -1685,6 +1775,7 @@ export function createStatisticsScenarioRegistry({
               senderDomain: domains.authorized,
               expectedDomainCount: 1,
               expectedAuthorized: true,
+              expectedObject,
               label: `${operationId} single-domain authorization`,
             });
             const unauthorizedDomain = await runStatisticsAuthorizationCase({
@@ -1693,6 +1784,7 @@ export function createStatisticsScenarioRegistry({
               senderDomain: domains.unauthorized,
               expectedDomainCount: 1,
               expectedAuthorized: false,
+              expectedObject,
               label: `${operationId} unauthorized-domain authorization`,
             });
             const multiDomain = await runStatisticsAuthorizationCase({
@@ -1701,18 +1793,27 @@ export function createStatisticsScenarioRegistry({
               senderDomain: `${domains.authorized},${domains.unauthorized}`,
               expectedDomainCount: 2,
               expectedAuthorized: false,
+              expectedObject,
               label: `${operationId} multi-domain authorization`,
             });
+            const senderAuthorization = Object.freeze({
+              source: `query.${rule.queryParameter}`,
+              quantifier: rule.quantifier,
+              singleDomain,
+              unauthorizedDomain,
+              multiDomain,
+            });
+            if (operationId !== emailStatisticsOperationId) {
+              return Object.freeze({ evidence: Object.freeze({ senderAuthorization }) });
+            }
+            const paging = await runEmailStatisticsPagingCase(
+              method,
+              emailsPages,
+              `${operationId} domain breakdown`,
+            );
             return Object.freeze({
-              evidence: Object.freeze({
-                senderAuthorization: Object.freeze({
-                  source: `query.${rule.queryParameter}`,
-                  quantifier: rule.quantifier,
-                  singleDomain,
-                  unauthorizedDomain,
-                  multiDomain,
-                }),
-              }),
+              evidence: Object.freeze({ ...paging.evidence, senderAuthorization }),
+              iteratorEvidence: paging.iteratorEvidence,
             });
           },
         },
@@ -1726,9 +1827,14 @@ export function createStatisticsScenarioRegistry({
   );
 }
 
-/** Execute the three statistics scenarios in packaged operation order. */
+/** Execute the four statistics scenarios in packaged operation order. */
 export function runStatisticsLiveScenarios(registry) {
-  return runLiveScenarios(registry, statisticsOperationIds, null, "Statistics");
+  return runLiveScenarios(
+    registry,
+    statisticsOperationIds,
+    emailStatisticsOperationId,
+    "Statistics",
+  );
 }
 
 function requireContactRequest(value, label, requireEmail = false) {
@@ -7691,7 +7797,7 @@ function validateReportIteratorLinks(operations, iterators) {
   const operationsById = new Map(operations.map((operation) => [operation.operationId, operation]));
   for (const iterator of iterators) {
     const primary = operationsById.get(iterator.operationId);
-    if (primary === undefined || primary.facade !== iterator.facade || primary.method !== "list") {
+    if (primary === undefined || !iteratorAttachesToPrimary(iterator, primary)) {
       throw new TypeError(
         `Iterator inventory result ${iterator.operationId} must attach to its corresponding primary list-operation result.`,
       );
@@ -8181,7 +8287,6 @@ function validateLiveReportArtifactContract(
     expectedProfile.iterators,
     EXPECTED_LIVE_ITERATOR_COUNT,
     "Iterator inventory",
-    "iterate",
   );
   if (requireSuccess) {
     requirePassedResults(report.operations, "Primary operation inventory");
@@ -8228,7 +8333,7 @@ function validateLiveReportArtifactContract(
     package: identity,
     operations: report.operations.length,
     iterators: report.iterators.length,
-    authorizationOutcomes: requireSuccess ? 11 : 0,
+    authorizationOutcomes: requireSuccess ? 12 : 0,
     sandboxOutcomes: requireSuccess ? 3 : 0,
     unexpectedFailures,
     cleanupFailures,

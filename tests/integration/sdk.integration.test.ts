@@ -164,6 +164,15 @@ const STATISTICS = {
   sender_domain: DOMAIN,
   group_by: "day",
 };
+const EMAIL_STATISTICS = {
+  from_time: "2026-01-01T00:00:00Z",
+  to_time: "2026-04-01T00:00:00Z",
+  sender_domain: DOMAIN,
+  group_by: "month",
+  breakdown: "domain",
+  limit: 5,
+  after: "ZXhhbXBsZS5jb20=",
+};
 const PACKED_EXAMPLE_TIMEOUT_MS = 15_000;
 const PRISM_ENFORCEMENT_CANARY_PATH = "/__prism_enforcement_canary";
 const PACKED_EXAMPLE_MATRIX: readonly PackedExampleCase[] = [
@@ -560,6 +569,7 @@ const OPERATION_CASES = [
   operation("getDeliverabilityStatistics", ["statistics"], "deliverability", [STATISTICS]),
   operation("getBounceStatistics", ["statistics"], "bounces", [STATISTICS]),
   operation("getDeliveryTimeStatistics", ["statistics"], "deliveryTimes", [STATISTICS]),
+  operation("getEmailStatistics", ["statistics"], "emails", [EMAIL_STATISTICS]),
 ] as const satisfies readonly OperationCase[];
 
 const SPEC_OPERATIONS = loadSpecOperations();
@@ -1069,8 +1079,8 @@ describe("packed SDK operation contract", () => {
     const operationIds = [...SPEC_OPERATIONS.keys()];
     const implementedOperationIds = OPERATION_CASES.map(({ operationId }) => operationId);
 
-    expect(OPERATION_CASES).toHaveLength(109);
-    expect(new Set(implementedOperationIds).size).toBe(109);
+    expect(OPERATION_CASES).toHaveLength(110);
+    expect(new Set(implementedOperationIds).size).toBe(110);
     expect([...implementedOperationIds].sort()).toEqual(operationIds.sort());
   });
 

@@ -386,6 +386,8 @@ describe("AhaSendClient", () => {
       "deliverability",
       "bounces",
       "deliveryTimes",
+      "emails",
+      "emailsPages",
     ]);
     expect(Object.getOwnPropertySymbols(facade)).toEqual([]);
     expect(JSON.stringify(facade)).toBe("{}");

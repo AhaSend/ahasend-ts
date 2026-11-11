@@ -299,8 +299,10 @@ function completeLiveResults(candidate: LiveCandidate) {
     "getDeliverabilityStatistics",
     "getBounceStatistics",
     "getDeliveryTimeStatistics",
+    "getEmailStatistics",
   ]) {
     byId.get(operationId)!.evidence = {
+      ...byId.get(operationId)!.evidence,
       senderAuthorization: {
         source: "query.sender_domain",
         quantifier: "every",
@@ -1212,10 +1214,62 @@ function messageClientFixture(
   };
 }
 
-function statisticsClientFixture(options: { checkEveryDomain?: boolean } = {}) {
+interface EmailStatisticsFixtureParams {
+  sender_domain?: string;
+  breakdown?: string;
+  limit?: number;
+  after?: string | undefined;
+}
+
+function statisticsClientFixture(
+  options: { checkEveryDomain?: boolean; flatEmailPages?: boolean } = {},
+) {
   const firstDomain = "statistics-one.example";
   const secondDomain = "statistics-two.example";
   const authorizedDomains = new Set([firstDomain]);
+  const breakdownDomains = [firstDomain, secondDomain];
+  const zeroCounts = {
+    reception_count: 0,
+    delivered_count: 0,
+    bounced_count: 0,
+    suppressed_count: 0,
+    complained_count: 0,
+    deferred_count: 0,
+    opened_count: 0,
+    clicked_count: 0,
+  };
+  const emailStatisticsPage = (params: EmailStatisticsFixtureParams) => {
+    // A breakdown of every domain, one domain per page: the cursor is the index of the next one.
+    const index = params.after === undefined ? 0 : Number(params.after);
+    const breakdown = options.flatEmailPages === true ? null : "domain";
+    const hasMore = index + 1 < breakdownDomains.length;
+    return {
+      object: "email_statistics" as const,
+      from_time: "2026-10-12T00:00:00Z",
+      to_time: "2026-11-12T00:00:00Z",
+      group_by: "day" as const,
+      breakdown,
+      totals: zeroCounts,
+      data: [
+        {
+          from_timestamp: "2026-11-01T00:00:00Z",
+          to_timestamp: "2026-11-02T00:00:00Z",
+          sender_domain: breakdown === null ? null : breakdownDomains[index]!,
+          ...zeroCounts,
+        },
+      ],
+      pagination: hasMore
+        ? { has_more: true, next_cursor: String(index + 1) }
+        : { has_more: false },
+    };
+  };
+  const emailStatistics = async (params: EmailStatisticsFixtureParams) => {
+    if (params.breakdown === "domain" && params.sender_domain === undefined) {
+      return emailStatisticsPage(params);
+    }
+    await request(params);
+    return { ...emailStatisticsPage({}), breakdown: null, pagination: { has_more: false } };
+  };
   const request = async (params: { sender_domain?: string }) => {
     const domains = (params.sender_domain ?? "")
       .split(",")
@@ -1241,6 +1295,15 @@ function statisticsClientFixture(options: { checkEveryDomain?: boolean } = {}) {
       deliverability: vi.fn(request),
       bounces: vi.fn(request),
       deliveryTimes: vi.fn(request),
+      emails: vi.fn(emailStatistics),
+      emailsPages: vi.fn(async function* (params: EmailStatisticsFixtureParams) {
+        let page = await emailStatistics(params);
+        yield page;
+        while (page.pagination.has_more) {
+          page = await emailStatistics({ ...params, after: page.pagination.next_cursor });
+          yield page;
+        }
+      }),
     },
   };
   return {
@@ -2917,10 +2980,10 @@ describe("live candidate foundation", () => {
       name: "@ahasend/sdk",
       version: "0.1.0-live-test",
     });
-    expect(candidate.profile.operations).toHaveLength(109);
-    expect(candidate.profile.iterators).toHaveLength(20);
-    expect(candidate.registry.primary.size).toBe(109);
-    expect(candidate.registry.iterators).toHaveLength(20);
+    expect(candidate.profile.operations).toHaveLength(110);
+    expect(candidate.profile.iterators).toHaveLength(21);
+    expect(candidate.registry.primary.size).toBe(110);
+    expect(candidate.registry.iterators).toHaveLength(21);
     expect(Object.isFrozen(candidate.manifest)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.contractSha256)).toBe(true);
     expect(Object.isFrozen(candidate.manifest.keysSha256)).toBe(true);
@@ -3003,8 +3066,8 @@ describe("live candidate foundation", () => {
     expect(candidate.package.version).toBe("0.1.0-archive-test");
     expect(candidate.profileSource).toEqual(profile.source);
     expect(candidate.profileSidecar).toEqual(profile.sidecar);
-    expect(candidate.profile.operations).toHaveLength(109);
-    expect(candidate.profile.iterators).toHaveLength(20);
+    expect(candidate.profile.operations).toHaveLength(110);
+    expect(candidate.profile.iterators).toHaveLength(21);
   });
 
   it("installs an immutable copy only after all candidate artifacts verify", async () => {
@@ -3060,7 +3123,7 @@ describe("live candidate foundation", () => {
 
     expect(runCommand).toHaveBeenCalledOnce();
     expect(readFileSync(resolve(installDirectory, basename(tarballPath)))).toEqual(fixture.tarball);
-    expect(installed.profile.operations).toHaveLength(109);
+    expect(installed.profile.operations).toHaveLength(110);
 
     const badDirectory = join(directory, "bad-install");
     writeFileSync(tarballPath, Buffer.from("substituted after candidate creation"));
@@ -3082,7 +3145,7 @@ describe("live candidate foundation", () => {
 });
 
 describe("live scenario inventory", () => {
-  it("creates 109 primary scenarios and twenty attached iterator subcases from the profile", () => {
+  it("creates 110 primary scenarios and 21 attached iterator subcases from the profile", () => {
     const profile = inspectFixture().profile;
     const registry = createScenarioRegistry(
       profile,
@@ -3092,16 +3155,21 @@ describe("live scenario inventory", () => {
       })),
     );
 
-    expect(registry.primary.size).toBe(109);
-    expect(registry.iterators).toHaveLength(20);
-    expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(20);
+    expect(registry.primary.size).toBe(110);
+    expect(registry.iterators).toHaveLength(21);
+    expect(new Set(registry.iterators.map(({ operationId }) => operationId))).toHaveLength(21);
     for (const iterator of registry.iterators) {
-      expect(iterator.method).toBe("iterate");
+      // A list operation's iterator yields its items; email statistics yields whole pages.
+      const expected =
+        iterator.operationId === "getEmailStatistics"
+          ? { primaryMethod: "emails", method: "emailsPages" }
+          : { primaryMethod: "list", method: "iterate" };
+      expect(iterator.method).toBe(expected.method);
       expect(iterator.primary).toBe(registry.primary.get(iterator.operationId));
-      expect(iterator.primary.method).toBe("list");
+      expect(iterator.primary.method).toBe(expected.primaryMethod);
       expect(iterator.primary.iterator).toMatchObject({
         operationId: iterator.operationId,
-        method: "iterate",
+        method: expected.method,
       });
     }
 
@@ -3109,7 +3177,7 @@ describe("live scenario inventory", () => {
     expect(Object.isFrozen(registry.primary)).toBe(true);
     expect(() => mutablePrimary.delete(profile.operations[0]!.operationId)).toThrow();
     expect(() => mutablePrimary.set("orphan", {})).toThrow();
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
   });
 
   it("rejects missing, orphaned, duplicate, and mapping-redefining scenarios", () => {
@@ -3155,6 +3223,31 @@ describe("live scenario inventory", () => {
         expectedProfileSha256: detachedArtifacts.digest,
       }),
     ).toThrow("must attach to its corresponding list-operation");
+
+    const pagesOfList = structuredClone(profileFixture);
+    pagesOfList.iterators[0]!.method = "listPages";
+    const pagesOfListArtifacts = profileArtifacts(pagesOfList);
+    expect(() =>
+      validatePackagedLiveProfile({
+        profileSource: pagesOfListArtifacts.source,
+        profileSidecar: pagesOfListArtifacts.sidecar,
+        expectedProfileSha256: pagesOfListArtifacts.digest,
+      }),
+    ).toThrow("must attach to its corresponding list-operation");
+
+    const misnamedPages = structuredClone(profileFixture);
+    const emailsPages = misnamedPages.iterators.find(
+      ({ operationId }) => operationId === "getEmailStatistics",
+    )!;
+    emailsPages.method = "iterate";
+    const misnamedPagesArtifacts = profileArtifacts(misnamedPages);
+    expect(() =>
+      validatePackagedLiveProfile({
+        profileSource: misnamedPagesArtifacts.source,
+        profileSidecar: misnamedPagesArtifacts.sidecar,
+        expectedProfileSha256: misnamedPagesArtifacts.digest,
+      }),
+    ).toThrow("or to its primary mapping as emailsPages");
   });
 
   it("registers exactly one executable scenario for every packaged domain primary", () => {
@@ -3181,7 +3274,7 @@ describe("live scenario inventory", () => {
     );
     expect(domainEntries).toHaveLength(6);
     expect(domainEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, DomainLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3371,7 +3464,7 @@ describe("live scenario inventory", () => {
       operationId: "getContacts",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, ContactLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3541,7 +3634,7 @@ describe("live scenario inventory", () => {
       operationId: "listTemplates",
       method: "iterate",
     });
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, TemplateLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -3913,7 +4006,7 @@ describe("live scenario inventory", () => {
         method: "iterate",
       });
     }
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, CampaignLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4267,7 +4360,7 @@ describe("live scenario inventory", () => {
         .filter(({ facade }) => ["lists", "lists.contacts", "contacts.lists"].includes(facade))
         .map(({ operationId, method }) => `${operationId}.${method}`),
     ).toEqual(["getLists.iterate", "getListContacts.iterate", "getContactLists.iterate"]);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, ListLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4471,7 +4564,7 @@ describe("live scenario inventory", () => {
     );
     expect(messageEntries).toHaveLength(6);
     expect(messageEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, MessageLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -4813,7 +4906,7 @@ describe("live scenario inventory", () => {
     );
     expect(apiKeyEntries).toHaveLength(5);
     expect(apiKeyEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, APIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5026,7 +5119,7 @@ describe("live scenario inventory", () => {
     );
     expect(routeEntries).toHaveLength(5);
     expect(routeEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, RouteLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5275,7 +5368,7 @@ describe("live scenario inventory", () => {
     );
     expect(webhookEntries).toHaveLength(5);
     expect(webhookEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, WebhookLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5524,7 +5617,7 @@ describe("live scenario inventory", () => {
         ({ operationId, method }) => operationId.includes("update") || method === "update",
       ),
     ).toBe(false);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, SMTPCredentialLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5729,7 +5822,7 @@ describe("live scenario inventory", () => {
     expect(accountEntries).toHaveLength(5);
     expect(accountEntries.every(({ run }) => typeof run === "function")).toBe(true);
     expect(registry.iterators.filter(({ facade }) => facade === "accounts")).toHaveLength(0);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, AccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -5920,7 +6013,7 @@ describe("live scenario inventory", () => {
     );
     expect(suppressionEntries).toHaveLength(4);
     expect(suppressionEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, SuppressionLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -6127,7 +6220,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(9);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -6561,7 +6654,7 @@ describe("live scenario inventory", () => {
     );
     expect(entries).toHaveLength(5);
     expect(entries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, SubAccountAPIKeyLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -6823,12 +6916,104 @@ describe("live scenario inventory", () => {
     );
 
     expect(statisticsEntries.map(({ operationId }) => operationId).sort()).toEqual(
-      ["getBounceStatistics", "getDeliverabilityStatistics", "getDeliveryTimeStatistics"].sort(),
+      [
+        "getBounceStatistics",
+        "getDeliverabilityStatistics",
+        "getDeliveryTimeStatistics",
+        "getEmailStatistics",
+      ].sort(),
     );
-    expect(statisticsEntries).toHaveLength(3);
+    expect(statisticsEntries).toHaveLength(4);
     expect(statisticsEntries.every(({ run }) => typeof run === "function")).toBe(true);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.get("getEmailStatistics")!.iterator).toMatchObject({
+      facade: "statistics",
+      method: "emailsPages",
+    });
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, StatisticsLiveClient>>().toEqualTypeOf<true>();
+  });
+
+  it("refuses a profile without the email statistics page iterator", () => {
+    const fixture = statisticsClientFixture();
+    const profile = inspectFixture().profile;
+    expect(() =>
+      createStatisticsScenarioRegistry({
+        profile: {
+          ...profile,
+          iterators: profile.iterators.filter(({ facade }) => facade !== "statistics"),
+        },
+        client: fixture.client,
+        authorization: RESOURCE_AUTHORIZATION,
+        senderDomains: fixture.senderDomains,
+      }),
+    ).toThrow("must link getEmailStatistics emailsPages");
+  });
+
+  it("pages the email statistics breakdown and records its page iterator subcase", async () => {
+    const fixture = statisticsClientFixture();
+    const registry = createStatisticsScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      senderDomains: fixture.senderDomains,
+    });
+
+    const result = await runStatisticsLiveScenarios(registry);
+
+    expect(result.failure).toBeNull();
+    expect(result.operationResults).toHaveLength(4);
+    expect(result.operationResults[3]).toEqual({
+      operationId: "getEmailStatistics",
+      status: "passed",
+      evidence: {
+        direction: "forward",
+        limit: 1,
+        pageItems: 1,
+        senderAuthorization: {
+          source: "query.sender_domain",
+          quantifier: "every",
+          singleDomain: { authorized: true, domainCount: 1, resultBuckets: 1 },
+          unauthorizedDomain: { authorized: false, domainCount: 1, status: 400 },
+          multiDomain: { authorized: false, domainCount: 2, status: 400 },
+        },
+      },
+    });
+    expect(result.iteratorResults).toEqual([
+      {
+        operationId: "getEmailStatistics",
+        status: "passed",
+        evidence: { direction: "forward", items: 2, limit: 1 },
+      },
+    ]);
+    expect(fixture.client.statistics.emails).toHaveBeenLastCalledWith({
+      breakdown: "domain",
+      limit: 1,
+    });
+    expect(fixture.client.statistics.emailsPages).toHaveBeenCalledExactlyOnceWith({
+      breakdown: "domain",
+      limit: 1,
+    });
+  });
+
+  it("fails the email statistics scenario when a page is not a domain breakdown", async () => {
+    const fixture = statisticsClientFixture({ flatEmailPages: true });
+    const registry = createStatisticsScenarioRegistry({
+      profile: inspectFixture().profile,
+      client: fixture.client,
+      authorization: RESOURCE_AUTHORIZATION,
+      senderDomains: fixture.senderDomains,
+    });
+
+    const result = await runStatisticsLiveScenarios(registry);
+
+    expect(result.failure).toEqual({ phase: "operation", operationId: "getEmailStatistics" });
+    expect((result.failure as unknown as { error: unknown }).error).toMatchObject({
+      name: "TypeError",
+      message: expect.stringContaining("must be an email statistics page of a domain breakdown"),
+    });
+    expect(result.iteratorResults).toEqual([
+      { operationId: "getEmailStatistics", status: "failed" },
+    ]);
   });
 
   it("dispatches single- and multi-domain statistics cases through packaged mappings", async () => {
@@ -6839,17 +7024,20 @@ describe("live scenario inventory", () => {
       deliverability: statistics.deliverability as unknown as (params: unknown) => unknown,
       bounces: statistics.bounces as unknown as (params: unknown) => unknown,
       deliveryTimes: statistics.deliveryTimes as unknown as (params: unknown) => unknown,
+      emails: statistics.emails as unknown as (params: unknown) => unknown,
     };
     const packagedMethods = {
       packagedDeliverability: vi.fn((params: unknown) => original.deliverability(params)),
       packagedBounces: vi.fn((params: unknown) => original.bounces(params)),
       packagedDeliveryTimes: vi.fn((params: unknown) => original.deliveryTimes(params)),
+      packagedEmails: vi.fn((params: unknown) => original.emails(params)),
     };
     Object.assign(statistics, packagedMethods);
     const mappedMethods = new Map([
       ["getDeliverabilityStatistics", "packagedDeliverability"],
       ["getBounceStatistics", "packagedBounces"],
       ["getDeliveryTimeStatistics", "packagedDeliveryTimes"],
+      ["getEmailStatistics", "packagedEmails"],
     ]);
     const profile = {
       ...candidate.profile,
@@ -6868,7 +7056,7 @@ describe("live scenario inventory", () => {
     const result = await runStatisticsLiveScenarios(registry);
 
     expect(result.failure).toBeNull();
-    expect(result.operationResults).toHaveLength(3);
+    expect(result.operationResults).toHaveLength(4);
     expect(result.operationResults).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -6886,8 +7074,13 @@ describe("live scenario inventory", () => {
         }),
         expect.objectContaining({ operationId: "getBounceStatistics", status: "passed" }),
         expect.objectContaining({ operationId: "getDeliveryTimeStatistics", status: "passed" }),
+        expect.objectContaining({ operationId: "getEmailStatistics", status: "passed" }),
       ]),
     );
+    expect(packagedMethods.packagedEmails).toHaveBeenNthCalledWith(4, {
+      breakdown: "domain",
+      limit: 1,
+    });
     for (const method of Object.values(packagedMethods)) {
       expect(method).toHaveBeenNthCalledWith(1, {
         sender_domain: fixture.firstDomain,
@@ -6951,6 +7144,7 @@ describe("live scenario inventory", () => {
     const report = createLiveReport({
       candidate,
       operationResults: result.operationResults,
+      iteratorResults: result.iteratorResults,
       secrets: Object.values(fixture.senderDomains),
     });
     const source = canonicalizeJson(report).toString("utf8");
@@ -6961,12 +7155,15 @@ describe("live scenario inventory", () => {
         evidence?: unknown;
       }>
     ).filter(({ operationId }) =>
-      ["getDeliverabilityStatistics", "getBounceStatistics", "getDeliveryTimeStatistics"].includes(
-        operationId,
-      ),
+      [
+        "getDeliverabilityStatistics",
+        "getBounceStatistics",
+        "getDeliveryTimeStatistics",
+        "getEmailStatistics",
+      ].includes(operationId),
     );
 
-    expect(statisticsRows).toHaveLength(3);
+    expect(statisticsRows).toHaveLength(4);
     expect(statisticsRows.every(({ status, evidence }) => status === "passed" && evidence)).toBe(
       true,
     );
@@ -7006,7 +7203,7 @@ describe("segment live scenarios", () => {
         .filter(({ facade }) => facades.includes(facade))
         .map(({ operationId, method }) => `${operationId}.${method}`),
     ).toEqual(["getSegments.iterate", "getSegmentContacts.iterate", "getContactSegments.iterate"]);
-    expect(registry.primary.size).toBe(109);
+    expect(registry.primary.size).toBe(110);
     expectTypeOf<IsAssignable<AhaSendClient, SegmentLiveClient>>().toEqualTypeOf<true>();
   });
 
@@ -7756,17 +7953,17 @@ describe("live cleanup and reporting", () => {
       package: candidate.package,
       tarballSha256: candidate.tarballSha256,
     });
-    expect(parsed.operations).toHaveLength(109);
-    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(109);
-    expect(parsed.iterators).toHaveLength(20);
-    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(20);
+    expect(parsed.operations).toHaveLength(110);
+    expect(parsed.operations.filter(({ status }) => status === "passed")).toHaveLength(110);
+    expect(parsed.iterators).toHaveLength(21);
+    expect(parsed.iterators.filter(({ status }) => status === "passed")).toHaveLength(21);
     expect(
       validateLiveReportArtifacts({ reportSource, reportSidecar: sidecar, candidate }),
     ).toMatchObject({
       reportSha256: written.reportSha256,
-      operations: 109,
-      iterators: 20,
-      authorizationOutcomes: 11,
+      operations: 110,
+      iterators: 21,
+      authorizationOutcomes: 12,
       sandboxOutcomes: 3,
       unexpectedFailures: 0,
       cleanupFailures: 0,
@@ -7896,13 +8093,20 @@ describe("live cleanup and reporting", () => {
     (unlinkedIterator.iterators[0]!.evidence as Record<string, unknown>).limit = 2;
     expect(() => validate(unlinkedIterator)).toThrow("linked positive-limit list subcase");
 
+    const unlinkedPages = structuredClone(report);
+    const emailStatistics = unlinkedPages.operations.find(
+      ({ operationId }) => operationId === "getEmailStatistics",
+    )!;
+    delete (emailStatistics.evidence as Record<string, unknown>).limit;
+    expect(() => validate(unlinkedPages)).toThrow("linked positive-limit list subcase");
+
     const missing = structuredClone(report);
     missing.operations.pop();
-    expect(() => validate(missing)).toThrow("must contain exactly 109 results");
+    expect(() => validate(missing)).toThrow("must contain exactly 110 results");
 
     const missingIterator = structuredClone(report);
     missingIterator.iterators.pop();
-    expect(() => validate(missingIterator)).toThrow("must contain exactly 20 results");
+    expect(() => validate(missingIterator)).toThrow("must contain exactly 21 results");
 
     const orphan = structuredClone(report);
     orphan.operations[0]!.operationId = "orphanedOperation";

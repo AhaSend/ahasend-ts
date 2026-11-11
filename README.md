@@ -200,7 +200,7 @@ to compose with your own overrides (see `examples/telemetry.mjs`).
 | `client.domains`              | `list`, `iterate`, `create`, `get`, `update`, `delete`, `checkDns`                                                                                |
 | `client.apiKeys`              | `list`, `iterate`, `create`, `get`, `update`, `delete`                                                                                            |
 | `client.webhooks`             | `list`, `iterate`, `create`, `get`, `update`, `delete` (account-scoped; limit to domains via `scope: "scoped"`)                                   |
-| `client.statistics`           | `deliverability`, `bounces`, `deliveryTimes`                                                                                                      |
+| `client.statistics`           | `deliverability`, `bounces`, `deliveryTimes`, `emails`, `emailsPages` (email counts of any period, also per domain)                               |
 | `client.contacts`             | `list`, `iterate`, `create`, `batchUpsert`, `get`, `update`, `delete`, plus nested `lists` and `segments`                                         |
 | `client.contacts.lists`       | `list`, `iterate` (the lists one contact is on)                                                                                                   |
 | `client.contacts.segments`    | `list`, `iterate` (the segments one contact is a member of)                                                                                       |
@@ -291,10 +291,10 @@ before combining local pacing, retries, and end-to-end deadlines.
 
 ### Rate limiting
 
-An opt-in two-bucket token limiter (standard / statistics) paces requests
-to the API's documented limits. Statistics calls are paced to 1 req/s, so
-fan-out dashboards queue rather than 429. Waiting for a local token is
-cancellable but happens before the per-network-attempt `timeoutMs` budget;
+An opt-in two-bucket token limiter (standard / statistics) paces requests to the API's
+documented limits. Transactional statistics calls are paced to 1 req/s, so fan-out dashboards
+queue rather than 429; `statistics.emails()` uses the standard bucket. Waiting for a local token
+is cancellable but happens before the per-network-attempt `timeoutMs` budget;
 use a caller signal to impose an end-to-end deadline. Each configured burst
 must be at least one token. Local bucket state does not rely on undocumented
 remaining headers returned by the server. See
@@ -1075,6 +1075,50 @@ console.log("Marketing domains listed.", { pausedCount: paused.length });
   change can take some minutes to apply to new email, and the call is not retried automatically.
 - `subAccounts.suspend()` and `unsuspend()` pause and resume a whole sub-account. A paused
   sub-account has `status: "suspended"`.
+
+## Email statistics
+
+`client.statistics.emails()` returns the email counts of the account, or of each of its domains,
+in hourly, daily, weekly or monthly UTC periods, for any time in the account's history. The counts
+cover transactional, campaign and inbound mail. `totals` covers the whole request, and `data` has
+one row for each period:
+
+```ts
+const report = await client.statistics.emails({
+  from_time: "2026-08-01T00:00:00Z",
+  to_time: "2026-11-01T00:00:00Z",
+  group_by: "month",
+});
+console.log("Email statistics loaded.", {
+  periods: report.data.length,
+  delivered: report.totals.delivered_count,
+});
+```
+
+With `breakdown: "domain"`, `data` has the rows of each domain, and a response is one page of up to
+`limit` domains (default 25, at most 50). `client.statistics.emailsPages()` reads every page and
+yields each whole response, `totals` included. It throws when a page has another range than the
+first page, so pass a `to_time` that is not in the future for a walk of many pages:
+
+```ts
+for await (const _page of client.statistics.emailsPages({
+  group_by: "month",
+  breakdown: "domain",
+})) {
+  // Each page has the rows of up to 25 domains, and the totals of the whole request.
+}
+```
+
+- `deferred_count`, `opened_count` and `clicked_count` count events, and one message can add more
+  than one, so they differ from the same fields of `statistics.deliverability()`, which counts
+  messages. Opens and clicks are not fully accurate; AhaSend makes a reasonable effort to filter
+  out bots and scanners.
+- A range can be at most 31 days for `group_by: "hour"`, 366 days for `day` and `week`, and 5
+  calendar years for `month`; a longer range answers `400` (`AhaSendBadRequestError`).
+- The key needs `statistics-transactional:read:all` or at least one
+  `statistics-transactional:read:{domain}` scope, and must be able to read every domain in
+  `sender_domain`. Without `sender_domain`, a key with domain scopes reads the domains named in its
+  scopes.
 
 ## License
 

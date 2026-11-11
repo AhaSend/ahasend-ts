@@ -181,13 +181,13 @@ describe("REST contract normalization", () => {
   it("matches the pinned operation, schema, idempotency, subaccount, and role inventories", () => {
     const inventory = collectContractInventory(document);
 
-    expect(inventory.operationIds).toHaveLength(109);
-    expect(new Set(inventory.operationIds)).toHaveLength(109);
-    expect(inventory.schemaNames).toHaveLength(146);
+    expect(inventory.operationIds).toHaveLength(110);
+    expect(new Set(inventory.operationIds)).toHaveLength(110);
+    expect(inventory.schemaNames).toHaveLength(149);
     expect(inventory.idempotencyOperationIds).toHaveLength(29);
     expect(inventory.subAccountOperationIds).toHaveLength(14);
     expect(inventory.subAccountSchemaNames).toHaveLength(7);
-    expect(inventory.roleAlternativeOperationIds).toHaveLength(24);
+    expect(inventory.roleAlternativeOperationIds).toHaveLength(25);
     expect(() => assertInventoryMatches(inventory, lock.inventories)).not.toThrow();
   });
 
@@ -222,8 +222,8 @@ describe("REST contract normalization", () => {
 
     expect(shellSamples).toBe(1);
     // The Go SDK adds its own sample, and the next spec sync brings it here.
-    expect(withoutGoSample).toEqual([]);
-    expect(NODE_SAMPLE_REGISTRY).toHaveLength(109);
+    expect(withoutGoSample).toEqual(["getEmailStatistics"]);
+    expect(NODE_SAMPLE_REGISTRY).toHaveLength(110);
     expect(NODE_SAMPLE_REGISTRY.map(({ operationId }) => operationId)).toEqual(
       lock.inventories.operationIds,
     );
@@ -333,7 +333,7 @@ describe("REST contract rejection checks", () => {
     expect(collectOperations(changed)).toContainEqual(
       expect.objectContaining({ method: "head", path: "/v2/ping", operationId: "headPing" }),
     );
-    expect(collectContractInventory(changed).operationIds).toHaveLength(110);
+    expect(collectContractInventory(changed).operationIds).toHaveLength(111);
     expect(() =>
       assertInventoryMatches(collectContractInventory(changed), lock.inventories),
     ).toThrow(/inventory drift/);

@@ -12,9 +12,9 @@ import {
 } from "./generate-contracts.mjs";
 import { digestJsonArtifact, digestYamlArtifact } from "./digest-artifact.mjs";
 
-const EXPECTED_OPERATION_COUNT = 109;
-const EXPECTED_SCHEMA_COUNT = 146;
-const EXPECTED_ITERATOR_COUNT = 20;
+const EXPECTED_OPERATION_COUNT = 110;
+const EXPECTED_SCHEMA_COUNT = 149;
+const EXPECTED_ITERATOR_COUNT = 21;
 const EXPECTED_WEBHOOK_COUNT = 22;
 const EXPECTED_WEBHOOK_SCHEMA_COUNT = 41;
 const IDEMPOTENCY_PARAMETER = "#/components/parameters/IdempotencyKey";
@@ -206,6 +206,7 @@ export const PRIMARY_OPERATION_MAPPINGS = Object.freeze([
   ["getDeliverabilityStatistics", "statistics", "deliverability"],
   ["getBounceStatistics", "statistics", "bounces"],
   ["getDeliveryTimeStatistics", "statistics", "deliveryTimes"],
+  ["getEmailStatistics", "statistics", "emails"],
 ]);
 
 export const ITERATOR_MAPPINGS = Object.freeze([
@@ -229,6 +230,7 @@ export const ITERATOR_MAPPINGS = Object.freeze([
   ["getRoutes", "routes", "iterate"],
   ["getWebhooks", "webhooks", "iterate"],
   ["getSMTPCredentials", "smtpCredentials", "iterate"],
+  ["getEmailStatistics", "statistics", "emailsPages"],
 ]);
 
 /**
@@ -350,6 +352,17 @@ export const AUTHORIZATION_REGISTRY = Object.freeze({
       "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
   },
   getDeliveryTimeStatistics: {
+    kind: "comma_separated_query_domains",
+    queryParameter: "sender_domain",
+    quantifier: "every",
+    roles: {
+      global: "statistics-transactional:read:all",
+      domain: "statistics-transactional:read:{domain}",
+    },
+    summary:
+      "Authorization requires `statistics-transactional:read:all` or `statistics-transactional:read:{domain}` for every comma-separated `sender_domain` value.",
+  },
+  getEmailStatistics: {
     kind: "comma_separated_query_domains",
     queryParameter: "sender_domain",
     quantifier: "every",

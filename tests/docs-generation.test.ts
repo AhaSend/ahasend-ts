@@ -14,6 +14,8 @@ const openApiSource = readFileSync(resolve(repositoryRoot, "openapi.yaml"), "utf
 const clientSource = readFileSync(resolve(repositoryRoot, "src/client.ts"), "utf8");
 const document = parseOpenApi(openApiSource);
 const operations = collectOperations(document);
+// Paginated operations that accept `after` and no `before`.
+const FORWARD_ONLY_OPERATION_IDS = new Set(["getEmailStatistics"]);
 
 function withAPIKeysInterface(declaration: string): string {
   return clientSource
@@ -65,7 +67,7 @@ describe("generated API reference", () => {
   });
 
   it(
-    "accounts for all 109 methods and twenty iterators exactly once",
+    "accounts for all 110 methods and 21 iterators exactly once",
     { timeout: 120_000 },
     async () => {
       const reference = await generateApiReference();
@@ -82,8 +84,8 @@ describe("generated API reference", () => {
       expect(iteratorMarkers).toEqual(
         OPERATION_PROFILE.iterators.map(({ operationId }) => operationId),
       );
-      expect(new Set(methodMarkers)).toHaveLength(109);
-      expect(new Set(iteratorMarkers)).toHaveLength(20);
+      expect(new Set(methodMarkers)).toHaveLength(110);
+      expect(new Set(iteratorMarkers)).toHaveLength(21);
 
       for (const mapping of [...OPERATION_PROFILE.operations, ...OPERATION_PROFILE.iterators]) {
         const kind = OPERATION_PROFILE.iterators.includes(mapping) ? "iterator" : "operation";
@@ -187,6 +189,7 @@ describe("generated API reference", () => {
     const reference = await generateApiReference();
 
     for (const mapping of OPERATION_PROFILE.iterators) {
+      if (FORWARD_ONLY_OPERATION_IDS.has(mapping.operationId)) continue;
       const method = section(reference, "operation", mapping.operationId);
       const iterator = section(reference, "iterator", mapping.operationId);
       for (const contents of [method, iterator]) {
@@ -195,6 +198,24 @@ describe("generated API reference", () => {
         expect(contents).toContain("`pagination.next_cursor` as `after`");
         expect(contents).toContain("`pagination.previous_cursor` as `before`");
       }
+    }
+  });
+
+  it("documents the page limit and the forward-only cursor of email statistics", async () => {
+    const reference = await generateApiReference();
+    const parameters = operations.find(({ operationId }) => operationId === "getEmailStatistics")!
+      .operation.parameters as Array<{ name: string }>;
+    expect(parameters.map(({ name }) => name)).toContain("after");
+    expect(parameters.map(({ name }) => name)).not.toContain("before");
+
+    for (const contents of [
+      section(reference, "operation", "getEmailStatistics"),
+      section(reference, "iterator", "getEmailStatistics"),
+    ]) {
+      expect(contents).toContain("`limit` accepts at most 50 domains per page (default 25)");
+      expect(contents).toContain("Paging is forward only");
+      expect(contents).toContain("`pagination.next_cursor` as `after`");
+      expect(contents).not.toContain("previous_cursor");
     }
   });
 
@@ -358,7 +379,7 @@ describe("generated API reference", () => {
         openApiSource,
         profileSource: JSON.stringify(missingIterator),
       }),
-    ).rejects.toThrow(/must contain 20 iterator mappings/);
+    ).rejects.toThrow(/must contain 21 iterator mappings/);
 
     const duplicateAlias = structuredClone(OPERATION_PROFILE) as {
       version: 1;

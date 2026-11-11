@@ -1,5 +1,5 @@
 import { AhaSendError } from "./errors.js";
-import type { PaginatedResponse, PaginationParams } from "./types/common.js";
+import type { PaginatedResponse, PaginationMeta, PaginationParams } from "./types/common.js";
 
 export function assertExclusiveCursors(params: {
   readonly after?: unknown;
@@ -47,6 +47,51 @@ export async function* paginate<T, P extends PaginationParams>(
       const { before: _before, ...remainingParams } = params;
       params = { ...remainingParams, after: cursor } as P;
     }
+  }
+}
+
+/**
+ * Walk a forward-only cursor-paginated endpoint and yield each whole response.
+ *
+ * Unlike `paginate`, which yields the `data` items of a list, this keeps
+ * every field of each page, so a response that carries more than its rows
+ * (such as totals) is not lost. It follows `pagination.next_cursor` as
+ * `after` and stops when the API reports `has_more: false` or omits the
+ * cursor. Every other parameter is sent unchanged on each page.
+ */
+export async function* paginatePages<
+  R extends { readonly pagination: PaginationMeta },
+  P extends { readonly after?: string | undefined },
+>(fetchPage: (params: P) => Promise<R>, initial: P): AsyncGenerator<R, void, undefined> {
+  let params: P = { ...initial };
+  const seenCursors = new Set(initial.after === undefined ? [] : [initial.after]);
+
+  while (true) {
+    const page = await fetchPage(params);
+    assertPaginationObject(page);
+    yield page;
+
+    if (page.pagination.has_more === false) return;
+    const cursor = page.pagination.next_cursor;
+    if (!cursor) return;
+    if (seenCursors.has(cursor)) {
+      throw new AhaSendError("Pagination cursor did not advance");
+    }
+    seenCursors.add(cursor);
+    params = { ...params, after: cursor };
+  }
+}
+
+/** The page walker's counterpart of `assertPageEnvelope`, for pages that are not lists. */
+function assertPaginationObject(page: { readonly pagination: PaginationMeta }): void {
+  const envelope = page as { pagination?: unknown } | null | undefined;
+  if (
+    envelope === null ||
+    typeof envelope !== "object" ||
+    typeof envelope.pagination !== "object" ||
+    envelope.pagination === null
+  ) {
+    throw new AhaSendError("Pagination page is malformed: expected a `pagination` object");
   }
 }
 
