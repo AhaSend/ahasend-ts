@@ -3728,6 +3728,11 @@ export const OPERATION_DESCRIPTORS = {
         format: null,
       },
       {
+        name: "on_sending_type_changed",
+        required: false,
+        format: null,
+      },
+      {
         name: "on_contact_created",
         required: false,
         format: null,

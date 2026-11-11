@@ -1073,6 +1073,7 @@ export type CreateWebhookRequest = {
     on_suppression_created?: boolean | undefined;
     on_suppression_deleted?: boolean | undefined;
     on_dns_error?: boolean | undefined;
+    on_sending_type_changed?: boolean | undefined;
     on_contact_created?: boolean | undefined;
     on_contact_updated?: boolean | undefined;
     on_contact_deleted?: boolean | undefined;
@@ -1523,6 +1524,7 @@ export type ListWebhooksParams = PaginationParams & {
     on_suppression_created?: boolean | undefined;
     on_suppression_deleted?: boolean | undefined;
     on_dns_error?: boolean | undefined;
+    on_sending_type_changed?: boolean | undefined;
     on_contact_created?: boolean | undefined;
     on_contact_updated?: boolean | undefined;
     on_contact_deleted?: boolean | undefined;
@@ -2566,6 +2568,8 @@ export interface UpdateWebhookRequest {
     // (undocumented)
     on_reception?: boolean | null | undefined;
     // (undocumented)
+    on_sending_type_changed?: boolean | null | undefined;
+    // (undocumented)
     on_suppressed?: boolean | null | undefined;
     // (undocumented)
     on_suppression_created?: boolean | null | undefined;
@@ -2653,6 +2657,8 @@ export interface Webhook {
     on_opened: boolean;
     // (undocumented)
     on_reception: boolean;
+    // (undocumented)
+    on_sending_type_changed: boolean;
     // (undocumented)
     on_suppressed: boolean;
     // (undocumented)

@@ -191,6 +191,7 @@ describe("WebhooksClient (account-scoped per spec)", () => {
       on_suppression_created: false,
       on_suppression_deleted: false,
       on_dns_error: false,
+      on_sending_type_changed: true,
       on_contact_created: true,
       on_contact_updated: false,
       on_contact_deleted: false,
@@ -271,6 +272,34 @@ describe("WebhooksClient (account-scoped per spec)", () => {
     });
     expect(JSON.parse(calls[1]!.body!)).toEqual({ on_contact_unsubscribed: false, origins: null });
     expect(new URL(calls[2]!.url).searchParams.get("on_contact_complained")).toBe("true");
+  });
+
+  it("create(), update() and list() carry the sending type change setting", async () => {
+    const { fetch, calls } = captureFetch();
+    const client = makeClient(fetch);
+    await client.webhooks.create(
+      {
+        name: "domain hook",
+        url: "https://hooks.example/domains",
+        scope: "global",
+        on_sending_type_changed: true,
+      },
+      { idempotencyKey: "wh-sending-type" },
+    );
+    await client.webhooks.update(WEBHOOK_ID, { on_sending_type_changed: false });
+    await client.webhooks.update(WEBHOOK_ID, { on_sending_type_changed: null });
+    await client.webhooks.list({ on_sending_type_changed: true });
+
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      name: "domain hook",
+      url: "https://hooks.example/domains",
+      scope: "global",
+      on_sending_type_changed: true,
+    });
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ on_sending_type_changed: false });
+    expect(JSON.parse(calls[2]!.body!)).toEqual({ on_sending_type_changed: null });
+    expect(calls[3]!.operationId).toBe("getWebhooks");
+    expect(new URL(calls[3]!.url).searchParams.get("on_sending_type_changed")).toBe("true");
   });
 
   it("iterate() fetches configured webhooks through getWebhooks", async () => {

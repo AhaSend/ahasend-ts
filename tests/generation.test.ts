@@ -358,6 +358,9 @@ describe("SDK artifact generation", () => {
     expect(payloadEventTypes(webhookSchemas, "ContactAddedToListWebhookPayload")).toEqual([
       "contact.added_to_list",
     ]);
+    expect(payloadEventTypes(webhookSchemas, "DomainSendingTypeChangedPayload")).toEqual([
+      "domain.sending_type_changed",
+    ]);
     expect(() =>
       payloadEventTypes(
         { Untyped: { type: "object", properties: { type: { type: "string" } } } },
@@ -390,6 +393,12 @@ describe("SDK artifact generation", () => {
     expectTypeOf<
       webhookEvents["contact.complained"]["type"]
     >().toEqualTypeOf<"contact.complained">();
+    expectTypeOf<
+      webhookEvents["domain.sending_type_changed"]["type"]
+    >().toEqualTypeOf<"domain.sending_type_changed">();
+    expectTypeOf<webhookEvents["domain.sending_type_changed"]["data"]>().toEqualTypeOf<
+      WebhookComponents["schemas"]["DomainSendingTypeChangedData"]
+    >();
   });
 
   it("reads known values off a property, an allOf part, or the schema itself", () => {
@@ -403,6 +412,9 @@ describe("SDK artifact generation", () => {
     expect(
       knownValues(webhookSchemas, "ContactUpdatedWebhookData", "changed_fields", "x-known-values"),
     ).toContain("attributes");
+    expect(
+      knownValues(webhookSchemas, "DomainSendingTypeChangedData", "source", "x-known-values"),
+    ).toEqual(["customer", "admin", "automatic"]);
     // `WebhookOrigin` is a string schema of its own, so its list sits on the
     // schema rather than on a property.
     expect(knownValues(webhookSchemas, "WebhookOrigin", undefined, "x-known-values")).toEqual([

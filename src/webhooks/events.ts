@@ -2,6 +2,7 @@ import {
   KNOWN_COMPLAINT_REPORTERS,
   KNOWN_CONTACT_CHANGED_FIELDS,
   KNOWN_DELIVERY_ATTEMPT_CLASSIFICATIONS,
+  KNOWN_DOMAIN_SENDING_TYPE_CHANGE_SOURCES,
   KNOWN_WEBHOOK_ORIGINS,
 } from "../generated/webhook-types.js";
 import {
@@ -16,6 +17,7 @@ import type {
   KnownComplaintReporter as GeneratedKnownComplaintReporter,
   KnownContactChangedField as GeneratedKnownContactChangedField,
   KnownDeliveryAttemptClassification,
+  KnownDomainSendingTypeChangeSource as GeneratedKnownDomainSendingTypeChangeSource,
   KnownWebhookOrigin as GeneratedKnownWebhookOrigin,
   UnknownWebhookEvent,
   WebhookEventType,
@@ -50,6 +52,13 @@ export type KnownContactChangedField = GeneratedKnownContactChangedField;
  * {@link isKnownWebhookOrigin}.
  */
 export type KnownWebhookOrigin = GeneratedKnownWebhookOrigin;
+
+/**
+ * The `domain.sending_type_changed` `source` values AhaSend sends today:
+ * `customer`, `admin`, and `automatic`. A delivery can carry another value;
+ * narrow with {@link isKnownDomainSendingTypeChangeSource}.
+ */
+export type KnownDomainSendingTypeChangeSource = GeneratedKnownDomainSendingTypeChangeSource;
 
 /**
  * Any JSON value: the value of a contact attribute. Values can be `null`,
@@ -146,7 +155,25 @@ export type MessageClickedEventData = components["schemas"]["MessageClickedWebho
  * who made the change.
  */
 export type SuppressionEventData = components["schemas"]["SuppressionWebhookData"];
+/** Data of `domain.dns_error`. */
 export type DomainEventData = components["schemas"]["DomainWebhookData"];
+/**
+ * Data of `domain.sending_type_changed`.
+ *
+ * `previous_sending_type` and `sending_type` are the domain's sending type
+ * before and after the change, `transactional` or `marketing`. `source` says
+ * who changed it:
+ *
+ * - `customer`: you, in the dashboard or through the API
+ * - `admin`: AhaSend support
+ * - `automatic`: AhaSend, when a transactional domain sends marketing email
+ *
+ * `source` is a plain `string` because AhaSend can add a source. Narrow it
+ * with {@link isKnownDomainSendingTypeChangeSource} and keep a fallback for
+ * other values.
+ */
+export type DomainSendingTypeChangedEventData =
+  components["schemas"]["DomainSendingTypeChangedData"];
 
 /**
  * How the recipient unsubscribed, on `message.unsubscribed`: `one_click` for a
@@ -175,7 +202,7 @@ export type WebhookComplaint = components["schemas"]["WebhookComplaint"];
  * - `system`: AhaSend, for example after a bounce, an expired message or an
  *   email validation, or when AhaSend support makes the change
  *
- * Message events and `domain.dns_error` have no origin.
+ * Message events and domain events have no origin.
  *
  * It is a plain `string` because AhaSend can add an origin, and a webhook whose
  * origin filter is `null` gets its events. Narrow it with
@@ -341,6 +368,11 @@ export type SuppressionCreatedEvent = webhookEvents["suppression.created"];
 /** Sent when a suppression is deleted; `data` is the suppression as it was right before. */
 export type SuppressionDeletedEvent = webhookEvents["suppression.deleted"];
 export type DomainDNSErrorEvent = webhookEvents["domain.dns_error"];
+/**
+ * Sent when the sending type of a domain changes between `transactional` and
+ * `marketing`. `timestamp` is the time of the change.
+ */
+export type DomainSendingTypeChangedEvent = webhookEvents["domain.sending_type_changed"];
 /** Sent when a contact is created through the API or the dashboard. */
 export type ContactCreatedEvent = webhookEvents["contact.created"];
 /** Sent when a field of a contact changes; `data.changed_fields` lists which. */
@@ -390,6 +422,7 @@ export type WebhookEvent =
   | SuppressionCreatedEvent
   | SuppressionDeletedEvent
   | DomainDNSErrorEvent
+  | DomainSendingTypeChangedEvent
   | ContactCreatedEvent
   | ContactUpdatedEvent
   | ContactDeletedEvent
@@ -402,7 +435,7 @@ export type WebhookEvent =
 
 export type { UnknownWebhookEvent };
 /**
- * Any event this SDK can hand back: one of the 22 known events, or an
+ * Any event this SDK can hand back: one of the 23 known events, or an
  * {@link UnknownWebhookEvent} for a type added after this release.
  *
  * Because `AnyWebhookEvent` includes a forward-compatible
@@ -522,6 +555,29 @@ export function isKnownWebhookOrigin(origin: string): origin is KnownWebhookOrig
  */
 export function isKnownContactChangedField(field: string): field is KnownContactChangedField {
   return (KNOWN_CONTACT_CHANGED_FIELDS as readonly string[]).includes(field);
+}
+
+/**
+ * Narrow a `domain.sending_type_changed` `source` to the values AhaSend sends
+ * today.
+ *
+ * `source` is a plain `string` because AhaSend can add a source. A value
+ * outside this list is ordinary data: keep a fallback branch for it and never
+ * reject a delivery because of it.
+ *
+ * ```ts
+ * const { source } = event.data;
+ * if (isKnownDomainSendingTypeChangeSource(source)) {
+ *   audit(source);
+ * } else {
+ *   auditUnrecognized(source); // a source added after this release
+ * }
+ * ```
+ */
+export function isKnownDomainSendingTypeChangeSource(
+  source: string,
+): source is KnownDomainSendingTypeChangeSource {
+  return (KNOWN_DOMAIN_SENDING_TYPE_CHANGE_SOURCES as readonly string[]).includes(source);
 }
 
 export function isKnownWebhookEventType(type: string): type is WebhookEventType {
