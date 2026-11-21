@@ -41,8 +41,9 @@ A timed-out attempt rejects with `AhaSendTimeoutError`, a subclass of
 including pacing and backoff, pass a caller deadline such as `AbortSignal.timeout(30_000)`.
 
 Cancellation is local: it stops the SDK from waiting, but it cannot recall a request that the
-server already accepted. For create operations, reuse a stable idempotency key and reconcile the
-result before trying again. Message cancellation is a separate API action:
+server already accepted. For create operations, try again with the same stable idempotency key and
+the same request: the API does the operation at most one time for the key, and the retry gets its
+result. Message cancellation is a separate API action:
 
 ```ts
 await client.messages.cancel(messageId);

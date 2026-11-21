@@ -392,12 +392,14 @@ export interface MessagesClient {
    * When automatic idempotency is enabled (the default), the SDK generates an
    * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
    * key for your own retries; stored non-server-error results can be replayed
-   * for 24 hours, while server errors release the key for re-execution.
+   * for 24 hours, and a retry with the same key after a server error is safe:
+   * the API sends each message of a key at most one time.
    *
    * Every message is checked before it is sent. Content that cannot be
    * rendered with a recipient's values is refused with HTTP 400
    * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
-   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * check cannot run right now, or when the request has an idempotency key and
+   * its result is not known yet, the API answers HTTP 503 with `Retry-After`;
    * the SDK retries it with the same idempotency key, so you see an
    * `AhaSendServerError` only when the retries run out.
    *
@@ -437,12 +439,14 @@ export interface MessagesClient {
    * When automatic idempotency is enabled (the default), the SDK generates an
    * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
    * key for your own retries; stored non-server-error results can be replayed
-   * for 24 hours, while server errors release the key for re-execution.
+   * for 24 hours, and a retry with the same key after a server error is safe:
+   * the API sends each message of a key at most one time.
    *
    * Every message is checked before it is sent. Content that cannot be
    * rendered with a recipient's values is refused with HTTP 400
    * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
-   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * check cannot run right now, or when the request has an idempotency key and
+   * its result is not known yet, the API answers HTTP 503 with `Retry-After`;
    * the SDK retries it with the same idempotency key, so you see an
    * `AhaSendServerError` only when the retries run out.
    *
@@ -490,7 +494,8 @@ export interface MessagesClient {
    * Every message is checked before it is sent. Content that cannot be
    * rendered with a recipient's values is refused with HTTP 400
    * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
-   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * check cannot run right now, or when the request has an idempotency key and
+   * its result is not known yet, the API answers HTTP 503 with `Retry-After`;
    * the SDK retries it with the same idempotency key, so you see an
    * `AhaSendServerError` only when the retries run out.
    *
@@ -562,12 +567,14 @@ class MessagesClientImplementation implements MessagesClient {
    * When automatic idempotency is enabled (the default), the SDK generates an
    * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
    * key for your own retries; stored non-server-error results can be replayed
-   * for 24 hours, while server errors release the key for re-execution.
+   * for 24 hours, and a retry with the same key after a server error is safe:
+   * the API sends each message of a key at most one time.
    *
    * Every message is checked before it is sent. Content that cannot be
    * rendered with a recipient's values is refused with HTTP 400
    * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
-   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * check cannot run right now, or when the request has an idempotency key and
+   * its result is not known yet, the API answers HTTP 503 with `Retry-After`;
    * the SDK retries it with the same idempotency key, so you see an
    * `AhaSendServerError` only when the retries run out.
    *
@@ -600,12 +607,14 @@ class MessagesClientImplementation implements MessagesClient {
    * When automatic idempotency is enabled (the default), the SDK generates an
    * `Idempotency-Key` unless you pass `options.idempotencyKey`. Reuse a stable
    * key for your own retries; stored non-server-error results can be replayed
-   * for 24 hours, while server errors release the key for re-execution.
+   * for 24 hours, and a retry with the same key after a server error is safe:
+   * the API sends each message of a key at most one time.
    *
    * Every message is checked before it is sent. Content that cannot be
    * rendered with a recipient's values is refused with HTTP 400
    * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
-   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * check cannot run right now, or when the request has an idempotency key and
+   * its result is not known yet, the API answers HTTP 503 with `Retry-After`;
    * the SDK retries it with the same idempotency key, so you see an
    * `AhaSendServerError` only when the retries run out.
    *
@@ -646,7 +655,8 @@ class MessagesClientImplementation implements MessagesClient {
    * Every message is checked before it is sent. Content that cannot be
    * rendered with a recipient's values is refused with HTTP 400
    * (`AhaSendBadRequestError`), and nothing of the request is sent. When the
-   * check cannot run right now, the API answers HTTP 503 with `Retry-After`;
+   * check cannot run right now, or when the request has an idempotency key and
+   * its result is not known yet, the API answers HTTP 503 with `Retry-After`;
    * the SDK retries it with the same idempotency key, so you see an
    * `AhaSendServerError` only when the retries run out.
    *

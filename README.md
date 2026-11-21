@@ -256,11 +256,11 @@ call and reused across the SDK's internal retries. Stored outcomes — 2xx and
 deterministic 4xx — are replayed for 24 hours, so a retry cannot duplicate them.
 `campaigns.test()` and `segments.create()` are the exceptions: they store only a 2xx, and a 4xx
 refusal releases the key, so a retry with the same key is answered afresh.
-Server errors (5xx), handler failures, and panics are **not** stored: the API
-releases the key and a retry re-executes the request, so a 5xx retry can still
-result in a second send. See the
+Server errors (5xx) are **not** stored, and a retry of one with the same key is safe: the API does
+the operation of a key at most one time while the key lives, so a retry after a 5xx, a timeout or
+a lost answer does not send a second message or create a second resource. See the
 [retries and idempotency guide](https://github.com/AhaSend/ahasend-ts/blob/main/docs/retries-and-idempotency.md)
-for the recovery guidance. Pass `options.idempotencyKey` to drive the key from your own
+for the details. Pass `options.idempotencyKey` to drive the key from your own
 stable identifier — see `examples/idempotency.mjs`.
 
 `generateIdempotencyKey(prefix?)` and `IdempotencyKeyBuilder` are exported for advanced key
@@ -268,7 +268,7 @@ management. `generateIdempotencyKey()` prepends its prefix literally, so include
 (`"myapp-"`, not `"myapp"`). `IdempotencyKeyBuilder` instead inserts a hyphen between its base key
 and each generated remainder or explicit suffix. See
 [Retries and idempotency](https://github.com/AhaSend/ahasend-ts/blob/main/docs/retries-and-idempotency.md)
-for retention windows, replay classification, and recovery after an uncertain result.
+for retention windows, replay classification, and retries after a timeout or an abort.
 
 ### Retries
 
@@ -543,9 +543,9 @@ Every message of `messages.send()`, `sendTemplate()` and `sendConversation()`, a
 recipient's values, calls `random`, `randrange`, `lipsum` or `now`, uses `namespace` or passes a
 work, output, memory or time limit, or when the check cannot read a recipient address. The message reads
 `<email>: the message could not be rendered: <reason>`, without `<email>: ` when no recipient had
-started rendering. When the check cannot run right now, the API answers `503` with `Retry-After`:
-nothing was sent and nothing is known to be wrong with the message. The SDK retries it with the
-same idempotency key, so you see the `AhaSendServerError` only when the retries run out.
+started rendering. When the check cannot run right now, or when a message send has an idempotency key
+and its result is not known yet, the API answers `503` with `Retry-After`. The SDK sends the request
+again with the same key after that delay, so you see the `AhaSendServerError` only when the retries run out.
 
 ## Examples
 
@@ -899,7 +899,8 @@ console.log("Campaign send accepted.", {
   `unschedule()` the campaign, which works while it is `validating` or `scheduled` and has queued
   no mail, and send it again.
 - `test()` sends the design to 1–5 addresses, with placeholders for the contact's fields. With
-  `result_unknown: true` the mail server's answer was lost, and the test may have gone out.
+  `result_unknown: true` the test may have gone out: the mail server's answer was lost, or an
+  earlier request with the same idempotency key did not finish, and this one sent nothing.
 - The account can send 50 test emails a day (UTC), counted per address and shared with the
   dashboard. A test whose addresses would take the day's total over 50 is refused with `429`
   (`AhaSendRateLimitError`) and counts nothing, so a test to fewer addresses can still fit; its

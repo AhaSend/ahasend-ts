@@ -122,7 +122,9 @@ if (result.idempotentReplayed) {
 
 The API stores a 2xx or a deterministic 4xx for the key and replays it. `campaigns.test()` and
 `segments.create()` store only a 2xx: a 4xx releases the key, so a retry with the same key runs
-again. Server errors (5xx) are never stored.
+again. Server errors (5xx) are never stored. A retry of one with the same key and the same request
+is safe: the API does the operation of a key at most one time while the key lives, so the retry
+does not send a second message or create a second resource.
 
 Non-secret idempotency results expire after 24 hours. API-key creation responses contain a
 one-time secret and have a 5-minute replay window; an exact replay during that window returns the
@@ -137,8 +139,9 @@ later `next()` call; `withSuffix()` inserts the same separator before an explici
 `generateIdempotencyKey(prefix)` prepends its prefix literally, so include any desired separator in
 that function's prefix yourself.
 
-An abort or timeout does not prove that the server did no work. Reconcile using the stable
-idempotency key or a subsequent read before issuing a new business operation. If an
+An abort or timeout does not prove that the server did no work. Send the same request again with
+the same stable idempotency key instead of starting a new business operation with a new key: the
+retry gets the result of the operation, which the API does at most one time for the key. If an
 idempotency-in-progress conflict remains after automatic retries, the terminal
 `AhaSendIdempotencyConflictError.idempotencyKey` contains the same stable key used for every
 attempt:
@@ -151,11 +154,11 @@ try {
 } catch (error) {
   if (error instanceof AhaSendIdempotencyConflictError && error.idempotencyKey) {
     const recoveryKey = error.idempotencyKey;
-    // Reconcile with recoveryKey before starting a new business operation.
+    // Wait error.retryAfterSeconds, then send the same request again with recoveryKey.
   }
 }
 ```
 
-Read the property directly for reconciliation. The SDK deliberately omits it from property
+Read the property directly to retry with the key. The SDK deliberately omits it from property
 enumeration, JSON serialization, inspection, and telemetry errors so routine diagnostics do not
 disclose the key.

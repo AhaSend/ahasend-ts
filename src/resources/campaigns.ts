@@ -299,8 +299,11 @@ export interface CampaignTest {
   /** The addresses the mail server refused. */
   failed: CampaignTestFailure[];
   /**
-   * True when the mail server took the request but its answer could not be read. The test may
-   * have gone out; `sent_to` and `failed` are empty. Check the inboxes before you send another.
+   * True when the result of the test is not known, in one of two cases. The mail server took the
+   * request but its answer could not be read. Or an earlier request with the same idempotency key
+   * did not finish, and this request sent nothing, because the earlier one may have sent the test.
+   * The test may have gone out; `sent_to` and `failed` are empty. Check the inboxes before you
+   * send another.
    */
   result_unknown: boolean;
 }
@@ -489,7 +492,9 @@ export interface CampaignsClient {
    * retries that 429 like any other, with the same addresses, and the count starts again when the
    * UTC day changes. A retry with the same idempotency key replays a success and sends nothing
    * again. A 4xx refusal is not stored and releases the key; an in-progress 409 leaves the key to
-   * the request that holds it. The test is checked before it is sent: a design, subject or preview
+   * the request that holds it. A request that follows an earlier request with the same key that did
+   * not finish sends nothing, counts nothing toward the daily limit, and resolves with
+   * `result_unknown: true`. The test is checked before it is sent: a design, subject or preview
    * text that cannot be rendered is refused with a 400 and sends nothing. When the check cannot run
    * right now, the API answers 503 with `Retry-After`, which the SDK retries with the same key.
    * Authorization requires `campaigns:send`.

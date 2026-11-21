@@ -434,7 +434,7 @@ export class AhaSendConflictError extends AhaSendAPIError {
 /** 409 Conflict for an idempotent request still in progress. */
 export class AhaSendIdempotencyConflictError extends AhaSendConflictError {
   public readonly retryAfterSeconds: number | undefined;
-  /** Stable key for reconciling the operation after automatic retries are exhausted. */
+  /** Stable key to retry the operation with after automatic retries are exhausted. */
   public readonly idempotencyKey: string | undefined;
 
   constructor(params: {
