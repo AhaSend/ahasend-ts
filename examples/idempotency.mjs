@@ -3,9 +3,10 @@
 // the SDK's internal retries — replay one stored outcome instead of
 // sending again.
 //
-// This is not an absolute guarantee: the API stores 2xx and deterministic
-// 4xx outcomes for 24 hours, but releases the key on 5xx, handler failures,
-// and panics, so retrying after a server error re-executes the send.
+// The API does the operation of a key at most one time in the 24 hours
+// the key lives. It stores 2xx and deterministic 4xx outcomes and replays
+// them, and a retry with the same key after a 5xx, a timeout or a lost
+// answer does not send a second email.
 //
 // The SDK auto-generates a key for every create operation when you
 // don't pass one; an explicit key is for when the same logical
